@@ -585,7 +585,7 @@ def command_run(args: argparse.Namespace) -> None:
         publish_source(store, config, source["sourceId"])
     identity = build_id(config, source["sourceId"])
     release = _run_build(config, source["sourceId"], identity, args.ktx2)
-    pointer = publish_release(store, config, release["releaseId"], check_hashes=False) if store else None
+    pointer = publish_release(store, config, release["releaseId"]) if store else None
     _print(
         {
             "source": _source_summary(source),
@@ -690,17 +690,6 @@ def command_fetch_sonolus_inputs(args: argparse.Namespace) -> None:
             config,
             SONOLUS_INPUT_PREFIXES,
             SONOLUS_INPUT_EXACT_PATHS,
-            Path(args.output),
-        )
-    )
-
-
-def command_fetch_package(args: argparse.Namespace) -> None:
-    config = load_server_config(args.server)
-    _print(
-        fetch_package_artifact(
-            R2Store(config, args.concurrency),
-            args.key,
             Path(args.output),
         )
     )

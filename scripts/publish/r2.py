@@ -43,6 +43,7 @@ from core.storage import (
     release_index_shard,
 )
 from verify.source import validate_source_manifest
+from verify.release import verify_release
 
 
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
@@ -150,7 +151,9 @@ class R2Store:
         digest: str,
         content_type: str,
     ) -> None:
-        """Write one immutable CAS object without a latency-heavy HEAD first."""
+        """Upload content only under the digest of its actual bytes."""
+        if sha256_file(file) != digest:
+            raise ValueError(f"CAS file hash differs from its key: {file}")
         self.upload_path(file, cas_key(digest), content_type, metadata={"sha256": digest})
 
     def put_json(self, key: str, value: Any, cache_control: str) -> None:
@@ -484,6 +487,7 @@ def download_current_release_paths(
             cas_key(str(entry["sha256"])),
             file,
             expected_bytes=int(entry["bytes"]),
+            expected_sha256=str(entry["sha256"]),
         )
 
     with ThreadPoolExecutor(max_workers=store.concurrency) as executor:
@@ -523,6 +527,7 @@ def restore_release_object(
         cas_key(digest),
         target,
         expected_bytes=size,
+        expected_sha256=digest,
     )
 
 
@@ -808,6 +813,7 @@ def fetch_source(
             artifact_key,
             file,
             expected_bytes=declared_bytes,
+            expected_sha256=str(record["sha256"]),
         )
 
     with ThreadPoolExecutor(max_workers=store.concurrency) as executor:
@@ -828,7 +834,7 @@ def publish_release(
     check_hashes: bool = True,
 ) -> dict[str, Any]:
     layout = release_layout(config.id, release_id)
-    manifest = read_json(layout.manifest)
+    manifest = verify_release(config.id, release_id, check_hashes=check_hashes)
     prefix = f"servers/{config.id}/releases/{release_id}/"
     pointer_key = f"servers/{config.id}/current.json"
     manifest_key = prefix + "release.json"
@@ -839,6 +845,7 @@ def publish_release(
             raise ValueError(f"remote release manifest mismatch: {manifest_key}")
         return {
             **current,
+            "releasePromoted": False,
             "transfer": {
                 "uploadedObjects": 0,
                 "resumedObjects": 0,
@@ -921,6 +928,7 @@ def publish_release(
     store.put_json(pointer_key, pointer, POINTER_CACHE)
     return {
         **pointer,
+        "releasePromoted": True,
         "transfer": {
             **transfer,
             "reusedObjects": len(objects) - len(pending),

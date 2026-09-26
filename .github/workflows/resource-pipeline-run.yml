@@ -27,6 +27,10 @@ on:
         required: false
         default: false
         type: boolean
+    outputs:
+      release_promoted:
+        description: Whether this invocation promoted a new current release.
+        value: ${{ jobs.release.outputs.release_promoted }}
     secrets:
       cloudflare_account_id:
         required: true
@@ -413,6 +417,8 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: read
+    outputs:
+      release_promoted: ${{ steps.publish_release.outputs.release_promoted }}
     env:
       HANEOKA_MODEL_PREVIEW_POLICY: required
       HANEOKA_MODEL_PREVIEW_WORKERS: "4"
@@ -428,14 +434,20 @@ jobs:
             /usr/share/swift \
             /usr/local/.ghcup
           df -h .
+      - name: Install pnpm
+        run: corepack enable
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            config/external-repositories.lock.json
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
-      - name: Install pnpm
-        run: corepack enable
       - name: Install workspace dependencies
         # build-api bundles the Sonolus chart converter
         # (packages/sonolus/src/convert/index.ts) through esbuild at build
@@ -611,10 +623,13 @@ jobs:
           python scripts/pipeline.py --server "$RESOURCE_SERVER" build-api --source "$SOURCE_ID" --build "$BUILD_ID"
           python scripts/pipeline.py --server "$RESOURCE_SERVER" build-release --source "$SOURCE_ID" --build "$BUILD_ID" > "$RUNNER_TEMP/release.json"
       - name: Publish CAS delta and switch current release
+        id: publish_release
         run: |
           RELEASE_ID="$(jq -r .releaseId "$RUNNER_TEMP/release.json")"
           python scripts/pipeline.py --server "$RESOURCE_SERVER" publish-release \
-            --release "$RELEASE_ID" --fast --concurrency 64
+            --release "$RELEASE_ID" --concurrency 64 > "$RUNNER_TEMP/publication.json"
+          promoted="$(jq -er '.releasePromoted | if type == "boolean" then tostring else error("Invalid publication result") end' "$RUNNER_TEMP/publication.json")"
+          echo "release_promoted=$promoted" >> "$GITHUB_OUTPUT"
 
   cleanup:
     name: Remove private R2 build stages

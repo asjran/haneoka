@@ -9,7 +9,7 @@ runs:
       with:
         python-version: "3.13"
         cache: pip
-        cache-dependency-path: scripts/requirements.in
+        cache-dependency-path: scripts/requirements.txt
     - name: Install pipeline dependencies
       shell: bash
-      run: python -m pip install --disable-pip-version-check --requirement scripts/requirements.in
+      run: python -m pip install --disable-pip-version-check --require-hashes --requirement scripts/requirements.txt

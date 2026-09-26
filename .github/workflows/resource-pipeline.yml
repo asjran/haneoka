@@ -16,7 +16,7 @@ on:
       github_environment:
         description: GitHub Actions environment for the run
         required: false
-        default: resource-intl
+        default: ""
         type: string
       package_r2_key:
         description: Private R2 CAS key of one APK, APKS, or XAPK file
@@ -46,18 +46,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  pipeline:
-    name: Build and publish resources
-    strategy:
-      fail-fast: false
-      matrix:
-        server: ${{ fromJSON(github.event_name == 'schedule' && '["jp", "intl"]' || format('["{0}"]', inputs.server)) }}
+  pipeline_intl:
+    name: Build and publish Intl resources
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.server == 'intl') }}
     permissions:
       contents: read
     uses: ./.github/workflows/resource-pipeline-run.yml
     with:
-      github_environment: resource-${{ matrix.server }}
-      server: ${{ matrix.server }}
+      github_environment: ${{ github.event_name == 'schedule' && 'resource-intl' || inputs.github_environment || 'resource-intl' }}
+      server: intl
       package_r2_key: ${{ inputs.package_r2_key }}
       source_id: ${{ inputs.source_id }}
       # On schedule events the inputs context is empty, which would feed ''
@@ -73,11 +70,58 @@ jobs:
       secret_writer_gh_token: ${{ secrets.SECRET_WRITER_GH_TOKEN }}
       haneoka_version_endpoint: ${{ secrets.HANEOKA_VERSION_ENDPOINT }}
 
+  pipeline_jp:
+    name: Build and publish JP resources
+    if: ${{ github.event_name == 'schedule' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resource-pipeline-run.yml
+    with:
+      github_environment: resource-jp
+      server: jp
+      package_r2_key: ${{ inputs.package_r2_key }}
+      source_id: ${{ inputs.source_id }}
+      ktx2: ${{ inputs.ktx2 || false }}
+      force: ${{ inputs.force || false }}
+      no_reuse: ${{ inputs.no_reuse || false }}
+    secrets:
+      cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      r2_access_key_id: ${{ secrets.R2_ACCESS_KEY_ID }}
+      r2_secret_access_key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      resource_cdn_authorization: ${{ secrets.RESOURCE_CDN_AUTHORIZATION }}
+      secret_writer_gh_token: ${{ secrets.SECRET_WRITER_GH_TOKEN }}
+      haneoka_version_endpoint: ${{ secrets.HANEOKA_VERSION_ENDPOINT }}
+
+  pipeline_manual:
+    name: Build and publish manually selected resources
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.server != 'intl' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/resource-pipeline-run.yml
+    with:
+      github_environment: ${{ inputs.github_environment || format('resource-{0}', inputs.server) }}
+      server: ${{ inputs.server }}
+      package_r2_key: ${{ inputs.package_r2_key }}
+      source_id: ${{ inputs.source_id }}
+      ktx2: ${{ inputs.ktx2 || false }}
+      force: ${{ inputs.force || false }}
+      no_reuse: ${{ inputs.no_reuse || false }}
+    secrets:
+      cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      r2_access_key_id: ${{ secrets.R2_ACCESS_KEY_ID }}
+      r2_secret_access_key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      resource_cdn_authorization: ${{ secrets.RESOURCE_CDN_AUTHORIZATION }}
+      secret_writer_gh_token: ${{ secrets.SECRET_WRITER_GH_TOKEN }}
+      haneoka_version_endpoint: ${{ secrets.HANEOKA_VERSION_ENDPOINT }}
+
   rebuild-static-catalog:
     name: Rebuild static catalog pages
-    needs: pipeline
+    needs: pipeline_intl
     # The searchable routes use the intl catalog as their build-time data source.
-    if: ${{ github.event_name == 'schedule' || inputs.server == 'intl' }}
+    # Read only the dedicated Intl reusable-workflow result: matrix reusable
+    # outputs are completion-order dependent and could otherwise be replaced
+    # by the JP result or lose the Intl result on a no-op.
+    if: ${{ always() && needs.pipeline_intl.result == 'success' && needs.pipeline_intl.outputs.release_promoted == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write

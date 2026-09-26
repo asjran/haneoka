@@ -11,11 +11,6 @@
     { "pattern": "haneoka.org/*", "zone_name": "haneoka.org" },
   ],
 
-  "build": {
-    "command": "pnpm run build",
-    "watch_dir": ["src", "worker", "public", "astro.config.mjs"],
-  },
-
   // Resource dispatch currently reads a fine-grained Actions:write token from
   // `wrangler secret put GITHUB_ACTIONS_TOKEN`; migrate this to a GitHub App
   // installation token when automated credential rotation is introduced.

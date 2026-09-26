@@ -22,16 +22,22 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Install pnpm
+        run: corepack enable
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            config/external-repositories.lock.json
 
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
-
-      - name: Install pnpm
-        run: corepack enable
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
