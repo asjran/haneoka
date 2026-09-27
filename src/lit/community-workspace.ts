@@ -1,13 +1,28 @@
+import { uploadCommunityAttachment } from "../lib/community-upload";
+import { COMMUNITY_UPLOAD_LIMITS } from "../config/community";
 import { clientGroup } from "../i18n/client";
 import { resolvePlaylistTracks } from "../lib/playlist-tracks";
 import { observeSongDisplay, songTitle } from "../lib/song-display";
-import { openDetailLocation, closeDetailLocation, observeDetailLocation } from "../lib/detail-navigation";
-import { setAppBarActions, clearAppBarActions } from "../lib/app-bar";
+import {
+  openDetailLocation,
+  closeDetailLocation,
+  observeDetailLocation,
+  navigateDetailPage,
+} from "../lib/detail-navigation";
+import { setAppBarActions, clearAppBarActions, setAppBarSearch, clearAppBarSearch } from "../lib/app-bar";
+import { navigationDocumentUrl } from "../lib/document-url";
+import { RequestScope } from "../lib/request-scope";
+import { beginLoading } from "../lib/loading-progress";
+import { communityMarkup, communityExcerpt } from "../lib/community-markup";
+import { communityImageRatio, type CommunityImage } from "./community-gallery";
+import { keyed } from "lit/directives/keyed.js";
+import "./community-sticker";
+import "./community-gallery";
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { orderFacetOptions } from "../lib/facet-order";
 import { PaneFocus, paneSection, renderPane } from "./ui/pane";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
-import { catalogUrl, currentReleaseServer, localizedText, preferredLocale, uiText } from "./shared/catalog";
+import { catalogUrl, currentReleaseServer, localizedText, preferredLocale, uiText, fetchJson } from "./shared/catalog";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
 import { iconButton, inputChip, segmented } from "./ui/controls";
 import { emptyState, errorState, loadingState } from "./ui/state";
@@ -23,32 +38,13 @@ type UploadEntry = {
 };
 /** app-bar.ts owner id for the community workspace's page controls. */
 const COMMUNITY_BAR_OWNER = "community";
+const feedSnapshots = new Map<
+  string,
+  { items: Value[]; cursor: string; scroll: number; createdAt: number; viewer: string }
+>();
 const icon = (name: string, size = 20) => html`
   <svg class="material-icon" width=${size} height=${size}><use href=${`/icons.svg#${name}`}></use></svg>
 `;
-const escapeMarkup = (value: string) =>
-  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-const bbcodeMarkup = (source: string) => {
-  let value = escapeMarkup(source);
-  const replacements: Array<[RegExp, string]> = [
-    [/\[b\]([\s\S]*?)\[\/b\]/giu, "<strong>$1</strong>"],
-    [/\[i\]([\s\S]*?)\[\/i\]/giu, "<em>$1</em>"],
-    [/\[u\]([\s\S]*?)\[\/u\]/giu, "<u>$1</u>"],
-    [/\[s\]([\s\S]*?)\[\/s\]/giu, "<s>$1</s>"],
-    [/\[quote\]([\s\S]*?)\[\/quote\]/giu, "<blockquote>$1</blockquote>"],
-    [/\[code\]([\s\S]*?)\[\/code\]/giu, "<pre><code>$1</code></pre>"],
-    [/\[spoiler\]([\s\S]*?)\[\/spoiler\]/giu, "<details><summary>Spoiler</summary>$1</details>"],
-    [/\[list\]([\s\S]*?)\[\/list\]/giu, "<ul>$1</ul>"],
-    [/\[\*\]([^\n<]*)/giu, "<li>$1</li>"],
-  ];
-  for (let pass = 0; pass < 3; pass += 1)
-    for (const [pattern, replacement] of replacements) value = value.replace(pattern, replacement);
-  value = value.replace(
-    /\[url=(https?:\/\/[^\]\s]+)\]([\s\S]*?)\[\/url\]/giu,
-    '<a href="$1" target="_blank" rel="nofollow noopener noreferrer">$2</a>',
-  );
-  return value.replaceAll("\n", "<br>");
-};
 
 export class CommunityWorkspace extends LitElement {
   static properties = {
@@ -85,6 +81,13 @@ export class CommunityWorkspace extends LitElement {
     editorMode: { state: true },
     editorReady: { state: true },
     session: { state: true },
+    loadingMore: { state: true },
+    commentsLoading: { state: true },
+    columnCount: { state: true },
+    commentMenu: { state: true },
+    editingComment: { state: true },
+    commentBody: { state: true },
+    expandedComments: { state: true },
   };
   declare locale: string;
   declare mode: string;
@@ -125,6 +128,32 @@ export class CommunityWorkspace extends LitElement {
   declare editorMode: "edit" | "preview";
   declare editorReady: boolean;
   declare session: Value | null;
+  declare loadingMore: boolean;
+  declare commentsLoading: boolean;
+  declare columnCount: number;
+  private previewQueue: string[] = [];
+  private previewActive = false;
+  declare commentMenu: { comment: Value; x: number; y: number } | null;
+  declare editingComment: string;
+  declare commentBody: string;
+  declare expandedComments: Set<string>;
+  private columnsObserver?: ResizeObserver;
+  private placements = new Map<string, number>();
+  private menuTrigger?: HTMLElement;
+  private placementColumns = 0;
+  private requests = new RequestScope();
+  private commentsRequest = new RequestScope();
+  private lifetime = new AbortController();
+  private uploadControllers = new Map<string, AbortController>();
+  private uploadQueue: string[] = [];
+  private activeUploads = 0;
+  private savedLeading?: HTMLElement;
+  private backLink?: HTMLAnchorElement;
+  private movedMenu?: HTMLElement;
+  private menuGroup?: HTMLElement;
+  private markup(body: string) {
+    return communityMarkup(body, this.label("spoiler", "Spoiler"), this.locale);
+  }
   private get copy(): Value {
     return clientGroup<Value>("communityPage");
   }
@@ -133,6 +162,8 @@ export class CommunityWorkspace extends LitElement {
     this.requestUpdate();
   };
   private published = false;
+  private routeUrl = "";
+  private scrollHost?: HTMLElement;
   constructor() {
     super();
     this.locale = "ja";
@@ -168,6 +199,13 @@ export class CommunityWorkspace extends LitElement {
     this.editorMode = "edit";
     this.editorReady = false;
     this.session = null;
+    this.loadingMore = false;
+    this.commentsLoading = false;
+    this.columnCount = 2;
+    this.commentMenu = null;
+    this.editingComment = "";
+    this.commentBody = "";
+    this.expandedComments = new Set();
   }
   private paneFocus = new PaneFocus();
   private undoTimer = 0;
@@ -230,6 +268,26 @@ export class CommunityWorkspace extends LitElement {
     );
   }
   disconnectedCallback() {
+    if (this.routeKind === "collection" && this.phase === "ready" && this.routeUrl) {
+      feedSnapshots.set(this.routeUrl, {
+        items: this.items,
+        cursor: this.cursor,
+        scroll: this.scrollHost?.scrollTop || 0,
+        createdAt: Date.now(),
+        viewer: String((this.session?.user as Value | undefined)?.id || ""),
+      });
+      while (feedSnapshots.size > 3) feedSnapshots.delete(feedSnapshots.keys().next().value!);
+    }
+    this.columnsObserver?.disconnect();
+    this.requests.cancel();
+    this.commentsRequest.cancel();
+    this.lifetime.abort();
+    this.uploadControllers.forEach((controller) => controller.abort());
+    this.uploadQueue = [];
+    this.backLink?.remove();
+    if (this.savedLeading?.isConnected && this.movedMenu) this.savedLeading.prepend(this.movedMenu);
+    this.menuGroup?.remove();
+    clearAppBarSearch(COMMUNITY_BAR_OWNER);
     this.disposeSongDisplay?.();
     this.releaseLocation?.();
     removeEventListener("haneoka:locale-ready", this.onLocale);
@@ -242,6 +300,13 @@ export class CommunityWorkspace extends LitElement {
   }
   connectedCallback() {
     super.connectedCallback();
+    this.lifetime = new AbortController();
+    this.scrollHost = this.closest<HTMLElement>(".app-shell__main") || undefined;
+    this.columnsObserver = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width || this.clientWidth;
+      this.columnCount = width < 300 ? 1 : width < 670 ? 2 : width < 1050 ? 3 : width < 1400 ? 4 : 5;
+    });
+    this.columnsObserver.observe(this);
     addEventListener("haneoka:locale-ready", this.onLocale);
     this.disposeSongDisplay = observeSongDisplay(() => this.requestUpdate());
     this.releaseLocation = observeDetailLocation(this.restorePlaylist, this);
@@ -253,10 +318,13 @@ export class CommunityWorkspace extends LitElement {
       import("@material/web/select/select-option.js"),
     ]);
     window.setTimeout(() => {
+      if (!this.isConnected) return;
       // Detail routes are SPA paths served through the community shell, which
       // the worker hands out at the visitor's locale prefix — anchor on the
       // "community" segment rather than absolute path indexes.
-      const parts = location.pathname.split("/").filter(Boolean);
+      const targetUrl = navigationDocumentUrl();
+      this.routeUrl = `${targetUrl.pathname}${targetUrl.search}`;
+      const parts = targetUrl.pathname.split("/").filter(Boolean);
       const communityAt = parts.indexOf("community");
       const [section, value, extra] = communityAt >= 0 ? parts.slice(communityAt + 1) : [];
       if (section === "posts" && value === "new") this.routeKind = "post-new";
@@ -271,11 +339,17 @@ export class CommunityWorkspace extends LitElement {
         this.routeKind = "playlist-detail";
         this.mode = "playlists";
       }
-      const query = new URLSearchParams(location.search);
+      const query = targetUrl.searchParams;
       if (this.mode === "playlists" && query.has("playlist")) {
         this.entityId = query.get("playlist") || "";
         this.routeKind = "playlist-detail";
       }
+      if (section === "latest" || section === "following") {
+        this.mode = "feeds";
+        this.feedScope = section;
+      }
+      if (this.routeKind === "post-new" || this.routeKind === "post-edit") void import("./community-editor");
+      if (["post-detail", "post-new", "post-edit", "user-detail"].includes(this.routeKind)) this.installBack();
       this.query = query.get("q") || "";
       const scope = query.get("scope");
       if (scope === "latest" || scope === "following" || scope === "recommended") this.feedScope = scope;
@@ -302,6 +376,13 @@ export class CommunityWorkspace extends LitElement {
   private setDocumentTitle(value: string) {
     if (!value) return;
     document.title = `${value} · haneoka`;
+    if (this.routeKind !== "collection") {
+      const heading = document.querySelector<HTMLElement>("[data-top-app-bar] h1");
+      if (heading) {
+        heading.textContent = this.routeKind === "post-detail" ? this.label("postDetail", "Post") : value;
+        heading.removeAttribute("data-i18n");
+      }
+    }
   }
   private endpoint(append: boolean, refresh = false) {
     const query = new URLSearchParams();
@@ -338,12 +419,27 @@ export class CommunityWorkspace extends LitElement {
   }
   private async initialize() {
     const session = await this.request("/api/auth/get-session").catch(() => null);
+    if (!this.isConnected) return;
     this.session = session && session.user ? session : null;
     if ((this.routeKind === "post-new" || this.routeKind === "post-edit") && !this.session) {
       location.replace(`${this.path("/account")}?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`);
       return;
     }
-    await this.load(false);
+    const snapshot = feedSnapshots.get(this.routeUrl);
+    if (
+      this.routeKind === "collection" &&
+      snapshot &&
+      Date.now() - snapshot.createdAt < 60000 &&
+      snapshot.viewer === String((this.session?.user as Value | undefined)?.id || "")
+    ) {
+      this.items = snapshot.items;
+      this.cursor = snapshot.cursor;
+      this.phase = "ready";
+      void this.updateComplete.then(() => {
+        const main = document.querySelector<HTMLElement>(".app-shell__main");
+        if (main) main.scrollTop = snapshot.scroll;
+      });
+    } else await this.load(false);
   }
   private requireSession() {
     if (this.session) return true;
@@ -351,7 +447,11 @@ export class CommunityWorkspace extends LitElement {
     return false;
   }
   private async load(append: boolean, refresh = false) {
-    this.phase = append ? this.phase : "loading";
+    if (append && this.loadingMore) return;
+    const signal = this.requests.begin();
+    const progress = beginLoading(this.label("loading", "Loading"), { signal });
+    this.loadingMore = append;
+    this.phase = append || this.document || this.items.length ? this.phase : "loading";
     this.error = "";
     try {
       if (this.routeKind === "post-new") {
@@ -369,11 +469,14 @@ export class CommunityWorkspace extends LitElement {
             // Community data is never cacheable; say so at the call site too,
             // not only in the worker's response headers.
             cache: "no-store",
+            signal,
           },
         );
         if (!response.ok)
           throw new Error(response.status === 401 ? "Sign in to view this post" : `HTTP ${response.status}`);
-        this.document = (await response.json()) as Value;
+        const detail = (await response.json()) as Value;
+        if (!this.requests.current(signal)) return;
+        this.document = detail;
         const currentPost = ((this.document.post as Value | undefined) || this.document) as Value;
         this.setDocumentTitle(String(currentPost.title || this.label("community", "Community")));
         if (this.routeKind === "post-edit") {
@@ -384,9 +487,7 @@ export class CommunityWorkspace extends LitElement {
           this.editorReady = true;
         }
         this.phase = "ready";
-        // The detail pane overlays the feed, as an entity page overlays its
-        // collection — fetch the page behind the pane when arriving directly.
-        if (!this.items.length) void this.loadBehindDetail();
+
         return;
       }
       if (this.routeKind === "user-detail") {
@@ -394,9 +495,12 @@ export class CommunityWorkspace extends LitElement {
           headers: { accept: "application/json" },
           credentials: "same-origin",
           cache: "no-store",
+          signal,
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        this.document = (await response.json()) as Value;
+        const detail = (await response.json()) as Value;
+        if (!this.requests.current(signal)) return;
+        this.document = detail;
         const profile = ((this.document.profile as Value | undefined) || this.document) as Value;
         this.setDocumentTitle(String(profile.displayName || profile.accountName || this.label("member", "Member")));
         this.phase = "ready";
@@ -457,10 +561,12 @@ export class CommunityWorkspace extends LitElement {
         headers: { accept: "application/json" },
         credentials: "same-origin",
         cache: "no-store",
+        signal,
       });
       if (!response.ok)
         throw new Error(response.status === 401 ? "Sign in to view this feed" : `HTTP ${response.status}`);
       const data = (await response.json()) as Value;
+      if (!this.requests.current(signal)) return;
       const next = Array.isArray(data.posts)
         ? data.posts
         : Array.isArray(data.tags)
@@ -470,32 +576,23 @@ export class CommunityWorkspace extends LitElement {
             : Array.isArray(data.comments)
               ? data.comments
               : [];
-      this.items = append ? [...this.items, ...(next as Value[])] : (next as Value[]);
+      this.items = append
+        ? [
+            ...new Map(
+              [...this.items, ...(next as Value[])].map((item) => [String(item.id || item.normalizedName), item]),
+            ).values(),
+          ]
+        : (next as Value[]);
       this.cursor = String(data.nextCursor || "");
       this.phase = "ready";
     } catch (error) {
+      if (!this.requests.current(signal)) return;
       this.error = error instanceof Error ? error.message : String(error);
-      this.phase = "error";
-    }
-  }
-  /** The collection shown behind an opened detail pane. Best effort: an
-   * empty or failing background fetch never blocks the detail itself. */
-  private async loadBehindDetail() {
-    try {
-      const response = await fetch(this.endpoint(false), {
-        headers: { accept: "application/json" },
-        credentials: "same-origin",
-        cache: "no-store",
-      });
-      if (!response.ok) return;
-      const data = (await response.json()) as Value;
-      const posts = Array.isArray(data.posts) ? (data.posts as Value[]) : [];
-      if (posts.length) {
-        this.items = posts;
-        this.cursor = String(data.nextCursor || "");
-      }
-    } catch {
-      /* The pane stands alone when the feed cannot be loaded. */
+      if (!this.items.length && !this.document) this.phase = "error";
+      progress.fail(error);
+    } finally {
+      progress.finish();
+      if (this.requests.current(signal)) this.loadingMore = false;
     }
   }
   private submit(event: Event) {
@@ -518,13 +615,8 @@ export class CommunityWorkspace extends LitElement {
     if (this.mode === "feeds") set("scope", this.feedScope === "recommended" ? "" : this.feedScope);
     if (this.mode === "notifications") set("unread", this.unreadOnly ? "true" : "");
     if (this.mode === "mine") set("state", this.postState === "archived" ? "archived" : "");
-    history.replaceState(history.state, "", `${location.pathname}${params.size ? `?${params}` : ""}`);
-  }
-  private setFeedScope(scope: "recommended" | "latest" | "following") {
-    if (this.feedScope === scope) return;
-    this.feedScope = scope;
-    this.syncCollectionUrl();
-    void this.load(false);
+    this.routeUrl = `${location.pathname}${params.size ? `?${params}` : ""}`;
+    history.replaceState(history.state, "", this.routeUrl);
   }
   /** Ask the worker for a fresh page of recommendations (refresh=1 drops the
    * viewer's impressions server-side). */
@@ -564,17 +656,18 @@ export class CommunityWorkspace extends LitElement {
         ? uiText(this.locale, path)
         : fallback;
   }
-  private async request(path: string, init: RequestInit = {}) {
-    const headers = new Headers({ accept: "application/json" });
-    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  private async request(path: string, init: RequestInit = {}): Promise<Value> {
+    const headers = new Headers(init.headers);
     if (typeof init.body === "string" && !headers.has("content-type")) headers.set("content-type", "application/json");
-    const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init, headers });
-    const value = (await response.json().catch(() => ({}))) as Value;
-    if (!response.ok)
-      throw new Error(
-        String((value.error as Value | undefined)?.message || value.message || `HTTP ${response.status}`),
-      );
-    return value;
+    return (
+      (await fetchJson<Value>(path, {
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: this.lifetime.signal,
+        ...init,
+        headers,
+      })) || {}
+    );
   }
   private async mutate(work: () => Promise<void>) {
     if (this.busy) return;
@@ -703,6 +796,7 @@ export class CommunityWorkspace extends LitElement {
         body: JSON.stringify({ body, version: comment.version }),
       });
       this.patchComment(String(comment.id), (result.comment as Value) || comment);
+      this.editingComment = "";
     });
   }
   private deleteComment(comment: Value) {
@@ -783,12 +877,14 @@ export class CommunityWorkspace extends LitElement {
       const stateKey = action === "follow" ? "following" : action === "mute" ? "muted" : "blocked";
       this.document = {
         ...root,
+        ...(action === "block" && active ? { posts: [], works: [], gameAccounts: [], postsNextCursor: null } : {}),
         viewer: {
           ...((root.viewer as Value | undefined) || {}),
           ...(result.viewer as Value | undefined),
           [stateKey]: active,
         },
       };
+      if (action === "block" && !active) await this.load(false);
     });
   }
   private tagPreference(tag: Value, preference: "follow" | "mute" | null) {
@@ -829,7 +925,7 @@ export class CommunityWorkspace extends LitElement {
   /** Update one pin in the feed list in place: post fields and viewer flags. */
   private patchPin(post: Value, patch: Value, viewerPatch?: Value) {
     this.items = this.items.map((entry) =>
-      entry === post
+      String(entry.id) === String(post.id)
         ? {
             ...entry,
             ...patch,
@@ -873,12 +969,19 @@ export class CommunityWorkspace extends LitElement {
     }
   }
   private openCardMenu(post: Value, event: MouseEvent) {
+    this.menuTrigger = event.currentTarget as HTMLElement;
     this.cardMenu = {
       post,
-      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 232)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 328)),
+      x: Math.max(
+        8,
+        Math.min((event.currentTarget as HTMLElement).getBoundingClientRect().right - 232, window.innerWidth - 240),
+      ),
+      y: Math.max(
+        8,
+        Math.min((event.currentTarget as HTMLElement).getBoundingClientRect().bottom, window.innerHeight - 400),
+      ),
     };
-    requestAnimationFrame(() => this.querySelector<HTMLElement>(".community-card-menu")?.focus());
+    requestAnimationFrame(() => this.querySelector<HTMLElement>(".community-card-menu [role=menuitem]")?.focus());
   }
   private recommendationFeedback(post: Value) {
     if (!this.requireSession()) return;
@@ -914,13 +1017,13 @@ export class CommunityWorkspace extends LitElement {
     });
   }
   private draftKey() {
-    return `haneoka:community-post-draft:v1:${location.pathname}`;
+    return `haneoka:community-post-draft:v2:${String((this.session?.user as Value | undefined)?.id || "guest")}:${location.pathname}`;
   }
   private saveDraft(event: Event) {
     const form = event.currentTarget as HTMLFormElement;
     const data = new FormData(form);
     this.editorTitle = String(data.get("title") || "");
-    this.editorBody = String(data.get("body") || "");
+    this.editorBody = String(data.get("body") ?? this.editorBody);
     this.editorTags = String(data.get("tags") || "");
     this.editorReady = true;
     try {
@@ -928,7 +1031,7 @@ export class CommunityWorkspace extends LitElement {
         this.draftKey(),
         JSON.stringify({
           title: String(data.get("title") || ""),
-          body: String(data.get("body") || ""),
+          body: this.editorBody,
           tags: String(data.get("tags") || ""),
           visibility: String(data.get("visibility") || "public"),
         }),
@@ -957,118 +1060,270 @@ export class CommunityWorkspace extends LitElement {
   }
   private uploadMediaType(file: File) {
     const type = file.type.toLowerCase();
-    if (["image/jpeg", "image/png", "image/webp"].includes(type)) return type;
-    if ((type === "text/plain" || !type) && file.name.toLowerCase().endsWith(".txt")) return "text/plain";
-    return "";
+    const accepted = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+      "image/heic",
+      "image/heif",
+      "video/mp4",
+      "video/webm",
+      "video/quicktime",
+    ];
+    if (accepted.includes(type)) return type;
+    if (type && type !== "application/octet-stream") return "";
+    const extension = file.name.split(".").at(-1)?.toLowerCase() || "";
+    return (
+      (
+        {
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+          png: "image/png",
+          webp: "image/webp",
+          gif: "image/gif",
+          heic: "image/heic",
+          heif: "image/heif",
+          mp4: "video/mp4",
+          webm: "video/webm",
+          mov: "video/quicktime",
+        } as Record<string, string>
+      )[extension] || ""
+    );
   }
   private updateUpload(key: string, patch: Partial<UploadEntry>) {
     this.uploads = this.uploads.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry));
   }
   private async selectUploads(event: Event) {
-    const files = [...((event.target as HTMLInputElement).files || [])];
-    if (this.uploads.length + files.length > 10) {
-      this.error = this.label("uploadLimit", "You can attach up to 10 files.");
+    const input = event.target as HTMLInputElement;
+    const files = [...(input.files || [])];
+    input.value = "";
+    this.queueUploads(files);
+  }
+  private queueUploads(files: File[]) {
+    if (this.uploads.length + files.length > COMMUNITY_UPLOAD_LIMITS.attachmentsPerPost) {
+      this.error = this.label("uploadLimit", "Up to 16 attachments are allowed per post.");
       return;
     }
     for (const file of files) {
       const mediaType = this.uploadMediaType(file);
-      const limit = mediaType === "text/plain" ? 1024 * 1024 : 10 * 1024 * 1024;
-      if (!mediaType) {
-        this.error = this.label("uploadUnsupported", "Unsupported attachment type.");
-        continue;
-      }
-      if (!file.size) {
-        this.error = this.label("uploadEmpty", "The file is empty.");
-        continue;
-      }
-      if (file.size > limit) {
+      if (!mediaType || !file.size || file.size > COMMUNITY_UPLOAD_LIMITS.fileBytes) {
         this.error = this.label(
-          mediaType === "text/plain" ? "uploadTextTooLarge" : "uploadImageTooLarge",
-          "The file is too large.",
+          !mediaType ? "uploadUnsupported" : !file.size ? "uploadEmpty" : "uploadFileTooLarge",
+          "This file cannot be uploaded.",
         );
         continue;
       }
       const key = crypto.randomUUID();
-      const entry: UploadEntry = {
-        key,
-        file,
-        preview: mediaType.startsWith("image/") ? URL.createObjectURL(file) : "",
-        attachment: null,
-        phase: "reserving",
-        progress: 0,
-        error: "",
-      };
-      this.uploads = [...this.uploads, entry];
-      try {
+      this.uploads = [
+        ...this.uploads,
+        {
+          key,
+          file,
+          preview: "",
+          attachment: null,
+          phase: "queued",
+          progress: 0,
+          error: "",
+        },
+      ];
+      this.uploadQueue.push(key);
+      if (mediaType.startsWith("image/")) this.previewQueue.push(key);
+    }
+    void this.preparePreviews();
+    this.drainUploads();
+  }
+  private async preparePreviews() {
+    if (this.previewActive) return;
+    this.previewActive = true;
+    try {
+      while (this.isConnected && this.previewQueue.length) {
+        const key = this.previewQueue.shift()!;
+        const entry = this.uploads.find((item) => item.key === key);
+        if (!entry) continue;
+        let preview = "";
+        try {
+          if (typeof createImageBitmap === "function") {
+            const bitmap = await createImageBitmap(entry.file, { resizeWidth: 160, resizeQuality: "medium" });
+            try {
+              const canvas = document.createElement("canvas");
+              canvas.width = bitmap.width;
+              canvas.height = bitmap.height;
+              canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+              const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.85));
+              if (blob) preview = URL.createObjectURL(blob);
+              canvas.width = canvas.height = 0;
+            } finally {
+              bitmap.close();
+            }
+          }
+          if (!preview && !["image/heic", "image/heif"].includes(this.uploadMediaType(entry.file)))
+            preview = URL.createObjectURL(entry.file);
+        } catch {
+          preview = "";
+        }
+        if (this.isConnected && this.uploads.some((item) => item.key === key)) this.updateUpload(key, { preview });
+        else if (preview) URL.revokeObjectURL(preview);
+      }
+    } finally {
+      this.previewActive = false;
+    }
+  }
+  private drainUploads() {
+    while (this.isConnected && this.activeUploads < 2 && this.uploadQueue.length) {
+      const key = this.uploadQueue.shift()!;
+      if (!this.uploads.some((item) => item.key === key)) continue;
+      this.activeUploads++;
+      void this.sendUpload(key).finally(() => {
+        this.activeUploads--;
+        this.drainUploads();
+      });
+    }
+  }
+  private async sendUpload(key: string) {
+    const entry = this.uploads.find((item) => item.key === key);
+    if (!entry) return;
+    const controller = new AbortController();
+    this.uploadControllers.set(key, controller);
+    const progress = beginLoading(entry.file.name, { signal: controller.signal });
+    const exists = () =>
+      this.isConnected && !controller.signal.aborted && this.uploads.some((item) => item.key === key);
+    try {
+      this.updateUpload(key, { phase: "uploading", error: "" });
+      let attachment = entry.attachment;
+      if (!attachment) {
         const intent = await this.request("/api/v1/community/uploads/intents", {
           method: "POST",
+          signal: undefined,
           headers: { "Idempotency-Key": key },
-          body: JSON.stringify({ fileName: file.name, mediaType, size: file.size }),
+          body: JSON.stringify({
+            fileName: entry.file.name,
+            mediaType: this.uploadMediaType(entry.file),
+            size: entry.file.size,
+          }),
         });
-        let attachment = (intent.attachment as Value | undefined) || intent;
-        const uploadUrl = String(attachment.uploadUrl || "");
-        if (!uploadUrl) throw new Error(this.label("uploadInvalidResponse", "Invalid upload response."));
-        this.updateUpload(key, { attachment, phase: "uploading", progress: 20 });
-        const response = await fetch(uploadUrl, {
-          method: "PUT",
-          credentials: "same-origin",
-          headers: { "content-type": mediaType },
-          body: file,
-        });
-        const body = (await response.json().catch(() => ({}))) as Value;
-        if (!response.ok)
-          throw new Error(
-            String((body.error as Value | undefined)?.message || this.label("uploadFailed", "Upload failed.")),
-          );
-        attachment = (body.attachment as Value | undefined) || attachment;
-        const phase = String(attachment.status || "scanning");
-        this.updateUpload(key, { attachment, phase, progress: 100 });
-        if (["reserved", "scanning"].includes(phase)) void this.pollUpload(key, 0);
-      } catch (error) {
-        this.updateUpload(key, { phase: "failed", error: error instanceof Error ? error.message : String(error) });
+        attachment = (intent.attachment as Value | undefined) || intent;
+        if (!exists()) {
+          if (attachment.id)
+            await this.request(`/api/v1/community/attachments/${encodeURIComponent(String(attachment.id))}`, {
+              method: "DELETE",
+              signal: undefined,
+            });
+          return;
+        }
+        this.updateUpload(key, { attachment });
+      } else {
+        const status = await this.request(
+          `/api/v1/community/attachments/${encodeURIComponent(String(attachment.id))}`,
+          { signal: controller.signal },
+        );
+        attachment = (status.attachment as Value | undefined) || status;
+        if (attachment.multipart && Array.isArray(status.parts))
+          attachment = { ...attachment, multipart: { ...(attachment.multipart as Value), parts: status.parts } };
       }
-    }
-    (event.target as HTMLInputElement).value = "";
-  }
-  private async pollUpload(key: string, attempt: number) {
-    const entry = this.uploads.find((item) => item.key === key);
-    const id = String(entry?.attachment?.id || "");
-    if (!entry || !id || attempt >= 12) return;
-    await new Promise((resolve) => setTimeout(resolve, Math.min(4000 * 1.6 ** attempt, 30000)));
-    try {
-      const result = await this.request(`/api/v1/community/attachments/${encodeURIComponent(id)}`);
-      const attachment = (result.attachment as Value | undefined) || result;
-      const phase = String(attachment.status || "scanning");
-      this.updateUpload(key, { attachment, phase });
-      if (["reserved", "scanning"].includes(phase)) void this.pollUpload(key, attempt + 1);
+      if (String(attachment.status) === "reserved") {
+        attachment = await uploadCommunityAttachment(attachment, entry.file, {
+          signal: controller.signal,
+          unavailable: this.label("uploadFailed", "Upload failed"),
+          request: (url, init) => this.request(url, init),
+          progress: (loaded, total) => {
+            if (!exists()) return;
+            this.updateUpload(key, { progress: Math.round((loaded / total) * 100) });
+            progress.update({ loadedBytes: loaded, totalBytes: total, byteBasis: "identity" });
+          },
+        });
+      }
+      if (!exists()) return;
+      this.updateUpload(key, {
+        attachment,
+        phase: attachment.status === "deleted" ? "failed" : String(attachment.status || "scanning"),
+        progress: 100,
+      });
+      progress.finish();
+      for (let attempt = 0; ["reserved", "scanning"].includes(String(attachment.status)); attempt++) {
+        if (attempt >= 20) {
+          this.updateUpload(key, { phase: "waiting" });
+          break;
+        }
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => {
+            clearTimeout(timer);
+            reject(controller.signal.reason);
+          };
+          const timer = window.setTimeout(
+            () => {
+              controller.signal.removeEventListener("abort", abort);
+              resolve();
+            },
+            Math.min(2000 * (attempt + 1), 15000),
+          );
+          controller.signal.addEventListener("abort", abort, { once: true });
+          if (controller.signal.aborted) abort();
+        });
+        const result = await this.request(
+          `/api/v1/community/attachments/${encodeURIComponent(String(attachment.id))}`,
+          { signal: controller.signal },
+        );
+        attachment = (result.attachment as Value | undefined) || result;
+        if (!exists()) return;
+        this.updateUpload(key, { attachment, phase: String(attachment.status || "scanning") });
+      }
     } catch (error) {
-      this.updateUpload(key, { error: error instanceof Error ? error.message : String(error) });
+      if (exists()) {
+        this.updateUpload(key, { phase: "failed", error: error instanceof Error ? error.message : String(error) });
+        progress.fail(error);
+      }
+    } finally {
+      progress.finish();
+      if (this.uploadControllers.get(key) === controller) this.uploadControllers.delete(key);
     }
+  }
+  private retryUpload(entry: UploadEntry) {
+    if (this.uploadControllers.has(entry.key) || this.uploadQueue.includes(entry.key)) return;
+    if (entry.attachment?.status === "deleted") {
+      this.removeUpload(entry);
+      this.queueUploads([entry.file]);
+      return;
+    }
+    this.updateUpload(entry.key, { phase: "queued", error: "" });
+    this.uploadQueue.push(entry.key);
+    this.drainUploads();
   }
   private removeUpload(entry: UploadEntry) {
-    void this.mutate(async () => {
-      if (entry.attachment?.id)
-        await this.request(`/api/v1/community/attachments/${encodeURIComponent(String(entry.attachment.id))}`, {
-          method: "DELETE",
-        });
-      if (entry.preview) URL.revokeObjectURL(entry.preview);
-      this.uploads = this.uploads.filter((item) => item !== entry);
-    });
+    this.uploadControllers.get(entry.key)?.abort();
+    this.uploadQueue = this.uploadQueue.filter((key) => key !== entry.key);
+    if (entry.preview) URL.revokeObjectURL(entry.preview);
+    this.uploads = this.uploads.filter((item) => item.key !== entry.key);
+    if (entry.attachment?.id)
+      void this.request(`/api/v1/community/attachments/${encodeURIComponent(String(entry.attachment.id))}`, {
+        method: "DELETE",
+        signal: undefined,
+      }).catch((error) => {
+        this.error = String(error);
+      });
   }
   private async discardUploads() {
-    const uploads = [...this.uploads];
-    this.uploads = [];
-    await Promise.allSettled(
-      uploads.map(async (entry) => {
-        if (entry.preview) URL.revokeObjectURL(entry.preview);
-        if (entry.attachment?.id)
-          await this.request(`/api/v1/community/attachments/${encodeURIComponent(String(entry.attachment.id))}`, {
-            method: "DELETE",
-          });
-      }),
-    );
+    for (const entry of [...this.uploads]) this.removeUpload(entry);
   }
   private cancelEditor() {
+    if (!this.editorTitle && !this.editorBody && !this.uploads.length) {
+      this.leaveEditor();
+      return;
+    }
+    this.dialog = {
+      kind: "confirm",
+      targetKind: "post",
+      targetId: this.entityId,
+      label: "",
+      confirm: {
+        title: this.label("leaveEditor", "Leave the editor?"),
+        body: this.label("leaveDraftBody", "Your text stays in this browser. Unpublished attachments will be removed."),
+        confirmLabel: this.label("keepDraft", "Keep draft and leave"),
+        action: () => this.leaveEditor(),
+      },
+    };
+  }
+  private leaveEditor() {
     void this.discardUploads().finally(() =>
       location.assign(
         this.routeKind === "post-edit"
@@ -1083,7 +1338,12 @@ export class CommunityWorkspace extends LitElement {
     const data = new FormData(form);
     const current = ((this.document?.post as Value | undefined) || this.document || {}) as Value;
     const editing = this.routeKind === "post-edit";
-    const body = String(data.get("body") || "");
+    if (this.busy || this.uploads.some((entry) => entry.phase !== "ready")) return;
+    const body = this.editorBody.trim();
+    if (!body || body.length > 20000) {
+      this.error = this.label("invalidBody", "Write between 1 and 20,000 characters.");
+      return;
+    }
     const tags = this.postTags(body, String(data.get("tags") || ""));
     if (!tags) {
       this.error = this.label(
@@ -1125,7 +1385,8 @@ export class CommunityWorkspace extends LitElement {
       const id = String((result.post as Value | undefined)?.id || result.id || this.entityId);
       this.published = true;
       if (!editing) localStorage.removeItem(this.draftKey());
-      location.href = this.path(`/community/posts/${encodeURIComponent(id)}`);
+      feedSnapshots.clear();
+      void navigateDetailPage(this.path(`/community/posts/${encodeURIComponent(id)}`));
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -1135,43 +1396,62 @@ export class CommunityWorkspace extends LitElement {
   private async submitComment(event: SubmitEvent) {
     event.preventDefault();
     if (!this.requireSession()) return;
+    if (!this.postEnvelope().viewer.canComment) return;
     const form = event.currentTarget as HTMLFormElement;
-    const body = String(new FormData(form).get("body") || "");
-    if (!body) return;
-    this.busy = true;
-    try {
-      const response = await fetch(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}/comments`, {
+    const body = this.commentBody.trim();
+    if (!body || body.length > 5000) return;
+    await this.mutate(async () => {
+      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}/comments`, {
         method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify({ body, ...(this.replyTo ? { parentId: this.replyTo } : {}) }),
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       form.reset();
+      this.commentBody = "";
       this.replyTo = "";
       this.commentDraftOpen = false;
-      await this.load(false);
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
-    } finally {
-      this.busy = false;
-    }
-  }
-  private insertFormat(open: string, close = open) {
-    const field = this.querySelector<HTMLElement & { value?: string }>('md-outlined-text-field[name="body"]');
-    if (!field) return;
-    const input = field.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
-    const value = String(field.value || "");
-    const start = input?.selectionStart ?? value.length;
-    const end = input?.selectionEnd ?? start;
-    const next = `${value.slice(0, start)}${open}${value.slice(start, end)}${close}${value.slice(end)}`;
-    field.value = next;
-    this.editorBody = next;
-    field.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-    requestAnimationFrame(() => {
-      input?.focus();
-      input?.setSelectionRange(start + open.length, end + open.length);
+      await this.refreshComments();
+      const comment = result.comment as Value | undefined;
+      if (comment) {
+        const root = this.document || {};
+        const comments = Array.isArray(root.comments) ? (root.comments as Value[]) : [];
+        this.document = {
+          ...root,
+          comments: comments.some((entry) => entry.id === comment.id) ? comments : [comment, ...comments],
+          post: { ...(root.post as Value), commentCount: Number((root.post as Value)?.commentCount || 0) + 1 },
+        };
+      }
     });
+  }
+  private async refreshComments(append = false) {
+    const signal = this.commentsRequest.begin();
+    this.commentsLoading = true;
+    const progress = beginLoading(this.label("comments", "Comments"), { signal });
+    try {
+      const query = new URLSearchParams({ commentsOnly: "true", commentsSort: this.commentSort });
+      if (append && this.document?.commentsNextCursor)
+        query.set("commentsCursor", String(this.document.commentsNextCursor));
+      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}?${query}`, {
+        signal,
+      });
+      if (!this.commentsRequest.current(signal)) return;
+      const comments = [
+        ...(append && Array.isArray(this.document?.comments) ? (this.document.comments as Value[]) : []),
+        ...(Array.isArray(result.comments) ? (result.comments as Value[]) : []),
+      ];
+      this.document = {
+        ...this.document,
+        comments: [...new Map(comments.map((comment) => [String(comment.id), comment])).values()],
+        commentsNextCursor: result.commentsNextCursor,
+      };
+    } catch (error) {
+      if (this.commentsRequest.current(signal)) {
+        this.error = error instanceof Error ? error.message : String(error);
+        progress.fail(error);
+      }
+    } finally {
+      progress.finish();
+      if (this.commentsRequest.current(signal)) this.commentsLoading = false;
+    }
   }
   private postTags(body: string, input: string): string[] | null {
     const explicit = input
@@ -1231,7 +1511,7 @@ export class CommunityWorkspace extends LitElement {
             }${
               this.editorBody.trim()
                 ? html`
-                    <div class="community-bbcode">${unsafeHTML(bbcodeMarkup(this.editorBody))}</div>
+                    <div class="community-bbcode">${unsafeHTML(this.markup(this.editorBody))}</div>
                   `
                 : html`
                     <p class="composer-preview__placeholder">
@@ -1245,164 +1525,144 @@ export class CommunityWorkspace extends LitElement {
     `;
   }
   private loadMoreComments() {
-    const cursor = String(this.document?.commentsNextCursor || "");
-    if (!cursor) return;
-    void this.mutate(async () => {
-      const result = await this.request(
-        `/api/v1/community/posts/${encodeURIComponent(this.entityId)}?commentsOnly=true&commentsSort=${this.commentSort}&commentsCursor=${encodeURIComponent(cursor)}`,
-      );
-      const root = this.document || {};
-      this.document = {
-        ...root,
-        comments: [
-          ...(Array.isArray(root.comments) ? (root.comments as Value[]) : []),
-          ...(Array.isArray(result.comments) ? (result.comments as Value[]) : []),
-        ],
-        commentsNextCursor: result.commentsNextCursor,
-      };
-    });
+    if (!this.commentsLoading) void this.refreshComments(true);
   }
   private renderPostEditor() {
     const post = ((this.document?.post as Value | undefined) || this.document || {}) as Value;
     return html`
-      <section class="page page--compact community-editor-page">
-        <nav class="segmented composer-mobile-tabs">
-          <button aria-pressed=${this.editorMode === "edit"} @click=${() => (this.editorMode = "edit")}>
-            ${this.label("edit", "Edit")}
-          </button>
-          <button aria-pressed=${this.editorMode === "preview"} @click=${() => (this.editorMode = "preview")}>
-            ${this.label("preview", "Preview")}
-          </button>
-        </nav>
-        <div class="composer-workspace">
-          ${this.renderComposerPreview()}
-          <form
-            class=${`composer-editor community-editor ${this.editorMode === "edit" ? "mobile-active" : ""}`}
-            @submit=${this.submitPost}
-            @input=${this.saveDraft}
-          >
-            <header class="community-editor__header">
-              <span class="community-editor__icon">
-                <svg class="material-icon" width="24" height="24"><use href="/icons.svg#edit"></use></svg>
-              </span>
-              <span>
-                <h2>
-                  ${this.routeKind === "post-edit" ? this.label("editPost", "Edit post") : this.label("newPost", "New post")}
-                </h2>
-                <small>${this.label("postBody", "Share information with the community")}</small>
-              </span>
-            </header>
+      <section class="page community-editor-page">
+        <div class=${`composer-workspace ${this.editorMode === "preview" ? "is-preview" : ""}`}>
+          <form class="composer-editor community-editor" @submit=${this.submitPost} @input=${this.saveDraft}>
             <md-outlined-text-field
               name="title"
               label=${this.label("postTitle", "Title")}
               maxlength="120"
-              .value=${this.editorReady ? this.editorTitle : String(post.title || "")}
+              .value=${this.editorTitle}
               required
             ></md-outlined-text-field>
-            <div class="community-format-toolbar" role="toolbar" aria-label=${this.label("formatting", "Formatting")}>
-              ${[
-                ["format_bold", "bold", "[b]", "[/b]"],
-                ["format_italic", "italic", "[i]", "[/i]"],
-                ["format_underlined", "underline", "[u]", "[/u]"],
-                ["strikethrough_s", "strike", "[s]", "[/s]"],
-                ["format_quote", "quote", "[quote]", "[/quote]"],
-                ["code", "code", "[code]", "[/code]"],
-                ["format_list_bulleted", "list", "[list]\n[*]", "\n[/list]"],
-                ["link", "link", "[url=https://]", "[/url]"],
-                ["visibility_off", "spoiler", "[spoiler]", "[/spoiler]"],
-              ].map(
-                ([iconName, label, open, close]) => html`
-                  <button
-                    class="icon-button"
-                    type="button"
-                    aria-label=${this.label(label, label)}
-                    @click=${() => this.insertFormat(open, close)}
-                  >
-                    ${icon(iconName, 19)}
-                  </button>
-                `,
-              )}
-            </div>
-            <md-outlined-text-field
-              type="textarea"
-              rows="10"
-              name="body"
-              label=${this.label("postBody", "Body")}
-              maxlength="20000"
-              .value=${this.editorReady ? this.editorBody : String(post.body || "")}
-              required
-            ></md-outlined-text-field>
-            <md-outlined-text-field
-              name="tags"
-              label=${this.label("tagsPage.title", "Tags")}
-              supporting-text=${this.label("tagHint", "Separate tags with spaces or commas")}
-              .value=${this.editorReady ? this.editorTags : Array.isArray(post.tags) ? post.tags.join(", ") : ""}
-            ></md-outlined-text-field>
-            <md-outlined-select name="visibility" label=${this.label("visibility", "Visibility")}>
-              ${["public", "protected", "private"].map(
-                (visibility) => html`
-                  <md-select-option value=${visibility} ?selected=${String(post.visibility || "public") === visibility}>
-                    <div slot="headline">${visibility[0].toUpperCase()}${visibility.slice(1)}</div>
-                  </md-select-option>
-                `,
-              )}
-            </md-outlined-select>
+            <input type="hidden" name="body" .value=${this.editorBody} />
+            <community-editor
+              .value=${this.editorBody}
+              .locale=${this.locale}
+              @body-change=${(event: CustomEvent<string>) => {
+                this.editorBody = event.detail;
+                const form = this.querySelector<HTMLFormElement>(".community-editor");
+                if (form) {
+                  const field = form.elements.namedItem("body") as HTMLInputElement;
+                  field.value = event.detail;
+                  form.dispatchEvent(new Event("input", { bubbles: true }));
+                }
+              }}
+            ></community-editor>
             ${
               this.routeKind === "post-new"
                 ? html`
-                    <section class="community-uploader">
+                    <section
+                      class="community-uploader"
+                      @dragover=${(event: DragEvent) => {
+                        if (event.dataTransfer?.types.includes("Files")) {
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "copy";
+                        }
+                      }}
+                      @drop=${(event: DragEvent) => {
+                        event.preventDefault();
+                        this.queueUploads([...(event.dataTransfer?.files || [])]);
+                      }}
+                    >
                       <header>
-                        <strong>${this.label("attachments", "Attachments")}</strong>
+                        <strong>
+                          ${this.label("attachments", "Attachments")}
+                          <small>${this.uploads.length} / ${COMMUNITY_UPLOAD_LIMITS.attachmentsPerPost}</small>
+                        </strong>
                         <label class="button button--tonal">
-                          ${icon("attach_file", 18)}${this.label("addAttachment", "Add attachment")}
+                          ${icon("add_photo_alternate", 20)}${this.label("addAttachment", "Add attachment")}
                           <input
                             type="file"
                             multiple
-                            accept="image/jpeg,image/png,image/webp,text/plain,.txt"
+                            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,video/mp4,video/webm,video/quicktime,.heic,.heif,.mov"
                             @change=${this.selectUploads}
                           />
                         </label>
                       </header>
-                      ${
-                        this.uploads.length
-                          ? html`
-                              <div class="community-upload-list">
-                                ${this.uploads.map(
-                                  (entry) => html`
-                                    <article>
-                                      ${
-                                        entry.preview
-                                          ? html`
-                                              <img src=${entry.preview} alt="" />
-                                            `
-                                          : icon("description", 32)
-                                      }
-                                      <span>
-                                        <strong>${entry.file.name}</strong>
-                                        <small>
-                                          ${this.label(`upload${entry.phase[0]?.toUpperCase()}${entry.phase.slice(1)}`, entry.phase)}${entry.error ? ` · ${entry.error}` : ""}
-                                        </small>
-                                        <progress max="100" value=${entry.progress}></progress>
-                                      </span>
-                                      <button
-                                        class="icon-button"
-                                        type="button"
-                                        aria-label=${this.label("uploadRemove", "Remove")}
-                                        @click=${() => this.removeUpload(entry)}
-                                      >
-                                        ${icon("delete", 18)}
-                                      </button>
-                                    </article>
-                                  `,
-                                )}
-                              </div>
-                            `
-                          : nothing
-                      }
+                      <p class="community-upload-policy">
+                        ${this.label("uploadPolicy", "Up to {count} files · {size} MiB each")
+                          .replace("{count}", String(COMMUNITY_UPLOAD_LIMITS.attachmentsPerPost))
+                          .replace("{size}", String(COMMUNITY_UPLOAD_LIMITS.fileBytes / 1024 / 1024))}
+                      </p>
+                      <div class="community-upload-list">
+                        ${this.uploads.map((entry) =>
+                          keyed(
+                            entry.key,
+                            html`
+                              <article>
+                                ${
+                                  entry.preview
+                                    ? html`
+                                        <img src=${entry.preview} width="64" height="64" alt="" />
+                                      `
+                                    : icon("description", 32)
+                                }
+                                <span>
+                                  <strong>${entry.file.name}</strong>
+                                  <small>
+                                    ${this.label(`upload${entry.phase[0]?.toUpperCase()}${entry.phase.slice(1)}`, entry.phase)}
+                                    ·
+                                    ${new Intl.NumberFormat(this.locale, { maximumFractionDigits: 1 }).format(entry.file.size / 1024)}
+                                    KB
+                                  </small>
+                                  ${
+                                    entry.phase === "uploading"
+                                      ? html`
+                                          <progress
+                                            max="100"
+                                            value=${entry.progress}
+                                            aria-label=${this.label("uploadUploading", "Uploading")}
+                                          ></progress>
+                                        `
+                                      : nothing
+                                  }
+                                  ${
+                                    entry.error
+                                      ? html`
+                                          <small role="alert">${entry.error}</small>
+                                        `
+                                      : nothing
+                                  }
+                                </span>
+                                ${["failed", "waiting"].includes(entry.phase) ? iconButton({ icon: "refresh", label: this.label("retry", "Retry"), onClick: () => this.retryUpload(entry) }) : nothing}
+                                ${iconButton({ icon: "close", label: this.label("uploadRemove", "Remove"), onClick: () => this.removeUpload(entry) })}
+                              </article>
+                            `,
+                          ),
+                        )}
+                      </div>
                     </section>
                   `
                 : nothing
             }
+            <div class="community-editor-options">
+              <md-outlined-text-field
+                name="tags"
+                label=${this.label("tagPage.title", "Tags")}
+                supporting-text=${this.label("tagsHint", "Separate tags with spaces or commas")}
+                .value=${this.editorTags}
+              ></md-outlined-text-field>
+              <md-outlined-select name="visibility" label=${this.label("visibility", "Visibility")}>
+                ${["public", "protected", "private"].map(
+                  (visibility) => html`
+                    <md-select-option
+                      value=${visibility}
+                      ?selected=${String(post.visibility || "public") === visibility}
+                    >
+                      <div slot="headline">
+                        ${this.label(`visibility${visibility[0].toUpperCase()}${visibility.slice(1)}`, visibility)}
+                      </div>
+                    </md-select-option>
+                  `,
+                )}
+              </md-outlined-select>
+            </div>
             ${
               this.routeKind === "post-edit"
                 ? html`
@@ -1418,31 +1678,45 @@ export class CommunityWorkspace extends LitElement {
             ${
               this.error
                 ? html`
-                    <div class="inline-message error">${this.error}</div>
+                    <div class="inline-message error" role="alert">${this.error}</div>
                   `
                 : nothing
             }
             <footer class="composer-actions">
-              <span></span>
-              <button class="button button--outlined" type="button" ?disabled=${this.busy} @click=${this.cancelEditor}>
+              <span class="community-draft-status">${this.label("draftSaved", "Draft saved on this device")}</span>
+              <button class="button button--text" type="button" ?disabled=${this.busy} @click=${this.cancelEditor}>
                 ${this.label("cancel", "Cancel")}
               </button>
-              <button class="button" ?disabled=${this.busy || this.uploads.some((entry) => entry.phase !== "ready")}>
+              <button
+                class="button"
+                ?disabled=${this.busy || !this.editorBody.trim() || this.editorBody.length > 20000 || this.uploads.some((entry) => entry.phase !== "ready")}
+              >
                 ${icon("send", 18)}${this.busy ? this.label("publishing", "Publishing…") : this.label("publish", "Publish")}
               </button>
             </footer>
           </form>
+          ${this.renderComposerPreview()}
         </div>
+        ${this.renderDialog()}
       </section>
     `;
   }
   /** The detail pane's back action: an in-app arrival steps back through
    * history; a direct entry (a shared link) lands on the feed. */
   private leaveDetail() {
-    const referrer = document.referrer;
-    const sameOrigin = referrer && new URL(referrer).origin === location.origin;
-    if (sameOrigin && window.history.length > 1) history.back();
-    else location.assign(this.path("/community/feeds"));
+    if (this.routeKind === "post-new" || this.routeKind === "post-edit") {
+      this.cancelEditor();
+      return;
+    }
+    const value = new URLSearchParams(location.search).get("return");
+    if (value?.startsWith("/")) {
+      const target = new URL(value, location.origin);
+      if (target.origin === location.origin && target.pathname.includes("/community/")) {
+        void navigateDetailPage(target.href, "replace");
+        return;
+      }
+    }
+    void navigateDetailPage(this.path("/community/feeds"), "replace");
   }
   /** One avatar, everywhere: the moderated avatar URL when there is one,
    * the member's initial when there is not. Sizes are CSS modifiers. */
@@ -1460,146 +1734,137 @@ export class CommunityWorkspace extends LitElement {
       </span>
     `;
   }
-  /**
-   * The post detail, as the archive presents an entity: the feed behind a
-   * full-pane detail sheet — back action, title, sections with headings and
-   * spec lists — the same anatomy a song or card detail uses.
-   */
+  private installBack() {
+    const leading = document.querySelector<HTMLElement>(".top-app-bar__leading");
+    if (!leading || this.backLink) return;
+    this.savedLeading = leading;
+    const link = document.createElement("a");
+    link.className = "icon-button community-back";
+    link.dataset.entityBack = "";
+    link.href = this.path("/community/feeds");
+    link.setAttribute("aria-label", this.label("back", "Back"));
+    link.innerHTML =
+      '<svg class="material-icon" width="24" height="24" aria-hidden="true"><use href="/icons.svg#arrow_back"></use></svg>';
+    link.addEventListener("click", (event) => {
+      if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      this.leaveDetail();
+    });
+    leading.prepend(link);
+    this.backLink = link;
+    const menu = leading.querySelector<HTMLElement>("[data-nav-toggle]");
+    const actions = document.querySelector<HTMLElement>("[data-top-app-bar-actions]");
+    if (menu && actions) {
+      this.movedMenu = menu;
+      const group = document.createElement("div");
+      group.className = "top-app-bar__group";
+      group.append(menu);
+      actions.prepend(group);
+      this.menuGroup = group;
+    }
+  }
   private renderPostDetail() {
-    const post = ((this.document?.post as Value | undefined) || this.document || {}) as Value;
+    const { post, viewer } = this.postEnvelope();
     const comments = Array.isArray(this.document?.comments) ? (this.document.comments as Value[]) : [];
-    const viewer = ((this.document?.viewer as Value | undefined) || {}) as Value;
-    const authorName = String(
+    const name = String(
       (post.author as Value | undefined)?.displayName || post.authorName || this.label("member", "Member"),
     );
-    const authorUid = Number(post.authorUid || 0);
     const attachments = Array.isArray(post.attachments) ? (post.attachments as Value[]) : [];
-    const images = attachments.filter((attachment) => String(attachment.mediaType).startsWith("image/"));
-    const files = attachments.filter((attachment) => !String(attachment.mediaType).startsWith("image/"));
+    const images = attachments.filter((item) => /^(image|video)\//.test(String(item.mediaType)) && item.contentUrl);
+    setAppBarActions(
+      COMMUNITY_BAR_OWNER,
+      html`
+        ${viewer.canEdit ? iconButton({ icon: "edit", label: this.label("editPost", "Edit post"), onClick: () => void navigateDetailPage(this.path(`/community/posts/${this.entityId}/edit`)) }) : nothing}
+        ${iconButton({ icon: "share", label: this.label("copyLink", "Copy link"), onClick: () => void this.copyPinLink(post) })}
+        ${iconButton({ icon: "more_vert", label: this.label("moreActions", "More actions"), onClick: (event) => this.openCardMenu({ ...post, viewer }, event as MouseEvent) })}
+      `,
+    );
     return html`
-      ${this.renderCollection()}
-      ${renderPane({
-        id: "community-post-detail",
-        kind: "community-post",
-        open: true,
-        title: String(post.title || this.label("emptyTitle", "Untitled")),
-        subtitle: html`
-          ${authorName} · ${this.date(post.createdAt)}
-        `,
-        backLabel: this.label("back", "Back"),
-        onClose: () => this.leaveDetail(),
-        actions: html`
+      <section class="page community-post-page">
+        ${
+          this.error
+            ? html`
+                <div class="inline-message error" role="alert">${this.error}</div>
+              `
+            : nothing
+        }
+        ${
+          this.message
+            ? html`
+                <div class="inline-message" role="status">${this.message}</div>
+              `
+            : nothing
+        }
+        ${
+          this.toast
+            ? html`
+                <div class="community-undo" role="status">${this.toast.text}</div>
+              `
+            : nothing
+        }
+        <article class=${`community-post-layout ${images.length ? "has-media" : ""}`}>
           ${
-            viewer.canEdit
-              ? iconButton({
-                  label: this.label("editPost", "Edit post"),
-                  icon: "edit",
-                  onClick: () => location.assign(this.path(`/community/posts/${this.entityId}/edit`)),
-                })
+            images.length
+              ? html`
+                  <div class="community-post-media">
+                    <community-gallery
+                      .images=${images as unknown as CommunityImage[]}
+                      .locale=${this.locale}
+                    ></community-gallery>
+                  </div>
+                `
               : nothing
           }
-          ${iconButton({
-            label: this.label("report", "Report"),
-            icon: "flag",
-            disabled: this.busy,
-            onClick: () => this.openDialog("report", "post", post.id, post.title),
-          })}
-        `,
-        body: html`
-          <div class="community-post-pane">
-            ${
-              this.error
-                ? html`
-                    <div class="inline-message error" role="alert">${this.error}</div>
-                  `
-                : nothing
-            }
-            ${
-              this.message
-                ? html`
-                    <div class="inline-message" role="status">${this.message}</div>
-                  `
-                : nothing
-            }
-            ${
-              images.length
-                ? html`
-                    <div class="community-post-pane__media">
-                      ${images.map(
-                        (attachment) => html`
-                          <a href=${String(attachment.contentUrl)} target="_blank" rel="noopener">
-                            <img
-                              src=${String(attachment.contentUrl)}
-                              alt=${String(attachment.fileName || "")}
-                              loading="lazy"
-                              decoding="async"
-                            />
-                          </a>
-                        `,
-                      )}
-                    </div>
-                  `
-                : nothing
-            }
-            <div class="community-post-pane__content">
-              <section class="detail-section community-post-pane__author">
-                ${this.avatar(post.authorImage, authorName)}
-                <span class="community-post-pane__identity">
-                  ${
-                    authorUid
-                      ? html`
-                          <a class="community-post-pane__name" href=${this.path(`/community/users/${authorUid}`)}>
-                            ${authorName}
-                          </a>
-                        `
-                      : html`
-                          <span class="community-post-pane__name">${authorName}</span>
-                        `
-                  }
-                  <small>
-                    ${this.date(post.createdAt)}${
-                      post.lastEditedAt
-                        ? ` · ${this.label("lastEdited", "Last edited")} ${this.date(post.lastEditedAt)}`
-                        : ""
-                    }
-                  </small>
+          <div class="community-post-discussion">
+            <header class="community-post-author">
+              <a class="community-post-author__link" href=${this.path(`/community/users/${post.authorUid}`)}>
+                ${this.avatar(post.authorImage, name, 40)}
+                <span>
+                  <strong>${name}</strong>
                 </span>
-              </section>
-              <section class="detail-section">
-                <div class="community-bbcode detail-primary-copy">
-                  ${unsafeHTML(bbcodeMarkup(String(post.body || "")))}
-                </div>
+              </a>
+              ${
+                !viewer.canEdit
+                  ? html`
+                      <button
+                        class=${viewer.following ? "button button--tonal" : "button button--outlined"}
+                        ?disabled=${this.busy}
+                        @click=${this.toggleAuthorFollow}
+                      >
+                        ${this.label(viewer.following ? "following" : "follow", "Follow")}
+                      </button>
+                    `
+                  : nothing
+              }
+            </header>
+            <div class="community-discussion-scroll">
+              <div class="community-post-copy">
+                <h2 class="community-post-title">${String(post.title || "")}</h2>
                 ${
-                  Array.isArray(post.tags) && post.tags.length
+                  post.moderationStatus !== "allow"
                     ? html`
-                        <footer class="community-post-pane__tags">
-                          ${post.tags.map(
-                            (tag) => html`
-                              <a
-                                class="chip chip--assist"
-                                href=${`${this.path("/community/feeds")}?tag=${encodeURIComponent(String(tag))}`}
-                              >
-                                <span class="chip__label">#${String(tag)}</span>
-                              </a>
-                            `,
-                          )}
-                        </footer>
+                        <p class="inline-message" role="status">
+                          ${this.label(post.moderationStatus === "block" ? "moderationBlocked" : "moderationPending", "Reviewing")}
+                        </p>
                       `
                     : nothing
                 }
                 ${
-                  files.length
+                  post.state === "archived"
                     ? html`
-                        <div class="community-post-pane__files">
-                          ${files.map(
-                            (attachment) => html`
-                              <a
-                                class="button button--tonal"
-                                href=${String(attachment.contentUrl)}
-                                target="_blank"
-                                rel="noopener"
-                              >
-                                ${icon("description", 18)}${String(attachment.fileName || this.label("attachments", "Attachment"))}
+                        <p class="inline-message">${this.label("archivedHint", "Archived")}</p>
+                      `
+                    : nothing
+                }
+                <div class="community-bbcode">${unsafeHTML(this.markup(String(post.body || "")))}</div>
+                ${
+                  Array.isArray(post.tags) && post.tags.length
+                    ? html`
+                        <div class="community-post-tags">
+                          ${post.tags.map(
+                            (tag) => html`
+                              <a href=${`${this.path("/community/feeds")}?tag=${encodeURIComponent(String(tag))}`}>
+                                #${String(tag)}
                               </a>
                             `,
                           )}
@@ -1607,233 +1872,450 @@ export class CommunityWorkspace extends LitElement {
                       `
                     : nothing
                 }
-              </section>
-              ${paneSection(
-              this.label("comments", "Comments"),
-              icon("comment", 20),
-              html`
-                <div class="community-comments__bar">
-                  ${segmented({
-                    label: this.label("comments", "Comments"),
-                    value: this.commentSort,
-                    options: [
-                      { value: "hot", label: this.label("commentsHot", "Hot") },
-                      { value: "latest", label: this.label("commentsLatest", "Latest") },
-                    ],
-                    onSelect: (sort) => {
-                      this.commentSort = sort;
-                      void this.load(false);
-                    },
-                  })}
+                <div class="community-post-date">
+                  <time>${this.date(post.createdAt)}</time>
+                  ${
+                    post.lastEditedAt
+                      ? html`
+                          <span>${this.label("lastEdited", "Last edited")} ${this.date(post.lastEditedAt)}</span>
+                        `
+                      : nothing
+                  }
                 </div>
-                ${comments.map((comment) => this.renderComment(comment))}
+              </div>
+              <section class="community-comments" aria-busy=${this.commentsLoading}>
+                <header class="community-comments__heading">
+                  <h2>
+                    ${this.label("commentCount", "{count} comments").replace("{count}", new Intl.NumberFormat(this.locale).format(Number(post.commentCount ?? comments.length)))}
+                  </h2>
+                  <label class="community-comment-sort">
+                    <span class="sr-only">${this.label("sort", "Sort")}</span>
+                    <select
+                      .value=${this.commentSort}
+                      @change=${(event: Event) => {
+                        this.commentSort = (event.target as HTMLSelectElement).value as "hot" | "latest";
+                        void this.refreshComments();
+                      }}
+                    >
+                      <option value="hot">${this.label("commentSortPopular", "Hot")}</option>
+                      <option value="latest">${this.label("commentSortLatest", "Latest")}</option>
+                    </select>
+                  </label>
+                </header>
+                ${
+                  !comments.length && !this.commentsLoading
+                    ? html`
+                        <p class="community-comments__empty">
+                          ${this.label("emptyComments", "Start the conversation")}
+                        </p>
+                      `
+                    : nothing
+                }
+                ${this.renderCommentThreads(comments)}
+                ${
+                  this.commentsLoading
+                    ? html`
+                        <md-circular-progress
+                          indeterminate
+                          aria-label=${this.label("loading", "Loading")}
+                        ></md-circular-progress>
+                      `
+                    : nothing
+                }
                 ${
                   this.document?.commentsNextCursor
                     ? html`
-                        <button class="button button--tonal" ?disabled=${this.busy} @click=${this.loadMoreComments}>
+                        <button
+                          class="button button--text"
+                          ?disabled=${this.commentsLoading}
+                          @click=${this.loadMoreComments}
+                        >
                           ${this.label("loadMoreComments", "Load more comments")}
                         </button>
                       `
                     : nothing
                 }
-              `,
-              comments.length,
-            )}
+              </section>
             </div>
-          </div>
-        `,
-        footer: html`
-          <div class=${`community-comment-bar${this.commentDraftOpen ? " is-open" : ""}`}>
-            <form class="community-comment-bar__form" @submit=${this.submitComment} ?inert=${!this.commentDraftOpen}>
-              ${
-                this.replyTo
-                  ? html`
-                      <div class="community-reply-banner"><span>${this.label("replying", "Replying")}</span></div>
-                    `
-                  : nothing
-              }
-              <md-outlined-text-field
-                type="textarea"
-                rows=${this.commentDraftOpen ? 3 : 1}
-                label=${this.replyTo ? this.label("reply", "Reply") : this.label("writeComment", "Write a comment")}
-                name="body"
-                ?disabled=${!this.commentDraftOpen}
-              ></md-outlined-text-field>
-            </form>
-            <div class="community-engagement" role="toolbar">
+            <div class="community-discussion-actions">
               ${
                 this.commentDraftOpen
                   ? html`
-                      <button
-                        class="button button--text"
-                        ?disabled=${this.busy}
-                        @click=${() => (this.commentDraftOpen = false)}
-                      >
-                        ${this.label("cancel", "Cancel")}
-                      </button>
-                      <button
-                        class="button"
-                        ?disabled=${this.busy}
-                        @click=${() => {
-                        const bar = this.querySelector(".community-comment-bar__form");
-                        const field = bar?.querySelector("md-outlined-text-field") ?? null;
-                        (bar?.querySelector("button[type=submit]") ?? null)?.dispatchEvent(
-                          new Event("click", { bubbles: true }),
-                        );
-                        void this.submitCommentBar(field);
-                      }}
-                      >
-                        ${this.label("comment", "Comment")}
-                      </button>
+                      <form class="community-comment-form" @submit=${this.submitComment}>
+                        ${
+                          this.replyTo
+                            ? html`
+                                <div class="community-reply-banner">
+                                  <span>
+                                    ${this.label("replyingTo", "Replying")} ·
+                                    ${String(comments.find((comment) => String(comment.id) === this.replyTo)?.authorName || this.label("member", "Member"))}
+                                  </span>
+                                  ${iconButton({ icon: "close", label: this.label("cancel", "Cancel"), onClick: () => (this.replyTo = "") })}
+                                </div>
+                              `
+                            : nothing
+                        }
+                        <community-editor
+                          compact
+                          .locale=${this.locale}
+                          .value=${this.commentBody}
+                          .maxLength=${5000}
+                          @body-change=${(event: CustomEvent<string>) => (this.commentBody = event.detail)}
+                        ></community-editor>
+                        <div class="community-comment-form__actions">
+                          <button
+                            class="button button--text"
+                            type="button"
+                            @click=${() => {
+                              this.commentDraftOpen = false;
+                              this.replyTo = "";
+                            }}
+                          >
+                            ${this.label("cancel", "Cancel")}
+                          </button>
+                          <button
+                            class="button"
+                            ?disabled=${this.busy || !this.commentBody.trim() || this.commentBody.length > 5000}
+                          >
+                            ${icon("send", 18)}${this.label("comment", "Comment")}
+                          </button>
+                        </div>
+                      </form>
                     `
                   : html`
-                      <button
-                        class="icon-button"
-                        ?disabled=${this.busy}
-                        aria-label=${this.replyTo ? this.label("reply", "Reply") : this.label("writeComment", "Write a comment")}
-                        title=${this.replyTo ? this.label("reply", "Reply") : this.label("writeComment", "Write a comment")}
-                        @click=${() => (this.commentDraftOpen = true)}
-                      >
-                        ${icon("edit", 20)}
-                      </button>
+                      <div class="community-engagement">
+                        <button
+                          class="community-comment-prompt"
+                          ?disabled=${Boolean(this.session) && !viewer.canComment}
+                          @click=${() => this.openComment()}
+                        >
+                          ${icon("edit", 20)}
+                          <span>${this.label("writeComment", "Write a comment")}</span>
+                        </button>
+                        <button
+                          aria-label=${this.label(viewer.liked ? "unlike" : "like", "Like")}
+                          aria-pressed=${Boolean(viewer.liked)}
+                          ?disabled=${this.busy}
+                          @click=${this.togglePostReaction}
+                        >
+                          ${icon(viewer.liked ? "favorite-filled" : "favorite_border", 22)}
+                          <span>${Number(post.likeCount || 0)}</span>
+                        </button>
+                        <button
+                          aria-label=${this.label(viewer.bookmarked ? "removeBookmark" : "addBookmark", "Bookmark")}
+                          aria-pressed=${Boolean(viewer.bookmarked)}
+                          ?disabled=${this.busy}
+                          @click=${this.toggleBookmark}
+                        >
+                          ${icon(viewer.bookmarked ? "bookmark_border-filled" : "bookmark_border", 22)}
+                        </button>
+                        <button
+                          aria-label=${this.label("comments", "Comments")}
+                          @click=${() => this.querySelector(".community-comments")?.scrollIntoView({ block: "start", behavior: "smooth" })}
+                        >
+                          ${icon("chat_bubble_outline", 22)}
+                          <span>${Number(post.commentCount || 0)}</span>
+                        </button>
+                      </div>
                     `
-              }
-              <span class="community-engagement__spacer"></span>
-              <button class=${viewer.liked ? "selected" : ""} ?disabled=${this.busy} @click=${this.togglePostReaction}>
-                ${icon(viewer.liked ? "favorite-filled" : "favorite_border", 20)}
-                <span class="tabular">${Number(post.likeCount || 0)}</span>
-              </button>
-              <button class=${viewer.bookmarked ? "selected" : ""} ?disabled=${this.busy} @click=${this.toggleBookmark}>
-                ${icon(viewer.bookmarked ? "bookmark_border-filled" : "bookmark_border", 20)}
-                <span>
-                  ${viewer.bookmarked ? this.label("removeBookmark", "Remove bookmark") : this.label("addBookmark", "Bookmark")}
-                </span>
-              </button>
-              ${
-                viewer.canEdit
-                  ? html`
-                      <button ?disabled=${this.busy} @click=${() => this.setPinned(!post.pinnedAt)}>
-                        ${icon(post.pinnedAt ? "keep_off" : "keep", 20)}
-                        <span>${post.pinnedAt ? this.label("unpinPost", "Unpin") : this.label("pinPost", "Pin")}</span>
-                      </button>
-                      <button ?disabled=${this.busy} @click=${() => this.setArchived(post.state !== "archived")}>
-                        ${icon(post.state === "archived" ? "unarchive" : "archive", 20)}
-                        <span>
-                          ${post.state === "archived" ? this.label("restorePost", "Restore") : this.label("archivePost", "Archive")}
-                        </span>
-                      </button>
-                      <button class="danger" ?disabled=${this.busy} @click=${this.deletePost}>
-                        ${icon("delete", 20)}
-                        <span>${this.label("deletePost", "Delete")}</span>
-                      </button>
-                    `
-                  : nothing
-              }
-              ${
-                post.moderationStatus === "block" && viewer.canEdit
-                  ? html`
-                      <button @click=${() => this.openDialog("appeal", "post", post.id, post.title)}>
-                        ${icon("gavel", 20)}
-                        <span>${this.label("appeal", "Appeal")}</span>
-                      </button>
-                    `
-                  : nothing
               }
             </div>
           </div>
-        `,
-      })}
+        </article>
+        ${this.renderCardMenu()}${this.renderCommentMenu()}${this.renderDialog()}
+      </section>
     `;
   }
-  /** Submits the bottom-bar comment form. The field is a Material web
-   * component whose value lives on the host, not a DOM value property. */
-  private async submitCommentBar(field: (HTMLElement & { value?: string }) | null) {
-    const body = String(field?.value || "").trim();
-    if (!body) return;
-    await this.mutate(async () => {
-      const response = await fetch(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}/comments`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ body, ...(this.replyTo ? { parentId: this.replyTo } : {}) }),
+  private toggleAuthorFollow() {
+    if (!this.requireSession()) return;
+    const { post, viewer } = this.postEnvelope();
+    void this.mutate(async () => {
+      await this.request(`/api/v1/community/users/${encodeURIComponent(String(post.authorUid))}/follow`, {
+        method: "PUT",
+        body: JSON.stringify({ active: !viewer.following }),
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      this.replyTo = "";
-      this.commentDraftOpen = false;
-      await this.load(false);
+      this.updatePost(post, { ...viewer, following: !viewer.following });
     });
   }
-  /** A comment row: avatar, author, body, then a footer of actions. */
-  private renderComment(comment: Value) {
-    const commentViewer = ((comment.viewer as Value | undefined) || {}) as Value;
-    const authorName = String(
-      (comment.author as Value | undefined)?.displayName || comment.authorName || this.label("member", "Member"),
-    );
-    return html`
-      <article class="community-comment" id=${`comment-${comment.id}`}>
-        ${this.avatar(comment.authorImage, authorName, 28)}
-        <div class="community-comment__main">
-          <header>
-            <strong>${authorName}</strong>
-            <small>${this.date(comment.createdAt)}</small>
-          </header>
-          <div class="community-bbcode community-comment__body">
-            ${unsafeHTML(bbcodeMarkup(String(comment.body || "")))}
-          </div>
-          ${
-            commentViewer.canEdit
-              ? html`
-                  <details class="community-comment-edit">
-                    <summary>${this.label("edit", "Edit")}</summary>
-                    <textarea class="text-area" data-comment-edit=${String(comment.id)}>
-${String(comment.body || "")}</textarea>
-                    <button class="button button--tonal" @click=${() => this.saveComment(comment)}>
-                      ${this.label("save", "Save")}
-                    </button>
-                  </details>
-                `
-              : nothing
-          }
-          <footer>
-            <button class=${commentViewer.liked ? "selected" : ""} @click=${() => this.toggleCommentReaction(comment)}>
-              ${icon(commentViewer.liked ? "favorite-filled" : "favorite_border", 18)}${Number(comment.likeCount || 0)}
-            </button>
-            <button
-              @click=${() => {
-                this.replyTo = String(comment.id);
-                this.commentDraftOpen = true;
-              }}
-            >
-              ${icon("reply", 18)}${this.label("reply", "Reply")}
-            </button>
-            <button
-              @click=${() => this.openDialog("report", "comment", comment.id, String(comment.body || "").slice(0, 80))}
-            >
-              ${icon("flag", 18)}${this.label("report", "Report")}
-            </button>
+  private openComment(id = "") {
+    if (!this.requireSession()) return;
+    if (!this.postEnvelope().viewer.canComment) {
+      this.error = this.label("commentsClosed", "Comments are closed for this post");
+      return;
+    }
+    this.replyTo = id;
+    this.commentDraftOpen = true;
+    void import("./community-editor").then(async () => {
+      await this.updateComplete;
+      const editor = this.querySelector<LitElement & { focus: () => void }>(".community-comment-form community-editor");
+      await editor?.updateComplete;
+      editor?.focus();
+    });
+  }
+  private renderCommentThreads(comments: Value[]) {
+    const byId = new Map(comments.map((comment) => [String(comment.id), comment]));
+    const groups = new Map<string, Value[]>();
+    const roots: Value[] = [];
+    for (const comment of comments) {
+      let root = comment;
+      const visited = new Set([String(comment.id)]);
+      while (root.parentId && byId.has(String(root.parentId)) && !visited.has(String(root.parentId))) {
+        root = byId.get(String(root.parentId))!;
+        visited.add(String(root.id));
+      }
+      const id = String(root.id);
+      if (!groups.has(id)) {
+        groups.set(id, []);
+        roots.push(root);
+      }
+      if (comment !== root) groups.get(id)!.push(comment);
+    }
+    return roots.map((root) => {
+      const id = String(root.id),
+        replies = groups.get(id) || [];
+      const visible = this.expandedComments.has(id) ? replies : replies.slice(0, 2);
+      return keyed(
+        id,
+        html`
+          <div class="community-comment-thread">
+            ${this.renderComment(root)}
             ${
-              comment.moderationStatus === "block" && commentViewer.canEdit
+              visible.length
                 ? html`
-                    <button
-                      @click=${() => this.openDialog("appeal", "comment", comment.id, String(comment.body || "").slice(0, 80))}
-                    >
-                      ${icon("gavel", 18)}${this.label("appeal", "Appeal")}
-                    </button>
+                    <div class="community-comment-replies">
+                      ${visible.map((reply) => keyed(String(reply.id), this.renderComment(reply, true)))}
+                    </div>
                   `
                 : nothing
-            }${
-              commentViewer.canDelete
+            }
+            ${
+              replies.length > 2
                 ? html`
-                    <button class="danger" @click=${() => this.deleteComment(comment)}>
-                      ${icon("delete", 18)}${this.label("delete", "Delete")}
+                    <button
+                      class="button button--text community-replies-toggle"
+                      aria-expanded=${this.expandedComments.has(id)}
+                      @click=${() => {
+                        const next = new Set(this.expandedComments);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        this.expandedComments = next;
+                      }}
+                    >
+                      ${this.expandedComments.has(id) ? this.label("collapseReplies", "Collapse replies") : this.label("expandReplies", "Show {count} more replies").replace("{count}", String(replies.length - 2))}${icon(this.expandedComments.has(id) ? "expand_less" : "expand_more", 18)}
                     </button>
                   `
                 : nothing
             }
+          </div>
+        `,
+      );
+    });
+  }
+  private renderComment(comment: Value, reply = false) {
+    const viewer = (comment.viewer as Value | undefined) || {};
+    const name = String(
+      (comment.author as Value | undefined)?.displayName || comment.authorName || this.label("member", "Member"),
+    );
+    const parent = (this.document?.comments as Value[] | undefined)?.find(
+      (entry) => String(entry.id) === String(comment.parentId),
+    );
+    const region = (comment.ipLocation as Value | undefined)?.regionName;
+    return html`
+      <article class=${`community-comment${reply ? " is-reply" : ""}`} id=${`comment-${comment.id}`}>
+        <a href=${this.path(`/community/users/${comment.authorUid}`)} aria-label=${name}>
+          ${this.avatar(comment.authorImage, name, reply ? 28 : 40)}
+        </a>
+        <div class="community-comment__main">
+          <header>
+            <a class="community-comment__name" href=${this.path(`/community/users/${comment.authorUid}`)}>${name}</a>
+            ${
+              String(comment.authorUid) === String(this.postEnvelope().post.authorUid)
+                ? html`
+                    <span class="community-comment__author-mark">${this.label("postAuthor", "Author")}</span>
+                  `
+                : nothing
+            }
+            ${iconButton({ icon: "more_horiz", label: this.label("commentActions", "Comment actions"), className: "community-comment__more", onClick: (event) => this.openCommentMenu(comment, event) })}
+          </header>
+          ${
+            this.editingComment === String(comment.id)
+              ? html`
+                  <form
+                    class="community-comment-edit"
+                    @submit=${(event: SubmitEvent) => {
+                      event.preventDefault();
+                      this.saveComment(comment);
+                    }}
+                  >
+                    <textarea
+                      class="text-area"
+                      data-comment-edit=${String(comment.id)}
+                      .value=${String(comment.body || "")}
+                      maxlength="5000"
+                      aria-label=${this.label("edit", "Edit")}
+                      required
+                    ></textarea>
+                    <div class="dialog-actions">
+                      <button class="button button--text" type="button" @click=${() => (this.editingComment = "")}>
+                        ${this.label("cancel", "Cancel")}
+                      </button>
+                      <button class="button button--tonal" ?disabled=${this.busy}>${this.label("save", "Save")}</button>
+                    </div>
+                  </form>
+                `
+              : html`
+                  <div class="community-bbcode community-comment__body">
+                    ${
+                      reply && parent && String(parent.parentId || "")
+                        ? html`
+                            <span class="community-comment__reply-name">
+                              ${this.label("replyingTo", "Replying to")}
+                              ${String(parent.authorName || this.label("member", "Member"))}
+                            </span>
+                          `
+                        : nothing
+                    }${unsafeHTML(this.markup(String(comment.body || "")))}
+                  </div>
+                `
+          }
+          <div class="community-comment__context">
+            <time>${this.date(comment.createdAt)}</time>
+            ${
+              region
+                ? html`
+                    <span>${String(region)}</span>
+                  `
+                : nothing
+            }${
+              comment.moderationStatus && comment.moderationStatus !== "allow"
+                ? html`
+                    <span role="status">
+                      ${this.label(comment.moderationStatus === "block" ? "moderationBlocked" : "moderationPending", "Reviewing")}
+                    </span>
+                  `
+                : nothing
+            }
+          </div>
+          <footer>
+            <button
+              type="button"
+              aria-label=${this.label(viewer.liked ? "unlike" : "like", "Like")}
+              aria-pressed=${Boolean(viewer.liked)}
+              ?disabled=${this.busy}
+              @click=${() => this.toggleCommentReaction(comment)}
+            >
+              ${icon(viewer.liked ? "favorite-filled" : "favorite_border", 18)}
+              <span>${Number(comment.likeCount || 0) || this.label("like", "Like")}</span>
+            </button>
+            <button type="button" @click=${() => this.openComment(String(comment.id))}>
+              ${icon("chat_bubble_outline", 18)}${this.label("reply", "Reply")}
+            </button>
           </footer>
         </div>
       </article>
     `;
+  }
+  private openCommentMenu(comment: Value, event: MouseEvent) {
+    this.menuTrigger = event.currentTarget as HTMLElement;
+    const rect = this.menuTrigger.getBoundingClientRect();
+    this.commentMenu = {
+      comment,
+      x: Math.max(8, Math.min(rect.right - 224, innerWidth - 232)),
+      y: Math.max(8, Math.min(rect.bottom, innerHeight - 240)),
+    };
+    void this.updateComplete.then(() =>
+      this.querySelector<HTMLElement>(".community-comment-menu [role=menuitem]")?.focus(),
+    );
+  }
+  private renderCommentMenu() {
+    const menu = this.commentMenu;
+    if (!menu) return nothing;
+    const comment = menu.comment,
+      viewer = (comment.viewer as Value | undefined) || {};
+    const close = () => {
+      this.commentMenu = null;
+      this.menuTrigger?.focus();
+    };
+    const run = (action: () => void) => () => {
+      close();
+      action();
+    };
+    return html`
+      <div
+        class="menu community-card-menu community-comment-menu"
+        role="menu"
+        aria-label=${this.label("commentActions", "Comment actions")}
+        style=${`left:${menu.x}px;top:${menu.y}px`}
+        @keydown=${(event: KeyboardEvent) => this.menuKeys(event, close)}
+      >
+        ${
+          viewer.canEdit
+            ? html`
+                <button
+                  class="menu-item"
+                  role="menuitem"
+                  @click=${run(() => {
+                    this.editingComment = String(comment.id);
+                    void this.updateComplete.then(() =>
+                      this.querySelector<HTMLTextAreaElement>(".community-comment-edit textarea")?.focus(),
+                    );
+                  })}
+                >
+                  ${icon("edit", 20)}${this.label("edit", "Edit")}
+                </button>
+              `
+            : nothing
+        }
+        <button
+          class="menu-item"
+          role="menuitem"
+          @click=${run(() => this.openDialog("report", "comment", comment.id, String(comment.body || "").slice(0, 80)))}
+        >
+          ${icon("flag", 20)}${this.label("report", "Report")}
+        </button>
+        ${
+          comment.moderationStatus === "block" && viewer.canEdit
+            ? html`
+                <button
+                  class="menu-item"
+                  role="menuitem"
+                  @click=${run(() => this.openDialog("appeal", "comment", comment.id, comment.body))}
+                >
+                  ${icon("gavel", 20)}${this.label("appeal", "Appeal")}
+                </button>
+              `
+            : nothing
+        }
+        ${
+          viewer.canDelete
+            ? html`
+                <button class="menu-item" role="menuitem" @click=${run(() => this.deleteComment(comment))}>
+                  ${icon("delete", 20)}${this.label("delete", "Delete")}
+                </button>
+              `
+            : nothing
+        }
+      </div>
+      <button class="scrim community-menu-scrim" aria-label=${this.label("close", "Close")} @click=${close}></button>
+    `;
+  }
+  private menuKeys(event: KeyboardEvent, close: () => void) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const entries = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>("[role=menuitem]")];
+    const index = entries.indexOf(document.activeElement as HTMLElement);
+    entries[
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? entries.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + entries.length) % entries.length
+    ]?.focus();
   }
   private renderDialog() {
     const dialog = this.dialog;
@@ -1947,6 +2429,28 @@ ${String(comment.body || "")}</textarea>
       </div>
     `;
   }
+  private async loadProfilePosts() {
+    if (this.loadingMore || !this.document?.postsNextCursor) return;
+    this.loadingMore = true;
+    try {
+      const result = await this.request(
+        `/api/v1/community/users/${encodeURIComponent(this.entityId)}?cursor=${encodeURIComponent(String(this.document.postsNextCursor))}`,
+      );
+      const posts = [
+        ...(Array.isArray(this.document.posts) ? (this.document.posts as Value[]) : []),
+        ...(Array.isArray(result.posts) ? (result.posts as Value[]) : []),
+      ];
+      this.document = {
+        ...this.document,
+        posts: [...new Map(posts.map((post) => [String(post.id), post])).values()],
+        postsNextCursor: result.postsNextCursor,
+      };
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.loadingMore = false;
+    }
+  }
   private renderUserDetail() {
     const profile = ((this.document?.profile as Value | undefined) || this.document || {}) as Value;
     const posts = Array.isArray(this.document?.posts) ? (this.document.posts as Value[]) : [];
@@ -1972,7 +2476,7 @@ ${String(comment.body || "")}</textarea>
             <small>${this.label("joined", "Joined")} ${this.date(profile.joinedAt)}</small>
           </span>
           ${
-            !profile.owner && viewer.canInteract
+            !profile.owner && (viewer.canInteract || viewer.blocked || !this.session)
               ? html`
                   <div class="community-user-actions">
                     <button
@@ -2017,15 +2521,25 @@ ${String(comment.body || "")}</textarea>
             `,
           )}
         </dl>
-        <div class="community-masonry community-masonry--profile">
+        <div class="community-masonry--profile">
           ${posts.map((post) =>
             this.renderPin({
               ...post,
+              authorUid: post.authorUid || profile.uid || this.entityId,
               authorName: post.authorName || profile.displayName || profile.handle,
               authorImage: post.authorImage || profile.avatarUrl,
             }),
           )}
         </div>
+        ${
+          this.document?.postsNextCursor
+            ? html`
+                <button class="button button--tonal" ?disabled=${this.loadingMore} @click=${this.loadProfilePosts}>
+                  ${this.label("loadMore", "Load more")}
+                </button>
+              `
+            : nothing
+        }
         ${
           works.length
             ? html`
@@ -2406,55 +2920,45 @@ ${String(comment.body || "")}</textarea>
     `;
   }
   render() {
-    if (this.routeKind === "post-new" || this.routeKind === "post-edit") {
-      clearAppBarActions(COMMUNITY_BAR_OWNER);
-      return this.renderPostEditor();
+    const editor = this.routeKind === "post-new" || this.routeKind === "post-edit";
+    if (this.routeKind !== "collection" && this.mode !== "playlists") {
+      clearAppBarSearch(COMMUNITY_BAR_OWNER);
+      setAppBarActions(
+        COMMUNITY_BAR_OWNER,
+        editor
+          ? html`
+              ${iconButton({ icon: this.editorMode === "preview" ? "edit" : "visibility", label: this.label(this.editorMode === "preview" ? "edit" : "preview", "Preview"), pressed: this.editorMode === "preview", toggle: true, onClick: () => (this.editorMode = this.editorMode === "preview" ? "edit" : "preview") })}
+            `
+          : html``,
+      );
+      if (this.phase !== "ready")
+        return html`
+          <section class="community-page page">${this.renderPhase()}</section>
+        `;
+      if (editor) return this.renderPostEditor();
+      if (this.routeKind === "post-detail") return this.renderPostDetail();
+      if (this.routeKind === "user-detail") return this.renderUserDetail();
     }
-    if (this.phase === "ready" && this.routeKind === "post-detail") {
-      // The detail pane owns the screen, the way an entity page does: the
-      // collection's bar controls would only act on the hidden feed behind.
-      clearAppBarActions(COMMUNITY_BAR_OWNER);
-      return this.renderPostDetail();
-    }
-    if (this.phase === "ready" && this.routeKind === "user-detail") {
-      clearAppBarActions(COMMUNITY_BAR_OWNER);
-      return this.renderUserDetail();
-    }
+    if (this.mode !== "notifications")
+      setAppBarSearch(COMMUNITY_BAR_OWNER, {
+        value: this.query,
+        label: this.label("search", "Search community"),
+        onInput: (value) => {
+          this.query = value;
+        },
+        onSubmit: (value) => {
+          this.query = value;
+          this.syncCollectionUrl();
+          if (this.mode === "playlists") this.syncPlaylist();
+          else void this.load(false);
+        },
+      });
     if (this.phase === "ready" && this.mode === "playlists") return this.renderPlaylists();
     return this.renderCollection();
   }
-  private feedScopeOptions() {
-    return (["recommended", "latest", "following"] as const).map((scope) => ({
-      value: scope,
-      label: this.label(`feed${scope.charAt(0).toUpperCase()}${scope.slice(1)}`, scope),
-    }));
-  }
-  /**
-   * The feed's own controls, rendered into the shell's top app bar — the same
-   * slot every browse screen uses. The page itself carries no toolbar: the
-   * shell's navigation drawer already owns the routes, so a second row of
-   * buttons under the app bar would only duplicate it. The scope switch rides
-   * in the bar too, which leaves the page nothing but the waterfall.
-   */
   private collectionBar() {
-    const composer = this.mode === "feeds" || this.mode === "mine" || this.mode === "bookmarks" || this.mode === "tags";
-    const filterable = this.mode !== "activity";
-    const applied = this.appliedFilterCount();
+    const composer = ["feeds", "mine", "bookmarks", "tags"].includes(this.mode);
     return html`
-      ${
-        this.mode === "feeds"
-          ? html`
-              <div class="community-bar-scopes">
-                ${segmented({
-                  label: this.label("feed", "Feed"),
-                  value: this.feedScope,
-                  options: this.feedScopeOptions(),
-                  onSelect: (scope) => this.setFeedScope(scope),
-                })}
-              </div>
-            `
-          : nothing
-      }
       ${
         composer
           ? html`
@@ -2465,19 +2969,7 @@ ${String(comment.body || "")}</textarea>
             `
           : nothing
       }
-      ${
-        filterable
-          ? iconButton({
-              label: this.label("filters", "Filters"),
-              icon: "tune",
-              onClick: () => (this.filtersOpen = !this.filtersOpen),
-              pressed: this.filtersOpen,
-              toggle: true,
-              badge: applied || undefined,
-              className: "community-filter-toggle",
-            })
-          : nothing
-      }
+      ${this.mode !== "activity" ? iconButton({ label: this.label("filters", "Filters"), icon: "tune", onClick: () => (this.filtersOpen = !this.filtersOpen), pressed: this.filtersOpen, toggle: true, badge: this.appliedFilterCount() || undefined }) : nothing}
     `;
   }
   /** How many non-default filters this collection currently carries. */
@@ -2522,7 +3014,14 @@ ${String(comment.body || "")}</textarea>
               `
             : nothing
         }
-        ${this.renderPhase()} ${this.renderCardMenu()} ${this.renderFilters()} ${this.renderDialog()}
+        ${
+          this.error && this.phase !== "error"
+            ? html`
+                <div class="inline-message error" role="alert">${this.error}</div>
+              `
+            : nothing
+        }${this.renderPhase()}
+        ${this.renderCardMenu()} ${this.renderFilters()} ${this.renderDialog()}
         ${
           this.filtersOpen
             ? html`
@@ -2546,7 +3045,10 @@ ${String(comment.body || "")}</textarea>
     const post = menu.post;
     const viewer = (post.viewer as Value | undefined) || {};
     const authorUid = Number(post.authorUid || 0);
-    const close = () => (this.cardMenu = null);
+    const close = () => {
+      this.cardMenu = null;
+      this.menuTrigger?.focus();
+    };
     const run = (action: () => void) => () => {
       close();
       action();
@@ -2559,10 +3061,30 @@ ${String(comment.body || "")}</textarea>
         aria-label=${this.label("moreActions", "More actions")}
         style=${`top: ${menu.y}px; left: ${menu.x}px;`}
         @keydown=${(event: KeyboardEvent) => {
-          if (event.key === "Escape") close();
+          if (event.key === "Escape") {
+            event.preventDefault();
+            close();
+          }
+          if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+            event.preventDefault();
+            const entries = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>("[role=menuitem]")];
+            const index = entries.indexOf(document.activeElement as HTMLElement);
+            entries[
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? entries.length - 1
+                  : (index + (event.key === "ArrowDown" ? 1 : -1) + entries.length) % entries.length
+            ]?.focus();
+          }
         }}
       >
-        <button class="menu-item" type="button" role="menuitem" @click=${run(() => this.togglePinBookmark(post))}>
+        <button
+          class="menu-item"
+          type="button"
+          role="menuitem"
+          @click=${run(() => (this.routeKind === "post-detail" ? this.toggleBookmark() : this.togglePinBookmark(post)))}
+        >
           ${icon("bookmark_border", 20)}
           <span>
             ${
@@ -2583,7 +3105,7 @@ ${String(comment.body || "")}</textarea>
                   class="menu-item"
                   type="button"
                   role="menuitem"
-                  @click=${run(() => location.assign(this.path(`/community/users/${authorUid}`)))}
+                  @click=${run(() => void navigateDetailPage(this.path(`/community/users/${authorUid}`)))}
                 >
                   ${icon("person", 20)}
                   <span>${this.label("viewAuthor", "View author")}</span>
@@ -2603,6 +3125,38 @@ ${String(comment.body || "")}</textarea>
                   ${icon("visibility_off", 20)}
                   <span>${this.label("notInterested", "Not interested")}</span>
                 </button>
+              `
+            : nothing
+        }
+        ${
+          viewer.canEdit && this.routeKind === "post-detail"
+            ? html`
+                <button class="menu-item" role="menuitem" @click=${run(() => this.setPinned(!post.pinnedAt))}>
+                  ${icon(post.pinnedAt ? "keep_off" : "keep", 20)}${this.label(post.pinnedAt ? "unpinPost" : "pinPost", "Pin")}
+                </button>
+                <button
+                  class="menu-item"
+                  role="menuitem"
+                  @click=${run(() => this.setArchived(post.state !== "archived"))}
+                >
+                  ${icon(post.state === "archived" ? "unarchive" : "archive", 20)}${this.label(post.state === "archived" ? "restorePost" : "archivePost", "Archive")}
+                </button>
+                <button class="menu-item" role="menuitem" @click=${run(() => this.deletePost())}>
+                  ${icon("delete", 20)}${this.label("deletePost", "Delete post")}
+                </button>
+                ${
+                  post.moderationStatus === "block"
+                    ? html`
+                        <button
+                          class="menu-item"
+                          role="menuitem"
+                          @click=${run(() => this.openDialog("appeal", "post", post.id, post.title))}
+                        >
+                          ${icon("gavel", 20)}${this.label("appeal", "Appeal")}
+                        </button>
+                      `
+                    : nothing
+                }
               `
             : nothing
         }
@@ -2649,7 +3203,6 @@ ${String(comment.body || "")}</textarea>
   private renderFilters() {
     const filterable = this.mode !== "activity";
     if (!filterable) return nothing;
-    const searching = this.mode !== "notifications";
     return html`
       <aside
         class=${`community-filters sheet sheet--side ${this.filtersOpen ? "is-open" : ""}`}
@@ -2673,39 +3226,6 @@ ${String(comment.body || "")}</textarea>
           </span>
         </header>
         <div class="community-filters__body">
-          ${
-            searching
-              ? html`
-                  <form class="community-filters__search" role="search" @submit=${this.submit}>
-                    <label class="search-bar">
-                      ${icon("search", 20)}
-                      <input
-                        type="search"
-                        .value=${this.query}
-                        placeholder=${this.label("search", "Search community")}
-                        aria-label=${this.label("search", "Search community")}
-                        @input=${(event: Event) => (this.query = (event.target as HTMLInputElement).value)}
-                      />
-                      ${
-                        this.query
-                          ? iconButton({
-                              label: this.label("clear", "Clear"),
-                              icon: "close",
-                              onClick: () => {
-                                this.query = "";
-                                this.syncCollectionUrl();
-                                void this.load(false);
-                              },
-                              size: 20,
-                            })
-                          : nothing
-                      }
-                    </label>
-                    <button class="button" type="submit">${this.label("search", "Search")}</button>
-                  </form>
-                `
-              : nothing
-          }
           ${
             this.appliedFilterCount() && this.mode !== "playlists"
               ? html`
@@ -2854,7 +3374,37 @@ ${String(comment.body || "")}</textarea>
       </aside>
     `;
   }
+  private notificationLabel(item: Value) {
+    const keys: Record<string, string> = {
+      comment: "notificationComment",
+      post_reaction: "notificationReaction",
+      comment_reaction: "notificationCommentReaction",
+      follow: "notificationFollow",
+      mention: "notificationMention",
+      moderation: "notificationModeration",
+      reply: "notificationReply",
+    };
+    return this.label(keys[String(item.kind)] || "notifications", "Notification").replace(
+      "{name}",
+      String(item.actorName || this.label("member", "Member")),
+    );
+  }
   private renderItems() {
+    return html`
+      ${this.renderPageItems()}${
+        this.cursor
+          ? html`
+              <div class="load-more">
+                <button class="button button--tonal" ?disabled=${this.loadingMore} @click=${() => this.load(true)}>
+                  ${this.loadingMore ? this.label("loading", "Loading") : this.label("loadMore", "Load more")}
+                </button>
+              </div>
+            `
+          : nothing
+      }
+    `;
+  }
+  private renderPageItems() {
     if (!this.items.length) {
       const emptyKeys: Record<string, [string, string]> = {
         mine: ["emptyMine", "You have not posted yet"],
@@ -2872,10 +3422,7 @@ ${String(comment.body || "")}</textarea>
               <article class="community-activity-row">
                 <span>
                   <strong>${String(comment.postTitle || this.label("activityPost", "Post"))}</strong>
-                  <small>
-                    ${this.date(comment.createdAt)} · ${this.label("activityRevision", "Revision")}
-                    ${String(comment.version || "")}
-                  </small>
+                  <small>${this.date(comment.createdAt)}</small>
                   <p>${String(comment.body || "")}</p>
                 </span>
                 <footer>
@@ -2987,7 +3534,7 @@ ${String(comment.body || "")}</textarea>
                   </span>
                   <span class="list-item__body">
                     <span class="list-item__headline">${item.actorName || "haneoka"}</span>
-                    <span class="list-item__supporting">${item.kind || "notification"}</span>
+                    <span class="list-item__supporting">${this.notificationLabel(item)}</span>
                   </span>
                   <span class="list-item__trailing list-item__meta">${this.date(item.createdAt)}</span>
                 </a>
@@ -2996,20 +3543,7 @@ ${String(comment.body || "")}</textarea>
           )}
         </ul>
       `;
-    return html`
-      ${this.renderPins()}
-      ${
-        this.cursor
-          ? html`
-              <div class="load-more">
-                <button class="button button--tonal" @click=${() => this.load(true)}>
-                  ${this.label("loadMore", "Load more")}
-                </button>
-              </div>
-            `
-          : nothing
-      }
-    `;
+    return this.renderPins();
   }
   /**
    * The feed itself: a masonry of Xiaohongshu-style pins. Each pin is one
@@ -3018,30 +3552,50 @@ ${String(comment.body || "")}</textarea>
    * anatomy the site's collection tiles use, stacked in balanced columns.
    */
   private renderPins() {
+    if (this.placementColumns !== this.columnCount) {
+      this.placements.clear();
+      this.placementColumns = this.columnCount;
+    }
+    const columns: Value[][] = Array.from({ length: this.columnCount }, () => []);
+    const heights = Array.from({ length: this.columnCount }, () => 0);
+    const ids = new Set(this.items.map((post) => String(post.id)));
+    for (const id of this.placements.keys()) if (!ids.has(id)) this.placements.delete(id);
+    for (const post of this.items) {
+      const id = String(post.id);
+      let column = this.placements.get(id);
+      if (column === undefined) {
+        column = heights.indexOf(Math.min(...heights));
+        this.placements.set(id, column);
+      }
+      columns[column].push(post);
+      const first = Array.isArray(post.attachments)
+        ? (post.attachments.find((item) => String((item as Value).mediaType).startsWith("image/")) as Value | undefined)
+        : undefined;
+      heights[column] += first
+        ? 160 + 240 / communityImageRatio(first as Partial<CommunityImage>)
+        : 140 + Math.min(9, Math.ceil(String(post.excerpt || post.body || "").length / 18)) * 22;
+    }
     return html`
-      <div class="community-masonry">${this.items.map((post) => this.renderPin(post))}</div>
+      <div class="community-masonry" style=${`--community-columns:${this.columnCount}`}>
+        ${columns.map(
+          (column) => html`
+            <div class="community-masonry__column">
+              ${column.map((post) => keyed(String(post.id), this.renderPin(post)))}
+            </div>
+          `,
+        )}
+      </div>
     `;
   }
-  /** Pins keep a 4/5 cover until their image loads, then adopt its true
-   * ratio (clamped so panoramas do not collapse and portraits do not tower). */
-  private pinMediaLoaded(event: Event) {
-    const image = event.currentTarget as HTMLImageElement;
-    image.classList.add("is-loaded");
-    const media = image.closest<HTMLElement>(".community-pin__media");
-    if (!media || !image.naturalWidth || !image.naturalHeight) return;
-    const ratio = image.naturalWidth / image.naturalHeight;
-    const bounded = Math.min(Math.max(ratio, 0.62), 1.9);
-    media.style.aspectRatio = `${bounded}`;
-  }
   private renderPin(post: Value) {
-    const href = this.path(`/community/posts/${post.id}`);
+    const href = `${this.path(`/community/posts/${post.id}`)}?return=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
     const viewer = (post.viewer as Value | undefined) || {};
     const images = Array.isArray(post.attachments)
-      ? (post.attachments as Value[]).filter((attachment) => String(attachment.mediaType).startsWith("image/"))
+      ? (post.attachments as Value[]).filter((attachment) => /^(image|video)\//.test(String(attachment.mediaType)))
       : post.coverUrl
-        ? [{ contentUrl: post.coverUrl }]
+        ? [{ contentUrl: post.coverUrl, width: post.coverWidth, height: post.coverHeight }]
         : [];
-    const excerpt = String(post.excerpt || post.body || "");
+    const excerpt = communityExcerpt(String(post.excerpt || post.body || ""));
     return html`
       <article class="community-pin">
         <a
@@ -3052,15 +3606,30 @@ ${String(comment.body || "")}</textarea>
           ${
             images.length
               ? html`
-                  <span class="community-pin__media media-loading">
+                  <span
+                    class="community-pin__media"
+                    style=${`aspect-ratio:${communityImageRatio(images[0] as Partial<CommunityImage>)}`}
+                  >
+                    <md-circular-progress
+                      indeterminate
+                      aria-label=${this.label("loading", "Loading")}
+                    ></md-circular-progress>
                     <img
-                      src=${String(images[0]?.contentUrl || "")}
+                      src=${String(images[0]?.thumbnailUrl || images[0]?.posterUrl || images[0]?.previewUrl || images[0]?.contentUrl || "")}
                       alt=""
                       loading="lazy"
                       decoding="async"
-                      @load=${this.pinMediaLoaded}
-                      @error=${(event: Event) => (event.currentTarget as HTMLImageElement).classList.add("is-error")}
+                      @load=${(event: Event) => ((event.currentTarget as HTMLElement).parentElement!.dataset.state = "ready")}
+                      @error=${(event: Event) => ((event.currentTarget as HTMLElement).parentElement!.dataset.state = "error")}
                     />
+                    <span class="community-pin__failure">${icon("broken_image", 24)}</span>
+                    ${
+                      String(images[0]?.mediaType || "").startsWith("video/") || images[0]?.playbackUrl
+                        ? html`
+                            <span class="community-pin__play" aria-hidden="true">${icon("play_arrow", 24)}</span>
+                          `
+                        : nothing
+                    }
                     ${
                       images.length > 1
                         ? html`
@@ -3091,7 +3660,7 @@ ${String(comment.body || "")}</textarea>
           </span>
         </a>
         <div class="community-pin__meta">
-          <span class="community-pin__author">
+          <a class="community-pin__author" href=${this.path(`/community/users/${post.authorUid}`)}>
             <span class="community-pin__avatar">
               ${
                 post.authorImage
@@ -3102,7 +3671,7 @@ ${String(comment.body || "")}</textarea>
               }
             </span>
             <span class="clamp-1">${String(post.authorName || this.label("member", "Member"))}</span>
-          </span>
+          </a>
           <button
             class=${`community-pin__like${viewer.liked ? " is-liked" : ""}`}
             type="button"
@@ -3113,14 +3682,6 @@ ${String(comment.body || "")}</textarea>
           >
             ${icon(viewer.liked ? "favorite-filled" : "favorite_border", 16)}
             <span class="tabular">${Number(post.likeCount || 0)}</span>
-          </button>
-          <button
-            class="icon-button icon-button--small community-pin__more"
-            type="button"
-            aria-label=${this.label("moreActions", "More actions")}
-            @click=${(event: MouseEvent) => this.openCardMenu(post, event)}
-          >
-            ${icon("more_vert", 18)}
           </button>
         </div>
       </article>

@@ -51,13 +51,35 @@ interface ModerationInvariantRow {
 interface AttachmentContentRow {
   byteSize: number | null;
   fileName: string;
-  mediaType: "image/jpeg" | "image/png" | "image/webp" | "text/plain";
+  mediaType:
+    | "image/jpeg"
+    | "image/png"
+    | "image/webp"
+    | "image/gif"
+    | "image/heic"
+    | "image/heif"
+    | "video/mp4"
+    | "video/webm"
+    | "video/quicktime"
+    | "text/plain";
   objectKey: string;
   purpose: "avatar" | "post";
   r2Etag: string | null;
   r2Version: string | null;
   sha256: string | null;
   status: "deleted" | "ready" | "rejected" | "reserved" | "review" | "scanning";
+  mediaJobState?: "failed" | "processing" | "queued" | "ready" | null;
+  moderationObjectKey?: string | null;
+  moderationMediaType?: "image/jpeg" | "image/png" | "image/webp" | "video/mp4" | null;
+  moderationByteSize?: number | null;
+  moderationSha256?: string | null;
+}
+
+interface AttachmentVariantContentRow {
+  byteSize: number;
+  mediaType: "image/jpeg" | "image/png" | "image/webp" | "video/mp4";
+  objectKey: string;
+  sha256: string;
 }
 
 interface CommentContentRow {
@@ -1875,14 +1897,25 @@ const moderateImageWithAi = async (
   throw failure;
 };
 
-const readR2Bytes = async (env: Env, attachment: AttachmentContentRow): Promise<Uint8Array> => {
+const readR2Bytes = async (
+  env: Env,
+  attachment:
+    | Pick<AttachmentContentRow, "byteSize" | "objectKey" | "r2Etag" | "r2Version" | "sha256">
+    | AttachmentVariantContentRow,
+): Promise<Uint8Array> => {
+  const metadata = await env.COMMUNITY_UPLOADS.head(attachment.objectKey);
+  if (metadata?.size && metadata.size > 8 * 1024 * 1024) {
+    const failure = new Error("Attachment is too large for in-worker automatic moderation");
+    failure.name = "AttachmentTooLargeForAutomaticModerationError";
+    throw failure;
+  }
   const object = await env.COMMUNITY_UPLOADS.get(attachment.objectKey);
   if (
     !object?.body ||
     object.size !== attachment.byteSize ||
-    object.size > 10 * 1024 * 1024 ||
-    object.etag !== attachment.r2Etag ||
-    object.version !== attachment.r2Version ||
+    object.size > 8 * 1024 * 1024 ||
+    ("r2Etag" in attachment && attachment.r2Etag !== null && object.etag !== attachment.r2Etag) ||
+    ("r2Version" in attachment && attachment.r2Version !== null && object.version !== attachment.r2Version) ||
     object.customMetadata?.sha256 !== attachment.sha256
   ) {
     const failure = new Error("Moderation attachment object failed its stored integrity checks");
@@ -1988,16 +2021,50 @@ const decideEntity = async (
   }
 
   const attachment = await env.DB.prepare(
-    `SELECT object_key AS objectKey, original_name AS fileName, media_type AS mediaType,
-            byte_size AS byteSize, sha256, r2_etag AS r2Etag, r2_version AS r2Version, status, purpose
-     FROM community_attachment WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    `SELECT attachment.object_key AS objectKey, attachment.original_name AS fileName,
+            attachment.media_type AS mediaType, attachment.byte_size AS byteSize,
+            attachment.sha256, attachment.r2_etag AS r2Etag, attachment.r2_version AS r2Version,
+            attachment.status, attachment.purpose,
+            media_job.state AS mediaJobState,
+            moderation_variant.object_key AS moderationObjectKey,
+            moderation_variant.media_type AS moderationMediaType,
+            moderation_variant.byte_size AS moderationByteSize,
+            moderation_variant.sha256 AS moderationSha256
+     FROM community_attachment AS attachment
+     LEFT JOIN community_media_job AS media_job ON media_job.attachment_id = attachment.id
+     LEFT JOIN community_attachment_variant AS moderation_variant
+       ON moderation_variant.attachment_id = attachment.id AND moderation_variant.kind = 'moderation'
+     WHERE attachment.id = ? AND attachment.deleted_at IS NULL LIMIT 1`,
   )
     .bind(moderationCase.entityId)
     .first<AttachmentContentRow>();
   if (!attachment || !attachment.byteSize || attachment.status === "deleted") {
     return null;
   }
-  const bytes = await readR2Bytes(env, attachment);
+  if (
+    attachment.purpose === "post" &&
+    attachment.mediaJobState !== undefined &&
+    attachment.mediaJobState !== null &&
+    (attachment.mediaJobState !== "ready" || !attachment.moderationObjectKey || !attachment.moderationSha256)
+  ) {
+    // Native media processing must publish a trusted moderation derivative
+    // before a post attachment can reach the model. Returning null lets the
+    // queued moderation job retry without ever loading the original media.
+    return null;
+  }
+  const moderationObject: AttachmentVariantContentRow | null =
+    attachment.moderationObjectKey &&
+    attachment.moderationMediaType &&
+    attachment.moderationByteSize &&
+    attachment.moderationSha256
+      ? {
+          byteSize: attachment.moderationByteSize,
+          mediaType: attachment.moderationMediaType,
+          objectKey: attachment.moderationObjectKey,
+          sha256: attachment.moderationSha256,
+        }
+      : null;
+  const bytes = await readR2Bytes(env, moderationObject || attachment);
   if (attachment.mediaType === "text/plain") {
     let text: string;
     try {
@@ -2009,6 +2076,10 @@ const decideEntity = async (
     }
     return moderateTextWithAi(env, `${attachment.fileName}\n${text}`, "text-attachment");
   }
+  if (moderationObject) {
+    return moderateImageWithAi(env, bytes, moderationObject.mediaType, attachment.purpose, attachment.fileName);
+  }
+  if (!attachment.mediaType.startsWith("image/")) return null;
   return moderateImageWithAi(env, bytes, attachment.mediaType, attachment.purpose, attachment.fileName);
 };
 
@@ -2338,7 +2409,8 @@ const releaseModerationLease = async (
   return Number(result.meta.changes || 0) === 1;
 };
 
-type ModerationFailureKind = "attachment-encoding" | "attachment-integrity" | "infrastructure" | "model";
+type ModerationFailureKind =
+  "attachment-encoding" | "attachment-integrity" | "attachment-too-large" | "infrastructure" | "model";
 
 const MODEL_FAILURE_NAMES = new Set([
   "ModerationConsensusError",
@@ -2352,6 +2424,7 @@ const moderationErrorName = (error: unknown, fallback: string): string =>
 const moderationFailureKind = (errorName: string): ModerationFailureKind => {
   if (errorName === "AttachmentIntegrityError") return "attachment-integrity";
   if (errorName === "InvalidAttachmentEncodingError") return "attachment-encoding";
+  if (errorName === "AttachmentTooLargeForAutomaticModerationError") return "attachment-too-large";
   if (MODEL_FAILURE_NAMES.has(errorName)) return "model";
   return "infrastructure";
 };
@@ -2404,6 +2477,75 @@ const recordAttachmentFailure = async (
     null,
     lease,
   );
+};
+
+const recordAttachmentReview = async (
+  env: Env,
+  moderationCase: CaseRow,
+  lease: ModerationJobLease,
+  reasonCode: string,
+): Promise<void> => {
+  const now = Date.now();
+  const decisionToken = crypto.randomUUID();
+  const categories = JSON.stringify(["automatic-moderation-bounded"]);
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE community_moderation_case
+       SET status = 'review', source = 'system', categories_json = ?, reason_code = ?, model_id = NULL,
+           reviewer_user_id = NULL, decision_token = ?, updated_at = ?, completed_at = ?
+       WHERE id = ? AND entity_kind = 'attachment' AND entity_id = ? AND entity_revision = ? AND status = 'pending'
+         AND EXISTS (
+           SELECT 1 FROM community_moderation_job
+           WHERE id = ? AND case_id = community_moderation_case.id AND status = 'processing'
+             AND lease_token = ? AND lease_until = ? AND lease_until >= ?
+         )`,
+    ).bind(
+      categories,
+      reasonCode,
+      decisionToken,
+      now,
+      now,
+      moderationCase.id,
+      moderationCase.entityId,
+      moderationCase.entityRevision,
+      lease.jobId,
+      lease.leaseToken,
+      lease.leaseUntil,
+      now,
+    ),
+    env.DB.prepare(
+      `INSERT INTO community_moderation_event
+       (id, case_id, actor_type, actor_user_id, from_status, to_status, reason_code,
+        categories_json, model_id, decision_token, created_at)
+       SELECT ?, ?, 'system', NULL, 'pending', 'review', ?, ?, NULL, ?, ?
+       WHERE EXISTS (
+         SELECT 1 FROM community_moderation_case WHERE id = ? AND status = 'review' AND decision_token = ?
+       )`,
+    ).bind(
+      crypto.randomUUID(),
+      moderationCase.id,
+      reasonCode,
+      categories,
+      decisionToken,
+      now,
+      moderationCase.id,
+      decisionToken,
+    ),
+    env.DB.prepare(
+      `UPDATE community_attachment
+       SET moderation_status = 'review', status = 'review', failure_code = ?, updated_at = ?
+       WHERE id = ? AND status = 'scanning' AND deleted_at IS NULL
+         AND EXISTS (
+           SELECT 1 FROM community_moderation_case WHERE id = ? AND status = 'review' AND decision_token = ?
+         )`,
+    ).bind(reasonCode, now, moderationCase.entityId, moderationCase.id, decisionToken),
+    env.DB.prepare(
+      `UPDATE community_moderation_job
+       SET status = 'succeeded', lease_token = NULL, lease_until = NULL, dispatch_token = NULL,
+           dispatched_at = NULL, updated_at = ?
+       WHERE id = ? AND status = 'processing' AND lease_token = ? AND lease_until = ?`,
+    ).bind(now, lease.jobId, lease.leaseToken, lease.leaseUntil),
+  ]);
 };
 
 const allowAfterModerationFailure = async (
@@ -2551,6 +2693,15 @@ const processQueueMessage = async (env: Env, message: Message<unknown>): Promise
     if (failureKind === "attachment-encoding" || failureKind === "attachment-integrity") {
       try {
         await recordAttachmentFailure(env, row, lease, failureKind);
+      } catch (commitError) {
+        await recoverAfterCommitFailure(commitError);
+      }
+      message.ack();
+      return;
+    }
+    if (failureKind === "attachment-too-large") {
+      try {
+        await recordAttachmentReview(env, row, lease, "system.attachment_too_large_for_automatic_moderation");
       } catch (commitError) {
         await recoverAfterCommitFailure(commitError);
       }
@@ -2726,6 +2877,22 @@ export const reconcileModerationState = async (env: Env): Promise<void> => {
          AND attachment.r2_etag IS NOT NULL
          AND attachment.r2_version IS NOT NULL
          AND attachment.deleted_at IS NULL
+         AND (
+           attachment.purpose = 'avatar'
+           OR NOT EXISTS (
+             SELECT 1 FROM community_media_job AS media_job
+             WHERE media_job.attachment_id = attachment.id
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM community_media_job AS ready_media_job
+             JOIN community_attachment_variant AS moderation_variant
+               ON moderation_variant.attachment_id = ready_media_job.attachment_id
+              AND moderation_variant.kind = 'moderation'
+             WHERE ready_media_job.attachment_id = attachment.id
+               AND ready_media_job.state = 'ready'
+           )
+         )
          AND NOT EXISTS (
            SELECT 1 FROM community_moderation_case AS moderation_case
            WHERE moderation_case.entity_kind = 'attachment' AND moderation_case.entity_id = attachment.id

@@ -1,3 +1,5 @@
+import { handleCommunityMediaQueue, reconcileCommunityMedia } from "./community-media";
+export { CommunityMediaContainer } from "./community-media-container";
 import { catalogProjectionTables, projectCatalogDocument } from "../src/lib/catalog-projection";
 import { handleAdminRequest } from "./admin";
 import { handleAccountRegistrationRequest, handleAuthRequest } from "./auth";
@@ -17,6 +19,13 @@ import { handlePublicProfileRequest } from "./public-profile";
 import { cleanupCommunityUploads, handleUploadRequest } from "./uploads";
 import { projectCatalogCharts, SonolusLevelService } from "@haneoka/sonolus-core";
 import {
+  OUR_NOTES_LANE_SKIN_NAMES,
+  OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
+  OUR_NOTES_NOTE_SE_GROUP_NAMES,
+  OUR_NOTES_NOTE_SKIN_NAMES,
+  OUR_NOTES_STAGE_NAMES,
+} from "@haneoka/cassiopeia-plugin-our-notes";
+import {
   isReleaseServer,
   legacyEntityRedirectTarget,
   legacyCollectionRedirectTarget,
@@ -28,11 +37,21 @@ import {
   type ResourceRoute,
 } from "../src/lib/resource-route";
 import {
+  createOurNotesSonolusItemLabels,
+  localizeSonolusDocument,
   parseReleaseChartDataId,
   ReleaseChartCatalogProvider,
   ReleaseLevelTemplateProvider,
   RuntimeChartDataProvider,
 } from "@haneoka/sonolus";
+
+const OUR_NOTES_SONOLUS_ITEM_LABELS = createOurNotesSonolusItemLabels({
+  noteSkins: OUR_NOTES_NOTE_SKIN_NAMES,
+  laneSkins: OUR_NOTES_LANE_SKIN_NAMES,
+  noteEffectSkins: OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
+  stages: OUR_NOTES_STAGE_NAMES,
+  noteSeGroups: OUR_NOTES_NOTE_SE_GROUP_NAMES,
+});
 
 type JsonPrimitive = boolean | null | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -2325,6 +2344,40 @@ async function serveGlobalSonolusObject(
   return relative.startsWith("sonolus/") ? serveR2Object(env, request, relative, contentType) : null;
 }
 
+function sonolusDocumentSourceRequest(request: Request): Request {
+  const headers = new Headers(request.headers);
+  for (const name of ["If-Modified-Since", "If-None-Match", "If-Range", "Range"]) headers.delete(name);
+  return new Request(request, { method: "GET", headers });
+}
+
+async function sonolusDocumentEtag(body: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  return `"${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}"`;
+}
+
+async function localizeStaticSonolusDocument(
+  request: Request,
+  response: Response,
+  localization: string | null,
+): Promise<Response> {
+  if (response.status < 200 || response.status >= 300) return response;
+  const document = parseJson(await response.text());
+  const body = JSON.stringify(localizeSonolusDocument(document, localization, OUR_NOTES_SONOLUS_ITEM_LABELS));
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Range");
+  headers.set("Content-Length", String(new TextEncoder().encode(body).byteLength));
+  headers.set("ETag", await sonolusDocumentEtag(body));
+  const etag = headers.get("ETag");
+  if (etagMatches(request.headers.get("If-None-Match"), etag)) {
+    return new Response(null, { status: 304, statusText: response.statusText, headers });
+  }
+  return new Response(request.method === "HEAD" ? null : body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function handleSonolus(
   env: Env,
   ctx: ExecutionContext,
@@ -2402,7 +2455,13 @@ async function handleSonolus(
           request.method === "HEAD"
             ? null
             : projected.kind === "document"
-              ? JSON.stringify(projected.body)
+              ? JSON.stringify(
+                  localizeSonolusDocument(
+                    projected.body,
+                    assetUrl.searchParams.get("localization"),
+                    OUR_NOTES_SONOLUS_ITEM_LABELS,
+                  ),
+                )
               : projected.body,
           { status: projected.status, headers },
         );
@@ -2430,26 +2489,26 @@ async function handleSonolus(
     const page = Math.max(0, Number.parseInt(assetUrl.searchParams.get("page") || "0", 10) || 0);
     assetUrl.pathname = `${assetUrl.pathname}/page-${page}`;
   }
+  const localization = assetUrl.searchParams.get("localization");
   assetUrl.search = "";
   const relative = cleanRelativePath(assetUrl.pathname.slice(1));
   if (!relative?.startsWith("sonolus/")) {
     return new Response(JSON.stringify({ message: "Not found" }), { status: 404, headers: SONOLUS_JSON_HEADERS });
   }
-  const contentType = relative.startsWith("sonolus/repository/")
-    ? "application/octet-stream"
-    : "application/json; charset=utf-8";
-  const response = await edgeCached(
-    cacheRequest,
-    ctx,
-    MEDIA_CACHE_TTL,
-    async () =>
-      (await serveGlobalSonolusObject(env, request, relative, contentType)) ||
-      (await serveReleaseObject(env, request, canonicalRelease, `runtime/${relative}`, contentType)) ||
-      new Response(JSON.stringify({ message: "Not found" }), { status: 404, headers: SONOLUS_JSON_HEADERS }),
-  );
+  const repository = relative.startsWith("sonolus/repository/");
+  const staticDocument = !repository && !relative.startsWith("sonolus/licenses/");
+  const contentType = repository ? "application/octet-stream" : "application/json; charset=utf-8";
+  const response = await edgeCached(cacheRequest, ctx, MEDIA_CACHE_TTL, async () => {
+    const sourceRequest = staticDocument ? sonolusDocumentSourceRequest(request) : request;
+    const source =
+      (await serveGlobalSonolusObject(env, sourceRequest, relative, contentType)) ||
+      (await serveReleaseObject(env, sourceRequest, canonicalRelease, `runtime/${relative}`, contentType)) ||
+      new Response(JSON.stringify({ message: "Not found" }), { status: 404, headers: SONOLUS_JSON_HEADERS });
+    return staticDocument ? localizeStaticSonolusDocument(request, source, localization) : source;
+  });
   if (response.status === 404) return response;
   const headers = new Headers(response.headers);
-  const extra = assetPathname.startsWith("/sonolus/repository/") ? SONOLUS_REPOSITORY_HEADERS : SONOLUS_JSON_HEADERS;
+  const extra = repository ? SONOLUS_REPOSITORY_HEADERS : SONOLUS_JSON_HEADERS;
   for (const [key, value] of Object.entries(extra)) headers.set(key, value);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
@@ -2761,6 +2820,7 @@ const CLEANUP_MAX_BATCHES = 8;
 const MODERATION_RECONCILIATION_CRON = "17 * * * *";
 const COMMUNITY_UPLOAD_CLEANUP_CRON = "37 */6 * * *";
 const DATABASE_CLEANUP_CRON = "23 3 * * *";
+const MEDIA_RECONCILIATION_CRON = "*/2 * * * *";
 
 async function cleanupDatabase(env: Env): Promise<void> {
   const now = new Date();
@@ -2800,13 +2860,15 @@ const worker: ExportedHandler<Env> = {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (!env.DB) return;
     const scheduledTask: readonly [string, () => Promise<void>] | null =
-      controller.cron === MODERATION_RECONCILIATION_CRON
-        ? ["moderation_reconciliation", () => reconcileModerationState(env)]
-        : controller.cron === COMMUNITY_UPLOAD_CLEANUP_CRON
-          ? ["community_upload_cleanup", () => cleanupCommunityUploads(env)]
-          : controller.cron === DATABASE_CLEANUP_CRON
-            ? ["database_cleanup", () => cleanupDatabase(env)]
-            : null;
+      controller.cron === MEDIA_RECONCILIATION_CRON
+        ? ["community_media_reconciliation", () => reconcileCommunityMedia(env)]
+        : controller.cron === MODERATION_RECONCILIATION_CRON
+          ? ["moderation_reconciliation", () => reconcileModerationState(env)]
+          : controller.cron === COMMUNITY_UPLOAD_CLEANUP_CRON
+            ? ["community_upload_cleanup", () => cleanupCommunityUploads(env)]
+            : controller.cron === DATABASE_CLEANUP_CRON
+              ? ["database_cleanup", () => cleanupDatabase(env)]
+              : null;
     if (!scheduledTask) {
       console.warn(JSON.stringify({ cron: controller.cron, event: "worker.unknown_scheduled_trigger" }));
       return;
@@ -2829,6 +2891,7 @@ const worker: ExportedHandler<Env> = {
     );
   },
   async queue(batch: MessageBatch, env: Env): Promise<void> {
+    if (await handleCommunityMediaQueue(batch, env)) return;
     await handleModerationQueue(batch, env);
   },
 };

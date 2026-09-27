@@ -73,18 +73,29 @@
     },
   ],
 
+  "containers": [{
+    "class_name": "CommunityMediaContainer",
+    "image": "./packages/community-media/Dockerfile",
+    "instance_type": {"vcpu": 1, "memory_mib": 3072, "disk_mb": 4096},
+    "max_instances": 2
+  }],
+  "durable_objects": {"bindings": [{"name": "MEDIA_PROCESSOR", "class_name": "CommunityMediaContainer"}]},
+  "migrations": [{"tag": "community-media-v1", "new_sqlite_classes": ["CommunityMediaContainer"]}],
+
   "ai": {
     "binding": "AI",
   },
 
   "queues": {
     "producers": [
+      {"binding": "MEDIA_QUEUE", "queue": "haneoka-community-media"},
       {
         "binding": "MODERATION_QUEUE",
         "queue": "haneoka-community-moderation",
       },
     ],
     "consumers": [
+      {"queue": "haneoka-community-media", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 3, "retry_delay": 30, "max_concurrency": 2},
       {
         "queue": "haneoka-community-moderation",
         "max_batch_size": 5,
@@ -116,7 +127,7 @@
   ],
 
   "triggers": {
-    "crons": ["17 * * * *", "37 */6 * * *", "23 3 * * *"],
+    "crons": ["*/2 * * * *", "17 * * * *", "37 */6 * * *", "23 3 * * *"],
   },
 
   "observability": {

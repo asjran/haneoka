@@ -43,7 +43,9 @@ interface RelationshipRow {
 interface PublicProfilePostRow {
   body: string;
   commentCount: number;
+  coverHeight: number | null;
   coverAttachmentId: string | null;
+  coverWidth: number | null;
   createdAt: number;
   id: string;
   likeCount: number;
@@ -62,6 +64,7 @@ interface PostCursor {
 }
 
 interface PublicWorkRow {
+  coverHeight: number | null;
   coverAttachmentId: string | null;
   id: string;
   kind: WorkKind;
@@ -69,6 +72,7 @@ interface PublicWorkRow {
   summary: string | null;
   title: string;
   updatedAt: number;
+  coverWidth: number | null;
 }
 
 interface PublicGameAccountRow {
@@ -280,7 +284,31 @@ const readPosts = async (env: Env, userId: string, limit: number, cursor: PostCu
                 AND attachment.media_type IN ('image/jpeg', 'image/png', 'image/webp')
               ORDER BY link.position, attachment.id
               LIMIT 1
-            ) AS coverAttachmentId
+            ) AS coverAttachmentId,
+            (
+              SELECT attachment.width
+              FROM community_post_attachment AS link
+              JOIN community_attachment AS attachment ON attachment.id = link.attachment_id
+              WHERE link.post_id = post.id
+                AND attachment.status = 'ready'
+                AND attachment.moderation_status = 'allow'
+                AND attachment.deleted_at IS NULL
+                AND attachment.media_type IN ('image/jpeg', 'image/png', 'image/webp')
+              ORDER BY link.position, attachment.id
+              LIMIT 1
+            ) AS coverWidth,
+            (
+              SELECT attachment.height
+              FROM community_post_attachment AS link
+              JOIN community_attachment AS attachment ON attachment.id = link.attachment_id
+              WHERE link.post_id = post.id
+                AND attachment.status = 'ready'
+                AND attachment.moderation_status = 'allow'
+                AND attachment.deleted_at IS NULL
+                AND attachment.media_type IN ('image/jpeg', 'image/png', 'image/webp')
+              ORDER BY link.position, attachment.id
+              LIMIT 1
+            ) AS coverHeight
      FROM community_post AS post
      WHERE post.author_id = ?
        AND post.status = 'published'
@@ -317,9 +345,11 @@ const readPosts = async (env: Env, userId: string, limit: number, cursor: PostCu
   const last = rows.at(-1);
   return {
     nextCursor: hasMore && last ? encodePostCursor({ createdAt: last.createdAt, id: last.id }) : null,
-    posts: rows.map(({ body, coverAttachmentId, ...post }) => ({
+    posts: rows.map(({ body, coverAttachmentId, coverHeight, coverWidth, ...post }) => ({
       ...post,
+      coverHeight,
       coverUrl: attachmentContentUrl(coverAttachmentId),
+      coverWidth,
       excerpt: postExcerpt(body),
       tags: tagsByPost.get(post.id) ?? [],
     })),
@@ -330,7 +360,7 @@ const readWorks = async (env: Env, userId: string) => {
   const result = await env.DB.prepare(
     `SELECT work.id, work.kind, work.title, work.summary,
             work.updated_at AS updatedAt, work.published_at AS publishedAt,
-            cover.id AS coverAttachmentId
+            cover.id AS coverAttachmentId, cover.width AS coverWidth, cover.height AS coverHeight
      FROM community_work AS work
      LEFT JOIN community_attachment AS cover
        ON cover.id = work.cover_attachment_id
@@ -353,9 +383,11 @@ const readWorks = async (env: Env, userId: string) => {
   )
     .bind(userId, WORK_LIMIT)
     .all<PublicWorkRow>();
-  return result.results.map(({ coverAttachmentId, ...work }) => ({
+  return result.results.map(({ coverAttachmentId, coverHeight, coverWidth, ...work }) => ({
     ...work,
+    coverHeight,
     coverUrl: attachmentContentUrl(coverAttachmentId),
+    coverWidth,
   }));
 };
 

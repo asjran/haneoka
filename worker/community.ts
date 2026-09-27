@@ -1,3 +1,5 @@
+import { mediaPresentations } from "./community-media";
+import { COMMUNITY_UPLOAD_LIMITS } from "../src/config/community";
 import { authConfiguration, getAuthSession, type AuthSession } from "./auth";
 import { communityAccessState } from "./access";
 import { COMMENT_LAST_EDITED_AT_SELECT } from "./community-revision";
@@ -21,7 +23,7 @@ const COMMENT_PAGE_SIZE = 50;
 const SEARCH_QUERY_MAX = 100;
 const TAG_MAX = 32;
 const TAG_LIMIT = 10;
-const POST_ATTACHMENT_LIMIT = 10;
+const POST_ATTACHMENT_LIMIT = COMMUNITY_UPLOAD_LIMITS.attachmentsPerPost;
 const HOUR_MS = 60 * 60 * 1_000;
 const DAY_MS = 24 * HOUR_MS;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -106,10 +108,12 @@ interface PostListRow extends PostDatabaseFields {
 interface PostAttachment {
   contentUrl: string;
   fileName: string;
+  height: number | null;
   id: string;
   mediaType: "image/jpeg" | "image/png" | "image/webp" | "text/plain";
   position: number;
   size: number;
+  width: number | null;
 }
 
 type PostWithTags = PostRow & { attachments: PostAttachment[]; state: PostState; tags: string[] };
@@ -143,11 +147,13 @@ interface PostTagWriteContext {
 
 interface PostAttachmentRow {
   fileName: string;
+  height: number | null;
   id: string;
   mediaType: PostAttachment["mediaType"];
   position: number;
   postId: string;
   size: number;
+  width: number | null;
 }
 
 interface CommentRow extends AuthorFields, DeviceFields {
@@ -1007,7 +1013,8 @@ const attachPostMetadata = async <T extends PostDatabaseFields>(
       .all<PostTagRow>(),
     env.DB.prepare(
       `SELECT link.post_id AS postId, attachment.id, attachment.original_name AS fileName,
-              attachment.media_type AS mediaType, attachment.byte_size AS size, link.position
+              attachment.media_type AS mediaType, attachment.byte_size AS size,
+              attachment.width, attachment.height, link.position
        FROM community_post_attachment AS link
        JOIN community_attachment AS attachment ON attachment.id = link.attachment_id
        JOIN community_profile AS attachment_owner_profile
@@ -1027,15 +1034,22 @@ const attachPostMetadata = async <T extends PostDatabaseFields>(
     if (tags) tags.push(row.tag);
     else tagsByPost.set(row.postId, [row.tag]);
   }
+  const presentations = await mediaPresentations(
+    env,
+    attachmentResult.results.map((row) => row.id),
+  );
   const attachmentsByPost = new Map<string, PostAttachment[]>();
   for (const row of attachmentResult.results) {
     const attachment: PostAttachment = {
       contentUrl: `${COMMUNITY_PREFIX}/attachments/${row.id}/content`,
       fileName: row.fileName,
+      height: row.height,
       id: row.id,
       mediaType: row.mediaType,
       position: row.position,
       size: row.size,
+      width: row.width,
+      ...presentations.get(row.id),
     };
     const attachments = attachmentsByPost.get(row.postId);
     if (attachments) attachments.push(attachment);
@@ -1553,6 +1567,7 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
 
   let liked = false;
   let bookmarked = false;
+  let following = false;
   if (userId && !commentsOnly) {
     const flags = await env.DB.batch<ViewerFlagRow>([
       env.DB.prepare(
@@ -1562,9 +1577,13 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
         id,
         userId,
       ),
+      env.DB.prepare(
+        "SELECT 1 AS active FROM community_user_follow WHERE follower_user_id = ? AND followed_user_id = ? LIMIT 1",
+      ).bind(userId, post.authorId),
     ]);
     liked = Boolean(flags[0]?.results[0]);
     bookmarked = Boolean(flags[1]?.results[0]);
+    following = Boolean(flags[2]?.results[0]);
   }
 
   const viewerLikedSql = userId
@@ -1683,6 +1702,7 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
     viewer: {
       liked,
       bookmarked,
+      following,
       canEdit: Boolean(userId && userId === post.authorId),
       canDelete: Boolean(userId && userId === post.authorId),
       canComment: Boolean(

@@ -1,0 +1,13 @@
+{
+  "name": "@haneoka/community-media",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Private native media conversion service for community attachments",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

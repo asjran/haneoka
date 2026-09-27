@@ -8,6 +8,15 @@ import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { SonolusLevelService } from "@haneoka/sonolus-core";
 import {
+  OUR_NOTES_LANE_SKIN_NAMES,
+  OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
+  OUR_NOTES_NOTE_SE_GROUP_NAMES,
+  OUR_NOTES_NOTE_SKIN_NAMES,
+  OUR_NOTES_STAGE_NAMES,
+} from "@haneoka/cassiopeia-plugin-our-notes";
+import {
+  createOurNotesSonolusItemLabels,
+  localizeSonolusDocument as localizeSonolusItemLabels,
   parseReleaseChartDataId,
   ReleaseChartCatalogProvider,
   ReleaseLevelTemplateProvider,
@@ -25,6 +34,14 @@ import {
   type ResourceKind,
   type ResourceRoute,
 } from "../src/lib/resource-route.ts";
+
+const OUR_NOTES_SONOLUS_ITEM_LABELS = createOurNotesSonolusItemLabels({
+  noteSkins: OUR_NOTES_NOTE_SKIN_NAMES,
+  laneSkins: OUR_NOTES_LANE_SKIN_NAMES,
+  noteEffectSkins: OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
+  stages: OUR_NOTES_STAGE_NAMES,
+  noteSeGroups: OUR_NOTES_NOTE_SE_GROUP_NAMES,
+});
 
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
@@ -995,7 +1012,7 @@ function sonolusJson(req: IncomingMessage, res: ServerResponse, status: number, 
 }
 
 function localSonolusAssetFile(workspace: Readonly<ReleaseWorkspace>, pathname: string): string | null {
-  if (!pathname.startsWith("/sonolus/repository/") && !pathname.startsWith("/sonolus/licenses/")) return null;
+  if (!pathname.startsWith("/sonolus/")) return null;
   return safeFile(workspace.runtimeRoot, pathname.slice(1));
 }
 
@@ -1013,7 +1030,7 @@ function globalSonolusReleaseJson(releasePath: string): JsonValue | null {
 }
 
 function globalSonolusAssetFile(pathname: string): string | null {
-  if (!pathname.startsWith("/sonolus/repository/") && !pathname.startsWith("/sonolus/licenses/")) return null;
+  if (!pathname.startsWith("/sonolus/")) return null;
   return safeFile(GLOBAL_SONOLUS_ROOT, pathname.slice("/sonolus/".length));
 }
 
@@ -1272,7 +1289,14 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         req,
         res,
         projected.status,
-        localizeSonolusDocument(projected.body, localOrigin),
+        localizeSonolusDocument(
+          localizeSonolusItemLabels(
+            projected.body,
+            url.searchParams.get("localization"),
+            OUR_NOTES_SONOLUS_ITEM_LABELS,
+          ),
+          localOrigin,
+        ),
         projected.cacheControl,
       );
       return;
@@ -1291,13 +1315,23 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       return;
     }
 
+    const repository = url.pathname.startsWith("/sonolus/repository/");
+    const license = url.pathname.startsWith("/sonolus/licenses/");
     const file =
       globalSonolusAssetFile(url.pathname) ?? localSonolusAssetFile(canonicalRelease.workspace, url.pathname);
     if (!file) {
       sonolusJson(req, res, 404, { message: "Not found" }, "no-store");
       return;
     }
-    const repository = url.pathname.startsWith("/sonolus/repository/");
+    if (!repository && !license) {
+      const document = readJsonFile(file);
+      const localized = localizeSonolusDocument(
+        localizeSonolusItemLabels(document, url.searchParams.get("localization"), OUR_NOTES_SONOLUS_ITEM_LABELS),
+        localOrigin,
+      );
+      sonolusJson(req, res, 200, localized, "public, max-age=600");
+      return;
+    }
     sendFile(req, res, file, repository ? "public, max-age=31536000, immutable" : "public, max-age=600", {
       "Access-Control-Allow-Origin": "*",
       "Sonolus-Version": "1.1.4",

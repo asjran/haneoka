@@ -115,6 +115,8 @@ def discover_asset_version(
         "content-type: application/grpc",
         "-H",
         "te: trailers",
+        "-H",
+        "x-platform: Android",
         "-A",
         GRPC_USER_AGENT,
         "--data-binary",

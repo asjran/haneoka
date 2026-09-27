@@ -18,10 +18,22 @@ import type {
   SkinItem,
   Srl,
 } from "@sonolus/core";
+import {
+  OUR_NOTES_LANE_SKIN_NAMES,
+  OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
+  OUR_NOTES_NOTE_SE_GROUP_NAMES,
+  OUR_NOTES_NOTE_SKIN_NAMES,
+  OUR_NOTES_STAGE_NAMES,
+} from "@haneoka/cassiopeia-plugin-our-notes";
 import { chartToLevelData, convertChart } from "@haneoka/cassiopeia-plugin-sonolus";
 import { SONOLUS_ITEM_VERSIONS, type SonolusItemType } from "./itemVersions";
 import { resolveLocalReleaseFile, resolveSonolusReleaseWorkspace } from "./releaseWorkspace";
 import { validateSonolusInputProvenance } from "./sonolusProvenance";
+import {
+  createOurNotesSonolusItemLabels,
+  OUR_NOTES_SONOLUS_ITEM_NAMES,
+  type SonolusLocalizedLabels,
+} from "../sonolusLocalization";
 
 const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/cassiopeia-sonolus-engine/package.json")));
 
@@ -401,6 +413,13 @@ function itemBase<TVersion extends SonolusItem["version"]>(
   };
 }
 
+function nativeEnglishTitle(labels: Readonly<Record<string, SonolusLocalizedLabels>>, itemName: string): string {
+  const label = labels[itemName];
+  const title = label?.en;
+  if (!title) throw new Error(`Native label source has no English title for ${itemName}`);
+  return title;
+}
+
 function assertItemVersions(type: SonolusItemType, items: readonly SonolusItem[]) {
   const expected = SONOLUS_ITEM_VERSIONS[type];
   for (const item of items) {
@@ -489,18 +508,34 @@ async function main() {
   const engineDir = resolve(engineRoot, "dist");
   const banner = addFile(requireFile(resolve(pkg, "assets/server-banner.png")));
 
-  const skin: SkinItem = {
-    ...itemBase("ourNotesSkin", SONOLUS_ITEM_VERSIONS.skin, "Our Notes", "Original skin001", "haneoka"),
-    thumbnail: emptySrl,
-    data: addFile(requireFile(resolve(resourceDir, "skin.data"))),
-    texture: addFile(requireFile(resolve(resourceDir, "skin.texture.png"))),
-  };
+  const nativeLabels = createOurNotesSonolusItemLabels({
+    noteSkins: OUR_NOTES_NOTE_SKIN_NAMES,
+    laneSkins: OUR_NOTES_LANE_SKIN_NAMES,
+    noteEffectSkins: OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
+    stages: OUR_NOTES_STAGE_NAMES,
+    noteSeGroups: OUR_NOTES_NOTE_SE_GROUP_NAMES,
+  });
+  const skinItems: SkinItem[] = (
+    Object.keys(OUR_NOTES_SONOLUS_ITEM_NAMES.skins) as Array<"skin001" | "skin002" | "skin003">
+  ).map((skinId) => {
+    const name = OUR_NOTES_SONOLUS_ITEM_NAMES.skins[skinId];
+    return {
+      ...itemBase(name, SONOLUS_ITEM_VERSIONS.skin, nativeEnglishTitle(nativeLabels, name), "Our Notes", "haneoka"),
+      // No native preview image is published yet; do not use a whole atlas as
+      // a misleading thumbnail.
+      thumbnail: emptySrl,
+      data: addFile(requireFile(resolve(resourceDir, "skins", skinId, "skin.data"))),
+      texture: addFile(requireFile(resolve(resourceDir, "skins", skinId, "skin.texture.png"))),
+    };
+  });
+  const skin = skinItems[0];
+  if (!skin) throw new Error("Native skin item list is empty");
   const particle: ParticleItem = {
     ...itemBase(
-      "ourNotesParticle",
+      OUR_NOTES_SONOLUS_ITEM_NAMES.particle,
       SONOLUS_ITEM_VERSIONS.particle,
+      nativeEnglishTitle(nativeLabels, OUR_NOTES_SONOLUS_ITEM_NAMES.particle),
       "Our Notes",
-      "Projected original effect001",
       "haneoka",
     ),
     thumbnail: emptySrl,
@@ -508,37 +543,46 @@ async function main() {
     texture: addFile(requireFile(resolve(resourceDir, "particle.texture.png"))),
   };
   const effect: EffectItem = {
-    ...itemBase("ourNotesEffect", SONOLUS_ITEM_VERSIONS.effect, "Our Notes", "Original note sounds", "haneoka"),
+    ...itemBase(
+      OUR_NOTES_SONOLUS_ITEM_NAMES.effect,
+      SONOLUS_ITEM_VERSIONS.effect,
+      nativeEnglishTitle(nativeLabels, OUR_NOTES_SONOLUS_ITEM_NAMES.effect),
+      "Our Notes",
+      "haneoka",
+    ),
     thumbnail: emptySrl,
     data: addFile(requireFile(resolve(resourceDir, "effect.data"))),
     audio: addFile(requireFile(resolve(resourceDir, "effect.audio"))),
   };
-  const backgroundBlue: BackgroundItem = {
-    ...itemBase("ourNotesBgBlue", SONOLUS_ITEM_VERSIONS.background, "Blue Stage", "BanG Dream!", "haneoka"),
-    thumbnail: externalSrl(
-      `/assets/${releaseServer}/Assets/AddressableResources/Band/1/live_stage/lightweight_background.png`,
-    ),
-    data: addJson({ aspectRatio: 1536 / 1212, fit: "cover", color: "#03030a" }),
-    image: externalSrl(
-      `/assets/${releaseServer}/Assets/AddressableResources/Band/1/live_stage/lightweight_background.png`,
-    ),
-    // 0x4d is the closest 8-bit alpha to the native .3 black overlay,
-    // preserving MasterOptionDefault BackgroundBrightness=.7.
-    configuration: addJson({ blur: 0, mask: "#0000004d" }),
-  };
-  const backgroundTheatre: BackgroundItem = {
-    ...itemBase("ourNotesBgTheatre", SONOLUS_ITEM_VERSIONS.background, "Theatre Stage", "BanG Dream!", "haneoka"),
-    thumbnail: externalSrl(
-      `/assets/${releaseServer}/Assets/AddressableResources/Band/2/live_stage/lightweight_background.png`,
-    ),
-    data: addJson({ aspectRatio: 1536 / 1212, fit: "cover", color: "#03030a" }),
-    image: externalSrl(
-      `/assets/${releaseServer}/Assets/AddressableResources/Band/2/live_stage/lightweight_background.png`,
-    ),
-    configuration: addJson({ blur: 0, mask: "#0000004d" }),
-  };
+  const backgroundItems: BackgroundItem[] = ([0, 1, 2, 3, 4, 5] as const).map((stageId) => {
+    const name = OUR_NOTES_SONOLUS_ITEM_NAMES.stages[stageId];
+    const image = `/assets/${releaseServer}/Assets/AddressableResources/Band/${stageId}/live_stage/lightweight_background.png`;
+    return {
+      ...itemBase(
+        name,
+        SONOLUS_ITEM_VERSIONS.background,
+        nativeEnglishTitle(nativeLabels, name),
+        "BanG Dream!",
+        "haneoka",
+      ),
+      thumbnail: externalSrl(image),
+      data: addJson({ aspectRatio: 1536 / 1212, fit: "cover", color: "#03030a" }),
+      image: externalSrl(image),
+      // 0x4d is the closest 8-bit alpha to the native .3 black overlay,
+      // preserving MasterOptionDefault BackgroundBrightness=.7.
+      configuration: addJson({ blur: 0, mask: "#0000004d" }),
+    };
+  });
+  const backgroundBlue = backgroundItems[1];
+  if (!backgroundBlue) throw new Error("Native background item list is missing stage 1");
   const engine: EngineItem = {
-    ...itemBase("ourNotes", SONOLUS_ITEM_VERSIONS.engine, "Our Notes", "BanG Dream!", "haneoka"),
+    ...itemBase(
+      "ourNotes",
+      SONOLUS_ITEM_VERSIONS.engine,
+      nativeEnglishTitle(nativeLabels, OUR_NOTES_SONOLUS_ITEM_NAMES.skins.skin001),
+      "BanG Dream!",
+      "haneoka",
+    ),
     skin,
     background: backgroundBlue,
     effect,
@@ -645,8 +689,8 @@ async function main() {
     assertItemVersions("level", levels);
     assertItemVersions("playlist", playlists);
   }
-  assertItemVersions("skin", [skin]);
-  assertItemVersions("background", [backgroundBlue, backgroundTheatre]);
+  assertItemVersions("skin", skinItems);
+  assertItemVersions("background", backgroundItems);
   assertItemVersions("effect", [effect]);
   assertItemVersions("particle", [particle]);
   assertItemVersions("engine", [engine]);
@@ -689,8 +733,8 @@ async function main() {
     writeGroup("playlists", "playlist", playlists, sampleRandom(playlists));
     writeGroup("levels", "level", latestLevels, sampleRandom(randomLevels));
   }
-  writeGroup("skins", "skin", [skin]);
-  writeGroup("backgrounds", "background", [backgroundBlue, backgroundTheatre]);
+  writeGroup("skins", "skin", skinItems);
+  writeGroup("backgrounds", "background", backgroundItems);
   writeGroup("effects", "effect", [effect]);
   writeGroup("particles", "particle", [particle]);
   writeGroup("engines", "engine", [engine]);

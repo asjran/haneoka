@@ -909,9 +909,12 @@ CREATE TABLE community_attachment (
   object_key TEXT NOT NULL UNIQUE,
   original_name TEXT NOT NULL CHECK (length(original_name) BETWEEN 1 AND 160),
   media_type TEXT NOT NULL
-    CHECK (media_type IN ('image/jpeg', 'image/png', 'image/webp', 'text/plain')),
-  declared_size INTEGER NOT NULL CHECK (declared_size BETWEEN 1 AND 10485760),
+    CHECK (media_type IN ('image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif', 'video/mp4', 'video/webm', 'video/quicktime', 'text/plain')),
+  declared_size INTEGER NOT NULL CHECK (declared_size BETWEEN 1 AND 134217728),
   byte_size INTEGER CHECK (byte_size IS NULL OR byte_size = declared_size),
+  width INTEGER CHECK (width IS NULL OR width > 0),
+  height INTEGER CHECK (height IS NULL OR height > 0),
+  r2_upload_id TEXT UNIQUE,
   sha256 TEXT CHECK (sha256 IS NULL OR (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*')),
   r2_etag TEXT,
   r2_version TEXT,
@@ -926,7 +929,6 @@ CREATE TABLE community_attachment (
   deleted_at INTEGER,
   object_deleted_at INTEGER,
   UNIQUE(owner_user_id, idempotency_key),
-  CHECK (media_type <> 'text/plain' OR declared_size <= 65536),
   CHECK (deleted_at IS NULL OR status = 'deleted'),
   CHECK (object_deleted_at IS NULL OR deleted_at IS NOT NULL)
 );
@@ -936,6 +938,18 @@ CREATE INDEX community_attachment_owner_idx
 
 CREATE INDEX community_attachment_cleanup_idx
   ON community_attachment(status, expires_at, updated_at, id);
+
+CREATE TABLE community_attachment_part (
+  attachment_id TEXT NOT NULL REFERENCES community_attachment(id) ON DELETE CASCADE,
+  part_number INTEGER NOT NULL CHECK (part_number BETWEEN 1 AND 10000),
+  etag TEXT NOT NULL CHECK (length(etag) BETWEEN 1 AND 200),
+  byte_size INTEGER NOT NULL CHECK (byte_size >= 1),
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (attachment_id, part_number)
+);
+
+CREATE INDEX community_attachment_part_lookup_idx
+  ON community_attachment_part(attachment_id, part_number);
 
 CREATE TABLE community_profile_avatar (
   user_id TEXT PRIMARY KEY NOT NULL REFERENCES community_profile(user_id) ON DELETE CASCADE,
@@ -979,7 +993,7 @@ END;
 CREATE TABLE community_post_attachment (
   post_id TEXT NOT NULL REFERENCES community_post(id) ON DELETE CASCADE,
   attachment_id TEXT NOT NULL UNIQUE REFERENCES community_attachment(id) ON DELETE RESTRICT,
-  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 9),
+  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 15),
   created_at INTEGER NOT NULL,
   PRIMARY KEY (post_id, attachment_id),
   UNIQUE(post_id, position)
@@ -992,7 +1006,7 @@ CREATE TABLE community_post_revision_attachment (
   post_id TEXT NOT NULL,
   revision_number INTEGER NOT NULL,
   attachment_id TEXT NOT NULL REFERENCES community_attachment(id) ON DELETE RESTRICT,
-  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 9),
+  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 15),
   PRIMARY KEY (post_id, revision_number, attachment_id),
   UNIQUE(post_id, revision_number, position),
   FOREIGN KEY (post_id, revision_number)
@@ -1881,3 +1895,30 @@ BEFORE DELETE ON community_user_restriction_event
 BEGIN
   SELECT RAISE(ABORT, 'restriction events cannot be deleted');
 END;
+
+CREATE TABLE community_media_job (
+  attachment_id TEXT PRIMARY KEY NOT NULL REFERENCES community_attachment(id) ON DELETE CASCADE,
+  state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','processing','ready','failed')),
+  progress REAL NOT NULL DEFAULT 0 CHECK(progress >= 0 AND progress <= 1),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  lease_token TEXT,
+  lease_until INTEGER,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX community_media_job_pending_idx ON community_media_job(state,lease_until,updated_at);
+
+CREATE TABLE community_attachment_variant (
+  attachment_id TEXT NOT NULL REFERENCES community_attachment(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN ('thumb','poster','media','moderation')),
+  object_key TEXT NOT NULL UNIQUE,
+  media_type TEXT NOT NULL CHECK(media_type IN ('image/jpeg','image/png','image/webp','video/mp4')),
+  byte_size INTEGER NOT NULL CHECK(byte_size > 0),
+  width INTEGER NOT NULL CHECK(width > 0),
+  height INTEGER NOT NULL CHECK(height > 0),
+  duration_seconds REAL,
+  sha256 TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(attachment_id,kind)
+);

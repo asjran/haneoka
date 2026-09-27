@@ -6,9 +6,9 @@ let cached: boolean | undefined;
 export function japaneseSongTitles(): boolean {
   if (cached !== undefined) return cached;
   try {
-    return (cached = JSON.parse(localStorage.getItem(KEY) || "{}").forceJapaneseTitles === true);
+    return (cached = JSON.parse(localStorage.getItem(KEY) || "{}").forceJapaneseTitles !== false);
   } catch {
-    return false;
+    return true;
   }
 }
 export function setJapaneseSongTitles(enabled: boolean): void {

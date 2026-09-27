@@ -9,10 +9,16 @@ on:
   workflow_dispatch:
     inputs:
       server:
-        description: Server configuration id
+        description: Server configuration id ("all" runs JP and Intl together)
         required: true
         default: intl
-        type: string
+        type: choice
+        options:
+          - intl
+          - jp
+          - jp-cbt
+          - intl-cbt
+          - all
       github_environment:
         description: GitHub Actions environment for the run
         required: false
@@ -48,7 +54,7 @@ concurrency:
 jobs:
   pipeline_intl:
     name: Build and publish Intl resources
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.server == 'intl') }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.server == 'intl' || inputs.server == 'all')) }}
     permissions:
       contents: read
     uses: ./.github/workflows/resource-pipeline-run.yml
@@ -71,12 +77,12 @@ jobs:
 
   pipeline_jp:
     name: Build and publish JP resources
-    if: ${{ github.event_name == 'schedule' }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.server == 'jp' || inputs.server == 'all')) }}
     permissions:
       contents: read
     uses: ./.github/workflows/resource-pipeline-run.yml
     with:
-      github_environment: resource-jp
+      github_environment: ${{ github.event_name == 'schedule' && 'resource-jp' || inputs.github_environment || 'resource-jp' }}
       server: jp
       package_r2_key: ${{ inputs.package_r2_key }}
       source_id: ${{ inputs.source_id }}
@@ -92,7 +98,7 @@ jobs:
 
   pipeline_manual:
     name: Build and publish manually selected resources
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.server != 'intl' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.server != 'intl' && inputs.server != 'jp' && inputs.server != 'all' }}
     permissions:
       contents: read
     uses: ./.github/workflows/resource-pipeline-run.yml

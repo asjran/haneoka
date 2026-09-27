@@ -1,4 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
+// Loaded eagerly so the Material spinner is defined before the first loading
+// state renders; the CSS fallback circle only covers module-less environments.
+import "@material/web/progress/circular-progress.js";
 import { icon } from "./icon";
 
 /**

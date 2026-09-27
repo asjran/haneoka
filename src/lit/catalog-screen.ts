@@ -639,7 +639,6 @@ export class CatalogScreen extends LitElement {
       import("@material/web/select/select-option.js"),
       import("@material/web/slider/slider.js"),
       import("@material/web/textfield/outlined-text-field.js"),
-      import("@material/web/progress/circular-progress.js"),
     ]);
     this.density = currentDensity();
     this.disposeMedia = [
