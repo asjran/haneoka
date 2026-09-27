@@ -2048,6 +2048,29 @@ def _anon_tokyo_source_key(path_name: Any) -> str | None:
         return None
 
 
+def _anon_tokyo_failed_part(
+    replacement_id: int,
+    reloading_id: int,
+    part: dict[str, Any] | None,
+    reason: dict[str, str],
+) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "replacementPartId": replacement_id,
+        "reloadingId": reloading_id,
+        "status": "unavailable",
+        "reason": reason,
+    }
+    if part is not None:
+        value.update(
+            {
+                "order": _integer(part.get("_order")),
+                "pathName": str(part.get("_pathName") or ""),
+                "sourcePath": _anon_tokyo_source_key(part.get("_pathName")),
+            }
+        )
+    return value
+
+
 def _anon_tokyo_recipes(layout: Any, models: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Build only the documented default Avatar -> Reloading -> parts recipes."""
 
@@ -2116,6 +2139,7 @@ def _anon_tokyo_recipes(layout: Any, models: list[dict[str, Any]]) -> tuple[list
         ]
         reasons: list[dict[str, str]] = []
         parts: list[dict[str, Any]] = []
+        failed_parts: list[dict[str, Any]] = []
         # An avatar bundle does not always carry the whole head (Uika's points
         # at her hat only), so the per-slot character defaults fill whatever
         # the bundles leave uncovered.
@@ -2137,39 +2161,51 @@ def _anon_tokyo_recipes(layout: Any, models: list[dict[str, Any]]) -> tuple[list
                 replacement_id = _integer(replacement_id_value)
                 part = parts_by_id.get(replacement_id)
                 if part is None:
-                    reasons.append(
-                        _reason(
-                            "replacement-part-missing",
-                            f"MasterATReplacementparts id {replacement_id} is absent",
-                        )
+                    part_reason = _reason(
+                        "replacement-part-missing",
+                        f"MasterATReplacementparts id {replacement_id} is absent",
+                    )
+                    reasons.append(part_reason)
+                    failed_parts.append(
+                        _anon_tokyo_failed_part(replacement_id, reloading_id, None, part_reason)
                     )
                     continue
                 source_path = _anon_tokyo_source_key(part.get("_pathName"))
                 candidates = models_by_source.get(source_path or "", [])
                 if len(candidates) != 1:
-                    reasons.append(
-                        _reason(
-                            "replacement-model-unresolved",
-                            f"replacement part {replacement_id} maps to {source_path or 'an invalid source path'} ({len(candidates)} models)",
-                        )
+                    part_reason = _reason(
+                        "replacement-model-unresolved",
+                        f"replacement part {replacement_id} maps to {source_path or 'an invalid source path'} ({len(candidates)} models)",
+                    )
+                    reasons.append(part_reason)
+                    failed_parts.append(
+                        _anon_tokyo_failed_part(replacement_id, reloading_id, part, part_reason)
                     )
                     continue
                 model = candidates[0]
                 model_runtime = model.get("runtime") if isinstance(model.get("runtime"), dict) else {}
+                part_reasons: list[dict[str, str]] = []
                 if model_runtime.get("status") != "ready":
-                    reasons.append(
+                    part_reasons.append(
                         _reason(
                             "replacement-model-unavailable",
                             f"replacement part {replacement_id} model is not browser-ready",
                         )
                     )
                 if DEFAULT_ANON_TOKYO_ANIMATION not in model.get("animations", []):
-                    reasons.append(
+                    part_reasons.append(
                         _reason(
                             "default-animation-missing",
                             f"replacement part {replacement_id} does not provide {DEFAULT_ANON_TOKYO_ANIMATION}",
                         )
                     )
+                if part_reasons:
+                    reasons.extend(part_reasons)
+                    failed_parts.extend(
+                        _anon_tokyo_failed_part(replacement_id, reloading_id, part, reason)
+                        for reason in part_reasons
+                    )
+                    continue
                 runtime = model_runtime.get("json") if isinstance(model_runtime.get("json"), dict) else None
                 parts.append(
                     {
@@ -2193,11 +2229,14 @@ def _anon_tokyo_recipes(layout: Any, models: list[dict[str, Any]]) -> tuple[list
             part, part_reason = resolve_default_part(replacement_id, next(iter(avatar_ids), 0))
             if part is None:
                 reasons.append(part_reason)
+                failed_parts.append(
+                    _anon_tokyo_failed_part(replacement_id, next(iter(avatar_ids), 0), parts_by_id.get(replacement_id), part_reason)
+                )
                 continue
             parts.append(part)
             covered.add(slot)
         parts.sort(key=lambda value: (int(value["order"]), int(value["replacementPartId"])))
-        ready = bool(parts) and not reasons
+        ready = bool(parts) and not reasons and not failed_parts
         recipe = {
             "id": f"anon-tokyo-character-{character_id}-default",
             "feature": "anon-tokyo",
@@ -2208,6 +2247,7 @@ def _anon_tokyo_recipes(layout: Any, models: list[dict[str, Any]]) -> tuple[list
             "scale": _positive_number(character.get("_scale"), 1.0),
             "animation": {"name": DEFAULT_ANON_TOKYO_ANIMATION, "loop": True},
             "parts": parts,
+            **({"failedParts": failed_parts} if failed_parts else {}),
             "runtime": {
                 "status": "ready" if ready else "unavailable",
                 "renderer": "layered-spine-4.2",
@@ -2285,7 +2325,7 @@ def _anon_tokyo_outfit_recipes(
     defaults_by_character = {
         _integer(recipe.get("characterId")): recipe
         for recipe in default_recipes
-        if isinstance(recipe.get("runtime"), dict) and recipe["runtime"].get("status") == "ready"
+        if _integer(recipe.get("characterId"))
     }
     if not defaults_by_character:
         return []
@@ -2357,7 +2397,19 @@ def _anon_tokyo_outfit_recipes(
                 continue
             if reloading_id in {_integer(value) for value in (default.get("defaultAvatarReloadingIds") or [])}:
                 continue
+            default_runtime = default.get("runtime") if isinstance(default.get("runtime"), dict) else {}
+            default_reasons = (
+                list(default_runtime.get("reasons") or [])
+                if default_runtime.get("status") != "ready"
+                else []
+            )
+            default_failed_parts = [
+                dict(value)
+                for value in (default.get("failedParts") or [])
+                if isinstance(value, dict)
+            ]
             reasons: list[dict[str, str]] = []
+            outfit_failed_parts: list[dict[str, Any]] = []
             slots: dict[str, dict[str, Any]] = {}
             for replacement_id_value in (row.get("_spineparent") or []) + (row.get("_spineparentSpecial") or []):
                 replacement_id = _integer(replacement_id_value)
@@ -2366,19 +2418,45 @@ def _anon_tokyo_outfit_recipes(
                 part, part_reason = resolve_part(replacement_id, reloading_id)
                 if part is None:
                     reasons.append(part_reason)
-                    continue
-                slot = _anon_tokyo_part_slot(str(part.get("pathName") or ""))
-                if slot is None:
-                    reasons.append(
-                        _reason(
-                            "outfit-slot-unknown",
-                            f"replacement part {replacement_id} has no known outfit slot",
+                    outfit_failed_parts.append(
+                        _anon_tokyo_failed_part(
+                            replacement_id,
+                            reloading_id,
+                            parts_by_id.get(replacement_id),
+                            part_reason,
                         )
                     )
                     continue
+                slot = _anon_tokyo_part_slot(str(part.get("pathName") or ""))
+                if slot is None:
+                    part_reason = _reason(
+                        "outfit-slot-unknown",
+                        f"replacement part {replacement_id} has no known outfit slot",
+                    )
+                    reasons.append(part_reason)
+                    outfit_failed_parts.append(
+                        _anon_tokyo_failed_part(replacement_id, reloading_id, parts_by_id.get(replacement_id), part_reason)
+                    )
+                    continue
                 slots[slot] = part
-            if not slots or reasons:
-                continue
+            # A successful replacement resolves the default failure for the
+            # covered slot, but failures without a covered slot remain evidence.
+            overridden_slots = set(slots)
+            inherited_failed_parts: list[dict[str, Any]] = []
+            inherited_reasons = list(default_reasons)
+            for failed_part in default_failed_parts:
+                slot = _anon_tokyo_part_slot(str(failed_part.get("pathName") or ""))
+                if slot not in overridden_slots:
+                    inherited_failed_parts.append(failed_part)
+                    continue
+                failure_reason = failed_part.get("reason")
+                if isinstance(failure_reason, dict):
+                    for index, reason in enumerate(inherited_reasons):
+                        if reason == failure_reason:
+                            del inherited_reasons[index]
+                            break
+            failed_parts = [*inherited_failed_parts, *outfit_failed_parts]
+            reasons = [*inherited_reasons, *reasons]
             merged: dict[str, dict[str, Any]] = {}
             for part in default.get("parts") or []:
                 slot = _anon_tokyo_part_slot(str(part.get("pathName") or "")) or f"part-{part.get('replacementPartId')}"
@@ -2387,6 +2465,11 @@ def _anon_tokyo_outfit_recipes(
             parts = sorted(
                 merged.values(),
                 key=lambda value: (int(value["order"]), int(value["replacementPartId"])),
+            )
+            ready = (
+                bool(parts)
+                and not reasons
+                and not failed_parts
             )
             recipes.append(
                 {
@@ -2400,13 +2483,15 @@ def _anon_tokyo_outfit_recipes(
                     "scale": default.get("scale"),
                     "animation": {"name": DEFAULT_ANON_TOKYO_ANIMATION, "loop": True},
                     "parts": parts,
+                    **({"failedParts": failed_parts} if failed_parts else {}),
                     "runtime": {
-                        "status": "ready",
+                        "status": "ready" if ready else "unavailable",
                         "renderer": "layered-spine-4.2",
                         "sort": "ascending MasterATReplacementparts._order",
                         "verification": "MasterATReloading._canUseChar -> MasterATReloading._spineparent -> MasterATReplacementparts over the default Avatar recipe",
                         "package": BROWSER_RUNTIME_PACKAGE,
                         "runtimeSeries": BROWSER_RUNTIME_SERIES,
+                        **({"reasons": reasons} if reasons else {}),
                     },
                     # A component atlas page can aid debugging but never represents
                     # the complete avatar.  Keep the same non-deceptive preview
@@ -2494,6 +2579,7 @@ def _anon_tokyo_appearance_recipes(layout: Any, models: list[dict[str, Any]]) ->
                 continue
             reasons: list[dict[str, str]] = []
             parts: list[dict[str, Any]] = []
+            failed_parts: list[dict[str, Any]] = []
             for reloading_id in reloading_ids:
                 reloading_row = reloading_by_id.get(reloading_id)
                 if reloading_row is None:
@@ -2506,21 +2592,26 @@ def _anon_tokyo_appearance_recipes(layout: Any, models: list[dict[str, Any]]) ->
                     part, part_reason = resolve_part(replacement_id, reloading_id)
                     if part is None:
                         reasons.append(part_reason)
+                        failed_parts.append(
+                            _anon_tokyo_failed_part(
+                                replacement_id,
+                                reloading_id,
+                                parts_by_id.get(replacement_id),
+                                part_reason,
+                            )
+                        )
                         continue
                     parts.append(part)
             parts.sort(key=lambda value: (int(value["order"]), int(value["replacementPartId"])))
-            if not parts:
-                continue
-            common = set(parts[0].get("animations") or [])
+            common = set(parts[0].get("animations") or []) if parts else set()
             for part in parts[1:]:
                 common &= set(part.get("animations") or [])
             animation = next((name for name in ("f_idle", "b_idle") if name in common), "")
-            if reasons or not animation:
-                if not animation and not reasons:
-                    reasons.append(
-                        _reason("appearance-animation-missing", "appearance parts share no idle animation")
-                    )
-                continue
+            if not animation:
+                reasons.append(
+                    _reason("appearance-animation-missing", "appearance parts share no idle animation")
+                )
+            ready = bool(parts) and not reasons and not failed_parts
             recipes.append(
                 {
                     "id": f"anon-tokyo-{kind}-{appearance_id}",
@@ -2532,13 +2623,15 @@ def _anon_tokyo_appearance_recipes(layout: Any, models: list[dict[str, Any]]) ->
                     "parts": [
                         {key: value for key, value in part.items() if key != "animations"} for part in parts
                     ],
+                    **({"failedParts": failed_parts} if failed_parts else {}),
                     "runtime": {
-                        "status": "ready",
+                        "status": "ready" if ready else "unavailable",
                         "renderer": "layered-spine-4.2",
                         "sort": "ascending MasterATReplacementparts._order",
                         "verification": "MasterAT*._defaultAvatar -> MasterATReloading._spineparent -> MasterATReplacementparts",
                         "package": BROWSER_RUNTIME_PACKAGE,
                         "runtimeSeries": BROWSER_RUNTIME_SERIES,
+                        **({"reasons": reasons} if reasons else {}),
                     },
                     "preview": {
                         "status": "unavailable",

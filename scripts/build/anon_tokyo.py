@@ -1588,6 +1588,27 @@ def _spine(
         """Recipes are presentation metadata; the per-part renderer payloads stay in the spine build."""
 
         runtime = value.get("runtime") if isinstance(value.get("runtime"), dict) else {}
+        unavailable = runtime.get("status") != "ready" or bool(value.get("failedParts"))
+
+        def compact_part(part: JsonObject) -> JsonObject:
+            compact: JsonObject = {
+                "modelId": part.get("modelId"),
+                "order": part.get("order"),
+                "reloadingId": part.get("reloadingId"),
+            }
+            if unavailable:
+                for key in (
+                    "replacementPartId",
+                    "pathName",
+                    "sourcePath",
+                    "sourcePathKey",
+                    "status",
+                    "reason",
+                ):
+                    if key in part:
+                        compact[key] = part[key]
+            return compact
+
         return {
             "id": str(value.get("id") or identity),
             "characterId": value.get("characterId"),
@@ -1599,20 +1620,28 @@ def _spine(
             "animation": value.get("animation"),
             "scale": value.get("scale"),
             "parts": [
-                {
-                    "modelId": part.get("modelId"),
-                    "order": part.get("order"),
-                    "reloadingId": part.get("reloadingId"),
-                }
+                compact_part(part)
                 for part in (value.get("parts") or [])
                 if isinstance(part, dict)
             ],
+            **(
+                {
+                    "failedParts": [
+                        part
+                        for part in (value.get("failedParts") or [])
+                        if isinstance(part, dict)
+                    ]
+                }
+                if unavailable and value.get("failedParts")
+                else {}
+            ),
             "preview": value.get("preview"),
             "runtime": {
                 "status": runtime.get("status"),
                 "renderer": runtime.get("renderer"),
                 "sort": runtime.get("sort"),
                 "verification": runtime.get("verification"),
+                **({"reasons": runtime["reasons"]} if runtime.get("reasons") else {}),
             },
         }
 
@@ -1667,7 +1696,11 @@ def _spine(
         models[identity] = reference
         if reference.get("status") != "available":
             unavailable_models[identity] = reference
-    playable = bool(catalog.get("available")) and bool(recipes)
+    playable = bool(catalog.get("available")) and any(
+        isinstance(recipe.get("runtime"), dict)
+        and recipe["runtime"].get("status") == "ready"
+        for recipe in recipes.values()
+    )
     return {
         "available": playable,
         "status": "available" if playable else "unavailable",
@@ -1675,7 +1708,9 @@ def _spine(
             "anon-tokyo-default-render-recipes-present"
             if playable
             else (
-                "anon-tokyo-render-recipes-absent"
+                "anon-tokyo-render-recipes-unavailable"
+                if bool(catalog.get("available")) and recipes
+                else "anon-tokyo-render-recipes-absent"
                 if bool(catalog.get("available"))
                 else str(catalog.get("reason") or metadata_reason)
             )

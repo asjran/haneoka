@@ -22,6 +22,8 @@ from core.contracts import (
     CATALOG_SUMMARY_SCHEMA,
     POINTER_SCHEMA,
     RELEASE_SCHEMA,
+    RELEASE_IDENTITY_FILENAME,
+    release_identity_descriptor,
     RELEASE_TREES,
     SOURCE_INDEX_STORAGE_SCHEMA,
     SPINE_CATALOG_SCHEMA,
@@ -101,6 +103,7 @@ def describe_release(root: Path, server: str, source_id: str) -> dict[str, Any]:
 def write_release_manifest(root: Path, server: str, source_id: str) -> dict[str, Any]:
     manifest = describe_release(root, server, source_id)
     write_json(root / "release.json", manifest, pretty=True)
+    write_json(root / RELEASE_IDENTITY_FILENAME, release_identity_descriptor(server, manifest["releaseId"], manifest))
     return manifest
 
 
@@ -986,6 +989,11 @@ def verify_release(
         errors.append(f"unexpected schema: {manifest.get('schema')}")
     if manifest.get("server") != server or manifest.get("releaseId") != release_id:
         errors.append("release identity mismatch")
+    try:
+        if read_json(layout.root / RELEASE_IDENTITY_FILENAME) != release_identity_descriptor(server, release_id, manifest):
+            errors.append("release descriptor identity mismatch")
+    except (OSError, ValueError) as error:
+        errors.append(f"invalid release identity descriptor: {error}")
 
     entries = manifest.get("entries")
     if not isinstance(entries, list):
@@ -1058,7 +1066,7 @@ def verify_release(
     actual = {
         file.relative_to(layout.root).as_posix()
         for file in walk_files(layout.root)
-        if file != layout.manifest
+        if file not in {layout.manifest, layout.root / RELEASE_IDENTITY_FILENAME}
     }
     for relative in sorted(actual - declared):
         errors.append(f"undeclared release file: {relative}")
@@ -1149,6 +1157,12 @@ def promote_directory(staging: Path, server: str, source_id: str) -> dict[str, A
         existing = read_json(target / "release.json")
         if existing != manifest:
             raise FileExistsError(f"release id collision: {target}")
+        descriptor_path = target / RELEASE_IDENTITY_FILENAME
+        descriptor = release_identity_descriptor(server, manifest["releaseId"], manifest)
+        if descriptor_path.exists() and read_json(descriptor_path) != descriptor:
+            raise FileExistsError(f"release identity collision: {descriptor_path}")
+        if not descriptor_path.exists():
+            write_json(descriptor_path, descriptor)
         write_current_pointer(server, manifest)
         return manifest
     target.parent.mkdir(parents=True, exist_ok=True)

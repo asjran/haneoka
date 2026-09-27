@@ -313,6 +313,13 @@ def _particle_system(
             ]
         },
     )
+    # Current Unity 2D particle records carry the authored scalar
+    # ``startRotation`` and omit ``startRotationZ`` entirely.  In 3D mode,
+    # Unity carries the authored Z curve separately; keep the scalar only as
+    # the missing-field fallback for older/incomplete 3D records.
+    start_rotation_z = initial.get("startRotation")
+    if initial.get("rotation3D") and initial.get("startRotationZ") is not None:
+        start_rotation_z = initial.get("startRotationZ")
     return {
         "id": object_id,
         "nodeId": _pointer_id(raw.get("m_GameObject")),
@@ -337,7 +344,7 @@ def _particle_system(
             "startSizeZ": _min_max_curve(initial.get("startSizeZ")),
             "startRotationX": _min_max_curve(initial.get("startRotationX")),
             "startRotationY": _min_max_curve(initial.get("startRotationY")),
-            "startRotationZ": _min_max_curve(initial.get("startRotation")),
+            "startRotationZ": _min_max_curve(start_rotation_z),
             "randomizeRotationDirection": _finite(initial.get("randomizeRotationDirection")),
             "gravityModifier": _min_max_curve(initial.get("gravityModifier")),
             "gravitySource": _integer(initial.get("gravitySource")),

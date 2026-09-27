@@ -21,6 +21,8 @@ from core.contracts import (
     PACKAGE_MAX_BYTES,
     POINTER_SCHEMA,
     RELEASE_SCHEMA,
+    RELEASE_IDENTITY_FILENAME,
+    release_identity_descriptor,
     RELEASE_TREES,
 )
 from core.hashes import sha256_file
@@ -461,6 +463,45 @@ def download_current_release_paths(
     pointer, manifest = _current_release_manifest(store, config)
     if not isinstance(pointer, dict) or not isinstance(manifest, dict):
         raise ValueError(f"no current release is selected for server {config.id!r}")
+    source_id = str(pointer.get("sourceId") or "")
+    if (
+        manifest.get("server") != config.id
+        or manifest.get("releaseId") != pointer.get("releaseId")
+        or manifest.get("sourceId") != source_id
+    ):
+        raise ValueError("current release manifest identity does not match its pointer")
+
+    source_manifest = store.get_json(
+        f"servers/{config.id}/sources/{source_id}/source.json"
+    )
+    source_records = validate_source_manifest(
+        source_manifest,
+        config.id,
+        source_id,
+        require_storage=True,
+    )
+    package_info = source_manifest.get("package") if isinstance(source_manifest, dict) else None
+    package_file = package_info.get("file") if isinstance(package_info, dict) else None
+    package_record = next(
+        (
+            record
+            for record in source_records
+            if record.get("role") == "package" and record.get("path") == package_file
+        ),
+        None,
+    )
+    if not isinstance(package_info, dict) or not isinstance(package_file, str) or not isinstance(package_record, dict):
+        raise ValueError("current source manifest does not declare its package identity")
+    apk_identity = {
+        "path": package_file,
+        "bytes": int(package_record["bytes"]),
+        "sha256": str(package_record["sha256"]),
+        **{
+            key: package_info[key]
+            for key in ("packageName", "versionName", "versionCode")
+            if isinstance(package_info.get(key), str)
+        },
+    }
     exact = set(exact_paths)
     wanted: list[dict[str, Any]] = []
     for entry in manifest.get("entries", []):
@@ -475,8 +516,19 @@ def download_current_release_paths(
             "the current release declares none of the requested paths "
             f"(scanned {scanned} entries)"
         )
+    missing_prefixes = [
+        prefix
+        for prefix in prefixes
+        if not any(str(entry.get("path") or "").startswith(prefix) for entry in wanted)
+    ]
+    if missing_prefixes:
+        raise ValueError(
+            "the current release declares none of the requested paths for prefixes: "
+            + ", ".join(missing_prefixes)
+        )
     wanted.sort(key=lambda item: str(item.get("path") or ""))
     target_root = target_root.resolve()
+    target_root.mkdir(parents=True, exist_ok=True)
 
     def download(entry: dict[str, Any]) -> None:
         path = str(entry["path"])
@@ -493,12 +545,37 @@ def download_current_release_paths(
     with ThreadPoolExecutor(max_workers=store.concurrency) as executor:
         list(executor.map(download, wanted))
 
+    write_json(
+        target_root / "sonolus-input-provenance.json",
+        {
+            "schema": "haneoka-sonolus-input-provenance-v1",
+            "server": config.id,
+            "releaseId": pointer["releaseId"],
+            "sourceId": source_id,
+            "prefixes": list(prefixes),
+            "exactPaths": list(exact_paths),
+            "files": [
+                {
+                    "path": str(entry["path"]),
+                    "bytes": int(entry["bytes"]),
+                    "sha256": str(entry["sha256"]),
+                }
+                for entry in wanted
+            ],
+            "apk": apk_identity,
+        },
+        pretty=True,
+    )
+
     return {
         "schema": "haneoka-release-fetch-v1",
         "server": config.id,
         "releaseId": pointer["releaseId"],
+        "sourceId": source_id,
         "fileCount": len(wanted),
         "fileBytes": sum(int(entry["bytes"]) for entry in wanted),
+        "provenanceFile": "sonolus-input-provenance.json",
+        "apk": apk_identity,
     }
 
 
@@ -827,6 +904,21 @@ def fetch_source(
     }
 
 
+def _publish_release_identity(
+    store: R2Store,
+    key: str,
+    identity: dict[str, str],
+) -> bool:
+    """Publish an immutable release identity, returning whether it was new."""
+
+    if store.head(key) is not None:
+        if store.get_json(key) != identity:
+            raise ValueError(f"immutable release identity mismatch: {key}")
+        return False
+    store.put_json(key, identity, IMMUTABLE_CACHE)
+    return True
+
+
 def publish_release(
     store: R2Store,
     config: ServerConfig,
@@ -838,14 +930,19 @@ def publish_release(
     prefix = f"servers/{config.id}/releases/{release_id}/"
     pointer_key = f"servers/{config.id}/current.json"
     manifest_key = prefix + "release.json"
+    identity_key = prefix + RELEASE_IDENTITY_FILENAME
+    identity = release_identity_descriptor(config.id, release_id, manifest)
     current, previous_manifest = _current_release_manifest(store, config)
     if isinstance(current, dict) and current.get("releaseId") == release_id:
         remote_manifest = store.get_json(manifest_key)
         if remote_manifest != manifest:
             raise ValueError(f"remote release manifest mismatch: {manifest_key}")
+        identity_published = _publish_release_identity(store, identity_key, identity)
         return {
             **current,
             "releasePromoted": False,
+            "releaseIdentity": identity_key,
+            "identityPublished": identity_published,
             "transfer": {
                 "uploadedObjects": 0,
                 "resumedObjects": 0,
@@ -911,6 +1008,7 @@ def publish_release(
     with ThreadPoolExecutor(max_workers=store.concurrency) as executor:
         list(executor.map(publish_index, range(RELEASE_INDEX_SHARDS)))
     store.put_json(manifest_key, manifest, IMMUTABLE_CACHE)
+    identity_published = _publish_release_identity(store, identity_key, identity)
 
     pointer = {
         "schema": POINTER_SCHEMA,
@@ -929,6 +1027,8 @@ def publish_release(
     return {
         **pointer,
         "releasePromoted": True,
+        "releaseIdentity": identity_key,
+        "identityPublished": identity_published,
         "transfer": {
             **transfer,
             "reusedObjects": len(objects) - len(pending),

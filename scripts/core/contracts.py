@@ -1,9 +1,13 @@
 """Versioned contracts shared by every resource-pipeline stage."""
 
+import re
+
 PIPELINE_CONTRACT = "haneoka-resource-pipeline-v1"
 SOURCE_SCHEMA = "haneoka-resource-source-v1"
 BUILD_SCHEMA = "haneoka-resource-build-v1"
 RELEASE_SCHEMA = "haneoka-resource-release-v1"
+RELEASE_IDENTITY_SCHEMA = "haneoka-resource-release-identity-v1"
+RELEASE_IDENTITY_FILENAME = "release-identity.json"
 POINTER_SCHEMA = "haneoka-resource-pointer-v1"
 RELEASE_TREES = ("assets", "runtime", "objects", "api", "metadata", "game-client")
 GAME_CLIENT_SCHEMA = "haneoka-game-client-v1"
@@ -83,3 +87,22 @@ CATALOG_OPTIONAL_RESOURCES = (
 CATALOG_REQUIRED_RESOURCES = tuple(
     resource for resource in CATALOG_RESOURCES if resource not in CATALOG_OPTIONAL_RESOURCES
 )
+
+
+def release_identity_descriptor(server: str, release_id: str, manifest: dict) -> dict[str, str]:
+    source_id = manifest.get("sourceId")
+    if (
+        manifest.get("schema") != RELEASE_SCHEMA
+        or manifest.get("server") != server
+        or manifest.get("releaseId") != release_id
+        or not re.fullmatch(r"r-[a-f0-9]{20}", release_id)
+        or not isinstance(source_id, str)
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", source_id)
+    ):
+        raise ValueError("release manifest identity cannot produce a release descriptor")
+    return {
+        "schema": RELEASE_IDENTITY_SCHEMA,
+        "server": server,
+        "releaseId": release_id,
+        "sourceId": source_id,
+    }

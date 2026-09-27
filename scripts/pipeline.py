@@ -674,9 +674,12 @@ def command_fetch_package(args: argparse.Namespace) -> None:
 # dynamically per release, so these paths are the complete release-side input.
 SONOLUS_INPUT_PREFIXES = (
     "runtime/note-se/",
-    "runtime/unity-json/Assets/AddressableResources/Live/NoteEffect/effect001/",
-    "runtime/unity-json/Assets/AddressableResources/Live/NoteEffect/common/anim/",
-    "runtime/unity/Assets/AddressableResources/Live/NoteEffect/common/",
+    "runtime/unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/",
+    "runtime/unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/",
+    "runtime/unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/",
+    "runtime/unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/common/",
+    "runtime/unity/Assets/AddressableResources/Effect/Live/NoteEffect/common/",
+    "runtime/unity-json/Assets/AddressableResources/Live/Images/lane_effect_white.png/",
     "runtime/unity/Assets/AddressableResources/Live/Images/lane_effect_white.png/",
 )
 SONOLUS_INPUT_EXACT_PATHS = ()
