@@ -27,10 +27,21 @@ CHUNK_SUFFIX = re.compile(r"-(\d+)\.bytes$", re.IGNORECASE)
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 CRI_SCHEMA = "haneoka-cri-runtime-v1"
 CRI_TRANSFORM_SCHEMA = "haneoka-cri-transform-v1"
+# Asset locales guide the order of metadata code-page candidates. They are
+# hints, not an encoding declaration; video/audio validation remains separate.
+USM_LOCALE_ENCODINGS = {
+    "": "cp932",
+    "ja": "cp932",
+    "zh-hans": "gb18030",
+    "zh-hant": "big5",
+    "ko": "cp949",
+}
+USM_ENCODING_FALLBACKS = ("cp932", "gb18030", "big5", "cp949", "latin-1")
 # The published UTF-8-only release uses the same decoding for every source it
 # successfully processed. Its content-hashed outputs remain reusable after
 # the cp932 fallback was added, provided the HCA key is unchanged.
 COMPATIBLE_TRANSFORM_IDS = {
+    "8ad243295cc9c0a9b8e77be08d8ed1f504e0b15950674e86be8ae8e3d6300b57",
     "ec14e1a80a83abd5ed9cadcf5fb59e107544c69dc6e09496165a0110f44001ad",
 }
 COMPATIBLE_HCA_KEY_SHA256 = "cd0b2ad6de5baa070f1c00baa33658b493a138919f00a4ed8418a7ff6af6ba2f"
@@ -103,6 +114,26 @@ def _video_output_profile(header: bytes) -> tuple[str, list[str], list[str]]:
             ["-c:a", "aac", "-b:a", "256k"],
         )
     raise ValueError(f"unsupported CRI video stream header: {header[:12].hex()}")
+
+
+def _usm_metadata_encodings(locales: Any = None) -> tuple[str, ...]:
+    """Return strict locale candidates, then compatibility fallbacks.
+
+    USM metadata is not necessarily UTF-8. The addressable locale is the only
+    source-level hint available to this extractor, so use it to prefer
+    the corresponding legacy encoding. Latin-1 is deliberately last and only
+    preserves bytes for a payload that still has to pass stream validation.
+    """
+    values = locales if isinstance(locales, (list, tuple, set)) else ()
+    encodings = ["UTF-8"]
+    for locale in values:
+        encoding = USM_LOCALE_ENCODINGS.get(str(locale).casefold())
+        if encoding and encoding not in encodings:
+            encodings.append(encoding)
+    for encoding in USM_ENCODING_FALLBACKS:
+        if encoding not in encodings:
+            encodings.append(encoding)
+    return tuple(encodings)
 
 
 def _ffmpeg_mp3(wav: Path, output: Path) -> None:
@@ -243,21 +274,35 @@ def _decode_acb(payload: Path, output: Path, hca_key: str, preferred_stem: str =
         return records
 
 
-def _decode_usm(payload: Path, output: Path, key: str) -> list[dict[str, Any]]:
+def _decode_usm(
+    payload: Path,
+    output: Path,
+    key: str,
+    metadata_encodings: tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
     from wannacri.usm import Usm
     from wannacri.usm.types import OpMode
 
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="haneoka-usm-") as directory:
         scratch = Path(directory)
-        try:
-            usm = Usm.open(str(payload), key=int(key))
-            encoding = "UTF-8"
-        except UnicodeDecodeError:
-            # Localized CRI UTF tables can encode channel names in Windows
-            # Japanese even when the video itself is otherwise ordinary USM.
-            usm = Usm.open(str(payload), key=int(key), encoding="cp932")
-            encoding = "cp932"
+        candidates = metadata_encodings or _usm_metadata_encodings()
+        last_decode_error = None
+        usm = None
+        encoding = "UTF-8"
+        for candidate_encoding in candidates:
+            try:
+                usm = Usm.open(str(payload), key=int(key), encoding=candidate_encoding)
+                encoding = candidate_encoding
+                last_decode_error = None
+                break
+            except UnicodeDecodeError as error:
+                last_decode_error = error
+        if usm is None:
+            attempted = ", ".join(candidates)
+            raise ValueError(
+                f"no supported USM metadata encoding succeeded ({attempted})"
+            ) from last_decode_error
         video_files = []
         alpha_files: dict[int, Path] = {}
         for index, _ in enumerate(usm.videos):
@@ -615,7 +660,12 @@ def _decode_task(task: dict[str, Any], config: ServerConfig, root: Path) -> dict
         files = (
             _decode_acb(payload, output, config.cri_hca_key, task.get("preferred", ""))
             if task["kind"] == "acb"
-            else _decode_usm(payload, output, config.cri_hca_key)
+            else _decode_usm(
+                payload,
+                output,
+                config.cri_hca_key,
+                tuple(task.get("metadataEncodings") or ()),
+            )
         )
     except Exception as error:
         raise RuntimeError(f"failed to decode CRI source {task['label']}: {error}") from error
@@ -1128,6 +1178,9 @@ def extract_cri(
                 "kind": kind,
                 "relative": relative,
                 "payload": payload,
+                "metadataEncodings": _usm_metadata_encodings(
+                    (artifact.get("addressables") or {}).get("locales")
+                ),
             }
         )
 
