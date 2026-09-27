@@ -1,3 +1,6 @@
+import { resourceCollectionHref, entityHref } from "../lib/resource-route";
+import { readReleaseServer } from "../lib/release-server";
+import type { Locale } from "../i18n/locales";
 import { clientText } from "../i18n/client";
 import { SONOLUS_SERVER_LINK } from "../config/sonolus";
 import { observeSongDisplay, songTitle } from "../lib/song-display";
@@ -685,9 +688,25 @@ export class HomeDashboard extends LitElement {
           this.text("latestSongs", "Songs"),
           "home-songs-title",
           html`
-            <a class="button button--text" href="/catalog/songs">
-              ${this.text("viewAll", "View all")}${icon("arrow_forward", 18)}
-            </a>
+            <div class="home-card__actions">
+              <a
+                class="button button--tonal home-sonolus"
+                href=${SONOLUS_SERVER_LINK}
+                aria-label="Sonolus"
+                title="Sonolus"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img src="/images/sonolus.png" width="24" height="24" alt="" />
+                <span>Sonolus</span>
+              </a>
+              <a
+                class="button button--text"
+                href=${resourceCollectionHref("/catalog/songs", readReleaseServer(), this.locale as Locale)}
+              >
+                ${this.text("viewAll", "View all")}${icon("arrow_forward", 18)}
+              </a>
+            </div>
           `,
         )}
         ${
@@ -720,7 +739,12 @@ export class HomeDashboard extends LitElement {
                           attributeMark: (entry) => this.attributeMark(entry.musicType),
                           attributeLabel: () => String(song.musicType || ""),
                         },
-                        `/catalog/songs?song=${song.musicId || song.id}`,
+                        entityHref({
+                          server: readReleaseServer(),
+                          locale: this.locale as Locale,
+                          kind: "songs",
+                          id: String(song.musicId || song.id),
+                        }),
                         [release ? { at: "bottom-start" as const, text: release } : null],
                       ),
                     );
@@ -1023,9 +1047,6 @@ export class HomeDashboard extends LitElement {
         <footer class="home-footer">
           <p>haneoka · ${this.text("fanArchive", "Unofficial archive and community")}</p>
           <nav aria-label=${this.text("legalNavigation", "Policies and project information")}>
-            <a class="text-link" href=${SONOLUS_SERVER_LINK} target="_blank" rel="noopener noreferrer">
-              ${icon("sports_esports", 20)} Sonolus ${icon("open_in_new", 16)}
-            </a>
             <a class="text-link" href="/privacy">${this.text("privacy", "Privacy Policy")}</a>
             <a class="text-link" href="/terms">${this.text("terms", "Terms of Use")}</a>
             <a class="text-link" href="/about">${this.text("about", "About")}</a>

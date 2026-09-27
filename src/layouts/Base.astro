@@ -224,7 +224,10 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
         } catch {}
         next.documentElement.dataset.seed = isSeed(seed) ? seed : "haneoka";
       });
-      document.addEventListener("astro:after-swap", applyTheme);
+      document.addEventListener("astro:after-swap", () => {
+        delete document.documentElement.dataset.navigationHref;
+        applyTheme();
+      });
     </script>
   </body>
 </html>

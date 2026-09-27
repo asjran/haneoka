@@ -9,6 +9,7 @@ import { searchableStoryUrls } from "../lib/searchable-stories";
 import {
   legacyEntityRedirectTarget,
   resourceCollectionHref,
+  homePath,
   isReleaseServer,
   type ReleaseServer,
 } from "../lib/resource-route";
@@ -32,7 +33,10 @@ export const GET: APIRoute = async () => {
     ]);
     for (const { route } of XML_ROUTES) {
       for (const locale of LOCALES) {
-        const canonical = resourceCollectionHref(route, server, locale) ?? localePath(route, locale);
+        const canonical =
+          route === "/"
+            ? homePath(server, locale)
+            : (resourceCollectionHref(route, server, locale) ?? localePath(route, locale));
         urls.add(`https://haneoka.org${canonicalPath(canonical)}`);
       }
     }

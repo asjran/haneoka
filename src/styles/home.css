@@ -433,3 +433,32 @@
     }
   }
 }
+
+@layer pages {
+  .home-card__actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--md-sys-spacing-2);
+  }
+  .home-sonolus {
+    flex-shrink: 0;
+    gap: var(--md-sys-spacing-2);
+  }
+  .home-sonolus img {
+    display: block;
+    flex: none;
+    border-radius: 6px;
+  }
+  @media (max-width: 599px) {
+    .home-sonolus {
+      width: var(--md-comp-control-height-touch);
+      min-height: var(--md-comp-control-height-touch);
+      padding-inline: 0;
+    }
+    .home-sonolus > span {
+      display: none;
+    }
+  }
+}

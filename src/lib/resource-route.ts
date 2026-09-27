@@ -102,6 +102,20 @@ export function resourcePath({ server, locale, kind, id }: ResourceRoute): strin
   return `/${server}/${locale}/${kind}/${id === undefined ? "" : `${encodeURIComponent(id)}/`}`;
 }
 
+export function homePath(server: ReleaseServer, locale: Locale): string {
+  if (!isReleaseServer(server) || !isLocale(locale)) throw new TypeError("Invalid home route");
+  return `/${server}/${locale}/`;
+}
+
+export function legacyHomeRedirectTarget(pathname: string, search = ""): string | undefined {
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts.length !== 1 || !isLocale(parts[0])) return undefined;
+  const query = new URLSearchParams(search);
+  const server = query.get("server");
+  query.delete("server");
+  return `${homePath(isReleaseServer(server) ? server : "intl", parts[0])}${query.size ? `?${query}` : ""}`;
+}
+
 /** Public chart player address for a canonical song entity. */
 export function chartPath({ server, locale, id }: { server: ReleaseServer; locale: Locale; id: string }): string {
   return `${resourcePath({ server, locale, kind: "songs", id })}chart/`;

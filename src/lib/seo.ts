@@ -51,8 +51,8 @@ export function pageStructuredData(
   const server = isReleaseServer(serverPrefix) ? serverPrefix : undefined;
   const address = (logicalRoute: string) =>
     `${origin}${canonicalPath(
-      server && logicalRoute === "/"
-        ? `/${server}/${locale}/`
+      logicalRoute === "/"
+        ? `/${server ?? "intl"}/${locale}/`
         : ((server ? resourceCollectionHref(logicalRoute, server, locale) : undefined) ??
             (localized ? localePath(logicalRoute, locale) : logicalRoute)),
     )}`;

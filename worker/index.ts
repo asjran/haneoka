@@ -20,6 +20,7 @@ import {
   isReleaseServer,
   legacyEntityRedirectTarget,
   legacyCollectionRedirectTarget,
+  legacyHomeRedirectTarget,
   parseResourceRoute,
   resourcePath,
   storyCollectionPath,
@@ -2638,7 +2639,9 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     }
   }
   const legacyEntityTarget =
-    legacyEntityRedirectTarget(url.pathname, url.search) ?? legacyCollectionRedirectTarget(url.pathname, url.search);
+    legacyEntityRedirectTarget(url.pathname, url.search) ??
+    legacyCollectionRedirectTarget(url.pathname, url.search) ??
+    legacyHomeRedirectTarget(url.pathname, url.search);
   if (legacyEntityTarget && (request.method === "GET" || request.method === "HEAD")) {
     return new Response(null, {
       status: 308,
@@ -2661,7 +2664,11 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     (!WORKER_FIRST_PREFIXES.some((prefix) => url.pathname.startsWith(prefix)) || assetExplorerRoute)
   ) {
     const target = new URL(url);
-    target.pathname = `/${negotiateLocale(request)}${url.pathname === "/" ? "/" : `${url.pathname.replace(/\/+$/, "")}/`}`;
+    if (url.pathname === "/") {
+      const server = url.searchParams.get("server");
+      target.pathname = `/${isReleaseServer(server) ? server : "intl"}/${negotiateLocale(request)}/`;
+      target.searchParams.delete("server");
+    } else target.pathname = `/${negotiateLocale(request)}${url.pathname.replace(/\/+$/, "")}/`;
     return new Response(null, {
       status: 302,
       headers: { Location: target.toString(), "Cache-Control": "no-store", Vary: "Cookie, Accept-Language" },

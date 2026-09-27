@@ -213,7 +213,7 @@
     gap: 10px;
   }
   .viewer-transform-controls label,
-  .viewer-parameter-editor label {
+  .viewer-parameter-editor label:not(.button) {
     display: grid;
     min-width: 0;
     grid-template-columns: minmax(76px, 0.9fr) minmax(0, 1.4fr) 44px 36px;
@@ -223,7 +223,7 @@
     font-size: var(--md-sys-typescale-label-medium-size);
   }
   .viewer-transform-controls label md-slider,
-  .viewer-parameter-editor label md-slider {
+  .viewer-parameter-editor label:not(.button) md-slider {
     min-width: 0;
     width: 100%;
   }
@@ -310,7 +310,7 @@
     overflow: hidden;
     clip-path: inset(50%);
   }
-  .viewer-parameter-editor label > .icon-button {
+  .viewer-parameter-editor label:not(.button) > .icon-button {
     width: 36px;
     height: 36px;
   }
@@ -626,7 +626,7 @@
   .viewer-pose-name {
     min-height: 44px;
   }
-  .viewer-parameter-editor label > .icon-button {
+  .viewer-parameter-editor label:not(.button) > .icon-button {
     width: 44px;
     height: 44px;
   }
@@ -642,7 +642,7 @@
     }
     .viewer-controls .icon-button,
     .viewer-detail__navigation .icon-button,
-    .viewer-parameter-editor label > .icon-button {
+    .viewer-parameter-editor label:not(.button) > .icon-button {
       width: var(--md-comp-control-height-touch);
       height: var(--md-comp-control-height-touch);
       min-width: var(--md-comp-control-height-touch);
@@ -654,7 +654,7 @@
     .viewer-parameter-toolbar .segmented > button {
       min-height: var(--md-comp-control-height-touch);
     }
-    .viewer-parameter-editor label {
+    .viewer-parameter-editor label:not(.button) {
       grid-template-columns: minmax(76px, 0.9fr) minmax(0, 1.4fr) 44px 48px;
     }
   }

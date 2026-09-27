@@ -18,6 +18,7 @@ import {
   isReleaseServer,
   legacyEntityRedirectTarget,
   legacyCollectionRedirectTarget,
+  legacyHomeRedirectTarget,
   parseResourceRoute,
   resourcePath,
   storyCollectionPath,
@@ -1109,7 +1110,9 @@ function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerRespons
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://preview.invalid");
   const legacyEntityTarget =
-    legacyEntityRedirectTarget(url.pathname, url.search) ?? legacyCollectionRedirectTarget(url.pathname, url.search);
+    legacyEntityRedirectTarget(url.pathname, url.search) ??
+    legacyCollectionRedirectTarget(url.pathname, url.search) ??
+    legacyHomeRedirectTarget(url.pathname, url.search);
   if (legacyEntityTarget && ((req.method ?? "GET") === "GET" || (req.method ?? "GET") === "HEAD")) {
     res.writeHead(308, { Location: legacyEntityTarget, "Cache-Control": "public, max-age=86400" });
     res.end();
@@ -1183,11 +1186,16 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         if (locale) break;
       }
     const resolved = locale ?? "en";
+    const target = new URL(url);
+    if (isReleaseServer(serverFirstParts[0]) && serverFirstParts.length === 1) {
+      target.pathname = `/${serverFirstParts[0]}/${resolved}/`;
+    } else if (url.pathname === "/") {
+      const server = url.searchParams.get("server");
+      target.pathname = `/${isReleaseServer(server) ? server : "intl"}/${resolved}/`;
+      target.searchParams.delete("server");
+    } else target.pathname = `/${resolved}${url.pathname.replace(/\/+$/, "")}/`;
     res.writeHead(302, {
-      Location:
-        isReleaseServer(serverFirstParts[0]) && serverFirstParts.length === 1
-          ? `/${serverFirstParts[0]}/${resolved}/${url.search}${url.hash}`
-          : `/${resolved}${url.pathname === "/" ? "/" : `${url.pathname.replace(/\/+$/, "")}/`}${url.search}${url.hash}`,
+      Location: `${target.pathname}${target.search}${target.hash}`,
       "Cache-Control": "no-store",
       Vary: "Cookie, Accept-Language",
     });

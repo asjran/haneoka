@@ -41,6 +41,7 @@ interface Viewer {
     modelUrl: string;
     harmonicMotion?: unknown;
     defaultMotionName?: string;
+    autoIdleMotion?: boolean;
     defaultExpressionName?: string;
     signal?: AbortSignal;
   }): Promise<void>;
@@ -366,6 +367,26 @@ export class Live2DWorkspace extends LitElement {
     }
     return "";
   }
+  private defaultMotionName(detail: Value | null, motions: Value[]): string {
+    const runtime = detail?.runtime && typeof detail.runtime === "object" ? (detail.runtime as Value) : null;
+    return String(
+      readPath(detail || {}, "profile.defaultMotionName") ||
+        readPath(detail || {}, "runtime.profile.defaultMotionName") ||
+        runtime?.defaultMotionName ||
+        detail?.defaultMotionName ||
+        motions[0]?.name ||
+        "",
+    );
+  }
+  private harmonicMotionData(detail: Value | null): unknown {
+    const runtime = detail?.runtime && typeof detail.runtime === "object" ? (detail.runtime as Value) : null;
+    return (
+      runtime?.harmonicMotion ??
+      detail?.harmonicMotion ??
+      readPath(detail || {}, "profile.harmonicMotion") ??
+      readPath(runtime || {}, "profile.harmonicMotion")
+    );
+  }
   private url(path = "") {
     return catalogUrl("live2d", path);
   }
@@ -472,11 +493,13 @@ export class Live2DWorkspace extends LitElement {
     const modelUrl = String(source.model || "");
     if (!modelUrl) throw new Error(uiText(this.locale, "modelDescriptorMissing"));
     const motions = Array.isArray(detail.motions) ? (detail.motions as Value[]) : [];
-    const defaultMotion = String(
-      readPath(detail, "profile.defaultMotionName") || detail.defaultMotionName || motions[0]?.name || "",
-    );
+    const defaultMotion = this.defaultMotionName(detail, motions);
     const defaultExpression = String(
-      readPath(detail, "profile.defaultExpressionName") || detail.defaultExpressionName || "",
+      readPath(detail, "profile.defaultExpressionName") ||
+        readPath(detail, "runtime.profile.defaultExpressionName") ||
+        readPath(detail, "runtime.defaultExpressionName") ||
+        detail.defaultExpressionName ||
+        "",
     );
     const runtime = (await import(/* @vite-ignore */ CUBISM_WEB_RUNTIME_URL)) as unknown as {
       CubismModelViewer: new (options: {
@@ -543,8 +566,9 @@ export class Live2DWorkspace extends LitElement {
       resize();
       await viewer!.load({
         modelUrl,
-        harmonicMotion: source.harmonicMotion || detail.harmonicMotion,
+        harmonicMotion: this.harmonicMotionData(detail),
         defaultMotionName: defaultMotion || undefined,
+        autoIdleMotion: false,
         defaultExpressionName: defaultExpression || undefined,
         signal: controller.signal,
       });
@@ -571,9 +595,7 @@ export class Live2DWorkspace extends LitElement {
     const poseFrozen = this.parameterMode === "pose";
     const detail = this.detail;
     const motions = Array.isArray(detail?.motions) ? (detail?.motions as Value[]) : [];
-    const defaultMotion = String(
-      readPath(detail || {}, "profile.defaultMotionName") || detail?.defaultMotionName || motions[0]?.name || "",
-    );
+    const defaultMotion = this.defaultMotionName(detail, motions);
     viewer.setBreathEnabled(this.breath);
     viewer.setEyeBlinkEnabled(this.blink);
     viewer.setPaused(this.paused);
@@ -769,16 +791,17 @@ export class Live2DWorkspace extends LitElement {
     }
     if (kind === "sway") {
       this.sway = !this.sway;
-      if (!this.sway) this.applyLook();
+      if (!this.sway) {
+        this.applyLook();
+      }
     }
     if (kind === "loop") {
       this.loopMotion = !this.loopMotion;
       const detail = this.detail;
       const motions = Array.isArray(detail?.motions) ? (detail?.motions as Value[]) : [];
-      const defaultMotion = String(
-        readPath(detail || {}, "profile.defaultMotionName") || detail?.defaultMotionName || motions[0]?.name || "",
-      );
+      const defaultMotion = this.defaultMotionName(detail, motions);
       this.viewer?.setLoopMotion(this.loopMotion && defaultMotion ? defaultMotion : null);
+      if (!this.loopMotion) this.viewer?.stopMotions();
     }
     if (kind === "drag") {
       this.dragEnabled = !this.dragEnabled;
@@ -1119,11 +1142,10 @@ export class Live2DWorkspace extends LitElement {
     this.capturing = true;
     this.captureMessage = "";
     try {
-      const rect = canvas.getBoundingClientRect();
-      const width = Math.max(1, Math.round(rect.width));
-      const height = Math.max(1, Math.round(rect.height));
-      // Size captures from an explicit output budget rather than DPR or a
-      // stage-width multiplier; the live preview remains CSS-pixel based.
+      const width = Math.max(1, canvas.width);
+      const height = Math.max(1, canvas.height);
+      // The runtime scales its current drawing buffer, which may already be
+      // supersampled. Count those pixels once when applying the capture budget.
       const scale = Math.sqrt(CAPTURE_PIXEL_BUDGET / (width * height));
       const snapshot = document.createElement("canvas");
       const context = snapshot.getContext("2d");
@@ -1526,13 +1548,14 @@ export class Live2DWorkspace extends LitElement {
               @pointerdown=${this.beginDrag}
               @pointermove=${(event: PointerEvent) => {
                 this.moveDrag(event);
-                if (this.sway && this.parameterMode !== "pose")
+                if (this.sway && this.parameterMode !== "pose") {
                   this.viewer?.setLookAtClientPosition(event.clientX, event.clientY);
+                }
               }}
               @pointerup=${this.endDrag}
               @pointercancel=${this.endDrag}
               @pointerleave=${() => {
-                if (this.sway && this.parameterMode !== "pose") this.viewer?.setLookPosition(0, 0);
+                if (this.sway && this.parameterMode !== "pose") this.applyLook();
               }}
             ></canvas>
             ${

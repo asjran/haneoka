@@ -54,7 +54,7 @@
       "name": "vega-plugin-cubism",
       "url": "https://github.com/haneoka-gakuen/vega-plugin-cubism.git",
       "branch": "main",
-      "commit": "269cdad78676dfa86b9547e46925956863a9e2c8",
+      "commit": "ac62ae661981686ee68f9781e7012394e2ee23f0",
       "version": "0.1.0",
       "kind": "node"
     },
