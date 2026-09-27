@@ -9,7 +9,4 @@ export type { MainI18nNamespace };
 export const isI18nNamespace = (value: string): value is MainI18nNamespace =>
   I18N_NAMESPACES.some((namespace) => namespace === value);
 
-export const catalogLookupKeys = (key: string): readonly string[] => {
-  const compatibility = key === "tgwCard" ? "catalogCompat.tgw.card" : `catalogCompat.${key}`;
-  return compatibility === key ? [key] : [key, compatibility];
-};
+export { catalogLookupKeys } from "./message-paths";

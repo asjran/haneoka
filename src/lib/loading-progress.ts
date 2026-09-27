@@ -121,7 +121,11 @@ function formatBytes(value: number, locale: string): string {
 }
 
 function formatFileCount(completed: number, total: number | undefined, locale: string): string {
-  const word = clientText(locale, completed === 1 ? "loading.file" : "loading.files", completed === 1 ? "file" : "files");
+  const word = clientText(
+    locale,
+    completed === 1 ? "loading.file" : "loading.files",
+    completed === 1 ? "file" : "files",
+  );
   const count = total === undefined ? `${completed} ${word}` : `${completed} / ${total} ${word}`;
   return count;
 }
@@ -277,6 +281,9 @@ class LoadingCoordinator {
   private beforeSwap(event: ProgressDocumentEvent): void {
     const next = event.newDocument;
     if (!next || !this.route || this.route.signal?.aborted) return;
+    // The fetched document may have redirected to a localized/canonical URL.
+    // Completion belongs to the address actually being committed.
+    this.route.to = identity(event.to) || this.route.to;
     this.route.swapped = true;
     this.renderInto(next, this.snapshot());
   }

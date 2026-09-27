@@ -2,7 +2,10 @@ import { clientText } from "../i18n/client";
 import { LitElement, html, nothing } from "lit";
 import { PaneFocus } from "./ui/pane";
 import { loadingState } from "./ui/state";
-import { preferredLocale } from "./shared/catalog";
+import { fetchJson, preferredLocale } from "./shared/catalog";
+import { RequestScope } from "../lib/request-scope";
+import { beginLoading } from "../lib/loading-progress";
+import { navigationDocumentUrl } from "../lib/document-url";
 
 type Value = Record<string, unknown>;
 const sections = ["overview", "users", "posts", "reports", "appeals", "operations"] as const;
@@ -26,6 +29,9 @@ export class AdminWorkspace extends LitElement {
     resourceSources: { state: true },
     readyPackage: { state: true },
     packageProgress: { state: true },
+    loadingMore: { state: true },
+    selectedResourceServer: { state: true },
+    packageFileName: { state: true },
   };
   declare section: Section;
   declare phase: "loading" | "ready" | "error";
@@ -40,6 +46,13 @@ export class AdminWorkspace extends LitElement {
   declare resourceSources: Value[];
   declare readyPackage: Value | null;
   declare packageProgress: number;
+  declare loadingMore: boolean;
+  declare selectedResourceServer: string;
+  declare packageFileName: string;
+  private readonly listRequests = new RequestScope();
+  private readonly sourceRequests = new RequestScope();
+  private readonly serverRequests = new RequestScope();
+  private lifetime = new AbortController();
 
   constructor() {
     super();
@@ -56,6 +69,9 @@ export class AdminWorkspace extends LitElement {
     this.resourceSources = [];
     this.readyPackage = null;
     this.packageProgress = 0;
+    this.loadingMore = false;
+    this.selectedResourceServer = "";
+    this.packageFileName = "";
   }
 
   private paneFocus = new PaneFocus();
@@ -71,14 +87,19 @@ export class AdminWorkspace extends LitElement {
   }
   private readonly onLocale = () => this.requestUpdate();
   disconnectedCallback() {
+    this.lifetime.abort();
+    this.listRequests.cancel();
+    this.sourceRequests.cancel();
+    this.serverRequests.cancel();
     removeEventListener("haneoka:locale-ready", this.onLocale);
     this.paneFocus.detach();
     super.disconnectedCallback();
   }
   connectedCallback() {
     super.connectedCallback();
+    if (this.lifetime.signal.aborted) this.lifetime = new AbortController();
     addEventListener("haneoka:locale-ready", this.onLocale);
-    this.query = new URLSearchParams(location.search).get("q") || "";
+    this.query = navigationDocumentUrl().searchParams.get("q") || "";
     void Promise.all([
       import("@material/web/progress/circular-progress.js"),
       import("@material/web/select/outlined-select.js"),
@@ -101,18 +122,21 @@ export class AdminWorkspace extends LitElement {
       : "—";
   }
   private async request(path: string, init: RequestInit = {}) {
+    if (!this.isConnected) throw new DOMException("Page closed", "AbortError");
     const headers = new Headers({ accept: "application/json" });
     new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     if ((init.method || "GET") !== "GET")
       headers.set("Idempotency-Key", headers.get("Idempotency-Key") || `admin-${crypto.randomUUID()}`);
     if (typeof init.body === "string" && !headers.has("content-type")) headers.set("content-type", "application/json");
-    const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init, headers });
-    const value = (await response.json().catch(() => ({}))) as Value;
-    if (!response.ok)
-      throw new Error(
-        String((value.error as Value | undefined)?.message || value.message || `HTTP ${response.status}`),
-      );
-    return value;
+    const value = await fetchJson<Value | null>(path, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: this.lifetime.signal,
+      ...init,
+      headers,
+    });
+    if (!this.isConnected) throw new DOMException("Page closed", "AbortError");
+    return value ?? {};
   }
   private async mutate(name: string, work: () => Promise<void>) {
     if (this.busy) return;
@@ -121,27 +145,22 @@ export class AdminWorkspace extends LitElement {
     try {
       await work();
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
+      if (this.isConnected) this.error = error instanceof Error ? error.message : String(error);
     } finally {
       this.busy = "";
     }
   }
   private records(document = this.document) {
     const value = document[this.section];
-    if (Array.isArray(value)) return value as Value[];
-    const keys: Record<Section, string> = {
-      overview: "overview",
-      users: "users",
-      posts: "posts",
-      reports: "reports",
-      appeals: "appeals",
-      operations: "operations",
-    };
-    const found = document[keys[this.section]];
-    return Array.isArray(found) ? (found as Value[]) : [];
+    return Array.isArray(value) ? (value as Value[]) : [];
   }
   private async load(append: boolean) {
-    if (append && !this.cursor) return;
+    if (append && (!this.cursor || this.loadingMore || this.phase !== "ready")) return;
+    const signal = this.listRequests.begin();
+    const section = this.section;
+    const active = () => this.isConnected && this.listRequests.current(signal) && section === this.section;
+    const progress = beginLoading(this.label("loading", "Loading"), { signal });
+    this.loadingMore = append;
     if (!append) this.phase = "loading";
     this.error = "";
     try {
@@ -149,7 +168,8 @@ export class AdminWorkspace extends LitElement {
       if (append) query.set("cursor", this.cursor);
       if (this.section === "users" && this.query) query.set("q", this.query);
       if (this.section === "reports" || this.section === "appeals") query.set("status", "all");
-      const result = await this.request(`/api/v1/admin/${this.section}?${query}`);
+      const result = await this.request(`/api/v1/admin/${section}?${query}`, { signal });
+      if (!active()) return;
       if (append) {
         const key = this.section;
         this.document = {
@@ -160,8 +180,13 @@ export class AdminWorkspace extends LitElement {
       this.cursor = String(result.nextCursor || "");
       this.phase = "ready";
     } catch (error) {
+      if (!active()) return;
       this.error = error instanceof Error ? error.message : String(error);
-      this.phase = "error";
+      if (!append) this.phase = "error";
+      progress.fail(error);
+    } finally {
+      if (active()) this.loadingMore = false;
+      progress.finish();
     }
   }
   private search(event: SubmitEvent) {
@@ -294,18 +319,43 @@ export class AdminWorkspace extends LitElement {
   }
 
   private async loadResourceServers() {
+    const signal = this.serverRequests.begin();
+    const progress = beginLoading(this.label("loading", "Loading"), { signal });
     try {
-      const result = await this.request("/api/v1/admin/resource-servers");
+      const result = await this.request("/api/v1/admin/resource-servers", { signal });
+      if (!this.serverRequests.current(signal)) return;
       this.resourceServers = Array.isArray(result.resourceServers) ? (result.resourceServers as Value[]) : [];
-      const first = this.resourceServers.find((server) => server.status === "active");
-      if (first) await this.loadResourceSources(String(first.slug));
+      const active = this.resourceServers.filter((server) => server.status === "active");
+      const selected = active.find((server) => server.slug === this.selectedResourceServer) ?? active[0];
+      await this.loadResourceSources(String(selected?.slug || ""));
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
+      if (this.isConnected && this.serverRequests.current(signal)) {
+        this.error = error instanceof Error ? error.message : String(error);
+        progress.fail(error);
+      }
+    } finally {
+      progress.finish();
     }
   }
   private async loadResourceSources(server: string) {
-    const result = await this.request(`/api/v1/admin/resource-sources?server=${encodeURIComponent(server)}`);
-    this.resourceSources = Array.isArray(result.resourceSources) ? (result.resourceSources as Value[]) : [];
+    const signal = this.sourceRequests.begin();
+    this.selectedResourceServer = server;
+    this.resourceSources = [];
+    if (!server) return;
+    const progress = beginLoading(this.label("loading", "Loading"), { signal });
+    try {
+      const result = await this.request(`/api/v1/admin/resource-sources?server=${encodeURIComponent(server)}`, {
+        signal,
+      });
+      if (this.sourceRequests.current(signal))
+        this.resourceSources = Array.isArray(result.resourceSources) ? (result.resourceSources as Value[]) : [];
+    } catch (error) {
+      if (this.isConnected && this.sourceRequests.current(signal))
+        this.error = error instanceof Error ? error.message : String(error);
+      if (this.sourceRequests.current(signal)) progress.fail(error);
+    } finally {
+      progress.finish();
+    }
   }
   private createServer(event: SubmitEvent) {
     event.preventDefault();
@@ -378,6 +428,7 @@ export class AdminWorkspace extends LitElement {
           {
             method: "PUT",
             credentials: "same-origin",
+            signal: this.lifetime.signal,
             headers: {
               "Content-Type": "application/octet-stream",
               "Idempotency-Key": `admin-${crypto.randomUUID()}`,
@@ -440,6 +491,7 @@ export class AdminWorkspace extends LitElement {
           (section) => html`
             <a
               class=${this.section === section ? "selected" : ""}
+              aria-current=${this.section === section ? "page" : nothing}
               href=${section === "overview" ? "/admin" : `/admin/${section}`}
             >
               ${icon(icons[section])}
@@ -459,12 +511,12 @@ export class AdminWorkspace extends LitElement {
         <header class="staff-strip">
           <span class="admin-avatar">
             ${
-                user.avatarUrl
-                  ? html`
-                      <img src=${String(user.avatarUrl)} alt="" loading="lazy" />
-                    `
-                  : String(user.name || "?").slice(0, 1)
-              }
+              user.avatarUrl
+                ? html`
+                    <img src=${String(user.avatarUrl)} alt="" loading="lazy" />
+                  `
+                : String(user.name || "?").slice(0, 1)
+            }
           </span>
           <span>
             <strong>${String(user.name || "")}</strong>
@@ -541,13 +593,13 @@ export class AdminWorkspace extends LitElement {
                   <small>${this.date(restriction.expiresAt)} · ${String(restriction.reasonCode || "")}</small>
                 </span>
                 <button class="button button--text" @click=${() => this.revokeRestriction(user, restriction)}>
-                  ${this.label("actions.revoke", "Revoke")}
+                  ${this.label("actions.revokeRestriction", "Revoke restriction")}
                 </button>
               </div>
             `,
           )}
           <button class="button button--danger" @click=${() => this.revokeUserSessions(user)}>
-            ${icon("logout", 18)}${this.label("actions.sessions", "Revoke sessions")}
+            ${icon("logout", 18)}${this.label("actions.revokeSessions", "Revoke sessions")}
           </button>
         </div>
       </details>
@@ -913,7 +965,7 @@ export class AdminWorkspace extends LitElement {
                 `,
               )}
             </md-outlined-select>
-            <button class="button">${this.label("resources.createServer", "Create server")}</button>
+            <button class="button">${this.label("resources.create", "Create draft")}</button>
           </form>
         </details>
         <div class="resource-console-grid">
@@ -928,22 +980,31 @@ export class AdminWorkspace extends LitElement {
                 `,
               )}
             </md-outlined-select>
-            <label class="button button--tonal">
-              ${icon("upload", 18)}${this.label("resources.choosePackage", "Choose ZIP")}
-              <input name="package" type="file" accept="application/zip,.zip" required />
+            <label class="button button--tonal resource-package-picker">
+              ${icon("upload", 18)}${this.label("resources.chooseFile", "Choose file")}
+              <input
+                name="package"
+                type="file"
+                accept="application/zip,.zip"
+                required
+                @change=${(event: Event) => (this.packageFileName = (event.target as HTMLInputElement).files?.[0]?.name || "")}
+              />
             </label>
+            <small class="resource-package-name" aria-live="polite">
+              ${this.packageFileName || this.label("resources.noFileSelected", "No file selected")}
+            </small>
             <progress max="100" value=${this.packageProgress}></progress>
             <button class="button" ?disabled=${Boolean(this.busy)}>${this.label("resources.upload", "Upload")}</button>
           </form>
           <form @submit=${this.dispatchRun}>
-            <h3>${this.label("resources.run", "Resource run")}</h3>
-            <md-outlined-select name="sourceKind" label=${this.label("resources.source", "Source")}>
+            <h3>${this.label("resources.sourceTitle", "Build from a saved source")}</h3>
+            <md-outlined-select name="sourceKind" label=${clientText(preferredLocale(), "source", "Source")}>
               <md-select-option value="github" selected><div slot="headline">GitHub</div></md-select-option>
               ${
                 this.readyPackage
                   ? html`
                       <md-select-option value="package">
-                        <div slot="headline">${this.label("resources.package", "Package")}</div>
+                        <div slot="headline">${this.label("resources.file", "Package file")}</div>
                       </md-select-option>
                     `
                   : nothing
@@ -952,6 +1013,7 @@ export class AdminWorkspace extends LitElement {
             <md-outlined-select
               name="server"
               label=${this.label("resources.server", "Server")}
+              .value=${this.selectedResourceServer}
               @change=${(event: Event) => this.loadResourceSources(String((event.target as HTMLElement & { value?: string }).value || ""))}
             >
               ${active.map(
@@ -978,7 +1040,7 @@ export class AdminWorkspace extends LitElement {
               <input name="ktx2" type="checkbox" />
               KTX2
             </label>
-            <button class="button">${this.label("resources.run", "Run")}</button>
+            <button class="button">${this.label("resources.trigger", "Start synchronization")}</button>
           </form>
         </div>
       </section>
@@ -1022,7 +1084,9 @@ export class AdminWorkspace extends LitElement {
                       <section class="admin-state">
                         <h2>${this.label("loadFailed", "Load failed")}</h2>
                         <p>${this.error}</p>
-                        <a class="button button--tonal" href="/account">${this.label("forbidden", "Account")}</a>
+                        <a class="button button--tonal" href="/account">
+                          ${clientText(preferredLocale(), "account", "Account")}
+                        </a>
                         <button class="button" @click=${() => this.load(false)}>${this.label("retry", "Retry")}</button>
                       </section>
                     `
@@ -1056,10 +1120,10 @@ export class AdminWorkspace extends LitElement {
                               ? html`
                                   <button
                                     class="button admin-more"
-                                    ?disabled=${Boolean(this.busy)}
+                                    ?disabled=${Boolean(this.busy) || this.loadingMore}
                                     @click=${() => this.load(true)}
                                   >
-                                    ${this.label("loadMore", "Load more")}
+                                    ${this.loadingMore ? this.label("loading", "Loading") : this.label("loadMore", "Load more")}
                                   </button>
                                 `
                               : nothing

@@ -337,8 +337,23 @@
     border-radius: var(--md-sys-shape-corner-medium);
     background: var(--md-sys-color-surface-container);
   }
-  .resource-console-grid input[type="file"] {
-    width: 100%;
+  .resource-package-picker {
+    position: relative;
+  }
+  .resource-package-picker input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .resource-package-picker:focus-within {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+  }
+  .resource-package-name {
+    overflow-wrap: anywhere;
+    color: var(--md-sys-color-on-surface-variant);
   }
   .resource-console-grid progress {
     width: 100%;

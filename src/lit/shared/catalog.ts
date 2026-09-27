@@ -81,26 +81,35 @@ export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> 
   resetDeadline();
   try {
     const response = await fetch(url, { ...init, headers, signal: controller.signal });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`HTTP ${response.status}`);
-    }
     const reader = response.body?.getReader();
-    if (!reader) return (await response.json()) as T;
     const decoder = new TextDecoder();
     let text = "";
-    try {
-      while (true) {
-        resetDeadline();
-        const { done, value } = await reader.read();
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
+    if (reader)
+      try {
+        while (true) {
+          resetDeadline();
+          const { done, value } = await reader.read();
+          if (done) break;
+          text += decoder.decode(value, { stream: true });
+        }
+        text += decoder.decode();
+      } finally {
+        reader.releaseLock();
       }
-      text += decoder.decode();
-    } finally {
-      reader.releaseLock();
+    else text = await response.text();
+    let value: unknown;
+    try {
+      value = text || response.status !== 204 ? JSON.parse(text) : null;
+    } catch (error) {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      throw error;
     }
-    return JSON.parse(text) as T;
+    if (!response.ok) {
+      const data = value && typeof value === "object" ? (value as JsonRecord) : {};
+      const error = data.error && typeof data.error === "object" ? (data.error as JsonRecord) : {};
+      throw new Error(String(error.message || data.message || `HTTP ${response.status}`));
+    }
+    return value as T;
   } catch (error) {
     // WebKit may replace the supplied abort reason with a generic fetch error.
     if (controller.signal.aborted) throw controller.signal.reason;

@@ -7,6 +7,7 @@ import {
   type NavItem,
 } from "../config/navigation";
 import { LABEL_ENTRIES } from "../config/catalog-labels";
+import { catalogLookupKeys } from "./message-paths";
 
 /** Logical views over the one flat, authoritative public/i18n catalog. */
 export const COMMON_I18N_NAMESPACE = "common" as const;
@@ -74,6 +75,7 @@ const COMMON_FLAT_KEYS = [
   "unavailable",
   "error",
   "retry",
+  "requestTimedOut",
   "errorPage",
   "primaryNavigation",
   "breadcrumb",
@@ -260,7 +262,8 @@ export const navigationMessagePaths = (): readonly string[] => {
   return [...paths];
 };
 
-const commonPaths = (): readonly string[] => [...COMMON_FLAT_KEYS, ...navigationMessagePaths()];
+const commonPaths = (): readonly string[] =>
+  [...COMMON_FLAT_KEYS, ...navigationMessagePaths()].flatMap(catalogLookupKeys);
 
 /**
  * The page feature represented by a route. The route is intentionally a
