@@ -78,7 +78,7 @@
       "name": "cassiopeia-plugin-our-notes",
       "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git",
       "branch": "main",
-      "commit": "8a5e97ca8f132c0bd793e21877c61e65859737b5",
+      "commit": "2f2be8d20369964a8b29302f4776731f46a4ecca",
       "version": "0.1.0",
       "kind": "node"
     },
@@ -86,7 +86,7 @@
       "name": "cassiopeia-renderer-three",
       "url": "https://github.com/haneoka-gakuen/cassiopeia-renderer-three.git",
       "branch": "main",
-      "commit": "c1a93c5d892d8a8dd49b8cabc06423783987f619",
+      "commit": "578db946b1b18540d21e21430d991bf05f461912",
       "version": "0.1.0",
       "kind": "node"
     },
@@ -102,7 +102,7 @@
       "name": "cassiopeia-ui-vue",
       "url": "https://github.com/haneoka-gakuen/cassiopeia-ui-vue.git",
       "branch": "main",
-      "commit": "d859732d23f3952f212da469d5cc424cf22c8a61",
+      "commit": "618a4580175d5e2510d4fc0aa64d71a34db42e1a",
       "version": "0.1.0",
       "kind": "node"
     },

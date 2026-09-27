@@ -1,5 +1,5 @@
 import { LitElement, html, nothing } from "lit";
-import { uiText } from "../shared/catalog";
+import { fetchJson, uiText } from "../shared/catalog";
 import { loadingState } from "../ui/state";
 import { icon } from "../ui/icon";
 import { type ChartDocument } from "@haneoka/cassiopeia";
@@ -162,7 +162,7 @@ export class ChartSimulator extends LitElement {
   private animationFrame = 0;
   private loadedKey = "";
   private loadAbort?: AbortController;
-  private availableNoteSkins: readonly OurNotesNoteSkin[] = ["skin001"];
+  private availableNoteSkins: readonly OurNotesNoteSkin[] = OUR_NOTES_NOTE_SKINS;
   private availableNoteEffectSkins: readonly OurNotesNoteEffectSkin[] = ["effect001"];
   private sourceFilesCache?: { server: string; promise: Promise<Set<string>> };
   private resumeAfterScrub = false;
@@ -238,17 +238,16 @@ export class ChartSimulator extends LitElement {
       .join("/")}`;
   }
   private async descriptor(source: string, signal: AbortSignal) {
-    const response = await fetch(this.descriptorUrl(source), { signal });
-    if (!response.ok) throw new Error(`Runtime source ${response.status}`);
-    return (await response.json()) as RuntimeDescriptor;
+    return await fetchJson<RuntimeDescriptor>(this.descriptorUrl(source), { signal });
   }
   private async sourceFiles(signal: AbortSignal) {
     const server = this.server;
     if (this.sourceFilesCache?.server === server) return this.sourceFilesCache.promise;
     const promise = (async () => {
-      const response = await fetch(`/api/v1/servers/${encodeURIComponent(server)}/sources/tree`, { signal });
-      if (!response.ok) throw new Error(`Runtime source tree ${response.status}`);
-      const tree = (await response.json()) as Record<string, unknown>;
+      const tree = await fetchJson<Record<string, unknown>>(
+        `/api/v1/servers/${encodeURIComponent(server)}/sources/tree`,
+        { signal },
+      );
       const files = new Set<string>();
       const walk = (value: unknown, prefix: string) => {
         if (typeof value === "number") {
@@ -285,9 +284,6 @@ export class ChartSimulator extends LitElement {
     signal.throwIfAborted();
     const source = (name: string) => this.sourceWithName(files, name);
     const fontSource = [...files].filter((path) => path.endsWith("/VibeMOPro-Medium SDF.asset"));
-    this.availableNoteSkins = OUR_NOTES_NOTE_SKINS.filter((skin) =>
-      files.has(`Assets/AddressableResources/Live/Note/${skin}/${skin}.spriteatlasv2`),
-    );
     const selectedSkin = this.availableNoteSkins.includes(this.noteSkin) ? this.noteSkin : "skin001";
     this.noteSkin = selectedSkin;
     this.availableNoteEffectSkins = OUR_NOTES_NOTE_EFFECT_SKINS.filter((skin) =>
@@ -298,8 +294,7 @@ export class ChartSimulator extends LitElement {
       : "effect001";
     this.noteEffectSkin = selectedEffectSkin;
     const noteSkinSource = `Assets/AddressableResources/Live/Note/${selectedSkin}/LiveNoteSkinAsset.asset`;
-    const [note, judgement, live, combo, font, noteSkin] = await Promise.all([
-      this.descriptor(source(`${selectedSkin}.spriteatlasv2`), signal),
+    const [judgement, live, combo, font, noteSkin] = await Promise.all([
       this.descriptor(source("JudgementAtlas.spriteatlasv2"), signal),
       this.descriptor(source("LiveAtlas.spriteatlasv2"), signal),
       this.descriptor(source("LiveComboAtlas.spriteatlasv2"), signal),
@@ -381,7 +376,6 @@ export class ChartSimulator extends LitElement {
     const media: OurNotesRuntimeMediaManifest = {
       noteSkin: selectedSkin,
       noteEffectSkin: selectedEffectSkin,
-      noteAtlasTextureUrl: this.output(note, "Texture2D"),
       ...(font ? { fontAtlasTextureUrl: this.output(font, "Texture2D") } : {}),
       hud: {
         judgementImages: {
