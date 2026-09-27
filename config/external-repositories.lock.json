@@ -78,7 +78,7 @@
       "name": "cassiopeia-plugin-our-notes",
       "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git",
       "branch": "main",
-      "commit": "2f2be8d20369964a8b29302f4776731f46a4ecca",
+      "commit": "ecb066cbe64cceb229e9285de6e15e862600bbea",
       "version": "0.1.0",
       "kind": "node"
     },
