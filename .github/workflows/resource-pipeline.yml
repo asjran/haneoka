@@ -69,6 +69,7 @@ jobs:
       resource_cdn_authorization: ${{ secrets.RESOURCE_CDN_AUTHORIZATION }}
       secret_writer_gh_token: ${{ secrets.SECRET_WRITER_GH_TOKEN }}
       haneoka_version_endpoint: ${{ secrets.HANEOKA_VERSION_ENDPOINT }}
+      haneoka_master_endpoint: ${{ secrets.HANEOKA_MASTER_ENDPOINT }}
 
   pipeline_jp:
     name: Build and publish JP resources
@@ -91,6 +92,7 @@ jobs:
       resource_cdn_authorization: ${{ secrets.RESOURCE_CDN_AUTHORIZATION }}
       secret_writer_gh_token: ${{ secrets.SECRET_WRITER_GH_TOKEN }}
       haneoka_version_endpoint: ${{ secrets.HANEOKA_VERSION_ENDPOINT }}
+      haneoka_master_endpoint: ${{ secrets.HANEOKA_MASTER_ENDPOINT }}
 
   pipeline_manual:
     name: Build and publish manually selected resources
@@ -113,6 +115,7 @@ jobs:
       resource_cdn_authorization: ${{ secrets.RESOURCE_CDN_AUTHORIZATION }}
       secret_writer_gh_token: ${{ secrets.SECRET_WRITER_GH_TOKEN }}
       haneoka_version_endpoint: ${{ secrets.HANEOKA_VERSION_ENDPOINT }}
+      haneoka_master_endpoint: ${{ secrets.HANEOKA_MASTER_ENDPOINT }}
 
   rebuild-static-catalog:
     name: Rebuild static catalog pages

@@ -48,6 +48,8 @@ on:
         required: false
       haneoka_version_endpoint:
         required: false
+      haneoka_master_endpoint:
+        required: false
 
 env:
   RESOURCE_SERVER: ${{ inputs.server }}
@@ -80,7 +82,7 @@ jobs:
       SOURCE_ID_INPUT: ${{ inputs.source_id }}
       RESOURCE_CDN_AUTHORIZATION: ${{ secrets.RESOURCE_CDN_AUTHORIZATION || secrets.resource_cdn_authorization }}
       HANEOKA_VERSION_ENDPOINT: ${{ secrets.HANEOKA_VERSION_ENDPOINT || secrets.haneoka_version_endpoint }}
-      HANEOKA_MASTER_ENDPOINT: ${{ secrets.HANEOKA_MASTER_ENDPOINT }}
+      HANEOKA_MASTER_ENDPOINT: ${{ secrets.HANEOKA_MASTER_ENDPOINT || secrets.haneoka_master_endpoint }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-resource-pipeline
