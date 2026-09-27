@@ -943,6 +943,7 @@ def _resolve_master(config: ServerConfig, scratch: Path, authorization: str = ""
     if not config.master_remote_root or config.offline:
         return None
     version, resource_version = discover_master_version(
+        config.master_version_endpoint,
         skip_resolution_check=config.skip_public_resolution_check
     )
     if (

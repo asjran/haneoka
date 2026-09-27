@@ -12,7 +12,8 @@
   "remoteRoot": "https://static.bang-dream-on.jp",
   "assetVersion": {
     "catalogPath": "/asset/{version}/Android/{hash}/catalog_main.bin",
-    "basicUser": "sirius"
+    "basicUser": "sirius",
+    "endpoint": "https://api.bang-dream-on.jp/app.announcement.AnnouncementService/GetList"
   },
   "criHcaKey": "8594927479",
   "masterCrypto": {

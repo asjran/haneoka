@@ -1,7 +1,6 @@
 """Live asset-version and CDN credential lookup against the game service.
 
-Requires HTTP/2 (``curl``). The endpoint comes from server configuration or
-the ``HANEOKA_VERSION_ENDPOINT`` variable.
+Requires HTTP/2 (``curl``). The endpoint belongs to the selected server configuration.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ import subprocess
 import urllib.parse
 from dataclasses import dataclass
 
-VERSION_ENDPOINT_ENVIRONMENT = "HANEOKA_VERSION_ENDPOINT"
 GRPC_USER_AGENT = "grpc-dotnet/2.66.0"
 EMPTY_GRPC_FRAME = b"\x00\x00\x00\x00\x00"
 VERSION_HEADER = "x-asset-version"
@@ -34,16 +32,10 @@ class AssetVersionInfo:
     cdn_password: str
 
 
-def resolve_version_endpoint(configured: str = "") -> str:
-    """Combine the configured endpoint with the ``HANEOKA_VERSION_ENDPOINT`` override."""
-    import os
-
-    endpoint = (configured or "").strip() or os.environ.get(VERSION_ENDPOINT_ENVIRONMENT, "").strip()
+def resolve_version_endpoint(configured: str) -> str:
+    endpoint = configured.strip()
     if not endpoint:
-        raise ValueError(
-            "no version endpoint configured: set the server configuration or "
-            f"{VERSION_ENDPOINT_ENVIRONMENT}"
-        )
+        raise ValueError("no version endpoint in the selected server configuration")
     return endpoint
 
 

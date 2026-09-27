@@ -46,10 +46,6 @@ on:
         required: false
       secret_writer_gh_token:
         required: false
-      HANEOKA_VERSION_ENDPOINT:
-        required: false
-      HANEOKA_MASTER_ENDPOINT:
-        required: false
 
 env:
   RESOURCE_SERVER: ${{ inputs.server }}
@@ -86,15 +82,7 @@ jobs:
       - uses: ./.github/actions/setup-resource-pipeline
       - name: Materialize source input
         id: source_input
-        env:
-          HANEOKA_MASTER_ENDPOINT: ${{ secrets.HANEOKA_MASTER_ENDPOINT }}
-          HANEOKA_VERSION_ENDPOINT: ${{ secrets.HANEOKA_VERSION_ENDPOINT }}
         run: |
-          if [[ -z "$SOURCE_ID_INPUT" && -z "$HANEOKA_MASTER_ENDPOINT" ]] && \
-             jq -e '.masterRemoteRoot // empty' "scripts/config/servers/$RESOURCE_SERVER.json" > /dev/null; then
-            echo "The selected resource environment is missing HANEOKA_MASTER_ENDPOINT" >&2
-            exit 1
-          fi
           if [[ -n "$SOURCE_ID_INPUT" ]]; then
             python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source \
               --source "$SOURCE_ID_INPUT" --role package --role master-manifest --role master-data > "$RUNNER_TEMP/source.json"
@@ -233,7 +221,6 @@ jobs:
       - name: Refresh shared CDN credential secret
         env:
           GH_TOKEN: ${{ secrets.secret_writer_gh_token }}
-          HANEOKA_VERSION_ENDPOINT: ${{ secrets.HANEOKA_VERSION_ENDPOINT }}
         run: |
           if [[ -z "$GH_TOKEN" ]]; then
             echo "secret_writer_gh_token is not configured; skipping CDN credential refresh" >&2

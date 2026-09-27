@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import struct
 import subprocess
 import tempfile
@@ -58,10 +57,10 @@ def decode_master_version(frame: bytes) -> tuple[str, str]:
     return fields[1], fields[2]
 
 
-def discover_master_version(*, skip_resolution_check: bool = False) -> tuple[str, str]:
-    endpoint = os.environ.get("HANEOKA_MASTER_ENDPOINT", "").strip()
+def discover_master_version(configured: str, *, skip_resolution_check: bool = False) -> tuple[str, str]:
+    endpoint = configured.strip()
     if not endpoint:
-        raise ValueError("HANEOKA_MASTER_ENDPOINT is required for live Master ingestion")
+        raise ValueError("a Master version endpoint is required for live Master ingestion")
     _public_https(endpoint, skip_resolution_check)
     with tempfile.TemporaryDirectory(prefix="haneoka-master-version-") as directory:
         body = Path(directory) / "response.bin"

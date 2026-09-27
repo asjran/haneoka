@@ -20,5 +20,6 @@
   "catalog": {
     "version": "1.0.0.100",
     "locales": ["ja", "en", "zh-Hant", "zh-Hans", "ko"]
-  }
+  },
+  "masterVersionEndpoint": "https://l14-prod-hk-all-gs-sirius.gamerfusiontech.com/app.masterdata.MasterdataService/Version"
 }

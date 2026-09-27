@@ -37,12 +37,42 @@ class ServerConfig:
     catalog_locales: tuple[str, ...]
     file: Path
     master_remote_root: str = ""
+    master_version_endpoint: str = ""
 
 
 def validate_server_id(value: str) -> str:
     if not SERVER_ID.fullmatch(value):
         raise ValueError(f"invalid server id: {value}")
     return value
+
+
+def _validate_service_endpoint(value: str, file: Path) -> None:
+    endpoint = urlsplit(value)
+    endpoint_hostname = (endpoint.hostname or "").lower().rstrip(".")
+    try:
+        endpoint_port = endpoint.port
+    except ValueError as error:
+        raise ValueError(f"invalid service endpoint port: {file}") from error
+    if (
+        endpoint.scheme.lower() != "https"
+        or not endpoint_hostname
+        or endpoint.username is not None
+        or endpoint.password is not None
+        or endpoint_port not in {None, 443}
+        or endpoint.query
+        or endpoint.fragment
+        or "\\" in endpoint.path
+        or ".." in endpoint.path.split("/")
+    ):
+        raise ValueError(f"invalid service endpoint: {file}")
+    try:
+        endpoint_address = ipaddress.ip_address(endpoint_hostname)
+    except ValueError:
+        if endpoint_hostname == "localhost" or endpoint_hostname.endswith((".localhost", ".local")):
+            raise ValueError(f"service endpoint must use a public host: {file}")
+    else:
+        if not endpoint_address.is_global:
+            raise ValueError(f"service endpoint must use a public address: {file}")
 
 
 def load_server_config(server: str = "jp-cbt") -> ServerConfig:
@@ -70,6 +100,7 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         "masterCrypto",
         "catalog",
         "masterRemoteRoot",
+        "masterVersionEndpoint",
     }
     unknown = sorted(set(value) - allowed)
     if unknown:
@@ -146,36 +177,14 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     if not version_endpoint and asset_version.get("endpoint") is not None:
         raise ValueError(f"assetVersion.endpoint must be a non-empty string when present: {file}")
     if version_endpoint:
-        endpoint = urlsplit(version_endpoint)
-        endpoint_hostname = (endpoint.hostname or "").lower().rstrip(".")
-        try:
-            endpoint_port = endpoint.port
-        except ValueError as error:
-            raise ValueError(f"invalid assetVersion endpoint port: {file}") from error
-        if (
-            endpoint.scheme.lower() != "https"
-            or not endpoint_hostname
-            or endpoint.username is not None
-            or endpoint.password is not None
-            or endpoint_port not in {None, 443}
-            or endpoint.query
-            or endpoint.fragment
-            or "\\" in endpoint.path
-            or ".." in endpoint.path.split("/")
-        ):
-            raise ValueError(f"invalid assetVersion endpoint: {file}")
-        try:
-            endpoint_address = ipaddress.ip_address(endpoint_hostname)
-        except ValueError:
-            if endpoint_hostname == "localhost" or endpoint_hostname.endswith((".localhost", ".local")):
-                raise ValueError(f"assetVersion endpoint must use a public host: {file}")
-        else:
-            if not endpoint_address.is_global:
-                raise ValueError(f"assetVersion endpoint must use a public address: {file}")
-    if asset_version and "endpoint" not in asset_version and not (
-        asset_version.get("catalogPath") and asset_version.get("basicUser")
-    ):
-        raise ValueError(f"assetVersion block requires catalogPath and basicUser at minimum: {file}")
+        _validate_service_endpoint(version_endpoint, file)
+    master_version_endpoint = value.get("masterVersionEndpoint", "")
+    if not isinstance(master_version_endpoint, str):
+        raise ValueError(f"invalid masterVersionEndpoint: {file}")
+    if master_version_endpoint:
+        _validate_service_endpoint(master_version_endpoint, file)
+    if asset_version and not version_endpoint:
+        raise ValueError(f"assetVersion requires its own endpoint: {file}")
     version_catalog_path = str(asset_version.get("catalogPath", "")).strip()
     if version_endpoint or asset_version:
         if (
@@ -210,6 +219,10 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     master_remote_root = value.get("masterRemoteRoot", "")
     if not isinstance(master_remote_root, str):
         raise ValueError(f"invalid masterRemoteRoot: {file}")
+    if master_remote_root and not master_version_endpoint:
+        raise ValueError(f"masterRemoteRoot requires masterVersionEndpoint: {file}")
+    if master_version_endpoint and not master_remote_root:
+        raise ValueError(f"masterVersionEndpoint requires masterRemoteRoot: {file}")
     if master_remote_root:
         master_url = urlsplit(master_remote_root)
         asset_url = urlsplit(value.get("remoteRoot", ""))
@@ -248,4 +261,5 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         catalog_locales=catalog_locales,
         file=file,
         master_remote_root=master_remote_root.rstrip("/"),
+        master_version_endpoint=master_version_endpoint,
     )

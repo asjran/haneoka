@@ -81,12 +81,12 @@
     "assetVersion": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["catalogPath", "basicUser"],
-      "description": "Live version discovery against the game service. The endpoint is supplied via the HANEOKA_VERSION_ENDPOINT variable when omitted here.",
+      "required": ["endpoint", "catalogPath", "basicUser"],
+      "description": "Live version discovery against the selected game server.",
       "properties": {
         "endpoint": {
           "type": "string",
-          "description": "Optional explicit service endpoint; prefer HANEOKA_VERSION_ENDPOINT to keep it out of the repository."
+          "description": "Game service endpoint used only by this server configuration."
         },
         "catalogPath": {
           "type": "string",
@@ -145,6 +145,14 @@
     "closed": {
       "type": "boolean",
       "description": "The server has shut down. Network ingestion is refused; retained R2 snapshots stay rebuildable via fetch-source + run --offline."
+    },
+    "masterVersionEndpoint": {
+      "type": "string",
+      "format": "uri"
     }
+  },
+  "dependentRequired": {
+    "masterRemoteRoot": ["masterVersionEndpoint"],
+    "masterVersionEndpoint": ["masterRemoteRoot"]
   }
 }
