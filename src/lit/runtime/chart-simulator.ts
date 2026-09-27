@@ -41,7 +41,6 @@ type RuntimeOutput = { objectId: string | number; path: string; type: string };
 type RuntimeDescriptor = {
   sourcePath?: string;
   outputs?: RuntimeOutput[];
-  runtimeObjects?: Array<{ pathId: string | number; path: string; type: string }>;
 };
 type StageBackground = "auto" | "none" | "0" | "1" | "2" | "3" | "4" | "5";
 type NumericRenderSetting =
@@ -294,15 +293,13 @@ export class ChartSimulator extends LitElement {
       ? this.noteEffectSkin
       : "effect001";
     this.noteEffectSkin = selectedEffectSkin;
-    const noteSkinSource = `Assets/AddressableResources/Live/Note/${selectedSkin}/LiveNoteSkinAsset.asset`;
-    const [judgement, live, combo, font, noteSkin] = await Promise.all([
+    const [judgement, live, combo, font] = await Promise.all([
       this.descriptor(source("JudgementAtlas.spriteatlasv2"), signal),
       this.descriptor(source("LiveAtlas.spriteatlasv2"), signal),
       this.descriptor(source("LiveComboAtlas.spriteatlasv2"), signal),
       fontSource.length === 1
         ? this.descriptor(fontSource[0]!, signal).catch(() => undefined)
         : Promise.resolve(undefined),
-      files.has(noteSkinSource) ? this.descriptor(noteSkinSource, signal) : Promise.resolve(undefined),
     ]);
     signal.throwIfAborted();
     const root = `/assets/${encodeURIComponent(this.server)}`;
@@ -324,8 +321,7 @@ export class ChartSimulator extends LitElement {
     }
     const resolveSource = (oldPath: string): string => {
       if (files.has(oldPath)) return oldPath;
-      let filename = oldPath.slice(oldPath.lastIndexOf("/") + 1);
-      if (filename === "note_excellent.prefab") filename = "note_just.prefab";
+      const filename = oldPath.slice(oldPath.lastIndexOf("/") + 1);
       let matches = byFilename.get(filename) || [];
       if (oldPath.includes("/NoteEffect/effect001/"))
         matches = matches.filter((path) => path.includes("/NoteEffect/effect001/"));
@@ -336,47 +332,28 @@ export class ChartSimulator extends LitElement {
       if (matches.length !== 1) throw new Error(`Missing or ambiguous runtime source ${oldPath}`);
       return matches[0]!;
     };
-    const noteObjectPaths = new Map(
-      (noteSkin?.runtimeObjects || [])
-        .filter((entry) => entry.type === "Sprite")
-        .map((entry) => [String(entry.pathId), entry.path]),
-    );
-    const noteSprites = new Map<string, { image: string; metadata: string }>();
-    for (const output of noteSkin?.outputs || []) {
-      if (output.type !== "Sprite") continue;
-      const metadata = noteObjectPaths.get(String(output.objectId));
-      if (metadata) noteSprites.set(logicalName(output), { image: output.path, metadata });
-    }
     const runtimeUrl = (path: string) =>
       `/runtime/${encodeURIComponent(this.server)}/${path
         .replace(/^runtime\//u, "")
         .split("/")
         .map(encodeURIComponent)
         .join("/")}`;
-    const nativeAsset = (path: string): string => {
-      if (path.endsWith("/slideline_purple2.png") && noteSprites.has("notes_slide_side_0.png"))
-        return runtimeUrl(noteSprites.get("notes_slide_side_0.png")!.image);
-      return assetUrl(resolveSource(path));
-    };
+    const nativeAsset = (path: string): string => assetUrl(resolveSource(path));
     const nativeRuntime = (path: string): string => {
       const match = /^unity-json\/(.*)\/([A-Za-z0-9_]+\.json)$/u.exec(path);
       if (!match) return runtimeUrl(path);
       const oldSource = match[1]!;
       if (files.has(oldSource)) return runtimeUrl(path);
-      if (
-        match[2] === "Sprite.json" &&
-        oldSource.startsWith(`Assets/AddressableResources/Live/Note/${selectedSkin}/`)
-      ) {
-        const name = oldSource.slice(oldSource.lastIndexOf("/") + 1);
-        const metadata = noteSprites.get(name)?.metadata;
-        if (!metadata) throw new Error(`Missing note sprite metadata ${name}`);
-        return runtimeUrl(metadata);
-      }
       return runtimeUrl(`unity-json/${resolveSource(oldSource)}/${match[2]}`);
     };
     const media: OurNotesRuntimeMediaManifest = {
       noteSkin: selectedSkin,
       noteEffectSkin: selectedEffectSkin,
+      currentQuality: files.has(
+        "Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/LiveNoteEffectAssetSettings.asset",
+      )
+        ? 2
+        : 0,
       ...(font ? { fontAtlasTextureUrl: this.output(font, "Texture2D") } : {}),
       hud: {
         judgementImages: {

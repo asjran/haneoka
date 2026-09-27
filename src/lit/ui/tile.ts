@@ -1,5 +1,6 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { icon } from "./icon";
+import { nextImageCandidate } from "./lazy-images";
 
 /**
  * Collection tile — a Material card with media.
@@ -43,6 +44,11 @@ export interface TileOptions {
   image: string;
   imageFallback?: string;
   imageCandidates?: string[];
+  /** Known source dimensions. They reserve the media before the request starts. */
+  width?: number;
+  height?: number;
+  /** Explicit presentation or metadata ratio, expressed as a CSS ratio. */
+  aspectRatio?: number | string;
   natural?: boolean;
   href?: string;
   /** Rendered when the resource has no artwork: a rendered 32dp icon. */
@@ -84,8 +90,16 @@ const markClass = (mark: TileMark) =>
     .filter(Boolean)
     .join(" ");
 
+/** Returns a stable CSS ratio only when both indexed dimensions are valid. */
+export function mediaAspectRatio(width: unknown, height: unknown): number | undefined {
+  const numericWidth = Number(width);
+  const numericHeight = Number(height);
+  return Number.isFinite(numericWidth) && numericWidth > 0 && Number.isFinite(numericHeight) && numericHeight > 0
+    ? numericWidth / numericHeight
+    : undefined;
+}
+
 export function tile(options: TileOptions): TemplateResult {
-  const natural = options.natural ?? !["rail", "story", "model", "live2d", "spine"].includes(options.kind || "");
   const classes = [
     "tile",
     "tile--interactive",
@@ -94,12 +108,21 @@ export function tile(options: TileOptions): TemplateResult {
   ]
     .filter(Boolean)
     .join(" ");
+  const width = Number(options.width);
+  const height = Number(options.height);
+  const dimensionRatio = mediaAspectRatio(width, height);
+  const ratio = options.aspectRatio ?? dimensionRatio;
+  const mediaStyle = ratio === undefined ? undefined : `--tile-ratio:${typeof ratio === "number" ? ratio : ratio}`;
+  const onImageError = options.onImageError || nextImageCandidate;
   // Rendered as two plain templates rather than one static-html template with
   // a literal tag name: static templates lose their event-part wiring when the
   // bundler splits the lit modules across chunks in a different order, which
   // silently left every tile unclickable in production builds.
   const media = html`
-    <span class=${`tile__media ${natural ? "tile__media--natural" : ""} ${options.fit ? `tile__media--${options.fit}` : ""}`}>
+    <span
+      class=${`tile__media media-loading ${options.fit ? `tile__media--${options.fit}` : ""}`}
+      style=${mediaStyle || nothing}
+    >
       ${
         options.media ??
         (options.image
@@ -108,14 +131,18 @@ export function tile(options: TileOptions): TemplateResult {
                 data-src=${options.image}
                 data-fallback=${options.imageFallback || nothing}
                 data-fallbacks=${options.imageCandidates ? JSON.stringify(options.imageCandidates) : nothing}
-                alt=""
+                alt=${options.label}
+                width=${Number.isFinite(width) && width > 0 ? String(width) : nothing}
+                height=${Number.isFinite(height) && height > 0 ? String(height) : nothing}
                 decoding="async"
-                @load=${(event: Event) => (event.currentTarget as HTMLImageElement).classList.add("is-loaded")}
-                @error=${options.onImageError}
+                @error=${onImageError}
               />
             `
           : (options.placeholder ?? icon("image", 32)))
       }
+      <span class="tile__media-state" role="img" aria-label=${options.label} title=${options.label}>
+        ${icon("broken_image", 24)}
+      </span>
       ${(options.marks || []).map((mark) =>
         mark
           ? html`
@@ -164,8 +191,9 @@ export function tile(options: TileOptions): TemplateResult {
         aria-label=${options.label}
         style=${options.style || nothing}
         @click=${options.onOpen ?? nothing}
-        >${media}</a
       >
+        ${media}
+      </a>
     `;
   return html`
     <button

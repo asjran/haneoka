@@ -1,9 +1,8 @@
 /* ==========================================================================
    Collection pattern — grid of tiles
    A tile is artwork plus an identity block. The artwork's aspect ratio is a
-   property of the resource (cards are 224:294, jackets and portraits are
-   1:1), passed in as --tile-ratio; everything else is shared so a stamp grid
-   and a song grid have the same rhythm.
+   property of the resource, passed in as --tile-ratio; everything else is
+   shared so a stamp grid and a song grid have the same rhythm.
 
    Tiles are real <button>/<a> elements. They used to be <article
    role="button" tabindex="0"> with hand-written Enter/Space handling, which
@@ -131,7 +130,21 @@
   grid-area: 1 / 1;
   width: 100%;
   height: 100%;
-  object-fit: var(--tile-fit, cover);
+  object-fit: var(--tile-fit, contain);
+}
+.tile__media-state {
+  position: relative;
+  z-index: 2;
+  display: none;
+  grid-area: 1 / 1;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--md-sys-color-on-surface-variant);
+  background: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 86%, transparent);
+}
+.tile__media:has(img.is-error):not(:has(img.is-loaded)) .tile__media-state {
+  display: grid;
 }
 /* A symbol rather than a photograph: an item sprite, a band logo, an
  * instrument. It is fitted instead of cropped, and the letterboxing the fit
@@ -258,16 +271,17 @@
 }
 /* ---------- Media loading ----------
    Artwork fades in when it decodes, so a grid of two thousand thumbnails
-   settles instead of flashing. Errored images stay hidden rather than
-   showing a broken-image glyph. */
+   settles instead of flashing. Every deferred image shares the same Material
+   progress indicator, including custom/nested media supplied by a tile. */
 .tile__media > img {
   opacity: 1;
   transition: opacity var(--md-sys-motion-duration-short4) var(--ease-standard);
 }
-.tile__media > img[data-loading] {
+.tile__media.media-loading img[data-src],
+.tile__media.media-loading img[data-loading] {
   opacity: 0;
 }
-.tile__media > img.is-error {
+.tile__media img.is-error {
   visibility: hidden;
 }
 .media-loading {
@@ -275,6 +289,7 @@
   isolation: isolate;
 }
 .media-loading::after {
+  display: none;
   position: absolute;
   z-index: 0;
   top: 50%;
@@ -288,18 +303,13 @@
   transform: translate(-50%, -50%);
   animation: media-progress-spin 700ms linear infinite;
 }
-.media-loading > img {
+.media-loading:has(img[data-src], img[data-loading])::after {
+  display: block;
+}
+.media-loading img.is-loaded {
   position: relative;
   z-index: 1;
-  opacity: 0;
-  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
-}
-.media-loading > img.is-loaded {
   opacity: 1;
-}
-.media-loading:has(img.is-loaded)::after,
-.media-loading:has(img.is-error)::after {
-  display: none;
 }
 /* Where a card's media box is not square, the page sheet moves the spinner;
  * the pattern only says what a spinner is. */

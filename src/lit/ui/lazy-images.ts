@@ -61,21 +61,69 @@ export interface LazyImageOptions {
   candidates?: (source: string) => readonly string[];
   /** How far ahead of the viewport to start loading. */
   rootMargin?: string;
+  /** Restricts observation when a parent owns only part of its light-DOM tree. */
+  filter?: (image: HTMLImageElement) => boolean;
+}
+
+type FinishImage = (state: "loaded" | "error" | "cancelled") => void;
+interface PendingImage {
+  owner: LazyImages;
+  inputSource: string;
+  source: string;
+  finish: FinishImage;
+}
+
+/*
+ * The loader and the image's error listener are separate event parts in Lit.
+ * Keeping the finish callback beside the element lets the shared error path
+ * release the load listener too, including when a candidate list is exhausted
+ * or a render removes the image before it settles.
+ */
+const pendingImageFinishes = new WeakMap<HTMLImageElement, PendingImage>();
+
+function finishImage(image: HTMLImageElement, state: "loaded" | "error" | "cancelled") {
+  pendingImageFinishes.get(image)?.finish(state);
+}
+
+function sourceMatches(image: HTMLImageElement, expected: string) {
+  const actual = image.getAttribute("src") || image.currentSrc || image.src;
+  if (!actual || !expected) return false;
+  try {
+    return new URL(actual, document.baseURI).href === new URL(expected, document.baseURI).href;
+  } catch {
+    return actual === expected;
+  }
 }
 
 export class LazyImages {
   private observer?: IntersectionObserver;
   private candidates: (source: string) => readonly string[];
   private rootMargin: string;
+  private filter: (image: HTMLImageElement) => boolean;
+  private observed = new Set<HTMLImageElement>();
+  private pending = new Set<HTMLImageElement>();
 
   constructor(options: LazyImageOptions = {}) {
     this.candidates = options.candidates ?? ((source) => [source]);
     this.rootMargin = options.rootMargin ?? "240px";
+    this.filter = options.filter ?? (() => true);
   }
 
   /** Call from `updated()`: picks up whatever the last render added. */
   observe(root: ParentNode) {
-    const images = root.querySelectorAll<HTMLImageElement>("img[data-src]");
+    const node = root as Node;
+    new Set([...this.observed, ...this.pending]).forEach((image) => {
+      const pending = this.pending.has(image);
+      const state = pendingImageFinishes.get(image);
+      const source = image.dataset.src?.trim();
+      if (
+        !node.contains(image) ||
+        (!pending && !source) ||
+        (pending && source !== undefined && source !== state?.inputSource)
+      )
+        this.cancel(image);
+    });
+    const images = [...root.querySelectorAll<HTMLImageElement>("img[data-src]")].filter(this.filter);
     if (!images.length) return;
     if (!("IntersectionObserver" in window)) {
       images.forEach((image) => this.load(image));
@@ -85,12 +133,18 @@ export class LazyImages {
       (entries) => entries.forEach((entry) => entry.isIntersecting && this.load(entry.target as HTMLImageElement)),
       { rootMargin: this.rootMargin },
     );
-    images.forEach((image) => this.observer?.observe(image));
+    images.forEach((image) => {
+      this.observed.add(image);
+      this.observer?.observe(image);
+    });
   }
 
   /** Promotes one image immediately, whether or not it is on screen. */
   load(image: HTMLImageElement) {
-    const source = image.dataset.src || "";
+    this.cancel(image, true);
+    if (!image.isConnected) return;
+    image.removeAttribute("src");
+    const source = image.dataset.src?.trim() || "";
     let fallbacks: string[] = [];
     try {
       const value = JSON.parse(image.dataset.fallbacks || "[]");
@@ -100,25 +154,81 @@ export class LazyImages {
       ...this.candidates(source),
       ...fallbacks,
       ...(image.dataset.fallback ? [image.dataset.fallback] : []),
-    ].filter((value, index, values) => value && values.indexOf(value) === index);
+    ]
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .filter((value, index, values) => value && values.indexOf(value) === index);
     image.classList.remove("is-loaded", "is-error");
+    this.observed.delete(image);
+    this.observer?.unobserve(image);
+    image.removeAttribute("data-candidates");
+    image.removeAttribute("data-candidate-index");
+    if (!candidates.length) {
+      delete image.dataset.loading;
+      image.dataset.error = "true";
+      image.classList.add("is-error");
+      image.removeAttribute("data-src");
+      return;
+    }
+
+    const controller = new AbortController();
+    let request: PendingImage;
+    const settle: FinishImage = (state) => {
+      if (pendingImageFinishes.get(image)?.finish !== settle) return;
+      pendingImageFinishes.delete(image);
+      this.pending.delete(image);
+      controller.abort();
+      delete image.dataset.loading;
+      if (state === "loaded") {
+        delete image.dataset.cancelled;
+        delete image.dataset.error;
+        image.classList.remove("is-error");
+        image.classList.add("is-loaded");
+      } else if (state === "error") {
+        delete image.dataset.cancelled;
+        image.dataset.error = "true";
+        image.classList.add("is-error");
+      } else {
+        image.dataset.cancelled = "true";
+        delete image.dataset.candidates;
+        delete image.dataset.candidateIndex;
+        delete image.dataset.error;
+        image.classList.remove("is-loaded", "is-error");
+      }
+    };
+    request = { owner: this, inputSource: source, source: candidates[0], finish: settle };
+    pendingImageFinishes.set(image, request);
+    this.pending.add(image);
+    delete image.dataset.cancelled;
     image.dataset.loading = "true";
     image.addEventListener(
       "load",
       () => {
-        delete image.dataset.loading;
-        image.classList.add("is-loaded");
+        const current = pendingImageFinishes.get(image);
+        if (current?.finish === settle && sourceMatches(image, current.source)) settle("loaded");
       },
-      { once: true },
+      { once: true, signal: controller.signal },
     );
     image.dataset.candidates = JSON.stringify(candidates);
     image.dataset.candidateIndex = "0";
-    image.src = candidates[0] || source;
+    image.src = candidates[0];
     image.removeAttribute("data-src");
+  }
+
+  private cancel(image: HTMLImageElement, force = false) {
+    const pending = pendingImageFinishes.get(image);
+    if (pending && (force || pending.owner === this)) {
+      pending.finish("cancelled");
+      image.removeAttribute("src");
+    }
+    this.pending.delete(image);
+    this.observed.delete(image);
     this.observer?.unobserve(image);
   }
 
   disconnect() {
+    this.pending.forEach((image) => this.cancel(image));
+    this.pending.clear();
+    this.observed.clear();
     this.observer?.disconnect();
     this.observer = undefined;
   }
@@ -131,6 +241,9 @@ export class LazyImages {
  */
 export function nextImageCandidate(event: Event) {
   const image = event.currentTarget as HTMLImageElement;
+  if (image.dataset.cancelled) return;
+  const request = pendingImageFinishes.get(image);
+  if (request && !sourceMatches(image, request.source)) return;
   const candidates = (() => {
     try {
       const parsed = JSON.parse(image.dataset.candidates || "[]");
@@ -142,8 +255,12 @@ export function nextImageCandidate(event: Event) {
   const next = Number(image.dataset.candidateIndex || 0) + 1;
   if (candidates[next]) {
     image.dataset.candidateIndex = String(next);
+    if (request) request.source = candidates[next];
     image.src = candidates[next];
     return;
   }
+  finishImage(image, "error");
+  delete image.dataset.candidateIndex;
+  delete image.dataset.candidates;
   image.classList.add("is-error");
 }

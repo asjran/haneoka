@@ -11,6 +11,7 @@
 import { html, nothing } from "lit";
 import type { TemplateResult } from "lit";
 import type { TileMark, TileOptions } from "../ui/tile";
+import { nextImageCandidate } from "../ui/lazy-images";
 
 type Item = Record<string, unknown>;
 
@@ -62,6 +63,11 @@ export function songTile(
   const title = deps.title(item);
   const bandIcon = deps.bandIcon(item);
   const attribute = deps.attributeMark(item);
+  const image = deps.image(item);
+  const imageCandidates = [image, item.jacketUrl, item.jacketThumbUrl].filter(
+    (value, index, values): value is string =>
+      typeof value === "string" && Boolean(value) && values.indexOf(value) === index,
+  );
   return {
     kind: "song",
     title: title.text,
@@ -79,7 +85,9 @@ export function songTile(
         `
       : nothing,
     label: title.text,
-    image: deps.image(item),
+    image,
+    imageCandidates,
+    onImageError: nextImageCandidate,
     href,
     marks: [
       attribute ? { at: "start" as const, image: attribute, label: deps.attributeLabel(item) } : null,

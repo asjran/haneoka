@@ -492,7 +492,12 @@ export class CatalogScreen extends LitElement {
   private songMeta: Item = {};
   private songMetaProvision?: Promise<void>;
   private chartPlayerProvision?: Promise<void>;
-  private lazyImages = new LazyImages({ candidates: (source) => this.localizedImageCandidates(source) });
+  private lazyImages = new LazyImages({
+    candidates: (source) => this.localizedImageCandidates(source),
+    // CharacterDetailArchive owns its own light-DOM loader; leave those
+    // related tiles to it while this screen owns the browse/detail siblings.
+    filter: (image) => !image.closest("character-detail-archive"),
+  });
   private selectedId = "";
   private releaseLocation?: () => void;
   private pendingNavigation = "";
@@ -2720,7 +2725,10 @@ export class CatalogScreen extends LitElement {
       image,
       imageFallback: this.imageFallback(item),
       placeholder: kind === "band-item" ? icon("piano", 32) : icon("image", 32),
-      fit: ["band", "item", "band-item", "stamp"].includes(kind) ? "contain" : "cover",
+      // Source art is heterogeneous across the catalogue. A stable media
+      // box keeps the grid rhythmic, while contain preserves the source when
+      // its indexed dimensions do not match the presentation fallback.
+      fit: ["song", "background"].includes(kind) ? "cover" : "contain",
       href,
       onOpen,
       itemId: this.itemId(item),

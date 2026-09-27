@@ -18,7 +18,8 @@
    The only thing a resource declares about its tile is the shape of its
    artwork. Everything else — the corner, the full-bleed media, the two-line
    text block and its 16dp padding — comes from patterns/collection.css and is
-   the same for all fifteen resources.
+   the same for all fifteen resources. These ratios are stable presentation
+   fallbacks; indexed dimensions may override them on the tile itself.
 
    No resource adds padding around its artwork here. A Material card's image
    is full bleed; the only inset case is a symbol rather than a photograph (an
@@ -26,10 +27,10 @@
    `.tile__media--contain` variant, which the component asks for by name.
    ========================================================================== */
   .tile--member .tile__media {
-    aspect-ratio: 224 / 294;
+    aspect-ratio: 3 / 4;
   }
   .tile--support .tile__media {
-    aspect-ratio: 326 / 184;
+    aspect-ratio: 16 / 9;
   }
   .tile--comic .tile__media {
     aspect-ratio: 4 / 3;

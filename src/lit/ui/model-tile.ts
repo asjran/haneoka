@@ -1,7 +1,7 @@
 import { html } from "lit";
 import { resolveLocalizedText } from "../../lib/localized-text";
 import { localizedText, readPath } from "../shared/catalog";
-import { tile } from "./tile";
+import { mediaAspectRatio, tile } from "./tile";
 import { icon } from "./icon";
 import { nextImageCandidate } from "./lazy-images";
 import "../../styles/model-tile.css";
@@ -34,6 +34,10 @@ export function modelTile(options: {
   const title = modelTitle(model, locale);
   const images = modelPreviewSources(model);
   const face = String(character?.faceImage || model.faceImage || "");
+  const preview = model.preview && typeof model.preview === "object" ? (model.preview as Model) : undefined;
+  const previewWidth = Number(preview?.width);
+  const previewHeight = Number(preview?.height);
+  const hasPreviewDimensions = mediaAspectRatio(previewWidth, previewHeight) !== undefined;
   return tile({
     kind: "model",
     title: title.text,
@@ -50,6 +54,12 @@ export function modelTile(options: {
     label: title.text,
     image: images[0] || "",
     imageCandidates: images,
+    // Model grids intentionally remain square; keep valid preview dimensions
+    // as native image hints without allowing a late intrinsic ratio to resize
+    // the card.
+    width: hasPreviewDimensions ? previewWidth : undefined,
+    height: hasPreviewDimensions ? previewHeight : undefined,
+    aspectRatio: 1,
     placeholder: icon("animation", 32),
     natural: false,
     fit: "contain",
