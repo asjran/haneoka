@@ -169,6 +169,7 @@ export class StoryWorkspace extends LitElement {
   declare detailMode: "text" | "play";
   declare limit: number;
   private detailRequests = new RequestScope();
+  private catalogRequests = new RequestScope();
   private readonly appBarOwner = `story-workspace-${++storyWorkspaceOwnerId}`;
   private appBarRegistered = false;
   private homeStage?: HomeSpotStage;
@@ -294,6 +295,7 @@ export class StoryWorkspace extends LitElement {
     if (this.initializationTimer !== undefined) window.clearTimeout(this.initializationTimer);
     this.initializationTimer = undefined;
     removeEventListener("haneoka:locale-ready", this.onLocale);
+    this.catalogRequests.cancel();
     this.detailRequests.cancel();
     this.releaseLocation?.();
     clearBrowseBar();
@@ -370,29 +372,37 @@ export class StoryWorkspace extends LitElement {
     `;
   }
   private async load() {
+    const signal = this.catalogRequests.begin();
+    const active = () => this.isConnected && this.catalogRequests.current(signal);
     this.phase = "loading";
     this.error = "";
+    // A canonical story can open independently of its collection indexes.
+    if (this.entityId) void this.openStory(this.entityId);
     try {
-      if (this.isBestdori()) await this.loadBestdori();
-      else await this.loadRelease();
+      if (this.isBestdori()) await this.loadBestdori(signal);
+      else await this.loadRelease(signal);
+      if (!active()) return;
       this.ensureRailSelection();
       this.phase = "ready";
       const params = new URLSearchParams(location.search);
       const cardId = params.get("card");
       if (cardId && this.isCardSection()) await this.openBestdoriCard(this.episodes[cardId] || { cardId });
       const openId = this.entityId || new URLSearchParams(location.search).get("story");
-      if (openId) void this.openStory(openId);
+      if (openId && !this.entityId) void this.openStory(openId);
     } catch (error) {
+      if (!active()) return;
       this.phase = "error";
       this.error = error instanceof Error ? error.message : String(error);
+      this.catalogRequests.cancel();
     }
   }
-  private async loadRelease() {
+  private async loadRelease(signal: AbortSignal) {
     const [stories, characters, bands] = await Promise.all([
-      fetchJson<JsonRecord>(catalogUrl("stories")),
-      fetchJson<Record<string, JsonRecord>>(catalogUrl("characters")),
-      fetchJson<Record<string, JsonRecord>>(catalogUrl("bands")),
+      fetchJson<JsonRecord>(catalogUrl("stories"), { signal }),
+      fetchJson<Record<string, JsonRecord>>(catalogUrl("characters"), { signal }),
+      fetchJson<Record<string, JsonRecord>>(catalogUrl("bands"), { signal }),
     ]);
+    if (!this.isConnected || !this.catalogRequests.current(signal)) return;
     this.chapters = recordValues(stories.chapters);
     this.episodes = (stories.episodes as Record<string, JsonRecord>) || {};
     this.spots = recordValues(stories.homeSpots);
@@ -406,15 +416,19 @@ export class StoryWorkspace extends LitElement {
    * here from the episodes rather than asking the worker for a second view of
    * data it already sent.
    */
-  private async loadBestdori() {
+  private async loadBestdori(signal: AbortSignal) {
     const resource = this.isCardSection() ? "cards" : `stories/${this.mode}`;
     const [items, bands, characters] = await Promise.all([
       fetchJson<JsonRecord | JsonRecord[]>(
         `${this.bestdoriBase()}/${resource}?lang=${encodeURIComponent(this.locale)}&projection=${BESTDORI_CATALOG_VERSION}`,
+        { signal },
       ),
-      fetchJson<JsonRecord | JsonRecord[]>(`${this.bestdoriBase()}/bands`).catch(() => ({}) as JsonRecord),
-      fetchJson<JsonRecord | JsonRecord[]>(`${this.bestdoriBase()}/characters`).catch(() => ({}) as JsonRecord),
+      fetchJson<JsonRecord | JsonRecord[]>(`${this.bestdoriBase()}/bands`, { signal }).catch(() => ({}) as JsonRecord),
+      fetchJson<JsonRecord | JsonRecord[]>(`${this.bestdoriBase()}/characters`, { signal }).catch(
+        () => ({}) as JsonRecord,
+      ),
     ]);
+    if (!this.isConnected || !this.catalogRequests.current(signal)) return;
     const records = (Array.isArray(items) ? items : recordValues(items)).filter(
       (item) => !this.isCardSection() || item.hasStory !== false,
     );

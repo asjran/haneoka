@@ -2082,5 +2082,6 @@
   "conversation": "对话",
   "stamp": "表情",
   "playVoice": "播放语音",
-  "fullscreenExit": "退出全屏"
+  "fullscreenExit": "退出全屏",
+  "requestTimedOut": "请求超时，请重试。"
 }

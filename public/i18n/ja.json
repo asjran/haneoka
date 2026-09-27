@@ -2082,5 +2082,6 @@
   "conversation": "会話",
   "stamp": "スタンプ",
   "playVoice": "ボイスを再生",
-  "fullscreenExit": "全画面表示を終了"
+  "fullscreenExit": "全画面表示を終了",
+  "requestTimedOut": "通信がタイムアウトしました。もう一度お試しください。"
 }

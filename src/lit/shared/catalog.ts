@@ -65,7 +65,48 @@ export function catalogUrl(resource: string, id = "", server = currentReleaseSer
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!headers.has("accept")) headers.set("accept", "application/json");
-  const response = await fetch(url, { ...init, headers });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<T>;
+  const controller = new AbortController();
+  const source = init?.signal;
+  const abort = () => controller.abort(source?.reason);
+  if (source?.aborted) abort();
+  else source?.addEventListener("abort", abort, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const resetDeadline = () => {
+    clearTimeout(timer);
+    timer = setTimeout(
+      () => controller.abort(new DOMException(uiText(preferredLocale(), "requestTimedOut"), "TimeoutError")),
+      30_000,
+    );
+  };
+  resetDeadline();
+  try {
+    const response = await fetch(url, { ...init, headers, signal: controller.signal });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const reader = response.body?.getReader();
+    if (!reader) return (await response.json()) as T;
+    const decoder = new TextDecoder();
+    let text = "";
+    try {
+      while (true) {
+        resetDeadline();
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+    } finally {
+      reader.releaseLock();
+    }
+    return JSON.parse(text) as T;
+  } catch (error) {
+    // WebKit may replace the supplied abort reason with a generic fetch error.
+    if (controller.signal.aborted) throw controller.signal.reason;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    source?.removeEventListener("abort", abort);
+  }
 }

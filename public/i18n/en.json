@@ -2082,5 +2082,6 @@
   "conversation": "Conversation",
   "stamp": "Sticker",
   "playVoice": "Play voice",
-  "fullscreenExit": "Exit fullscreen"
+  "fullscreenExit": "Exit fullscreen",
+  "requestTimedOut": "The request timed out. Please try again."
 }

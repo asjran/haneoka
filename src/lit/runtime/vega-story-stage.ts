@@ -5,7 +5,7 @@ import { resolveLocalizedText } from "../../lib/localized-text";
 import { beginLoading } from "../../lib/loading-progress";
 import { clientText } from "../../i18n/client";
 import { CUBISM_CORE_URLS, CUBISM_WEB_RUNTIME_URL } from "../../lib/cubism-runtime";
-import { uiText } from "../shared/catalog";
+import { fetchJson, uiText } from "../shared/catalog";
 import { PlaybackControlsController } from "../ui/playback-controls";
 import { ViewportFullscreenController } from "./viewport-fullscreen";
 import { loadingState } from "../ui/state";
@@ -220,11 +220,6 @@ export class VegaStoryStage extends LitElement {
     const known = ["ja", "en", "zh-TW", "zh-CN", "ko"];
     if (next && known.includes(next) && next !== this.locale) this.locale = next;
   };
-  private async json(url: string, signal: AbortSignal) {
-    const response = await fetch(url, { signal, headers: { accept: "application/json" } });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return (await response.json()) as RecordValue;
-  }
   private async load() {
     const continuePlayback = this.continuousPlay && this.started && this.handle?.player.state.finished;
     this.started = false;
@@ -250,15 +245,15 @@ export class VegaStoryStage extends LitElement {
         .map((entry) => String(entry.live2dKey || ""))
         .filter(Boolean);
       const [runtime, live2d] = await Promise.all([
-        providerBase ? Promise.resolve(story.runtime || {}) : this.json(url("story-runtime"), signal),
+        providerBase ? Promise.resolve(story.runtime || {}) : fetchJson<RecordValue>(url("story-runtime"), { signal }),
         providerBase
           ? keys.length
-            ? this.json(
+            ? fetchJson<RecordValue>(
                 `${providerBase}/live2d?projection=${encodeURIComponent(BESTDORI_CATALOG_VERSION)}&${keys.map((key) => `id=${encodeURIComponent(key)}`).join("&")}${story.sourceServer ? `&server=${encodeURIComponent(String(story.sourceServer))}` : ""}`,
-                signal,
+                { signal },
               ).then((payload) => keys.map((key) => (payload.items as RecordValue | undefined)?.[key] || {}))
             : []
-          : Promise.all(keys.map((key) => this.json(url("live2d", key), signal))),
+          : Promise.all(keys.map((key) => fetchJson<RecordValue>(url("live2d", key), { signal }))),
       ]);
       if (!active()) return;
       const resolvedRuntime = resolveStoryRuntimeAssets(merge(runtime, story.runtime), server);
