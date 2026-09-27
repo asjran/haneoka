@@ -551,6 +551,7 @@ def _cached_previews(
     server: str,
     source_id: str,
     models: dict[str, dict[str, Any]],
+    identities: dict[str, str] | None,
 ) -> dict[str, dict[str, Any]]:
     """Reuse only verified previews produced for this exact immutable input.
 
@@ -559,6 +560,8 @@ def _cached_previews(
     source id never participates in this cache.
     """
 
+    if not identities:
+        return {}
     file = layout.metadata / "live2d.json"
     try:
         document = json.loads(file.read_text(encoding="utf-8"))
@@ -579,17 +582,14 @@ def _cached_previews(
     for key in models:
         model = previous.get(key)
         preview = model.get("preview") if isinstance(model, dict) else None
+        if not isinstance(model, dict) or model.get("previewInputSha256") != identities.get(key) or not identities.get(key):
+            continue
         expected = f"/runtime/{server}/previews/live2d/{key}.png"
         target = layout.runtime / "previews" / "live2d" / f"{key}.png"
         if _is_initial_static_preview(preview, expected) and target.is_file():
             payload = target.read_bytes()
-            if _cached_preview_image_matches(payload, preview):
-                cached = dict(preview)
-                # Older v3 metadata has the same static provenance but predates
-                # the cache fingerprint. Reuse its verified PNG and enrich the
-                # record instead of paying for another Chromium render.
-                cached["sha256"] = sha256(payload).hexdigest()
-                output[key] = cached
+            if preview.get("sha256") == sha256(payload).hexdigest() and _cached_preview_image_matches(payload, preview):
+                output[key] = dict(preview)
     return output
 
 
@@ -678,7 +678,7 @@ def _reusable_previews(
 
     with ThreadPoolExecutor(max_workers=max(1, min(int(reuse_concurrency), 32, len(jobs)))) as executor:
         outcomes = list(executor.map(restore, jobs))
-    restored = {key: preview for key, preview in outcomes if key is not None}
+    restored = {outcome[0]: outcome[1] for outcome in outcomes if outcome is not None}
     summary["restored"] = len(restored)
     summary["failed"] = len(outcomes) - len(restored)
     return restored, summary
@@ -719,13 +719,16 @@ def build_live2d_previews(
 
     workers = max(1, min(4, int(os.environ.get(PREVIEW_WORKERS_ENV, "3") or "3")))
     preview_root.mkdir(parents=True, exist_ok=True)
-    result = _cached_previews(layout, server, source_id, models)
+    result = _cached_previews(layout, server, source_id, models, identities)
     restored, reuse_summary = _reusable_previews(
-        layout, server, models, identities, reuse_manifest, restore_output, reuse_concurrency
+        layout, server, {key: model for key, model in models.items() if key not in result},
+        identities, reuse_manifest, restore_output, reuse_concurrency
     )
     for key, preview in restored.items():
         result.setdefault(key, preview)
     _prune_preview_outputs(preview_root, set(models))
+    if len(result) == len(models):
+        return {key: result[key] for key in models}, reuse_summary
     with tempfile.TemporaryDirectory(prefix="haneoka-live2d-preview-") as temp_dir, _PreviewServer(
         layout.root, PROJECT_ROOT / "public", server
     ) as preview_server:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 from core.config import ServerConfig
@@ -13,6 +14,7 @@ from core.manifests import stable_json
 
 IGNORED_PARTS = {".venv", "__pycache__", "dist", "node_modules", "worker-assets"}
 BUILD_INPUTS = (
+    "scripts/pipeline.py",
     "scripts/build",
     "scripts/core",
     "scripts/extract",
@@ -21,6 +23,7 @@ BUILD_INPUTS = (
     "scripts/verify/release.py",
     "package.json",
     "pnpm-lock.yaml",
+    "config/cubism-runtime.lock.json",
     "server/releaseWorkspace.ts",
 )
 
@@ -56,5 +59,12 @@ def _output_configuration(config: ServerConfig) -> dict[str, object]:
 def build_fingerprint(project_root: Path, config: ServerConfig) -> str:
     files = _files(project_root)
     payload = "".join(f"{file.relative_to(project_root).as_posix()}:{sha256_file(file)}\n" for file in files)
-    configuration = stable_json(_output_configuration(config))
+    external_lock = project_root / "config/external-repositories.lock.json"
+    chart_repositories = ("cassiopeia", "cassiopeia-plugin-our-notes", "cassiopeia-plugin-sonolus")
+    external_inputs: dict[str, str] = {}
+    if external_lock.is_file():
+        locked = json.loads(external_lock.read_text(encoding="utf-8"))
+        repositories = {entry["name"]: entry for entry in locked["repositories"]}
+        external_inputs = {name: repositories[name]["commit"] for name in chart_repositories}
+    configuration = stable_json({**_output_configuration(config), "chartRepositories": external_inputs})
     return sha256_bytes(f"{PIPELINE_CONTRACT}\n{configuration}{payload}")
