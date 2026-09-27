@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import re
+import zlib
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
@@ -48,6 +49,11 @@ from core.storage import (
 
 FORBIDDEN_SEGMENTS = {"legacy", "_unity"}
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
+KTX2_MAGIC = b"\xABKTX 20\xBB\r\n\x1A\n"
+KTX2_ASTC_6X6_UNORM = 165
+KTX2_BC7_UNORM = 145
+KTX2_HEADER_BYTES = 104
+ZLIB_CHUNK_BYTES = 1024 * 1024
 
 
 def release_entries(root: Path) -> list[dict[str, Any]]:
@@ -200,6 +206,322 @@ def _catalog_resource_errors(root: Path, server: str, declared: set[str]) -> lis
             errors.append(f"invalid catalog JSON {file.name}: {error}")
             continue
         verify_value(document, file.relative_to(root).as_posix())
+    return errors
+
+
+def _variant_release_path(value: Any, server: str) -> tuple[str | None, str | None]:
+    """Resolve a rewritten resource URL to the release manifest namespace."""
+
+    if not isinstance(value, str):
+        return None, "resource URL must be a string"
+    raw_path = urlsplit(value).path
+    asset_prefix = f"/assets/{server}/"
+    runtime_prefix = f"/runtime/{server}/"
+    if raw_path.startswith(asset_prefix):
+        relative = unquote(raw_path.removeprefix(asset_prefix))
+        tree = "assets"
+    elif raw_path.startswith(runtime_prefix):
+        relative = unquote(raw_path.removeprefix(runtime_prefix))
+        tree = "runtime"
+    elif value.startswith("assets/"):
+        relative = value.removeprefix("assets/")
+        tree = "assets"
+    elif value.startswith("runtime/"):
+        relative = value.removeprefix("runtime/")
+        tree = "runtime"
+    else:
+        return None, f"resource URL is outside the {server} release: {value}"
+    try:
+        return validate_release_path(f"{tree}/{relative}"), None
+    except ValueError as error:
+        return None, str(error)
+
+
+def _validate_zlib_level(
+    file: Path,
+    offset: int,
+    length: int,
+    expected_uncompressed: int,
+) -> None:
+    """Validate a BC7 zlib level without allocating an unbounded buffer."""
+
+    decoder = zlib.decompressobj()
+    produced = 0
+    remaining = length
+    try:
+        with file.open("rb") as stream:
+            stream.seek(offset)
+            while remaining:
+                chunk = stream.read(min(ZLIB_CHUNK_BYTES, remaining))
+                if not chunk:
+                    raise ValueError("KTX2 zlib level is truncated")
+                remaining -= len(chunk)
+                pending = chunk
+                while pending:
+                    if decoder.eof:
+                        raise ValueError("KTX2 zlib level has trailing bytes")
+                    limit = min(
+                        ZLIB_CHUNK_BYTES,
+                        max(1, expected_uncompressed - produced + 1),
+                    )
+                    output = decoder.decompress(pending, limit)
+                    produced += len(output)
+                    if produced > expected_uncompressed:
+                        raise ValueError("KTX2 zlib level exceeds declared uncompressed size")
+                    if decoder.unused_data:
+                        raise ValueError("KTX2 zlib level has trailing bytes")
+                    pending = decoder.unconsumed_tail
+    except zlib.error as error:
+        raise ValueError(f"KTX2 zlib level is invalid: {error}") from error
+    if not decoder.eof:
+        raise ValueError("KTX2 zlib level is incomplete")
+    if produced != expected_uncompressed:
+        raise ValueError(
+            "KTX2 zlib level size does not match dimensions: "
+            f"expected {expected_uncompressed}, got {produced}"
+        )
+
+
+def _native_variant_file_errors(
+    root: Path,
+    server: str,
+    declared: set[str],
+    manifest_entries: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Check the authoritative Live2D metadata and KTX2 manifest closure.
+
+    Only ``metadata/live2d.json`` owns this optional table.  Catalog JSON is
+    already checked by the normal resource closure, and scanning it again made
+    every large KTX2 payload eligible for duplicate validation.
+    """
+
+    metadata_file = root / "metadata" / "live2d.json"
+    if not metadata_file.is_file():
+        return []
+    errors: list[str] = []
+    try:
+        document = read_json(metadata_file)
+    except Exception as error:
+        return [f"invalid Live2D metadata while checking native texture variants: {error}"]
+    if not isinstance(document, dict):
+        return ["Live2D metadata must be an object"]
+    models = document.get("models")
+    if not isinstance(models, dict):
+        return ["Live2D metadata models must be an object"]
+
+    # Header/index validation is cached by release path.  In particular, do
+    # not read the compressed multi-megabyte level again for a second metadata
+    # reference or for a second model that happens to share an artifact.
+    validated_paths: dict[str, tuple[int, int, int, int, int, int, int, int, int, int, int, int] | None] = {}
+
+    def validate_container(
+        source_path: str,
+        variant: dict[str, Any],
+        location: str,
+    ) -> None:
+        source_entry = manifest_entries.get(source_path)
+        if source_entry is None or source_path not in declared:
+            errors.append(f"{location}.source is absent from release: {source_path}")
+            return
+        source_file = root / Path(*PurePosixPath(source_path).parts)
+        if not source_file.is_file():
+            errors.append(f"{location}.source is absent from release: {source_path}")
+            return
+        byte_length = variant.get("byteLength")
+        if source_file.stat().st_size != byte_length:
+            errors.append(f"{location}.byteLength does not match release file: {source_path}")
+        if source_entry.get("bytes") != byte_length:
+            errors.append(f"{location}.byteLength does not match release manifest: {source_path}")
+        if source_entry.get("sha256") != variant.get("sha256"):
+            errors.append(f"{location}.sha256 does not match release manifest: {source_path}")
+        format_name = variant.get("format")
+        width_value = variant.get("width")
+        height_value = variant.get("height")
+        if (
+            format_name not in {"astc6x6", "bc7"}
+            or not isinstance(width_value, int)
+            or isinstance(width_value, bool)
+            or width_value <= 0
+            or not isinstance(height_value, int)
+            or isinstance(height_value, bool)
+            or height_value <= 0
+        ):
+            return
+        cached = validated_paths.get(source_path)
+        if source_path not in validated_paths:
+            cached = None
+            if source_file.suffix.casefold() != ".ktx2":
+                errors.append(f"{location}.source has unsupported container suffix: {source_path}")
+            elif source_file.stat().st_size < KTX2_HEADER_BYTES:
+                errors.append(f"{location}.source is a truncated KTX2 container: {source_path}")
+            else:
+                with source_file.open("rb") as stream:
+                    header = stream.read(KTX2_HEADER_BYTES)
+                if len(header) < KTX2_HEADER_BYTES or header[:12] != KTX2_MAGIC:
+                    errors.append(f"{location}.source is not a KTX2 container: {source_path}")
+                else:
+                    cached = (
+                        int.from_bytes(header[12:16], "little"),
+                        int.from_bytes(header[16:20], "little"),
+                        int.from_bytes(header[20:24], "little"),
+                        int.from_bytes(header[24:28], "little"),
+                        int.from_bytes(header[28:32], "little"),
+                        int.from_bytes(header[32:36], "little"),
+                        int.from_bytes(header[36:40], "little"),
+                        int.from_bytes(header[40:44], "little"),
+                        int.from_bytes(header[44:48], "little"),
+                        int.from_bytes(header[80:88], "little"),
+                    ) + (
+                        int.from_bytes(header[88:96], "little"),
+                        int.from_bytes(header[96:104], "little"),
+                    )
+                    (
+                        vk_format,
+                        type_size,
+                        width,
+                        height,
+                        pixel_depth,
+                        layer_count,
+                        face_count,
+                        levels,
+                        scheme,
+                        offset,
+                        length,
+                        uncompressed,
+                    ) = cached
+                    if type_size != 1:
+                        errors.append(f"{location}.source KTX2 typeSize must be 1: {source_path}")
+                    if pixel_depth != 0 or layer_count != 0 or face_count != 1:
+                        errors.append(
+                            f"{location}.source KTX2 must describe one 2D non-array, non-cubemap texture: {source_path}"
+                        )
+                    if levels != 1:
+                        errors.append(f"{location}.source KTX2 must contain one level: {source_path}")
+                    if offset < KTX2_HEADER_BYTES or length <= 0 or offset + length > source_file.stat().st_size:
+                        errors.append(f"{location}.source KTX2 level-0 range is invalid: {source_path}")
+            validated_paths[source_path] = cached
+        if cached is not None:
+            (
+                vk_format,
+                type_size,
+                width,
+                height,
+                pixel_depth,
+                layer_count,
+                face_count,
+                levels,
+                scheme,
+                offset,
+                length,
+                uncompressed,
+            ) = cached
+            expected_vk = KTX2_ASTC_6X6_UNORM if format_name == "astc6x6" else KTX2_BC7_UNORM
+            expected_scheme = 0 if format_name == "astc6x6" else 3
+            expected_uncompressed = (
+                ((width_value + 5) // 6) * ((height_value + 5) // 6) * 16
+                if format_name == "astc6x6"
+                else ((width_value + 3) // 4) * ((height_value + 3) // 4) * 16
+            )
+            if vk_format != expected_vk:
+                errors.append(f"{location}.source KTX2 vkFormat does not match {format_name}: {source_path}")
+            if scheme != expected_scheme:
+                errors.append(f"{location}.source KTX2 supercompression does not match {format_name}: {source_path}")
+            if uncompressed != expected_uncompressed:
+                errors.append(f"{location}.source KTX2 level size does not match dimensions: {source_path}")
+            if format_name == "astc6x6" and length != expected_uncompressed:
+                errors.append(f"{location}.source ASTC level-0 size is invalid: {source_path}")
+            if (
+                format_name == "bc7"
+                and scheme == 3
+                and offset >= KTX2_HEADER_BYTES
+                and length > 0
+                and offset + length <= source_file.stat().st_size
+            ):
+                try:
+                    _validate_zlib_level(
+                        source_file,
+                        offset,
+                        length,
+                        expected_uncompressed,
+                    )
+                except ValueError as error:
+                    errors.append(
+                        f"{location}.source BC7 zlib level is invalid: {error}: {source_path}"
+                    )
+            if (width, height) != (variant.get("width"), variant.get("height")):
+                errors.append(f"{location}.source KTX2 dimensions do not match metadata: {source_path}")
+
+    for model_key, model in models.items():
+        location = f"metadata/live2d.json.models[{model_key!r}]"
+        if not isinstance(model, dict):
+            continue
+        runtime = model.get("runtime")
+        if not isinstance(runtime, dict):
+            continue
+        variants = runtime.get("textureVariants")
+        if variants is None:
+            continue
+        textures = runtime.get("textures")
+        if not isinstance(textures, list):
+            errors.append(f"{location}.runtime.textures must be an array")
+            textures = []
+        if not isinstance(variants, list):
+            errors.append(f"{location}.runtime.textureVariants must be an array")
+            continue
+        seen: set[tuple[int, str]] = set()
+        for item_index, variant in enumerate(variants):
+            item_location = f"{location}.runtime.textureVariants[{item_index}]"
+            if not isinstance(variant, dict):
+                errors.append(f"{item_location} must be an object")
+                continue
+            texture_index = variant.get("textureIndex")
+            format_name = variant.get("format")
+            identity = (
+                texture_index if isinstance(texture_index, int) and not isinstance(texture_index, bool) else -1,
+                str(format_name),
+            )
+            if not isinstance(texture_index, int) or isinstance(texture_index, bool) or texture_index < 0 or texture_index >= len(textures):
+                errors.append(f"{item_location}.textureIndex is invalid")
+            if format_name not in {"astc6x6", "bc7"}:
+                errors.append(f"{item_location}.format must be astc6x6 or bc7")
+            if identity in seen:
+                errors.append(f"{item_location} duplicates textureIndex/format")
+            else:
+                seen.add(identity)
+            if isinstance(texture_index, int) and 0 <= texture_index < len(textures) and variant.get("texture") != textures[texture_index]:
+                errors.append(f"{item_location}.texture does not match runtime.textures[{texture_index}]")
+            if variant.get("container") != "ktx2":
+                errors.append(f"{item_location}.container must be ktx2")
+            for field in ("width", "height", "byteLength"):
+                value = variant.get(field)
+                if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                    errors.append(f"{item_location}.{field} is invalid")
+            expected_flip = format_name == "bc7"
+            if variant.get("flipY") is not expected_flip:
+                errors.append(f"{item_location}.flipY does not match {format_name}")
+            for field in ("sha256", "sourceTextureSha256"):
+                if not isinstance(variant.get(field), str) or not SHA256.fullmatch(variant[field]):
+                    errors.append(f"{item_location}.{field} is invalid")
+            if "cacheKey" in variant and (
+                not isinstance(variant.get("cacheKey"), str)
+                or not SHA256.fullmatch(variant["cacheKey"])
+            ):
+                errors.append(f"{item_location}.cacheKey is invalid")
+            texture_path, texture_error = _variant_release_path(variant.get("texture"), server)
+            source_path, source_error = _variant_release_path(variant.get("source"), server)
+            if texture_error:
+                errors.append(f"{item_location}.texture: {texture_error}")
+            if source_error:
+                errors.append(f"{item_location}.source: {source_error}")
+            if texture_path is None or source_path is None:
+                continue
+            if texture_path not in declared:
+                errors.append(f"{item_location}.texture is absent from release: {texture_path}")
+            elif manifest_entries.get(texture_path, {}).get("sha256") != variant.get("sourceTextureSha256"):
+                errors.append(f"{item_location}.sourceTextureSha256 does not match canonical PNG: {texture_path}")
+            if not source_path.startswith("runtime/live2d/"):
+                errors.append(f"{item_location}.source is outside runtime/live2d: {source_path}")
+            validate_container(source_path, variant, item_location)
     return errors
 
 
@@ -1062,6 +1384,20 @@ def verify_release(
             errors.append(f"hash mismatch: {relative}")
         if expected_media_type is not None and media_type(file) != expected_media_type:
             errors.append(f"mediaType mismatch: {relative}")
+
+    manifest_entries = {
+        str(entry.get("path")): entry
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    }
+    errors.extend(
+        _native_variant_file_errors(
+            layout.root,
+            server,
+            declared,
+            manifest_entries,
+        )
+    )
 
     actual = {
         file.relative_to(layout.root).as_posix()

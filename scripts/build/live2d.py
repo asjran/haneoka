@@ -19,6 +19,18 @@ from core.manifests import atomic_write, read_json, stable_json, write_json
 from core.paths import PROJECT_ROOT, build_layout
 from core.unity_objects import UnityObjectStore
 from build.live2d_preview import PREVIEW_SCHEMA, build_live2d_previews
+from build.live2d_textures import (
+    TextureOutputReference,
+    TextureVariantIssue,
+    extract_live2d_astc,
+    find_ktx_executable,
+    ktx_tool_version,
+    load_live2d_bundle_records,
+    ktx2_variant_metadata,
+    texture_variant_cache_key,
+    write_ktx2_astc,
+    write_ktx2_bc7,
+)
 
 
 LIVE2D_ROOT = re.compile(
@@ -491,6 +503,70 @@ def _runtime_url(server: str, key: str, relative: str) -> str:
     return f"/runtime/{server}/live2d/{key}/{relative}"
 
 
+def _local_resource_path(layout: Any, server: str, url: str) -> Path | None:
+    """Map one canonical build URL to its local file without URL-key lookups."""
+
+    asset_prefix = f"/assets/{server}/"
+    runtime_prefix = f"/runtime/{server}/"
+    if url.startswith(asset_prefix):
+        relative = url.removeprefix(asset_prefix)
+        return layout.root / "assets" / Path(*PurePosixPath(relative).parts)
+    if url.startswith(runtime_prefix):
+        relative = url.removeprefix(runtime_prefix)
+        return layout.root / "runtime" / Path(*PurePosixPath(relative).parts)
+    return None
+
+
+def _texture_output(store: UnityObjectStore, source_path: str, expected_path: str) -> dict[str, Any] | None:
+    """Select the canonical Texture2D output for a model texture source."""
+
+    descriptor = store.descriptor(source_path)
+    if not isinstance(descriptor, dict):
+        return None
+    raw_outputs = descriptor.get("outputs")
+    if not isinstance(raw_outputs, list):
+        return None
+    outputs = [
+        output
+        for output in raw_outputs
+        if isinstance(output, dict) and output.get("type") == "Texture2D"
+    ]
+    exact = [output for output in outputs if output.get("path") == expected_path]
+    return exact[0] if exact else None
+
+
+def _previous_texture_variants(
+    reuse_manifest: dict[str, Any] | None,
+    key: str,
+) -> dict[tuple[int, str], dict[str, Any]]:
+    """Index reusable variants from the existing Live2D stage document."""
+
+    if not isinstance(reuse_manifest, dict):
+        return {}
+    models = reuse_manifest.get("models")
+    previous = models.get(key) if isinstance(models, dict) else None
+    runtime = previous.get("runtime") if isinstance(previous, dict) else None
+    variants = runtime.get("textureVariants") if isinstance(runtime, dict) else None
+    if not isinstance(variants, list):
+        return {}
+    result: dict[tuple[int, str], dict[str, Any]] = {}
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        index = variant.get("textureIndex")
+        format_name = variant.get("format")
+        if isinstance(index, int) and not isinstance(index, bool) and isinstance(format_name, str):
+            result.setdefault((index, format_name), variant)
+    return result
+
+
+def _restore_variant_path(value: Any, server: str) -> str:
+    prefix = f"/runtime/{server}/"
+    if not isinstance(value, str) or not value.startswith(prefix):
+        return ""
+    return "runtime/" + value.removeprefix(prefix)
+
+
 def _texture_identity_paths(server: str, model: dict[str, Any]) -> list[str]:
     """Recover the on-disk identity of every texture the preview page loads."""
 
@@ -591,8 +667,32 @@ def build_live2d(
     store = UnityObjectStore(layout, index)
     models: dict[str, dict[str, Any]] = {}
     skipped_models: list[dict[str, Any]] = []
+    native_texture_variant_issues: list[dict[str, Any]] = []
+    native_texture_variant_count = 0
+    native_texture_variant_bytes = 0
+    native_texture_variant_reused = 0
     seen_keys: set[str] = set()
     shutil.rmtree(layout.runtime / "live2d", ignore_errors=True)
+
+    # source.json is a large manifest.  Resolve its Unity-bundle digest index
+    # once for the complete stage instead of reparsing and rebuilding it for
+    # every model's optional texture extraction.
+    texture_source_load_error: str | None = None
+    try:
+        texture_source_root, texture_bundle_records = load_live2d_bundle_records(
+            config.id, source_id
+        )
+    except Exception as error:
+        texture_source_root, texture_bundle_records = None, {}
+        texture_source_load_error = type(error).__name__
+    ktx_executable = find_ktx_executable()
+    if ktx_executable:
+        try:
+            ktx_version = ktx_tool_version(ktx_executable)
+        except Exception:
+            ktx_version = "unknown"
+    else:
+        ktx_version = "unavailable"
 
     roots: dict[str, re.Match[str]] = {}
     for path in paths:
@@ -638,6 +738,10 @@ def build_live2d(
             and (layout.assets / Path(*PurePosixPath(value).parts)).is_file()
         ]
         textures = [f"/assets/{config.id}/{value}" for value in texture_paths]
+        texture_outputs: list[dict[str, Any] | None] = [
+            _texture_output(store, value, f"assets/{value}")
+            for value in texture_paths
+        ]
         if not textures and descriptor is not None:
             packed_textures = sorted(
                 (
@@ -653,6 +757,7 @@ def build_live2d(
                     f"/runtime/{config.id}/{str(output['path']).removeprefix('runtime/')}"
                     for output in packed_textures
                 ]
+                texture_outputs = list(packed_textures)
         if not textures:
             missing.append("textures")
         if missing:
@@ -671,6 +776,149 @@ def build_live2d(
         if records is None:
             records = store.records(descriptor["selectedBundle"], descriptor["serializedFile"])
         runtime_dir = layout.runtime / "live2d" / key
+
+        texture_references = [
+            TextureOutputReference(
+                index,
+                texture,
+                _local_resource_path(layout, config.id, texture) or Path(""),
+                output or {},
+            )
+            for index, (texture, output) in enumerate(zip(textures, texture_outputs, strict=False))
+        ]
+        texture_variants: list[dict[str, Any]] = []
+        texture_variant_issues: list[TextureVariantIssue] = []
+        if len(texture_outputs) != len(textures):
+            for index in range(len(texture_outputs), len(textures)):
+                texture_variant_issues.append(
+                    TextureVariantIssue(
+                        index,
+                        textures[index],
+                        "selected-output-missing",
+                        "canonical texture has no selected Texture2D output descriptor",
+                    )
+                )
+        if texture_references and ktx_executable and texture_source_root is not None:
+            previous_variants = _previous_texture_variants(reuse_manifest, key)
+
+            def package_texture(extracted: Any) -> None:
+                nonlocal native_texture_variant_reused
+                source_texture_sha256 = extracted.source_texture_sha256
+                for format_name, writer in (
+                    ("astc6x6", write_ktx2_astc),
+                    ("bc7", write_ktx2_bc7),
+                ):
+                    try:
+                        relative = f"textures/texture_{extracted.texture_index:02d}.{format_name}.ktx2"
+                        output = runtime_dir / relative
+                        cache_key = texture_variant_cache_key(
+                            format_name,
+                            source_texture_sha256,
+                            extracted.width,
+                            extracted.height,
+                            ktx_version,
+                            source_payload_sha256=(
+                                extracted.payload_sha256 if format_name == "astc6x6" else None
+                            ),
+                        )
+                        previous = previous_variants.get((extracted.texture_index, format_name))
+                        restored = False
+                        if restore_output is not None and isinstance(previous, dict):
+                            previous_source = _restore_variant_path(previous.get("source"), config.id)
+                            if (
+                                previous.get("cacheKey") == cache_key
+                                and previous.get("sourceTextureSha256") == source_texture_sha256
+                                and previous_source
+                                and isinstance(previous.get("sha256"), str)
+                                and isinstance(previous.get("byteLength"), int)
+                                and previous.get("byteLength") > 0
+                            ):
+                                try:
+                                    restore_output(previous_source, previous["sha256"], output)
+                                    restored = (
+                                        output.is_file()
+                                        and output.stat().st_size == previous["byteLength"]
+                                        and sha256_file(output) == previous["sha256"]
+                                    )
+                                except Exception:
+                                    restored = False
+                                if not restored:
+                                    output.unlink(missing_ok=True)
+                        if restored:
+                            metadata = dict(previous)
+                            metadata.update(
+                                {
+                                    "textureIndex": extracted.texture_index,
+                                    "texture": extracted.texture,
+                                    "source": _runtime_url(config.id, key, relative),
+                                    "container": "ktx2",
+                                    "format": format_name,
+                                    "width": extracted.width,
+                                    "height": extracted.height,
+                                    "flipY": format_name == "bc7",
+                                    "cacheKey": cache_key,
+                                    "sourceTextureSha256": source_texture_sha256,
+                                }
+                            )
+                            texture_variants.append(metadata)
+                            native_texture_variant_reused += 1
+                            continue
+                        writer(extracted, output, executable=ktx_executable)
+                        texture_variants.append(
+                            ktx2_variant_metadata(
+                                extracted,
+                                _runtime_url(config.id, key, relative),
+                                output,
+                                format_name=format_name,
+                                tool_version=ktx_version,
+                                source_texture_sha256=source_texture_sha256,
+                            )
+                        )
+                    except Exception as error:
+                        texture_variant_issues.append(
+                            TextureVariantIssue(
+                                extracted.texture_index,
+                                extracted.texture,
+                                "variant-writer-failed",
+                                f"{format_name}: {type(error).__name__}: {error}",
+                            )
+                        )
+
+            _, extraction_issues = extract_live2d_astc(
+                config.id,
+                source_id,
+                texture_references,
+                on_texture=package_texture,
+                bundle_records=texture_bundle_records,
+                source_root=texture_source_root,
+            )
+            texture_variant_issues.extend(extraction_issues)
+        elif texture_references and ktx_executable and texture_source_root is None:
+            texture_variant_issues.extend(
+                TextureVariantIssue(
+                    reference.texture_index,
+                    reference.texture,
+                    "source-manifest-unavailable",
+                    "optional native texture source manifest is unavailable; canonical PNG retained"
+                    + (f" ({texture_source_load_error})" if texture_source_load_error else ""),
+                )
+                for reference in texture_references
+            )
+        else:
+            issue = (
+                "official KTX-Software executable is unavailable"
+                if texture_references
+                else "model has no selected Texture2D outputs"
+            )
+            texture_variant_issues.extend(
+                TextureVariantIssue(
+                    reference.texture_index,
+                    reference.texture,
+                    "ktx-tool-unavailable" if ktx_executable is None else "selected-output-missing",
+                    issue,
+                )
+                for reference in texture_references
+            )
 
         atomic_write(runtime_dir / "model.moc3", moc)
 
@@ -798,9 +1046,21 @@ def build_live2d(
             "moc": _runtime_url(config.id, key, "model.moc3"),
             "physics": _runtime_url(config.id, key, "physics3.json") if physics else None,
             "textures": textures,
+            "textureVariants": sorted(
+                texture_variants,
+                key=lambda value: int(value.get("textureIndex", 0)),
+            ),
             "harmonicMotion": harmonic,
             "motionSync": motion_sync,
         }
+        native_texture_variant_count += len(texture_variants)
+        native_texture_variant_bytes += sum(
+            int(value.get("byteLength") or 0) for value in texture_variants
+        )
+        native_texture_variant_issues.extend(
+            {"live2dKey": key, **issue.as_dict()}
+            for issue in texture_variant_issues
+        )
         models[key] = {
             "live2dKey": key,
             "live2dName": live2d_name,
@@ -870,9 +1130,29 @@ def build_live2d(
         "previewUnavailableCount": sum(1 for preview in previews.values() if preview.get("status") != "rendered"),
         "previewReusedCount": reuse_summary.get("restored", 0),
         "previewReuseRestoreFailureCount": reuse_summary.get("failed", 0),
+        "nativeTextureVariantCount": native_texture_variant_count,
+        "nativeTextureVariantBytes": native_texture_variant_bytes,
+        "nativeTextureVariantReusedCount": native_texture_variant_reused,
+        "nativeTextureVariantFailureCount": len(native_texture_variant_issues),
+        "nativeTextureVariantIssues": native_texture_variant_issues,
         "skippedModelCount": len(skipped_models),
         "models": models,
         "skippedModels": skipped_models,
     }
+    write_json(
+        layout.reports / "live2d-textures.json",
+        {
+            "schema": "haneoka-live2d-native-textures-report-v1",
+            "server": config.id,
+            "sourceId": source_id,
+            "buildId": build_id,
+            "variantCount": native_texture_variant_count,
+            "variantBytes": native_texture_variant_bytes,
+            "reusedCount": native_texture_variant_reused,
+            "failureCount": len(native_texture_variant_issues),
+            "issues": native_texture_variant_issues,
+        },
+        pretty=True,
+    )
     write_json(layout.metadata / "live2d.json", result, pretty=True)
     return result
