@@ -3914,6 +3914,9 @@ def _home_spot_spine_runtime(
     background_document = data.home_spot_background(identity)
     if background_document is None:
         return None
+    background_status = background_document.get("backgroundStatus")
+    if background_status not in {"empty", "rendered"}:
+        raise ValueError(f"Home Spot {identity} background status is invalid")
     if (
         background_document.get("sourcePath") != background_source_path
         or background_document.get("situationSourcePath") != source_path
@@ -3942,6 +3945,16 @@ def _home_spot_spine_runtime(
         or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in background_matrix)
     ):
         raise ValueError(f"Home Spot {identity} background derivative is invalid")
+    try:
+        mesh_count = int(background_document.get("meshCount"))
+        triangle_count = int(background_document.get("triangleCount"))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Home Spot {identity} background geometry metadata is invalid") from error
+    if background_status == "empty":
+        if mesh_count != 0 or triangle_count != 0:
+            raise ValueError(f"Home Spot {identity} empty background has geometry")
+    elif mesh_count <= 0 or triangle_count <= 0:
+        raise ValueError(f"Home Spot {identity} rendered background has no geometry")
     background_output_path = str(background_output.get("path") or "")
     background_url = data.runtime_output_url(background_output_path)
     background_file = data.root / Path(*PurePosixPath(background_output_path).parts)
@@ -3967,13 +3980,22 @@ def _home_spot_spine_runtime(
         != HOME_SPOT_BACKGROUND_PREVIEW_WIDTH
         or int(background_preview.get("height") or 0)
         != HOME_SPOT_BACKGROUND_PREVIEW_HEIGHT
-        or int(background_preview.get("renderTriangleCount") or 0) <= 0
-        or int(background_preview.get("visiblePixelCount") or 0) <= 0
-        or int(background_preview.get("visiblePixelCount") or 0)
-        > HOME_SPOT_BACKGROUND_PREVIEW_WIDTH
-        * HOME_SPOT_BACKGROUND_PREVIEW_HEIGHT
     ):
         raise ValueError(f"Home Spot {identity} background preview is invalid")
+    try:
+        preview_triangle_count = int(background_preview["renderTriangleCount"])
+        preview_visible_pixel_count = int(background_preview["visiblePixelCount"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"Home Spot {identity} background preview counts are invalid") from error
+    if background_status == "empty":
+        if preview_triangle_count != 0 or preview_visible_pixel_count != 0:
+            raise ValueError(f"Home Spot {identity} empty background preview has pixels")
+    elif preview_triangle_count <= 0 or preview_visible_pixel_count <= 0:
+        raise ValueError(f"Home Spot {identity} background preview is empty")
+    if not 0 <= preview_visible_pixel_count <= (
+        HOME_SPOT_BACKGROUND_PREVIEW_WIDTH * HOME_SPOT_BACKGROUND_PREVIEW_HEIGHT
+    ):
+        raise ValueError(f"Home Spot {identity} background preview pixel count is invalid")
     background_preview_path = str(background_preview.get("path") or "")
     background_preview_url = data.runtime_output_url(background_preview_path)
     background_preview_file = data.root / Path(
@@ -4052,6 +4074,69 @@ def _home_spot_spine_runtime(
             )
         component_id = matches[0]
         return component_id, objects[component_id].get("data", {})
+
+    active_game_objects: dict[str, dict[str, Any]] = {}
+    visited_game_objects: set[str] = set()
+
+    def visit_scene(game_object_id: str, parent_active: bool) -> None:
+        if game_object_id in visited_game_objects:
+            raise ValueError(f"Home Spot hierarchy repeats GameObject: {source_path}::{game_object_id}")
+        visited_game_objects.add(game_object_id)
+        record = objects[game_object_id]
+        if record.get("type") != "GameObject":
+            raise ValueError(f"Home Spot hierarchy child is not a GameObject: {source_path}")
+        game_object = record.get("data", {})
+        active = parent_active and bool(game_object.get("m_IsActive"))
+        if active:
+            active_game_objects[game_object_id] = game_object
+        _, transform = only_component(game_object, "Transform", "scene hierarchy")
+        for child in transform.get("m_Children", []):
+            child_id = local_pointer(child, "child Transform")
+            child_record = objects[child_id]
+            if child_record.get("type") != "Transform":
+                raise ValueError(f"Home Spot hierarchy child is not a Transform: {source_path}")
+            child_game_object_id, _ = game_object_for(child_record.get("data", {}), "child Transform")
+            visit_scene(child_game_object_id, active)
+
+    visit_scene(game_object_roots[0], True)
+    # Controller references select behavior targets. Rendering follows the
+    # enabled SkeletonAnimation components in the active scene hierarchy.
+    wrappers_by_animation: dict[str, dict[str, Any]] = {}
+    for game_object in active_game_objects.values():
+        for component_id in _unity_component_ids(game_object):
+            component = objects.get(component_id, {})
+            raw = component.get("data", {})
+            animation_id = _unity_pointer_id(raw.get("_animation"))
+            if (
+                component.get("type") == "MonoBehaviour"
+                and animation_id
+                and int(raw["_animation"].get("m_FileID") or 0) == 0
+                and "skeletonDataAsset" in objects.get(animation_id, {}).get("data", {})
+            ):
+                wrappers_by_animation.setdefault(animation_id, game_object)
+    for pointer in scene.get("_spotSpineCharacters", []):
+        wrapper_id = local_pointer(pointer, "Spine layer")
+        wrapper = objects[wrapper_id]
+        if wrapper.get("type") != "MonoBehaviour":
+            raise ValueError(f"Home Spot Spine wrapper is invalid: {source_path}::{wrapper_id}")
+        raw = wrapper.get("data", {})
+        if _unity_pointer_id(raw.get("_animation")):
+            animation_id = local_pointer(raw["_animation"], "Spine wrapper animation")
+            if "skeletonDataAsset" not in objects[animation_id].get("data", {}):
+                raise ValueError(f"Home Spot Spine wrapper has no SkeletonData: {source_path}::{wrapper_id}")
+
+    visible_animations: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for game_object in active_game_objects.values():
+        for component_id in _unity_component_ids(game_object):
+            component = objects.get(component_id, {})
+            raw = component.get("data", {})
+            if component.get("type") != "MonoBehaviour" or "skeletonDataAsset" not in raw:
+                continue
+            if not bool(raw.get("m_Enabled")):
+                continue
+            _, renderer = only_component(game_object, "MeshRenderer", "Spine animation")
+            if bool(renderer.get("m_Enabled")):
+                visible_animations[component_id] = raw, game_object
 
     allowed_character_ids = {
         int(value) for value in row.get("_characterIds", []) if int(value)
@@ -4139,9 +4224,7 @@ def _home_spot_spine_runtime(
     # potentially duplicated filename alone.
     referenced_names = {
         str(animation.get("skeletonDataAsset", {}).get("reference", {}).get("name") or "")
-        for pointer in scene.get("_spotSpineCharacters", [])
-        for wrapper in [objects.get(_unity_pointer_id(pointer), {}).get("data", {})]
-        for animation in [objects.get(_unity_pointer_id(wrapper.get("_animation")), {}).get("data", {})]
+        for animation, _ in visible_animations.values()
     }
     skeleton_sources = sorted(set(skeleton_sources) | {
         value for value in data.source_paths
@@ -4346,39 +4429,27 @@ def _home_spot_spine_runtime(
     layer_documents: list[dict[str, Any]] = []
     hit_polygons_by_key: dict[str, list[list[float]]] = {}
     layer_keys: set[str] = set()
-    seen_wrapper_ids: set[str] = set()
     referenced_skeletons: set[str] = set()
-    for pointer in scene.get("_spotSpineCharacters", []):
-        wrapper_id = local_pointer(pointer, "Spine layer")
-        if wrapper_id in seen_wrapper_ids:
-            continue
-        seen_wrapper_ids.add(wrapper_id)
-        wrapper = objects.get(wrapper_id, {})
-        wrapper_data = wrapper.get("data", {})
-        if wrapper.get("type") != "MonoBehaviour":
-            raise ValueError(
-                f"Home Spot Spine layer wrapper is invalid: {source_path}::{wrapper_id}"
-            )
-        _, wrapper_game_object = game_object_for(wrapper_data, "Spine layer")
+    for animation_id, (animation_data, animation_game_object) in visible_animations.items():
+        wrapper_game_object = wrappers_by_animation.get(animation_id, animation_game_object)
+        if animation_id not in wrappers_by_animation:
+            # Visible skeletons can have no behavior wrapper. Preserve their
+            # character identity through the nearest named character ancestor.
+            _, animation_transform = only_component(animation_game_object, "Transform", "Spine animation")
+            parent = _unity_pointer_id(animation_transform.get("m_Father"))
+            while parent in transform_to_game_object:
+                ancestor = transform_to_game_object[parent]
+                if _home_spot_character_key(str(ancestor.get("m_Name") or "")) in character_ids_by_key:
+                    wrapper_game_object = ancestor
+                    break
+                parent = _unity_pointer_id(objects[parent].get("data", {}).get("m_Father"))
         layer_key = str(wrapper_game_object.get("m_Name") or "")
-        if not layer_key or layer_key in layer_keys:
-            raise ValueError(
-                f"Home Spot Spine layer name is empty or repeated: {source_path}::{layer_key}"
-            )
+        if not layer_key:
+            raise ValueError(f"Home Spot Spine layer has no name: {source_path}::{animation_id}")
+        if layer_key in layer_keys:
+            layer_key = f"{layer_key}:{animation_id}"
         layer_keys.add(layer_key)
-        character_key = _home_spot_character_key(layer_key)
-
-        if not _unity_pointer_id(wrapper_data.get("_animation")):
-            # The client stores empty decorative wrappers alongside playable layers.
-            continue
-        animation_id = local_pointer(wrapper_data.get("_animation"), "Spine animation")
-        animation_object = objects.get(animation_id, {})
-        animation_data = animation_object.get("data", {})
-        if animation_object.get("type") != "MonoBehaviour":
-            raise ValueError(
-                f"Home Spot Spine animation is invalid: {source_path}::{animation_id}"
-            )
-        _, animation_game_object = game_object_for(animation_data, "Spine animation")
+        character_key = _home_spot_character_key(str(wrapper_game_object.get("m_Name") or ""))
         transform_id, _ = only_component(
             animation_game_object, "Transform", f"Spine animation {layer_key}"
         )

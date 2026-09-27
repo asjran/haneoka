@@ -62,7 +62,7 @@ class _Triangle:
 
 class _GlbDocument:
     def __init__(self, payload: bytes):
-        if len(payload) < 28:
+        if len(payload) < 20:
             raise ValueError("Home Spot GLB is truncated")
         magic, version, total = struct.unpack_from("<4sII", payload)
         if magic != b"glTF" or version != 2 or total != len(payload):
@@ -79,21 +79,46 @@ class _GlbDocument:
                 raise ValueError("Home Spot GLB chunks are invalid or repeated")
             chunks[kind] = payload[offset:end]
             offset = end
-        if offset != len(payload) or b"JSON" not in chunks or b"BIN\0" not in chunks:
-            raise ValueError("Home Spot GLB must contain one JSON and one BIN chunk")
+        if offset != len(payload) or b"JSON" not in chunks:
+            raise ValueError("Home Spot GLB must contain one JSON chunk")
         try:
             self.document = json.loads(chunks[b"JSON"].rstrip(b" \0").decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ValueError("Home Spot GLB JSON is invalid") from error
-        self.binary = chunks[b"BIN\0"]
+        self.binary = chunks.get(b"BIN\0", b"")
         buffers = self.document.get("buffers")
-        if (
-            not isinstance(buffers, list)
+        if b"BIN\0" not in chunks:
+            if "buffers" in self.document:
+                raise ValueError("JSON-only Home Spot GLB must omit buffers")
+            for key in ("bufferViews", "accessors"):
+                value = self.document.get(key)
+                if value not in (None, []):
+                    raise ValueError(
+                        "JSON-only Home Spot GLB must not reference binary accessors"
+                    )
+
+            def has_binary_reference(value: Any) -> bool:
+                if isinstance(value, dict):
+                    if "bufferView" in value or "indices" in value:
+                        return True
+                    return any(has_binary_reference(child) for child in value.values())
+                if isinstance(value, list):
+                    return any(has_binary_reference(child) for child in value)
+                return False
+
+            if has_binary_reference(self.document):
+                raise ValueError(
+                    "JSON-only Home Spot GLB contains a binary accessor reference"
+                )
+        elif (
+            not self.binary
+            or not isinstance(buffers, list)
             or len(buffers) != 1
+            or not isinstance(buffers[0], dict)
             or int(buffers[0].get("byteLength") or -1) != len(self.binary)
             or buffers[0].get("uri")
         ):
-            raise ValueError("Home Spot GLB must have one embedded binary buffer")
+            raise ValueError("Home Spot GLB must have one non-empty embedded binary buffer")
         self._accessors: dict[int, np.ndarray] = {}
         self._images: dict[int, np.ndarray] = {}
         self._materials: dict[int, _Material] = {}
@@ -437,12 +462,11 @@ def _triangles(
     meshes = glb.document.get("meshes")
     scenes = glb.document.get("scenes")
     scene_index = int(glb.document.get("scene") or 0)
-    if (
-        not isinstance(nodes, list)
-        or not isinstance(meshes, list)
-        or not isinstance(scenes, list)
-        or not 0 <= scene_index < len(scenes)
-    ):
+    if not isinstance(nodes, list) or not isinstance(scenes, list) or not 0 <= scene_index < len(scenes):
+        raise ValueError("Home Spot GLB scene graph is invalid")
+    if meshes is None:
+        meshes = []
+    elif not isinstance(meshes, list):
         raise ValueError("Home Spot GLB scene graph is invalid")
     roots = scenes[scene_index].get("nodes")
     if not isinstance(roots, list) or not roots:
@@ -579,6 +603,17 @@ def render_home_spot_preview(
         field_of_view,
         aspect,
     )
+    meshes = glb.document.get("meshes")
+    if not triangles and (
+        (isinstance(meshes, list) and meshes)
+        or glb.binary
+        or "buffers" in glb.document
+    ):
+        # A mesh that is clipped, degenerate, or fully transparent is still a
+        # non-empty background and must continue to fail closed. Only a GLB
+        # with no mesh definitions or binary payload is a verified empty
+        # background.
+        raise ValueError("Home Spot software preview rendered no visible pixels")
     opaque = [value for value in triangles if value.material.alpha_mode != "BLEND"]
     transparent = sorted(
         (value for value in triangles if value.material.alpha_mode == "BLEND"),
@@ -593,7 +628,7 @@ def render_home_spot_preview(
         _rasterize_triangle(triangle, frame, depth, write_depth=False)
     pixels = np.clip(np.floor(frame * 255 + 0.5), 0, 255).astype(np.uint8)
     visible_pixels = int(np.count_nonzero(pixels[..., 3]))
-    if visible_pixels == 0:
+    if visible_pixels == 0 and triangles:
         raise ValueError("Home Spot software preview rendered no visible pixels")
     output = io.BytesIO()
     Image.fromarray(pixels, mode="RGBA").save(

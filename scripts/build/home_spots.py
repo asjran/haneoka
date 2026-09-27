@@ -509,7 +509,8 @@ class _GlbBuilder:
         self.vertex_count += vertex_count
         return index
 
-    def add_scene(self, root: Any, hidden_ids: set[int]) -> None:
+    def add_scene(self, root: Any, hidden_ids: set[int], activate_ids: set[int] | None = None) -> None:
+        activate_ids = activate_ids or set()
         all_game_objects: dict[int, Any] = {}
         visiting: set[int] = set()
 
@@ -531,6 +532,9 @@ class _GlbBuilder:
             visiting.remove(identity)
 
         collect(root)
+        unknown_active = activate_ids - set(all_game_objects)
+        if unknown_active:
+            raise ValueError(f"Home Spot activation leaves the background hierarchy: {sorted(unknown_active)}")
         unknown_hidden = hidden_ids - set(all_game_objects)
         if unknown_hidden:
             raise ValueError(
@@ -539,7 +543,7 @@ class _GlbBuilder:
 
         def add(game_object: Any, is_root: bool = False) -> int | None:
             identity = int(game_object.object_reader.path_id)
-            if not bool(game_object.m_IsActive) or identity in hidden_ids:
+            if (not bool(game_object.m_IsActive) and identity not in activate_ids) or identity in hidden_ids:
                 return None
             components = _components(game_object)
             transforms = components.get("Transform", [])
@@ -604,32 +608,48 @@ class _GlbBuilder:
         self.document["scenes"][0]["nodes"] = [root_index]
 
     def finish(self) -> bytes:
-        if not self.document["meshes"] or not self.document["scenes"][0]["nodes"]:
+        if not self.document["scenes"][0]["nodes"]:
             raise ValueError("Home Spot GLB scene is empty")
-        while len(self.binary) % 4:
-            self.binary.append(0)
-        self.document["buffers"] = [{"byteLength": len(self.binary)}]
+        if self.binary:
+            while len(self.binary) % 4:
+                self.binary.append(0)
+            self.document["buffers"] = [{"byteLength": len(self.binary)}]
+        else:
+            # A source-authored background can validly contain only its root
+            # hierarchy after the native situation hides every renderer. GLB
+            # permits a JSON-only document; do not add an empty BIN buffer,
+            # which is not a useful representation of this state.
+            self.document.pop("buffers", None)
         if self.extensions:
             self.document["extensionsUsed"] = sorted(self.extensions)
-        for key in ("samplers", "textures", "images", "materials"):
-            if not self.document[key]:
+        for key in (
+            "meshes",
+            "samplers",
+            "textures",
+            "images",
+            "materials",
+            "bufferViews",
+            "accessors",
+        ):
+            if not self.document.get(key):
                 self.document.pop(key)
         json_payload = stable_json(self.document).encode("utf-8")
         json_payload += b" " * (-len(json_payload) % 4)
+        chunks = [struct.pack("<I4s", len(json_payload), b"JSON"), json_payload]
         binary_payload = bytes(self.binary)
-        total = 12 + 8 + len(json_payload) + 8 + len(binary_payload)
-        return b"".join(
-            (
-                struct.pack("<4sII", b"glTF", 2, total),
-                struct.pack("<I4s", len(json_payload), b"JSON"),
-                json_payload,
-                struct.pack("<I4s", len(binary_payload), b"BIN\0"),
-                binary_payload,
+        if binary_payload:
+            chunks.extend(
+                (
+                    struct.pack("<I4s", len(binary_payload), b"BIN\0"),
+                    binary_payload,
+                )
             )
-        )
+        total = 12 + sum(len(chunk) for chunk in chunks)
+        return b"".join((struct.pack("<4sII", b"glTF", 2, total), *chunks))
 
-    def statistics(self) -> dict[str, int]:
+    def statistics(self) -> dict[str, int | str]:
         return {
+            "backgroundStatus": "empty" if self.mesh_count == 0 else "rendered",
             "meshCount": self.mesh_count,
             "primitiveCount": self.primitive_count,
             "vertexCount": self.vertex_count,
@@ -838,7 +858,7 @@ def _background_root(environment: Any, descriptor: dict[str, Any], source_path: 
     return roots[0].read()
 
 
-def _hidden_objects(root: Any, situation_name: str, source_path: str) -> set[int]:
+def _situation_visibility(root: Any, situation_name: str, source_path: str) -> tuple[set[int], set[int]]:
     candidates = []
     for reader in _components(root).get("MonoBehaviour", []):
         value = reader.read_typetree()
@@ -848,7 +868,7 @@ def _hidden_objects(root: Any, situation_name: str, source_path: str) -> set[int
     # shared unchanged by every situation. A repeated HideObjects pointer is
     # likewise idempotent; Unity treats the list as a set of objects to hide.
     if not candidates:
-        return set()
+        return set(), set()
     if len(candidates) != 1 or not isinstance(candidates[0], list):
         raise ValueError(
             f"Home Spot background situation table must resolve uniquely: {source_path}"
@@ -876,7 +896,25 @@ def _hidden_objects(root: Any, situation_name: str, source_path: str) -> set[int
         if not identity:
             continue
         result.add(identity)
-    return result
+    # SpotBackground.Prepare first reactivates the direct children of the
+    # first model root, then disables this situation's HideObjects. Serialized
+    # active flags can contain a different editor-selected situation.
+    root_transform = _only_component(root, "Transform")
+    if not root_transform.m_Children:
+        raise ValueError(f"Home Spot background has no model root: {source_path}")
+    model_root = root_transform.m_Children[0].deref_parse_as_object()
+    if model_root is None:
+        raise ValueError(f"Home Spot background model root is unresolved: {source_path}")
+    activate: set[int] = set()
+    for pointer in model_root.m_Children:
+        child_transform = pointer.deref_parse_as_object()
+        if child_transform is None:
+            raise ValueError(f"Home Spot model child is unresolved: {source_path}")
+        game_object = child_transform.m_GameObject.deref_parse_as_object()
+        if game_object is None:
+            raise ValueError(f"Home Spot model child GameObject is unresolved: {source_path}")
+        activate.add(int(game_object.object_reader.path_id))
+    return activate, result
 
 
 def _output_relative(
@@ -972,10 +1010,11 @@ def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dic
             )
             root = _background_root(environment, descriptor, background_source)
             root_id = str(int(root.object_reader.path_id))
-            hidden = _hidden_objects(root, situation_name, background_source)
+            activate, hidden = _situation_visibility(root, situation_name, background_source)
             builder = _GlbBuilder(background_source, situation_name, root_id)
-            builder.add_scene(root, hidden)
+            builder.add_scene(root, hidden, activate)
             payload = builder.finish()
+            builder_statistics = builder.statistics()
             relative = _output_relative(
                 background_source,
                 situation_name,
@@ -993,6 +1032,7 @@ def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dic
                 "runtime": f"/runtime/{config.id}/{relative.removeprefix('runtime/')}",
                 "role": "derivative",
                 "type": OUTPUT_TYPE,
+                "backgroundStatus": builder_statistics["backgroundStatus"],
                 "objectId": root_id,
                 "situationName": situation_name,
                 "coordinateSpace": "background-root-local",
@@ -1044,6 +1084,7 @@ def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dic
                 "runtime": f"/runtime/{config.id}/{preview_relative.removeprefix('runtime/')}",
                 "role": "derivative",
                 "type": "SpotBackgroundPreviewPNG",
+                "backgroundStatus": builder_statistics["backgroundStatus"],
                 "objectId": root_id,
                 "situationName": situation_name,
                 "coordinateSpace": "camera-render",
@@ -1066,9 +1107,10 @@ def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dic
                     "backgroundTransform": background_transform,
                     "camera": camera,
                     "hiddenObjectCount": len(hidden),
+                    "activatedObjectCount": len(activate),
                     "output": output,
                     "preview": preview,
-                    **builder.statistics(),
+                    **builder_statistics,
                 }
             )
 
