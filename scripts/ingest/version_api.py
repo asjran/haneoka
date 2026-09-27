@@ -62,7 +62,7 @@ def _public_https(url: str, skip_resolution_check: bool = False) -> None:
         raise ValueError(f"version endpoint does not resolve publicly: {hostname}")
 
 
-def _version_key(value: object) -> tuple[int, ...]:
+def version_key(value: object) -> tuple[int, ...]:
     text = str(value or "")
     if not VERSION_PARTS.fullmatch(text):
         return (-1,)
@@ -82,7 +82,7 @@ def _select_live_entry(payload: object, platform: str) -> tuple[str, str]:
         platform_hash = str(entry.get(platform_key) or "")
         if not VERSION_PARTS.fullmatch(version) or not HEX_32.fullmatch(platform_hash):
             continue
-        key = _version_key(version)
+        key = version_key(version)
         if best is None or key >= best[0]:
             best = (key, version, platform_hash)
     if best is None:

@@ -38,6 +38,7 @@ from ingest.version_api import (
     cdn_authorization,
     discover_asset_version,
     resolve_version_endpoint,
+    version_key,
 )
 
 
@@ -999,6 +1000,23 @@ def _source_id(version_code: str, package_sha: str, catalog_identity_sha: str, m
     return f"v{version_code}-{package_sha[:12]}-{catalog_identity_sha[:12]}{master}-{_normalization_revision()}"
 
 
+def _assert_master_not_ahead(master: MasterResolution | None, server_version: dict[str, str] | None) -> None:
+    """Asset catalogs and Master data roll out independently.
+
+    A Master lagging behind the live catalog still forms a complete source
+    (every table it references is already shipped); a Master ahead of the
+    catalog references assets the ingest has not seen, so that generation
+    must wait for the catalog and retry.
+    """
+    if not master or not server_version:
+        return
+    if version_key(master.resource_version) > version_key(server_version["version"]):
+        raise ValueError(
+            f"live Master ({master.resource_version}) is newer than the resolved "
+            f"resource catalog ({server_version['version']}); retry ingestion"
+        )
+
+
 def probe_source_identity(
     config: ServerConfig,
     version_code: str,
@@ -1015,8 +1033,7 @@ def probe_source_identity(
         scratch = Path(temporary)
         resolution = _resolve_catalogs(config, scratch, config.unity_version, None)
         master = _resolve_master(config, scratch, resolution.authorization)
-        if master and resolution.server_version and master.resource_version != resolution.server_version["version"]:
-            raise ValueError("Master and resource catalog versions changed during discovery; retry ingestion")
+        _assert_master_not_ahead(master, resolution.server_version)
         identity = _catalog_identity(resolution.catalog_sha, list(resolution.extra_files))
         source_id = _source_id(version_code, package_sha, identity, master.identity if master else "")
         return {
@@ -1087,8 +1104,7 @@ def ingest_package(
         server_version = resolution.server_version
         discovered_authorization = resolution.authorization
         master = _resolve_master(config, scratch, discovered_authorization)
-        if master and server_version and master.resource_version != server_version["version"]:
-            raise ValueError("Master and resource catalog versions changed during discovery; retry ingestion")
+        _assert_master_not_ahead(master, server_version)
 
         version = package_metadata["versionCode"] or "unknown"
         catalog_identity_sha = _catalog_identity(catalog_sha, extra_catalog_files)
