@@ -1,0 +1,102 @@
+.playback-controls {
+  position: absolute;
+  inset: auto 0 env(safe-area-inset-bottom, 0px);
+  z-index: 10;
+  min-height: 0;
+  pointer-events: none;
+  color: var(--md-sys-color-on-surface);
+}
+
+/* iOS/WebKit fallback fullscreen. The pane owns the visual-viewport geometry
+ * while both story and chart runtimes keep their canvas in place. */
+:is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] {
+  position: fixed;
+  z-index: var(--md-sys-z-index-overlay-dialog);
+  inset: var(--story-visual-viewport-top, 0px) auto auto var(--story-visual-viewport-left, 0px);
+  width: var(--story-visual-viewport-width, 100vw);
+  height: 100vh;
+  height: var(--story-visual-viewport-height, 100dvh);
+  max-width: none;
+  max-height: none;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  border-radius: 0;
+  isolation: isolate;
+  background: var(--md-sys-color-surface);
+  overscroll-behavior: none;
+}
+:is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] > header {
+  display: none;
+}
+:is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+:is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] > :is(vega-story-stage, chart-simulator) {
+  grid-row: 1 / -1;
+}
+
+.playback-controls__expanded {
+  position: relative;
+  display: grid;
+  min-height: 56px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+  padding: var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+  background: var(--md-sys-color-surface-container-lowest);
+  pointer-events: auto;
+  opacity: 1;
+  transition: opacity 180ms var(--md-sys-motion-easing-standard, ease);
+}
+
+.playback-controls[data-collapsed="true"] .playback-controls__expanded,
+.playback-controls[data-auto-hidden="true"] .playback-controls__expanded {
+  pointer-events: none;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playback-controls__expanded {
+    transition: none;
+  }
+}
+
+.chart-runtime__timeline {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(56px, 1fr) auto;
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+}
+
+.chart-runtime__timeline small {
+  min-width: 34px;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size) /
+    var(--md-sys-typescale-label-medium-line-height) var(--app-font);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.chart-runtime__actions {
+  display: flex;
+  align-items: center;
+}
+
+.chart-runtime__actions .icon-button[aria-pressed="true"] {
+  color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-secondary-container);
+}
+
+@media (max-width: 420px) {
+  .playback-controls__expanded {
+    gap: var(--md-sys-spacing-1);
+    padding-inline: var(--md-sys-spacing-2);
+  }
+  .chart-runtime__timeline {
+    gap: var(--md-sys-spacing-1);
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chart-runtime__timeline small {
+    display: none;
+  }
+}

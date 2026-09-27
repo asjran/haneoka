@@ -1,3 +1,4 @@
+import { clientGroup } from "../i18n/client";
 import { resolvePlaylistTracks } from "../lib/playlist-tracks";
 import { observeSongDisplay, songTitle } from "../lib/song-display";
 import { openDetailLocation, closeDetailLocation, observeDetailLocation } from "../lib/detail-navigation";
@@ -52,7 +53,6 @@ const bbcodeMarkup = (source: string) => {
 export class CommunityWorkspace extends LitElement {
   static properties = {
     locale: { type: String },
-    labels: { type: String },
     mode: { type: String },
     phase: { state: true },
     items: { state: true },
@@ -87,7 +87,6 @@ export class CommunityWorkspace extends LitElement {
     session: { state: true },
   };
   declare locale: string;
-  declare labels: string;
   declare mode: string;
   declare phase: "loading" | "ready" | "error";
   declare items: Value[];
@@ -126,18 +125,17 @@ export class CommunityWorkspace extends LitElement {
   declare editorMode: "edit" | "preview";
   declare editorReady: boolean;
   declare session: Value | null;
-  private copy: Value = {};
+  private get copy(): Value {
+    return clientGroup<Value>("communityPage");
+  }
   private onLocale = () => {
     this.locale = preferredLocale(this.locale);
-    const labels = JSON.parse(this.labels || "{}") as Record<string, Value>;
-    this.copy = labels[this.locale] || labels.ja || {};
     this.requestUpdate();
   };
   private published = false;
   constructor() {
     super();
     this.locale = "ja";
-    this.labels = "{}";
     this.mode = "feeds";
     this.phase = "loading";
     this.items = [];
@@ -228,8 +226,7 @@ export class CommunityWorkspace extends LitElement {
       this.querySelector<HTMLElement>(
         this.dialog ? "[data-overlay-pane]" : this.filtersOpen ? "[data-filter-sheet]" : "[data-detail-pane]",
       ),
-      () =>
-        this.dialog ? (this.dialog = null) : this.filtersOpen ? (this.filtersOpen = false) : this.closePlaylist(),
+      () => (this.dialog ? (this.dialog = null) : this.filtersOpen ? (this.filtersOpen = false) : this.closePlaylist()),
     );
   }
   disconnectedCallback() {
@@ -249,8 +246,6 @@ export class CommunityWorkspace extends LitElement {
     this.disposeSongDisplay = observeSongDisplay(() => this.requestUpdate());
     this.releaseLocation = observeDetailLocation(this.restorePlaylist, this);
     this.locale = preferredLocale(this.locale);
-    const labels = JSON.parse(this.labels || "{}") as Record<string, Value>;
-    this.copy = labels[this.locale] || labels.ja || {};
     void Promise.all([
       import("@material/web/progress/circular-progress.js"),
       import("@material/web/textfield/outlined-text-field.js"),
@@ -1455,7 +1450,13 @@ export class CommunityWorkspace extends LitElement {
     const initial = String(name || "?").slice(0, 1);
     return html`
       <span class=${`community-avatar community-avatar--${size}`} aria-hidden="true">
-        ${url ? html`<img src=${String(url)} alt="" loading="lazy" decoding="async" />` : initial}
+        ${
+          url
+            ? html`
+                <img src=${String(url)} alt="" loading="lazy" decoding="async" />
+              `
+            : initial
+        }
       </span>
     `;
   }
@@ -1482,7 +1483,9 @@ export class CommunityWorkspace extends LitElement {
         kind: "community-post",
         open: true,
         title: String(post.title || this.label("emptyTitle", "Untitled")),
-        subtitle: html`${authorName} · ${this.date(post.createdAt)}`,
+        subtitle: html`
+          ${authorName} · ${this.date(post.createdAt)}
+        `,
         backLabel: this.label("back", "Back"),
         onClose: () => this.leaveDetail(),
         actions: html`
@@ -1605,7 +1608,7 @@ export class CommunityWorkspace extends LitElement {
                     : nothing
                 }
               </section>
-            ${paneSection(
+              ${paneSection(
               this.label("comments", "Comments"),
               icon("comment", 20),
               html`
@@ -1641,12 +1644,14 @@ export class CommunityWorkspace extends LitElement {
         `,
         footer: html`
           <div class=${`community-comment-bar${this.commentDraftOpen ? " is-open" : ""}`}>
-            <form
-              class="community-comment-bar__form"
-              @submit=${this.submitComment}
-              ?inert=${!this.commentDraftOpen}
-            >
-              ${this.replyTo ? html`<div class="community-reply-banner"><span>${this.label("replying", "Replying")}</span></div>` : nothing}
+            <form class="community-comment-bar__form" @submit=${this.submitComment} ?inert=${!this.commentDraftOpen}>
+              ${
+                this.replyTo
+                  ? html`
+                      <div class="community-reply-banner"><span>${this.label("replying", "Replying")}</span></div>
+                    `
+                  : nothing
+              }
               <md-outlined-text-field
                 type="textarea"
                 rows=${this.commentDraftOpen ? 3 : 1}
@@ -1659,15 +1664,25 @@ export class CommunityWorkspace extends LitElement {
               ${
                 this.commentDraftOpen
                   ? html`
-                      <button class="button button--text" ?disabled=${this.busy} @click=${() => (this.commentDraftOpen = false)}>
+                      <button
+                        class="button button--text"
+                        ?disabled=${this.busy}
+                        @click=${() => (this.commentDraftOpen = false)}
+                      >
                         ${this.label("cancel", "Cancel")}
                       </button>
-                      <button class="button" ?disabled=${this.busy} @click=${() => {
+                      <button
+                        class="button"
+                        ?disabled=${this.busy}
+                        @click=${() => {
                         const bar = this.querySelector(".community-comment-bar__form");
                         const field = bar?.querySelector("md-outlined-text-field") ?? null;
-                        (bar?.querySelector("button[type=submit]") ?? null)?.dispatchEvent(new Event("click", { bubbles: true }));
+                        (bar?.querySelector("button[type=submit]") ?? null)?.dispatchEvent(
+                          new Event("click", { bubbles: true }),
+                        );
                         void this.submitCommentBar(field);
-                      }}>
+                      }}
+                      >
                         ${this.label("comment", "Comment")}
                       </button>
                     `
@@ -1688,11 +1703,7 @@ export class CommunityWorkspace extends LitElement {
                 ${icon(viewer.liked ? "favorite-filled" : "favorite_border", 20)}
                 <span class="tabular">${Number(post.likeCount || 0)}</span>
               </button>
-              <button
-                class=${viewer.bookmarked ? "selected" : ""}
-                ?disabled=${this.busy}
-                @click=${this.toggleBookmark}
-              >
+              <button class=${viewer.bookmarked ? "selected" : ""} ?disabled=${this.busy} @click=${this.toggleBookmark}>
                 ${icon(viewer.bookmarked ? "bookmark_border-filled" : "bookmark_border", 20)}
                 <span>
                   ${viewer.bookmarked ? this.label("removeBookmark", "Remove bookmark") : this.label("addBookmark", "Bookmark")}
@@ -1736,7 +1747,7 @@ export class CommunityWorkspace extends LitElement {
   }
   /** Submits the bottom-bar comment form. The field is a Material web
    * component whose value lives on the host, not a DOM value property. */
-  private async submitCommentBar(field: HTMLElement & { value?: string } | null) {
+  private async submitCommentBar(field: (HTMLElement & { value?: string }) | null) {
     const body = String(field?.value || "").trim();
     if (!body) return;
     await this.mutate(async () => {
@@ -1885,7 +1896,11 @@ ${String(comment.body || "")}</textarea>
                     ${
                       dialog.kind === "report"
                         ? html`
-                            <md-outlined-select name="reason" label=${this.label("reportDialog.reason", "Reason")} required>
+                            <md-outlined-select
+                              name="reason"
+                              label=${this.label("reportDialog.reason", "Reason")}
+                              required
+                            >
                               ${reasons.map(
                                 (reason) => html`
                                   <md-select-option value=${reason}>
@@ -2444,7 +2459,8 @@ ${String(comment.body || "")}</textarea>
         composer
           ? html`
               <a class="button button--tonal button--small community-compose" href=${this.path("/community/posts/new")}>
-                ${icon("edit", 18)}<span class="community-compose__label">${this.label("newPost", "New post")}</span>
+                ${icon("edit", 18)}
+                <span class="community-compose__label">${this.label("newPost", "New post")}</span>
               </a>
             `
           : nothing
@@ -2506,10 +2522,7 @@ ${String(comment.body || "")}</textarea>
               `
             : nothing
         }
-        ${this.renderPhase()}
-        ${this.renderCardMenu()}
-        ${this.renderFilters()}
-        ${this.renderDialog()}
+        ${this.renderPhase()} ${this.renderCardMenu()} ${this.renderFilters()} ${this.renderDialog()}
         ${
           this.filtersOpen
             ? html`
@@ -2552,9 +2565,11 @@ ${String(comment.body || "")}</textarea>
         <button class="menu-item" type="button" role="menuitem" @click=${run(() => this.togglePinBookmark(post))}>
           ${icon("bookmark_border", 20)}
           <span>
-            ${viewer.bookmarked
-              ? this.label("removeBookmark", "Remove bookmark")
-              : this.label("addBookmark", "Bookmark")}
+            ${
+              viewer.bookmarked
+                ? this.label("removeBookmark", "Remove bookmark")
+                : this.label("addBookmark", "Bookmark")
+            }
           </span>
         </button>
         <button class="menu-item" type="button" role="menuitem" @click=${run(() => void this.copyPinLink(post))}>
@@ -2699,50 +2714,36 @@ ${String(comment.body || "")}</textarea>
                     <div class="community-filters__applied">
                       ${
                         this.query.trim()
-                          ? inputChip(
-                              this.query.trim(),
-                              this.label("clearSearch", "Clear search"),
-                              () => {
-                                this.query = "";
-                                this.syncCollectionUrl();
-                                void this.load(false);
-                              },
-                            )
+                          ? inputChip(this.query.trim(), this.label("clearSearch", "Clear search"), () => {
+                              this.query = "";
+                              this.syncCollectionUrl();
+                              void this.load(false);
+                            })
                           : nothing
                       }
                       ${
                         this.tagFilter && this.mode !== "tags"
-                          ? inputChip(
-                              `#${this.tagFilter}`,
-                              this.label("clearTagFilter", "Clear tag"),
-                              () => this.clearTag(),
+                          ? inputChip(`#${this.tagFilter}`, this.label("clearTagFilter", "Clear tag"), () =>
+                              this.clearTag(),
                             )
                           : nothing
                       }
                       ${
                         this.mode === "notifications" && this.unreadOnly
-                          ? inputChip(
-                              this.label("unreadNotifications", "Unread"),
-                              this.label("clear", "Clear"),
-                              () => {
-                                this.unreadOnly = false;
-                                this.syncCollectionUrl();
-                                void this.load(false);
-                              },
-                            )
+                          ? inputChip(this.label("unreadNotifications", "Unread"), this.label("clear", "Clear"), () => {
+                              this.unreadOnly = false;
+                              this.syncCollectionUrl();
+                              void this.load(false);
+                            })
                           : nothing
                       }
                       ${
                         this.mode === "mine" && this.postState === "archived"
-                          ? inputChip(
-                              this.label("stateArchived", "Archived"),
-                              this.label("clear", "Clear"),
-                              () => {
-                                this.postState = "active";
-                                this.syncCollectionUrl();
-                                void this.load(false);
-                              },
-                            )
+                          ? inputChip(this.label("stateArchived", "Archived"), this.label("clear", "Clear"), () => {
+                              this.postState = "active";
+                              this.syncCollectionUrl();
+                              void this.load(false);
+                            })
                           : nothing
                       }
                     </div>
@@ -2797,7 +2798,9 @@ ${String(comment.body || "")}</textarea>
                         void this.load(false);
                       },
                     })}
-                    <p class="community-filters__hint">${this.label("archivedHint", "Archived posts are hidden from everyone. Open one and choose Restore to publish it again.")}</p>
+                    <p class="community-filters__hint">
+                      ${this.label("archivedHint", "Archived posts are hidden from everyone. Open one and choose Restore to publish it again.")}
+                    </p>
                   </section>
                 `
               : nothing
@@ -2876,7 +2879,10 @@ ${String(comment.body || "")}</textarea>
                   <p>${String(comment.body || "")}</p>
                 </span>
                 <footer>
-                  <a class="button button--text" href=${`${this.path(`/community/posts/${comment.postId}`)}#comment-${comment.id}`}>
+                  <a
+                    class="button button--text"
+                    href=${`${this.path(`/community/posts/${comment.postId}`)}#comment-${comment.id}`}
+                  >
                     ${this.label("activityPost", "Open post")}
                   </a>
                   ${
@@ -3013,9 +3019,7 @@ ${String(comment.body || "")}</textarea>
    */
   private renderPins() {
     return html`
-      <div class="community-masonry">
-        ${this.items.map((post) => this.renderPin(post))}
-      </div>
+      <div class="community-masonry">${this.items.map((post) => this.renderPin(post))}</div>
     `;
   }
   /** Pins keep a 4/5 cover until their image loads, then adopt its true
@@ -3061,7 +3065,8 @@ ${String(comment.body || "")}</textarea>
                       images.length > 1
                         ? html`
                             <span class="community-pin__count" aria-hidden="true">
-                              ${icon("image", 14)}<span class="tabular">${images.length}</span>
+                              ${icon("image", 14)}
+                              <span class="tabular">${images.length}</span>
                             </span>
                           `
                         : nothing
@@ -3069,7 +3074,7 @@ ${String(comment.body || "")}</textarea>
                   </span>
                 `
               : nothing
-              /* A text-only pin is exactly that: no cover block, no reserved
+            /* A text-only pin is exactly that: no cover block, no reserved
                  ratio — the body is the full text, at its natural height. */
           }
           <span class="community-pin__body">
@@ -3078,7 +3083,9 @@ ${String(comment.body || "")}</textarea>
               images.length
                 ? nothing
                 : html`
-                    <span class="community-pin__note">${excerpt || this.label("postBody", "What would you like to share?")}</span>
+                    <span class="community-pin__note">
+                      ${excerpt || this.label("postBody", "What would you like to share?")}
+                    </span>
                   `
             }
           </span>

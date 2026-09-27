@@ -30,6 +30,10 @@ export interface PaneOptions {
   /** id used for aria-labelledby wiring. */
   id?: string;
   style?: string;
+  /** Canonical entity routes use the shell app bar for title/back/navigation. */
+  hideHeader?: boolean;
+  /** Render a canonical entity as normal page flow instead of a modal dialog. */
+  page?: boolean;
 }
 
 export function renderPane(options: PaneOptions): TemplateResult {
@@ -38,49 +42,73 @@ export function renderPane(options: PaneOptions): TemplateResult {
     "sheet",
     "sheet--detail",
     options.kind ? `sheet--detail-${options.kind}` : "",
+    options.page ? "sheet--detail-page" : "",
     options.open ? "is-open" : "",
   ]
     .filter(Boolean)
     .join(" ");
-  return html`
-    <aside
-      class=${classes}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby=${headingId}
-      ?inert=${!options.open}
-      tabindex="-1"
-      data-detail-pane
-      style=${options.style || nothing}
-    >
-      <header class="sheet__header">
-        ${iconButton({
-          label: options.backLabel,
-          icon: "arrow_back",
-          onClick: options.onClose,
-        })}
-        <span class="sheet__title" id=${headingId}>
-          <strong lang=${options.titleLanguage || nothing}>${options.title}</strong>
-          ${
-            options.subtitle
-              ? html`
-                  <small>${options.subtitle}</small>
-                `
-              : nothing
-          }
-        </span>
-        <span class="sheet__actions">${options.leading ?? nothing}${options.actions ?? nothing}</span>
-      </header>
-      <div class="sheet__body">${options.body}</div>
-      ${
-        options.footer
-          ? html`
-              <footer class="sheet__footer">${options.footer}</footer>
-            `
-          : nothing
-      }
-    </aside>
+  const content = html`
+    ${
+      options.hideHeader
+        ? nothing
+        : html`
+            <header class="sheet__header">
+              ${iconButton({
+                label: options.backLabel,
+                icon: "arrow_back",
+                onClick: options.onClose,
+              })}
+              <span class="sheet__title" id=${headingId}>
+                <strong lang=${options.titleLanguage || nothing}>${options.title}</strong>
+                ${
+                  options.subtitle
+                    ? html`
+                        <small>${options.subtitle}</small>
+                      `
+                    : nothing
+                }
+              </span>
+              <span class="sheet__actions">${options.leading ?? nothing}${options.actions ?? nothing}</span>
+            </header>
+          `
+    }
+    <div class="sheet__body">${options.body}</div>
+    ${
+      options.footer
+        ? html`
+            <footer class="sheet__footer">${options.footer}</footer>
+          `
+        : nothing
+    }
   `;
+  return options.page
+    ? html`
+        <article
+          class=${classes}
+          aria-label=${options.title}
+          ?inert=${!options.open}
+          tabindex="-1"
+          data-detail-pane
+          style=${options.style || nothing}
+        >
+          ${content}
+        </article>
+      `
+    : html`
+        <aside
+          class=${classes}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby=${options.hideHeader ? nothing : headingId}
+          aria-label=${options.hideHeader ? options.title : nothing}
+          ?inert=${!options.open}
+          tabindex="-1"
+          data-detail-pane
+          style=${options.style || nothing}
+        >
+          ${content}
+        </aside>
+      `;
 }
 
 /**

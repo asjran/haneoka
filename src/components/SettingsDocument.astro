@@ -4,7 +4,7 @@ import AppShell from "./AppShell.astro";
 import Icon from "./Icon.astro";
 import I18nText from "./I18nText.astro";
 import SettingsOption from "./SettingsOption.astro";
-import { LOCALES, type Locale } from "../i18n/locales";
+import type { Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
 import "../styles/settings.css";
 import cnFlag from "circle-flags/flags/cn.svg?url";
@@ -108,9 +108,6 @@ const groups: Group[] = [
   },
 ];
 const japaneseLabel = "forceJapaneseTitles";
-const japaneseLabels = JSON.stringify(
-  Object.fromEntries(LOCALES.map((target) => [target, t(target, japaneseLabel, "Show Japanese song titles")])),
-);
 ---
 
 <Base locale={locale} route="/settings" title={title} titleKey="settings">
@@ -160,7 +157,8 @@ const japaneseLabels = JSON.stringify(
                       data-japanese-titles
                       icons
                       aria-label={t(locale, japaneseLabel, "Show Japanese song titles")}
-                      data-i18n-aria-label-values={japaneseLabels}
+                      data-i18n-aria-label={japaneseLabel}
+                      data-i18n-aria-label-fallback="Show Japanese song titles"
                     ></md-switch>
                   </div>
                 )}
@@ -179,6 +177,7 @@ const japaneseLabels = JSON.stringify(
   import { applyDensity, currentDensity, isDensity } from "../lib/density";
   import { japaneseSongTitles, setJapaneseSongTitles } from "../lib/song-display";
   import { readReleaseServer, writeReleaseServer } from "../lib/release-server";
+  import { isLocale, localePath } from "../i18n/locales";
 
   type SettingsWindow = Window & { __haneokaApplyLocale?: (locale: string) => void; __haneokaApplyTheme?: () => void };
   let disposeSettings: (() => void) | undefined;
@@ -231,11 +230,8 @@ const japaneseLabels = JSON.stringify(
           applySeed(value, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
         } else if (name === "density" && isDensity(value)) {
           applyDensity(value);
-        } else if (name === "locale") {
-          // The URL prefix is the language's address: a change of language is
-          // a change of page, not an in-place retexting.
-          const route = location.pathname.replace(/^\/(?:ja|en|zh-TW|zh-CN|ko)(?=\/|$)/u, "") || "/";
-          location.assign(`/${value}${route}${location.search}`);
+        } else if (name === "locale" && isLocale(value)) {
+          location.assign(`${localePath(location.pathname, value)}${location.search}${location.hash}`);
           return;
         } else if (name === "release") {
           writeReleaseServer(value);

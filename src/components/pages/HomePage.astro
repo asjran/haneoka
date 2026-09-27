@@ -1,9 +1,9 @@
 ---
 import type { Locale } from "../../i18n/locales";
-const { locale, labels } = Astro.props as { locale: Locale; labels: string };
+const { locale } = Astro.props as { locale: Locale };
 ---
 
-<home-dashboard locale={locale} labels={labels}></home-dashboard>
+<home-dashboard locale={locale}></home-dashboard>
 <script>
   import "../../lit/home-dashboard";
 </script>

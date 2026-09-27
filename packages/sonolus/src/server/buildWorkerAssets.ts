@@ -21,6 +21,7 @@ import type {
 import { chartToLevelData, convertChart } from "@haneoka/cassiopeia-plugin-sonolus";
 import { SONOLUS_ITEM_VERSIONS, type SonolusItemType } from "./itemVersions";
 import { resolveLocalReleaseFile, resolveSonolusReleaseWorkspace } from "./releaseWorkspace";
+import { validateSonolusInputProvenance } from "./sonolusProvenance";
 
 const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/cassiopeia-sonolus-engine/package.json")));
 
@@ -42,8 +43,9 @@ const stagedSonolusRoot = resolve(outRoot, `.sonolus-build-${process.pid}`);
 const repoRoot = resolve(stagedSonolusRoot, "repository");
 const address = process.env.SONOLUS_ADDRESS || "https://haneoka.org/sonolus";
 const haneokaBase = process.env.SONOLUS_HANEOKA_BASE || "https://haneoka.org";
-const releaseServer = process.env.RELEASE_SERVER || "jp-cbt";
+const releaseServer = process.env.RELEASE_SERVER || "intl";
 const workspace = resolveSonolusReleaseWorkspace(releaseServer, root);
+const inputProvenance = validateSonolusInputProvenance(workspace, root);
 const songsUrl = process.env.SONOLUS_SONGS_URL || `${haneokaBase}/api/v1/servers/${releaseServer}/songs`;
 const localSongsFile = resolve(workspace.apiRoot, "songs.json");
 
@@ -697,7 +699,8 @@ async function main() {
   renameSync(stagedSonolusRoot, finalSonolusRoot);
 
   console.log(
-    `built Sonolus ${engineOnly ? "engine payload" : `Worker assets: ${levels.length} levels`} -> ${outRoot}`,
+    `built Sonolus ${engineOnly ? "engine payload" : `Worker assets: ${levels.length} levels`} ` +
+      `from ${inputProvenance.sourceId}/${inputProvenance.releaseId} -> ${outRoot}`,
   );
 }
 

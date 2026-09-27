@@ -1,6 +1,6 @@
 ---
-import { LOCALES, type Locale } from "../i18n/locales";
-import { t } from "../i18n/messages";
+import type { Locale } from "../i18n/locales";
+import { serverMessage } from "../i18n/server";
 
 interface Props {
   keyName: string;
@@ -9,8 +9,8 @@ interface Props {
   as?: keyof HTMLElementTagNameMap;
 }
 
-const { keyName, fallback = keyName, locale = "ja", as: Tag = "span" } = Astro.props as Props;
-const values = Object.fromEntries(LOCALES.map((target) => [target, t(target, keyName, fallback)]));
+const { keyName, fallback = keyName, locale = "ja", as: Tag = "span" }: Props = Astro.props;
+const message = serverMessage(locale, keyName, undefined, fallback);
 ---
 
-<Tag data-i18n-values={JSON.stringify(values)}>{values[locale]}</Tag>
+<Tag lang={message.lang} data-i18n={keyName} data-i18n-fallback={fallback}>{message.text}</Tag>

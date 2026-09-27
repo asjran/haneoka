@@ -3,7 +3,16 @@ import { t } from "../i18n/messages";
 import { resolveLocalizedText } from "./localized-text";
 import { disambiguateTitles } from "./title-disambiguation";
 import { formatMoney, moneyName, shopPriceEntries } from "./shop-currency";
-import { asRecord, fetchStaticCatalog, type RecordValue } from "./static-catalog-source";
+import {
+  asRecord,
+  fetchOptionalStaticCatalog,
+  fetchStaticCatalog,
+  staticCatalogRelease,
+  type OptionalStaticCatalogResult,
+  type RecordValue,
+  type StaticCatalogRelease,
+} from "./static-catalog-source";
+import type { ReleaseServer } from "./release-server";
 
 export interface SearchableCatalogFact {
   key: string;
@@ -16,16 +25,7 @@ export interface SearchableCatalogPage {
   route: string;
   selectionParam: string;
   kind:
-    | "song"
-    | "character"
-    | "member"
-    | "support"
-    | "comic"
-    | "stamp"
-    | "background"
-    | "band-item"
-    | "item"
-    | "system";
+    "song" | "character" | "member" | "support" | "comic" | "stamp" | "background" | "band-item" | "item" | "system";
   id: string;
   title: string;
   titles: Record<Locale, string>;
@@ -49,14 +49,15 @@ interface CollectionDefinition {
   /** Secondary line under the title, per presentation. */
   subtitle: "band" | "characters" | "description" | "field" | "kind" | "category" | "";
   subtitleField?: string;
+  optional?: boolean;
 }
 
 /**
  * One entry per catalogue screen resource, mirroring the profiles in
  * lit/catalog-screen.ts so every entity that the interactive detail pane can
- * open also gets a static, crawlable page. Resources that the current release
- * does not publish yet are skipped at build time and picked up by the next
- * rebuild after the resource pipeline releases them.
+ * open also gets a static, crawlable page. Only definitions marked optional
+ * may be absent from a release; required resources fail the build so their
+ * SEO pages are never silently dropped.
  */
 const COLLECTIONS: CollectionDefinition[] = [
   {
@@ -163,6 +164,7 @@ const COLLECTIONS: CollectionDefinition[] = [
     document: "entries",
     titleField: "title",
     subtitle: "kind",
+    optional: true,
   },
   {
     collection: "real-lives",
@@ -173,6 +175,7 @@ const COLLECTIONS: CollectionDefinition[] = [
     document: "entries",
     titleField: "title",
     subtitle: "kind",
+    optional: true,
   },
   {
     collection: "gacha",
@@ -183,6 +186,7 @@ const COLLECTIONS: CollectionDefinition[] = [
     document: "entries",
     titleField: "title",
     subtitle: "category",
+    optional: true,
   },
   {
     collection: "login-campaigns",
@@ -193,6 +197,7 @@ const COLLECTIONS: CollectionDefinition[] = [
     document: "entries",
     titleField: "title",
     subtitle: "kind",
+    optional: true,
   },
   {
     collection: "shop",
@@ -203,6 +208,7 @@ const COLLECTIONS: CollectionDefinition[] = [
     document: "entries",
     titleField: "title",
     subtitle: "",
+    optional: true,
   },
   {
     collection: "exchange",
@@ -213,6 +219,7 @@ const COLLECTIONS: CollectionDefinition[] = [
     document: "entries",
     titleField: "title",
     subtitle: "category",
+    optional: true,
   },
   {
     collection: "circle",
@@ -224,6 +231,7 @@ const COLLECTIONS: CollectionDefinition[] = [
     titleField: "title",
     subtitle: "field",
     subtitleField: "rank",
+    optional: true,
   },
   {
     collection: "challenge",
@@ -234,6 +242,7 @@ const COLLECTIONS: CollectionDefinition[] = [
     document: "entries",
     titleField: "title",
     subtitle: "",
+    optional: true,
   },
   {
     collection: "passes",
@@ -244,12 +253,14 @@ const COLLECTIONS: CollectionDefinition[] = [
     document: "entries",
     titleField: "title",
     subtitle: "kind",
+    optional: true,
   },
 ];
 
 interface LoadedCollection {
   definition: CollectionDefinition;
   records: Array<[string, RecordValue]>;
+  absentReason?: string;
 }
 
 function text(value: unknown, locale: Locale): string {
@@ -290,9 +301,7 @@ function timestamp(value: unknown): number {
 
 function formatDate(value: unknown, locale: Locale): string {
   const time = timestamp(value);
-  return time
-    ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(time))
-    : "";
+  return time ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(time)) : "";
 }
 
 function collectSkillNames(value: unknown, locale: Locale, output: string[] = []): string[] {
@@ -506,22 +515,39 @@ function factsFor(
   return facts;
 }
 
-let pagesPromise: Promise<SearchableCatalogPage[]> | undefined;
+const pagesPromises = new Map<ReleaseServer, Promise<SearchableCatalogPage[]>>();
 
-export function searchableCatalogPages(): Promise<SearchableCatalogPage[]> {
-  pagesPromise ??= buildSearchableCatalogPages();
-  return pagesPromise;
+export function searchableCatalogPages(server: ReleaseServer = "intl"): Promise<SearchableCatalogPage[]> {
+  const existing = pagesPromises.get(server);
+  if (existing) return existing;
+  const promise = buildSearchableCatalogPages(server);
+  pagesPromises.set(server, promise);
+  return promise;
 }
 
-async function fetchCollection(definition: CollectionDefinition): Promise<LoadedCollection> {
-  // Resources the current release does not publish yet (or that the edge
-  // blocks from build runners): skip them and let the next post-release
-  // rebuild pick them up instead of failing the whole build.
-  const document = asRecord(
-    await fetchStaticCatalog(definition.resource === "songs" ? "songs?projection=4" : definition.resource),
-  );
-  if (!document) return { definition, records: [] };
-  const entries = definition.document ? asRecord(document[definition.document]) ?? {} : document;
+async function fetchCollection(
+  definition: CollectionDefinition,
+  server: ReleaseServer,
+  release: StaticCatalogRelease,
+): Promise<LoadedCollection> {
+  const resourcePath = definition.resource === "songs" ? "songs?projection=4" : definition.resource;
+  const result: OptionalStaticCatalogResult = definition.optional
+    ? await fetchOptionalStaticCatalog(resourcePath, server, release)
+    : { value: await fetchStaticCatalog(resourcePath, server, release) };
+  const document = asRecord(result.value);
+  if (!document) {
+    if (definition.optional) {
+      if (result.value !== null) throw new Error(`Invalid optional static catalog ${server}/${definition.resource}`);
+      return { definition, records: [], absentReason: result.reason || "response was not an object" };
+    }
+    throw new Error(`Required static catalog ${server}/${definition.resource} returned no document`);
+  }
+  const entries = definition.document ? asRecord(document[definition.document]) : document;
+  if (!entries) {
+    const reason = `response is missing ${definition.document} collection data`;
+    if (definition.optional) return { definition, records: [], absentReason: reason };
+    throw new Error(`Required static catalog ${server}/${definition.resource} ${reason}`);
+  }
   return {
     definition,
     records: Object.entries(entries).flatMap(([key, value]) => {
@@ -531,12 +557,14 @@ async function fetchCollection(definition: CollectionDefinition): Promise<Loaded
   };
 }
 
-async function buildSearchableCatalogPages(): Promise<SearchableCatalogPage[]> {
-  const [collections, bandsDocument] = await Promise.all([
-    Promise.all(COLLECTIONS.map(fetchCollection)),
-    fetchStaticCatalog("bands"),
+async function buildSearchableCatalogPages(server: ReleaseServer): Promise<SearchableCatalogPage[]> {
+  const release = await staticCatalogRelease(server);
+  const [collections, bandsSource] = await Promise.all([
+    Promise.all(COLLECTIONS.map((definition) => fetchCollection(definition, server, release))),
+    fetchStaticCatalog("bands", server, release),
   ]);
-  if (!bandsDocument) throw new Error("Invalid bands catalog response");
+  const bandsDocument = asRecord(bandsSource);
+  if (!bandsDocument) throw new Error(`Invalid bands catalog response for ${server}`);
 
   const records = new Map(collections.map(({ definition, records: entries }) => [definition.collection, entries]));
   const characters = new Map(
@@ -550,8 +578,8 @@ async function buildSearchableCatalogPages(): Promise<SearchableCatalogPage[]> {
   );
 
   const skipped = collections
-    .filter(({ definition, records: entries }) => definition.document && !entries.length)
-    .map(({ definition }) => definition.resource);
+    .filter(({ absentReason }) => absentReason)
+    .map(({ definition, absentReason }) => `${definition.resource}: ${absentReason}`);
   if (skipped.length) console.warn(`Static catalog: release does not publish ${skipped.join(", ")} yet`);
 
   const built = collections.flatMap(({ definition, records: entries }) =>
@@ -573,8 +601,7 @@ async function buildSearchableCatalogPages(): Promise<SearchableCatalogPage[]> {
             ];
           if (definition.subtitle === "characters")
             return [locale, localizedNamesForIds(ids, characters, locale).join("、")];
-          if (definition.subtitle === "description")
-            return [locale, plainGameText(value.description, locale)];
+          if (definition.subtitle === "description") return [locale, plainGameText(value.description, locale)];
           if (definition.subtitle === "field") return [locale, text(value[definition.subtitleField || ""], locale)];
           return [locale, ""];
         }),
@@ -636,6 +663,6 @@ async function buildSearchableCatalogPages(): Promise<SearchableCatalogPage[]> {
   return built;
 }
 
-export async function searchableCatalogUrls(): Promise<string[]> {
-  return (await searchableCatalogPages()).map(({ route, id }) => `${route}/${encodeURIComponent(id)}/`);
+export async function searchableCatalogUrls(server: ReleaseServer = "intl"): Promise<string[]> {
+  return (await searchableCatalogPages(server)).map(({ route, id }) => `${route}/${encodeURIComponent(id)}/`);
 }

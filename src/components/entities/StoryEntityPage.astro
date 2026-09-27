@@ -5,6 +5,8 @@ import { findRoute, titleOf } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
 import { t } from "../../i18n/messages";
 import type { SearchableStoryPage, StaticStoryLine } from "../../lib/searchable-stories";
+import { resourcePath, type EntityLink } from "../../lib/resource-route";
+import type { ReleaseServer } from "../../lib/release-server";
 import "../../lit/story-workspace";
 import "../../styles/story.css";
 import "../../styles/static-detail.css";
@@ -12,14 +14,20 @@ import "../../styles/static-detail.css";
 interface Props {
   page: SearchableStoryPage;
   locale: Locale;
+  server?: ReleaseServer;
+  canonical?: boolean;
+  returnTo?: string;
+  previous?: EntityLink;
+  next?: EntityLink;
 }
-const { page, locale } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next } = Astro.props;
 const modeLabel = (target: Locale) => t(target, `storyNavigation.${page.mode}`, page.mode);
 const sectionRoute = `/catalog/stories/${page.mode}`;
 const sectionRouteDefinition = findRoute(sectionRoute);
 if (!sectionRouteDefinition) throw new Error(`Missing route definition for ${sectionRoute}`);
 const sectionTitle = titleOf(sectionRouteDefinition, locale);
-const route = `${sectionRoute}/${page.storyId}`;
+const canonicalHref = resourcePath({ server, locale, kind: "stories", id: page.storyId });
+const route = canonical ? canonicalHref : `${sectionRoute}/${page.storyId}`;
 const seoTitleValues = Object.fromEntries(
   LOCALES.map((target) => {
     const chapter = page.chapterNames[target];
@@ -41,18 +49,35 @@ const line = (entry: StaticStoryLine) =>
 <Base
   locale={locale}
   route={route}
+  canonicalRoute={canonical ? canonicalHref : undefined}
   title={sectionTitle}
   titleKey={sectionRouteDefinition.titleKey}
   description={page.descriptions[locale]}
   seoTitleValues={seoTitleValues}
   seoDescriptionValues={page.descriptions}
 >
-  <AppShell locale={locale} route={sectionRoute} title={sectionTitle} titleKey={sectionRouteDefinition.titleKey}>
-    <story-workspace locale={locale} mode={page.mode}></story-workspace>
+  <AppShell
+    locale={locale}
+    route={sectionRoute}
+    server={server}
+    title={canonical ? page.titles[locale] : sectionTitle}
+    titleKey={canonical ? undefined : sectionRouteDefinition.titleKey}
+    entity={
+      canonical
+        ? {
+            title: page.titles[locale],
+            backHref: returnTo || resourcePath({ server, locale, kind: "stories" }),
+            previous,
+            next,
+          }
+        : undefined
+    }
+  >
+    <story-workspace locale={locale} mode={page.mode} entity-id={canonical ? page.storyId : undefined}></story-workspace>
     <article class="static-detail" data-static-detail>
       <header class="static-detail__header">
-        <a class="static-detail__back" href={`${sectionRoute}/`}>{sectionTitle}</a>
-        <h1>{page.titles[locale]}</h1>
+        {!canonical && <a class="static-detail__back" href={resourcePath({ server, locale, kind: "stories" })}>{sectionTitle}</a>}
+        {!canonical && <h1>{page.titles[locale]}</h1>}
         {page.chapterNames[locale] && page.chapterNames[locale] !== page.titles[locale] && (
           <p class="static-detail__subtitle">{page.chapterNames[locale]}</p>
         )}
@@ -69,18 +94,11 @@ const line = (entry: StaticStoryLine) =>
     </article>
   </AppShell>
 </Base>
-<script is:inline define:vars={{ storyId: page.storyId }}>
-  const params = new URLSearchParams(location.search);
-  if (!params.has("story")) {
-    params.set("story", storyId);
-    history.replaceState(history.state, "", `${location.pathname}?${params}`);
-  }
-</script>
 <script>
   import "../../lit/story-workspace";
 </script>
 <style is:global>
-  story-workspace:not(:empty) ~ [data-static-detail] {
+  story-workspace[data-entity-ready="true"] ~ [data-static-detail] {
     display: none;
   }
 </style>

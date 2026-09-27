@@ -24,6 +24,7 @@
 @import "./components/input.css" layer(components);
 @import "./components/feedback.css" layer(components);
 @import "./components/wavy-progress.css" layer(components);
+@import "./components/playback.css" layer(components);
 
 /* 5 — shell */
 @import "./shell/navigation.css" layer(shell);

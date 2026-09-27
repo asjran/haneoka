@@ -1,3 +1,4 @@
+import { clientText } from "../i18n/client";
 import { LitElement, html, nothing } from "lit";
 import { PaneFocus } from "./ui/pane";
 import { loadingState } from "./ui/state";
@@ -13,7 +14,6 @@ const icon = (name: string, size = 20) => html`
 export class AdminWorkspace extends LitElement {
   static properties = {
     section: { type: String },
-    labels: { type: String },
     phase: { state: true },
     document: { state: true },
     error: { state: true },
@@ -28,7 +28,6 @@ export class AdminWorkspace extends LitElement {
     packageProgress: { state: true },
   };
   declare section: Section;
-  declare labels: string;
   declare phase: "loading" | "ready" | "error";
   declare document: Value;
   declare error: string;
@@ -41,12 +40,10 @@ export class AdminWorkspace extends LitElement {
   declare resourceSources: Value[];
   declare readyPackage: Value | null;
   declare packageProgress: number;
-  private copy: Value = {};
 
   constructor() {
     super();
     this.section = "overview";
-    this.labels = "{}";
     this.phase = "loading";
     this.document = {};
     this.error = "";
@@ -72,14 +69,15 @@ export class AdminWorkspace extends LitElement {
       this.commentHistory = null;
     });
   }
+  private readonly onLocale = () => this.requestUpdate();
   disconnectedCallback() {
+    removeEventListener("haneoka:locale-ready", this.onLocale);
     this.paneFocus.detach();
     super.disconnectedCallback();
   }
   connectedCallback() {
     super.connectedCallback();
-    const labels = JSON.parse(this.labels || "{}") as Record<string, Value>;
-    this.copy = labels[preferredLocale()] || labels.ja || {};
+    addEventListener("haneoka:locale-ready", this.onLocale);
     this.query = new URLSearchParams(location.search).get("q") || "";
     void Promise.all([
       import("@material/web/progress/circular-progress.js"),
@@ -92,10 +90,7 @@ export class AdminWorkspace extends LitElement {
   }
 
   private label(path: string, fallback: string) {
-    const value = path
-      .split(".")
-      .reduce<unknown>((node, key) => (node && typeof node === "object" ? (node as Value)[key] : undefined), this.copy);
-    return typeof value === "string" && value ? value : fallback;
+    return clientText(preferredLocale(), `adminPage.${path}`, fallback);
   }
   private date(value: unknown) {
     const number = typeof value === "number" ? value : Date.parse(String(value || ""));
@@ -463,14 +458,14 @@ export class AdminWorkspace extends LitElement {
       <div class="admin-overview">
         <header class="staff-strip">
           <span class="admin-avatar">
-              ${
+            ${
                 user.avatarUrl
                   ? html`
                       <img src=${String(user.avatarUrl)} alt="" loading="lazy" />
                     `
                   : String(user.name || "?").slice(0, 1)
               }
-            </span>
+          </span>
           <span>
             <strong>${String(user.name || "")}</strong>
             <small>${String(user.email || "")}</small>

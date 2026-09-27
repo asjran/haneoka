@@ -7,7 +7,12 @@ import { BESTDORI_CATALOG_VERSION } from "@haneoka/bestdori/resources";
 import { filterDateBound } from "../lib/filter-date";
 import { facet } from "./ui/facet";
 import { collectionList, collectionView, viewSwitch, type CollectionView } from "./ui/collection-view";
-import { openDetailLocation, closeDetailLocation, observeDetailLocation } from "../lib/detail-navigation";
+import {
+  openDetailLocation,
+  closeDetailLocation,
+  observeDetailLocation,
+  updateEntityHeading,
+} from "../lib/detail-navigation";
 import { RequestScope } from "../lib/request-scope";
 import { LitElement, html, nothing } from "lit";
 import {
@@ -34,6 +39,10 @@ import { specList } from "./ui/spec";
 import { emptyState, errorState, loadingState } from "./ui/state";
 import { tile } from "./ui/tile";
 import { storyCastMedia } from "./ui/story-media";
+import { dialogueRow } from "./ui/dialogue-row";
+import { entityHref, parseEntitySelection, returnStateFromLocation } from "../lib/resource-route";
+import { readReleaseServer } from "../lib/release-server";
+import type { Locale } from "@haneoka/i18n";
 
 /**
  * Stories — one screen for every story collection on the site.
@@ -109,6 +118,7 @@ const FACET_KEYS = [
 export class StoryWorkspace extends LitElement {
   static properties = {
     locale: { type: String },
+    entityId: { type: String, attribute: "entity-id" },
     mode: { type: String },
     origin: { type: String },
     phase: { state: true },
@@ -130,9 +140,9 @@ export class StoryWorkspace extends LitElement {
     detailError: { state: true },
     detailMode: { state: true },
     limit: { state: true },
-    storyFullscreen: { state: true },
   };
   declare locale: string;
+  declare entityId: string;
   declare mode: StoryMode;
   declare origin: Origin;
   declare phase: "loading" | "ready" | "error";
@@ -154,13 +164,12 @@ export class StoryWorkspace extends LitElement {
   declare detailError: string;
   declare detailMode: "text" | "play";
   declare limit: number;
-  /** Mirrors the stage's fullscreen state so the header button can reflect it. */
-  declare storyFullscreen: boolean;
   private detailRequests = new RequestScope();
   private homeStage?: HomeSpotStage;
   private homeStageSpot = "";
   private storyAudio?: HTMLAudioElement;
   private releaseLocation?: () => void;
+  private initializationTimer?: number;
   private restoreLocation = () => {
     const params = new URLSearchParams(location.search);
     this.view = collectionView(params.get("view"));
@@ -171,7 +180,7 @@ export class StoryWorkspace extends LitElement {
     );
     this.ensureRailSelection();
     const cardId = params.get("card") || "";
-    const id = params.get("story") || "";
+    const id = this.entityId || params.get("story") || "";
     if (
       id === (this.detailEpisode ? this.episodeId(this.detailEpisode) : "") &&
       cardId === String(this.detailCard?.cardId || "")
@@ -210,6 +219,7 @@ export class StoryWorkspace extends LitElement {
   constructor() {
     super();
     this.locale = "ja";
+    this.entityId = "";
     this.mode = "band";
     this.origin = "release";
     this.phase = "loading";
@@ -231,7 +241,6 @@ export class StoryWorkspace extends LitElement {
     this.detailMode = "text";
     this.detailError = "";
     this.limit = 120;
-    this.storyFullscreen = false;
   }
   createRenderRoot() {
     return this;
@@ -244,6 +253,12 @@ export class StoryWorkspace extends LitElement {
   };
   connectedCallback() {
     super.connectedCallback();
+    const selection = parseEntitySelection(location.pathname);
+    if (this.origin === "release" && selection?.source === "canonical" && selection.route.kind === "stories")
+      this.entityId = selection.route.id;
+    const mode = new URLSearchParams(location.search).get("mode");
+    if (this.origin === "release" && mode && ["band", "link", "home", "afterlive", "tutorial"].includes(mode))
+      this.mode = mode as ReleaseMode;
     addEventListener("haneoka:locale-ready", this.onLocale);
     this.releaseLocation = observeDetailLocation(this.restoreLocation, this);
     this.locale = preferredLocale(this.locale);
@@ -251,8 +266,10 @@ export class StoryWorkspace extends LitElement {
       import("@material/web/textfield/outlined-text-field.js"),
       import("@material/web/progress/circular-progress.js"),
     ]);
-    window.addEventListener("keydown", this.onKeydown);
-    window.setTimeout(() => {
+    if (!this.entityId) window.addEventListener("keydown", this.onKeydown);
+    this.initializationTimer = window.setTimeout(() => {
+      this.initializationTimer = undefined;
+      if (!this.isConnected) return;
       const p = new URLSearchParams(location.search);
       this.view = collectionView(p.get("view"));
       this.query = p.get("q") || "";
@@ -267,6 +284,8 @@ export class StoryWorkspace extends LitElement {
     }, 0);
   }
   disconnectedCallback() {
+    if (this.initializationTimer !== undefined) window.clearTimeout(this.initializationTimer);
+    this.initializationTimer = undefined;
     removeEventListener("haneoka:locale-ready", this.onLocale);
     this.detailRequests.cancel();
     this.releaseLocation?.();
@@ -279,9 +298,15 @@ export class StoryWorkspace extends LitElement {
     super.disconnectedCallback();
   }
   updated() {
+    this.dataset.playerActive = String(Boolean(this.entityId && this.detailEpisode && this.detailMode === "play"));
+    if (this.entityId && this.detailEpisode) {
+      const title = this.episodeTitleValue(this.detailEpisode);
+      updateEntityHeading(this, title.text, title.locale);
+    }
     // Focus stays inside a detail while it is open.
-    this.paneFocus.sync(this.querySelector<HTMLElement>("[data-overlay-pane], [data-detail-pane]"), () =>
-      this.closeDetail(),
+    this.paneFocus.sync(
+      this.entityId ? null : this.querySelector<HTMLElement>("[data-overlay-pane], [data-detail-pane]"),
+      () => this.closeDetail(),
     );
     // tile() defers its artwork as `data-src`; this is what promotes it.
     this.lazyImages.observe(this);
@@ -345,7 +370,7 @@ export class StoryWorkspace extends LitElement {
       const params = new URLSearchParams(location.search);
       const cardId = params.get("card");
       if (cardId && this.isCardSection()) await this.openBestdoriCard(this.episodes[cardId] || { cardId });
-      const openId = new URLSearchParams(location.search).get("story");
+      const openId = this.entityId || new URLSearchParams(location.search).get("story");
       if (openId) void this.openStory(openId);
     } catch (error) {
       this.phase = "error";
@@ -902,14 +927,15 @@ export class StoryWorkspace extends LitElement {
     });
   }
   private sync() {
-    const p = new URLSearchParams();
+    const p = new URLSearchParams(location.search);
+    for (const key of ["q", "view", "sort", "order", "story", "card", ...this.facetKeys()]) p.delete(key);
     if (this.query) p.set("q", this.query);
     if (this.view !== "grid") p.set("view", this.view);
     if (this.sort !== this.defaultSort()) p.set("sort", this.sort);
     if (this.order !== this.defaultOrder()) p.set("order", this.order);
     Object.entries(this.facets).forEach(([key, values]) => values.forEach((value) => p.append(key, value)));
     const open = this.detailEpisode ? this.episodeId(this.detailEpisode) : "";
-    if (open) p.set("story", open);
+    if (open && !this.entityId) p.set("story", open);
     if (this.detailCard?.cardId) p.set("card", String(this.detailCard.cardId));
     history.replaceState(history.state, "", `${location.pathname}${p.size ? `?${p}` : ""}`);
   }
@@ -929,12 +955,28 @@ export class StoryWorkspace extends LitElement {
     void this.openScenario(id, source);
   }
   private async openScenario(id: string, source?: JsonRecord) {
-    if (new URLSearchParams(location.search).get("story") !== id) {
+    if (!this.isBestdori() && id !== this.entityId) {
+      openDetailLocation(
+        entityHref({
+          server: readReleaseServer(),
+          locale: preferredLocale(this.locale) as Locale,
+          kind: "stories",
+          id,
+          query: { mode: this.mode },
+          returnTo: this.entityId
+            ? new URLSearchParams(location.search).get("return") || undefined
+            : returnStateFromLocation(location.pathname, location.search, "stories"),
+        }),
+      );
+      return;
+    }
+    if (!this.entityId && new URLSearchParams(location.search).get("story") !== id) {
       const params = new URLSearchParams(location.search);
       params.set("story", id);
       openDetailLocation(`${location.pathname}?${params}`);
     }
     const signal = this.detailRequests.begin();
+    this.dataset.entityReady = "false";
     this.detailError = "";
     const cardEpisode = (
       Array.isArray(this.detailCard?.episodes) ? (this.detailCard.episodes as JsonRecord[]) : []
@@ -959,7 +1001,14 @@ export class StoryWorkspace extends LitElement {
         this.detailError = error instanceof Error ? error.message : String(error);
       }
     } finally {
-      if (this.detailRequests.current(signal)) this.detailLoading = false;
+      if (this.detailRequests.current(signal)) {
+        this.detailLoading = false;
+        await this.updateComplete;
+        if (this.detailRequests.current(signal) && !this.detailError && this.isConnected) {
+          this.dataset.entityReady = "true";
+          if (new URLSearchParams(location.search).get("playback") === "play") await this.openVegaPlayer();
+        }
+      }
     }
   }
   private async openBestdoriCard(item: JsonRecord) {
@@ -991,8 +1040,6 @@ export class StoryWorkspace extends LitElement {
   private closeDetail() {
     this.detailRequests.cancel();
     this.stopStoryPlayback();
-    // The pane carrying the viewport-fullscreen flag goes away with the layer.
-    this.exitStoryFullscreen();
     const params = new URLSearchParams(location.search);
     if (this.detailEpisode) params.delete("story");
     else {
@@ -1005,12 +1052,6 @@ export class StoryWorkspace extends LitElement {
     this.storyAudio?.pause();
     this.querySelectorAll<HTMLVideoElement>(".story-transcript video").forEach((video) => video.pause());
     this.requestUpdate();
-  }
-  /** Leaves the iOS viewport fallback when the player view itself goes away. */
-  private exitStoryFullscreen() {
-    if (!this.storyFullscreen) return;
-    this.storyFullscreen = false;
-    this.querySelector(".pane-layer")?.removeAttribute("data-story-fullscreen");
   }
   private playStoryAudio(url: string) {
     if (this.storyAudio?.src === new URL(url, location.href).href && !this.storyAudio.paused) {
@@ -1055,6 +1096,19 @@ export class StoryWorkspace extends LitElement {
     const next = sequence[index + 1];
     if (!next) return;
     const id = this.episodeId(next);
+    if (this.entityId && !this.isBestdori()) {
+      openDetailLocation(
+        entityHref({
+          server: readReleaseServer(),
+          locale: preferredLocale(this.locale) as Locale,
+          kind: "stories",
+          id,
+          query: { mode: this.mode, playback: "play" },
+          returnTo: new URLSearchParams(location.search).get("return") || undefined,
+        }),
+      );
+      return;
+    }
     const params = new URLSearchParams(location.search);
     params.set("story", id);
     history.replaceState(history.state, "", `${location.pathname}?${params}`);
@@ -1065,6 +1119,26 @@ export class StoryWorkspace extends LitElement {
   /* ---------------------------------------------------------------- render */
 
   render() {
+    if (this.entityId) {
+      if (this.detailLoading) return loadingState(uiText(this.locale, "loading"));
+      if (this.detailError)
+        return errorState(
+          uiText(this.locale, "unavailable"),
+          uiText(this.locale, "retry"),
+          () => void this.openScenario(this.entityId),
+          this.detailError,
+        );
+      return this.detailEpisode
+        ? this.renderDetailLayer()
+        : this.phase === "error"
+          ? errorState(
+              uiText(this.locale, "unavailable"),
+              uiText(this.locale, "retry"),
+              () => void this.load(),
+              this.error,
+            )
+          : loadingState(uiText(this.locale, "loading"));
+    }
     const episodes = this.phase === "ready" ? this.visibleEpisodes() : [];
     const total = this.phase === "ready" ? this.allEpisodes().length : 0;
     return html`
@@ -1082,7 +1156,7 @@ export class StoryWorkspace extends LitElement {
           onSelect: (value) => this.selectRail(value),
         },
         heading: this.heading(),
-        controls: viewSwitch(this.locale, this.view, (view) => {
+        modes: viewSwitch(this.locale, this.view, (view) => {
           this.view = view;
           this.sync();
         }),
@@ -1633,61 +1707,50 @@ export class StoryWorkspace extends LitElement {
     const ids = this.characterIds(episode);
     const commands = this.transcript(episode);
     return html`
-      <aside
-        class="story-detail pane-layer"
-        role="dialog"
-        aria-modal="true"
+      <section
+        class=${this.entityId ? "story-detail story-detail--page" : "story-detail pane-layer"}
+        data-view=${this.detailMode}
+        role=${this.entityId ? nothing : "dialog"}
+        aria-modal=${this.entityId ? nothing : "true"}
         aria-label=${uiText(this.locale, "story")}
         tabindex="-1"
-        data-overlay-pane
+        data-overlay-pane=${this.entityId ? nothing : ""}
       >
         <header>
-          <button
-            class="icon-button"
-            type="button"
-            aria-label=${uiText(this.locale, "close")}
-            @click=${() => this.closeDetail()}
-          >
-            <svg class="material-icon" width="22" height="22"><use href="/icons.svg#arrow_back"></use></svg>
-          </button>
-          <span class="story-detail__title">
-            <strong lang=${this.episodeTitleValue(episode).locale}>${this.episodeTitle(episode)}</strong>
-            <small>${localizedContent(this.chapterOf(episode)?.chapterName || episode.chapterName, this.locale)}</small>
-          </span>
-          <span class="row__spacer"></span>
           ${
-            this.detailMode === "play"
+            !this.entityId
               ? html`
                   <button
                     class="icon-button"
                     type="button"
-                    aria-pressed=${this.storyFullscreen}
-                    aria-label=${uiText(this.locale, this.storyFullscreen ? "fullscreenExit" : "fullscreen")}
-                    @click=${() =>
-                      void (
-                        this.querySelector<HTMLElement & { toggleFullscreen?: () => Promise<void> }>(
-                          "vega-story-stage",
-                        )?.toggleFullscreen?.()
-                      )}
+                    aria-label=${uiText(this.locale, "close")}
+                    @click=${() => this.closeDetail()}
                   >
-                    ${icon(this.storyFullscreen ? "fullscreen_exit" : "fullscreen", 24)}
+                    <svg class="material-icon" width="22" height="22"><use href="/icons.svg#arrow_back"></use></svg>
                   </button>
+                  <span class="story-detail__title">
+                    <strong lang=${this.episodeTitleValue(episode).locale}>${this.episodeTitle(episode)}</strong>
+                    <small>
+                      ${localizedContent(this.chapterOf(episode)?.chapterName || episode.chapterName, this.locale)}
+                    </small>
+                  </span>
                 `
               : nothing
           }
+          <span class="row__spacer"></span>
           ${segmented({
             label: uiText(this.locale, "playback"),
             value: this.detailMode,
+            iconOnly: true,
             options: [
-              { value: "text" as const, label: uiText(this.locale, "storyText") },
-              { value: "play" as const, label: uiText(this.locale, "player") },
+              { value: "text" as const, label: uiText(this.locale, "storyText"), icon: "article" },
+              { value: "play" as const, label: uiText(this.locale, "player"), icon: "play_circle" },
             ],
             onSelect: (mode) => {
               if (mode === "play") void this.openVegaPlayer();
               else {
                 this.detailMode = "text";
                 this.stopStoryPlayback();
-                this.exitStoryFullscreen();
               }
             },
           })}
@@ -1704,8 +1767,6 @@ export class StoryWorkspace extends LitElement {
                           server=${currentReleaseServer()}
                           .locale=${this.locale}
                           @open-text=${() => (this.detailMode = "text")}
-                          @vega-story-fullscreen=${(event: CustomEvent<{ active: boolean }>) =>
-                            (this.storyFullscreen = event.detail.active)}
                           @haneoka-story-finished=${(event: CustomEvent<{ storyId: string }>) => void this.continueStory(event)}
                           @haneoka-story-interrupt=${() => this.closeDetail()}
                         ></vega-story-stage>
@@ -1780,7 +1841,7 @@ export class StoryWorkspace extends LitElement {
                 </div>
               `
         }
-      </aside>
+      </section>
     `;
   }
   private transcript(episode: JsonRecord) {
@@ -1845,7 +1906,10 @@ export class StoryWorkspace extends LitElement {
             .filter(Boolean);
     if (!images.length) return nothing;
     return html`
-      <span class="story-transcript__avatars" aria-hidden="true">
+      <span
+        class=${entry.kind === "stamp" ? "story-transcript__avatars" : "dialogue-row__avatar-stack"}
+        aria-hidden="true"
+      >
         ${[...new Set(images)].map(
           (image) => html`
             <img
@@ -1894,9 +1958,6 @@ export class StoryWorkspace extends LitElement {
             loading="lazy"
             decoding="async"
           />
-          <figcaption>
-            ${uiText(this.locale, entry.mediaKind === "background" ? "background" : "illustration")}
-          </figcaption>
         </figure>
       `;
     if (entry.kind === "video")
@@ -1915,7 +1976,6 @@ export class StoryWorkspace extends LitElement {
               document.querySelector<HTMLElement & { pausePlayback?: () => void }>("audio-dock")?.pausePlayback?.();
             }}
           ></video>
-          <figcaption>${uiText(this.locale, "video")}</figcaption>
         </figure>
       `;
     if (entry.kind === "location" || entry.kind === "conversation")
@@ -1940,6 +2000,54 @@ export class StoryWorkspace extends LitElement {
           </ul>
         </section>
       `;
+    const isDialogueRow = ["dialogue", "message", "subtitle"].includes(entry.kind);
+    if (isDialogueRow) {
+      if (!text) return nothing;
+      const speakerSource =
+        (Array.isArray(command.targetTextNames) ? command.targetTextNames[0] : command.targetName) ||
+        (Array.isArray(command.targets) ? (command.targets[0] as JsonRecord)?.name : "");
+      const actions = entry.voices.length
+        ? html`
+            <div class="story-transcript__voices">
+              ${entry.voices.map((voice, index) => {
+                const url = String(voice.playableUrl || voice.url || "");
+                const playing = Boolean(
+                  url && this.storyAudio?.src === new URL(url, location.href).href && !this.storyAudio.paused,
+                );
+                return url
+                  ? html`
+                      <button
+                        class="icon-button dialogue-row__play"
+                        type="button"
+                        @click=${() => this.playStoryAudio(url)}
+                        aria-pressed=${String(playing)}
+                        aria-label=${`${uiText(this.locale, playing ? "pause" : "playVoice")}${names ? ` · ${names}` : ""}${entry.voices.length > 1 ? ` · ${index + 1}` : ""}`}
+                      >
+                        ${icon(playing ? "pause" : "play_arrow", 24)}
+                      </button>
+                    `
+                  : nothing;
+              })}
+            </div>
+          `
+        : nothing;
+      return dialogueRow({
+        className: `story-transcript__entry story-transcript__entry--${entry.kind}`,
+        commandIndex: entry.commandIndex,
+        avatar: this.transcriptAvatars(entry),
+        speaker: names,
+        speakerLanguage: resolveLocalizedText(speakerSource, this.locale).locale,
+        text: advText(text),
+        textLanguage: resolved.locale,
+        action: actions,
+        state: entry.voices.some((voice) => {
+          const url = String(voice.playableUrl || voice.url || "");
+          return url && this.storyAudio?.src === new URL(url, location.href).href && !this.storyAudio.paused;
+        })
+          ? "playing"
+          : "idle",
+      });
+    }
     const media =
       entry.kind === "stamp"
         ? html`
@@ -1967,7 +2075,7 @@ export class StoryWorkspace extends LitElement {
         class=${`story-transcript__entry story-transcript__entry--${entry.kind}`}
         data-command-index=${entry.commandIndex}
       >
-        ${["dialogue", "message", "stamp"].includes(entry.kind) ? this.transcriptAvatars(entry) : nothing}
+        ${entry.kind === "stamp" ? this.transcriptAvatars(entry) : nothing}
         <div class="story-transcript__line">
           ${
             names
@@ -1990,33 +2098,6 @@ export class StoryWorkspace extends LitElement {
               : nothing
           }${media}
         </div>
-        ${
-          entry.voices.length
-            ? html`
-                <div class="story-transcript__voices">
-                  ${entry.voices.map((voice, index) => {
-                    const url = String(voice.playableUrl || voice.url || "");
-                    const playing = Boolean(
-                      url && this.storyAudio?.src === new URL(url, location.href).href && !this.storyAudio.paused,
-                    );
-                    return url
-                      ? html`
-                          <button
-                            class="icon-button icon-button--tonal"
-                            type="button"
-                            @click=${() => this.playStoryAudio(url)}
-                            aria-pressed=${String(playing)}
-                            aria-label=${`${uiText(this.locale, playing ? "pause" : "playVoice")}${names ? ` · ${names}` : ""}${entry.voices.length > 1 ? ` · ${index + 1}` : ""}`}
-                          >
-                            ${icon(playing ? "pause" : "volume_up", 20)}
-                          </button>
-                        `
-                      : nothing;
-                  })}
-                </div>
-              `
-            : nothing
-        }
       </article>
     `;
   }

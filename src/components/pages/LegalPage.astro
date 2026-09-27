@@ -2,8 +2,110 @@
 import { group } from "../../i18n/messages";
 import type { Locale } from "../../i18n/locales";
 import I18nText from "../I18nText.astro";
+import Icon from "../Icon.astro";
+import "../../styles/text-pages.css";
+
+interface TextPageCopy {
+  title: string;
+  summary?: string;
+  description?: string;
+  updated?: string;
+  sections?: Array<{ title: string; body: string }>;
+  contactLabel?: string;
+  sourceLink?: string;
+  noticesLink?: string;
+}
+
 const { locale, page } = Astro.props as { locale: Locale; page: string };
-const copy = group<Record<string, unknown>>(locale, page);
-const sections = Array.isArray(copy.sections) ? copy.sections as Array<Record<string, unknown>> : [];
+const copy = group<TextPageCopy>(locale, page);
+const sections = copy.sections ?? [];
+const summaryKey = copy.summary ? "summary" : "description";
 ---
-<section class="page page--compact"><article class="surface surface--outlined prose"><p><I18nText keyName={`${page}.summary`} fallback={String(copy.summary ?? copy.description ?? "")} locale={locale} /></p>{sections.map((section,index) => <section><h2><I18nText keyName={`${page}.sections.${index}.title`} fallback={String(section.title ?? "")} locale={locale} /></h2><p><I18nText keyName={`${page}.sections.${index}.body`} fallback={String(section.body ?? "")} locale={locale} /></p></section>)}</article></section>
+
+<article class="page about-page text-page" aria-labelledby="text-page-heading">
+  <header class="about-hero text-page__hero surface surface--outlined">
+    <div class="about-hero__copy">
+      <p class="about-eyebrow">haneoka</p>
+      <h2 id="text-page-heading">
+        <I18nText keyName={`${page}.title`} fallback={copy.title} locale={locale} />
+      </h2>
+      <p class="about-lede">
+        <I18nText
+          keyName={`${page}.${summaryKey}`}
+          fallback={copy.summary ?? copy.description ?? ""}
+          locale={locale}
+        />
+      </p>
+      {copy.updated && (
+        <p class="text-page__updated">
+          <I18nText keyName={`${page}.updated`} fallback={copy.updated} locale={locale} />
+        </p>
+      )}
+    </div>
+  </header>
+
+  <div class="text-page__sections">
+    {sections.map((section, index) => (
+      <section class="text-page__section" aria-labelledby={`text-section-${index}`}>
+        <div class="text-page__heading">
+          <span class="about-section__eyebrow" aria-hidden="true">
+            {String(index + 1).padStart(2, "0")}
+          </span>
+          <h2 id={`text-section-${index}`}>
+            <I18nText
+              keyName={`${page}.sections.${index}.title`}
+              fallback={section.title}
+              locale={locale}
+            />
+          </h2>
+        </div>
+        <div class="text-page__body">
+          <I18nText
+            as="p"
+            keyName={`${page}.sections.${index}.body`}
+            fallback={section.body}
+            locale={locale}
+          />
+        </div>
+      </section>
+    ))}
+  </div>
+
+  {(copy.contactLabel || copy.sourceLink) && (
+    <footer class="text-page__footer">
+      {copy.sourceLink && (
+        <a
+          class="text-link"
+          href="https://github.com/haneoka-gakuen/haneoka/blob/main/LICENSE"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <I18nText keyName={`${page}.sourceLink`} fallback={copy.sourceLink} locale={locale} />
+          <Icon name="open_in_new" size={18} />
+        </a>
+      )}
+      {copy.noticesLink && (
+        <a
+          class="text-link"
+          href="https://github.com/haneoka-gakuen/haneoka/blob/main/THIRD_PARTY_NOTICES.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <I18nText keyName={`${page}.noticesLink`} fallback={copy.noticesLink} locale={locale} />
+          <Icon name="open_in_new" size={18} />
+        </a>
+      )}
+      {copy.contactLabel && (
+      <a
+        class="text-link"
+        href="https://github.com/haneoka-gakuen/haneoka/issues"
+        target="_blank"
+        rel="noreferrer"
+      >
+        <I18nText keyName={`${page}.contactLabel`} fallback={copy.contactLabel} locale={locale} />
+        <Icon name="open_in_new" size={18} />
+      </a>
+      )}
+    </footer>
+  )}
+</article>

@@ -5,6 +5,8 @@ import { findRoute, titleOf } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
 import { t } from "../../i18n/messages";
 import type { SearchableModelPage } from "../../lib/searchable-models";
+import { resourcePath, type EntityLink } from "../../lib/resource-route";
+import type { ReleaseServer } from "../../lib/release-server";
 import "../../lit/live2d-workspace";
 import "../../styles/catalog.css";
 import "../../styles/viewer.css";
@@ -13,13 +15,19 @@ import "../../styles/static-detail.css";
 interface Props {
   page: SearchableModelPage;
   locale: Locale;
+  server?: ReleaseServer;
+  canonical?: boolean;
+  returnTo?: string;
+  previous?: EntityLink;
+  next?: EntityLink;
 }
-const { page, locale } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next } = Astro.props;
 const sectionRoute = "/catalog/live2d";
 const sectionRouteDefinition = findRoute(sectionRoute);
 if (!sectionRouteDefinition) throw new Error(`Missing route definition for ${sectionRoute}`);
 const sectionTitle = titleOf(sectionRouteDefinition, locale);
-const route = `${sectionRoute}/${page.id}`;
+const canonicalHref = resourcePath({ server, locale, kind: "live2d", id: page.id });
+const route = canonical ? canonicalHref : `${sectionRoute}/${page.id}`;
 const seoTitleValues = Object.fromEntries(
   LOCALES.map((target) => {
     const subtitle = page.subtitles[target];
@@ -36,19 +44,51 @@ const seoTitleValues = Object.fromEntries(
 <Base
   locale={locale}
   route={route}
+  canonicalRoute={canonical ? canonicalHref : undefined}
   title={sectionTitle}
   titleKey={sectionRouteDefinition.titleKey}
   description={page.descriptions[locale]}
   seoTitleValues={seoTitleValues}
   seoDescriptionValues={page.descriptions}
 >
-  <AppShell locale={locale} route={sectionRoute} title={sectionTitle} titleKey={sectionRouteDefinition.titleKey}>
-    <live2d-workspace locale={locale}></live2d-workspace>
+  <AppShell
+    locale={locale}
+    route={sectionRoute}
+    server={server}
+    title={canonical ? page.titles[locale] : sectionTitle}
+    titleKey={canonical ? undefined : sectionRouteDefinition.titleKey}
+    entity={
+      canonical
+        ? {
+            title: page.titles[locale],
+            backHref: returnTo || resourcePath({ server, locale, kind: "live2d" }),
+            previous,
+            next,
+          }
+        : undefined
+    }
+  >
+    <live2d-workspace
+      locale={locale}
+      entity-id={canonical ? page.id : undefined}
+      preview-src={canonical ? page.image : undefined}
+    >
+      {canonical && (
+        <figure class="viewer-ssr-stage" style="--viewer-stage-ratio: 3 / 4" aria-label={page.titles[locale]}>
+          {page.image ? (
+            <img src={page.image} alt={page.titles[locale]} decoding="async" />
+          ) : (
+            <span class="viewer-stage__placeholder" aria-hidden="true"></span>
+          )}
+        </figure>
+      )}
+    </live2d-workspace>
     <article class="static-detail" data-static-detail>
       <header class="static-detail__header">
-        <a class="static-detail__back" href={`${sectionRoute}/`}>{sectionTitle}</a>
-        <h1>{page.titles[locale]}</h1>
-        {page.image && <img class="static-detail__image" src={page.image} alt={page.titles[locale]} decoding="async" />}
+        {!canonical && <a class="static-detail__back" href={resourcePath({ server, locale, kind: "live2d" })}>{sectionTitle}</a>}
+        {!canonical && <h1>{page.titles[locale]}</h1>}
+        {canonical && page.subtitles[locale] && <p class="static-detail__subtitle">{page.subtitles[locale]}</p>}
+        {!canonical && page.image && <img class="static-detail__image" src={page.image} alt={page.titles[locale]} decoding="async" />}
       </header>
       <dl class="static-detail__facts">
         {page.facts[locale].map((fact) => (
@@ -61,18 +101,11 @@ const seoTitleValues = Object.fromEntries(
     </article>
   </AppShell>
 </Base>
-<script is:inline define:vars={{ id: page.id }}>
-  const params = new URLSearchParams(location.search);
-  if (!params.has("model")) {
-    params.set("model", id);
-    history.replaceState(history.state, "", `${location.pathname}?${params}`);
-  }
-</script>
 <script>
   import "../../lit/live2d-workspace";
 </script>
 <style is:global>
-  live2d-workspace:not(:empty) ~ [data-static-detail] {
+  live2d-workspace[entity-id][data-entity-ready="true"] ~ [data-static-detail] {
     display: none;
   }
 </style>

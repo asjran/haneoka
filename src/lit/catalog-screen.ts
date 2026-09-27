@@ -9,9 +9,16 @@ import "./catalog-table";
 import { filterDateBound } from "../lib/filter-date";
 import { facet } from "./ui/facet";
 import { collectionList, collectionView, viewSwitch, type CollectionView } from "./ui/collection-view";
-import { openDetailLocation, closeDetailLocation, observeDetailLocation } from "../lib/detail-navigation";
+import {
+  openDetailLocation,
+  closeDetailLocation,
+  observeDetailLocation,
+  navigateDetailPage,
+} from "../lib/detail-navigation";
+import { clearAppBarActions, clearAppBarIdentity, setAppBarActions, setAppBarIdentity } from "../lib/app-bar";
 import { RequestScope } from "../lib/request-scope";
 import { LitElement, html, nothing } from "lit";
+import { clientText } from "../i18n/client";
 import {
   catalogUrl,
   currentReleaseServer,
@@ -36,12 +43,21 @@ import { type GridIdentityAdornment } from "./shared/grid-identity";
 import { DENSITY_EVENT, currentDensity, type Density } from "../lib/density";
 import { clearBrowseBar, renderBrowse, filterGroup } from "./ui/browse";
 import { LazyImages, localeTaggedCandidates, localizedAssetUrl, nextImageCandidate } from "./ui/lazy-images";
-import { iconButton, inputChip } from "./ui/controls";
+import { iconButton, inputChip, segmented } from "./ui/controls";
 import { icon } from "./ui/icon";
 import { COMPACT, EXPANDED, matches, watchMedia } from "./ui/media";
 import { PaneFocus, renderPane } from "./ui/pane";
 import { emptyState, errorState, loadingState } from "./ui/state";
 import { tile } from "./ui/tile";
+import {
+  entityHref,
+  parseEntitySelection,
+  resourceKindForCollection,
+  returnStateFromLocation,
+  type ResourceKind,
+} from "../lib/resource-route";
+import type { ReleaseServer } from "../lib/release-server";
+import type { Locale } from "../i18n/locales";
 
 const EXTRA_FILTERS = [
   "difficulty",
@@ -84,8 +100,11 @@ type Presentation =
 interface Config {
   resource: string;
   locale: string;
-  labels: Record<string, string>;
-  labelsByLocale?: Record<string, Record<string, string>>;
+  server?: ReleaseServer;
+  entityKind?: ResourceKind;
+  entityId?: string;
+  entityContext?: boolean;
+  labelAliases?: Record<string, string>;
   aspectRatio?: string;
   /**
    * Where the collection comes from. "release" is the Our Notes catalogue;
@@ -376,6 +395,7 @@ const cleanMarkup = (value: string) =>
     .replace(/<[^>]+>/g, "")
     .replace(/\[[^\]]+\]/g, "")
     .trim();
+let entityAppBarOwnerSequence = 0;
 
 export class CatalogScreen extends LitElement {
   private detailRequests = new RequestScope();
@@ -407,6 +427,7 @@ export class CatalogScreen extends LitElement {
     detailVideoPlaying: { state: true },
     characterSection: { state: true },
     chartMode: { state: true },
+    detailReady: { state: true },
     docked: { state: true },
     compact: { state: true },
     density: { state: true },
@@ -445,6 +466,7 @@ export class CatalogScreen extends LitElement {
   declare detailVideoPlaying: boolean;
   declare characterSection: string;
   declare chartMode: "simple" | "watch";
+  declare detailReady: boolean;
   /** Expanded window: the filter panel is docked instead of modal. */
   declare docked: boolean;
   /** Compact window: detail opens as a full-screen dialog. */
@@ -457,7 +479,7 @@ export class CatalogScreen extends LitElement {
   private paneFocus = new PaneFocus();
   private filterFocus = new PaneFocus();
   private disposeMedia: Array<() => void> = [];
-  private settings: Config = { resource: "", locale: "ja", labels: {} };
+  private settings: Config = { resource: "", locale: "ja", labelAliases: {} };
   private profile = fallbackProfile;
   private characters: Item[] = [];
   private bands: Item[] = [];
@@ -468,11 +490,14 @@ export class CatalogScreen extends LitElement {
   private lazyImages = new LazyImages({ candidates: (source) => this.localizedImageCandidates(source) });
   private selectedId = "";
   private releaseLocation?: () => void;
+  private pendingNavigation = "";
+  private restoredCollectionState = false;
+  private readonly entityAppBarOwner = `catalog-screen-entity-${++entityAppBarOwnerSequence}`;
   private restoreLocation = () => {
     const params = new URLSearchParams(location.search);
     this.view = this.profile.perDifficulty ? "table" : collectionView(params.get("view"));
     this.selectedSongDifficulty = params.get("chartDifficulty") || "expert";
-    const id = params.get(this.selectionParam()) || "";
+    const id = this.settings.entityId || params.get(this.selectionParam()) || "";
     if (id === this.selectedId) {
       this.restoreDetailQuery();
       return;
@@ -480,6 +505,7 @@ export class CatalogScreen extends LitElement {
     this.detailRequests.cancel();
     this.selectedId = id;
     this.selected = this.items.find((item) => this.itemId(item) === id) ?? null;
+    this.setEntityReady(false);
     this.detailAux = {};
     this.sim = null;
     this.chartOpen = false;
@@ -520,9 +546,13 @@ export class CatalogScreen extends LitElement {
   }
   private onKeydown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || event.key !== "Escape") return;
-    if (this.selected) this.close();
+    if (this.selected && this.settings.entityContext) {
+      event.preventDefault();
+      void this.navigateEntityBack();
+    } else if (this.selected) this.close();
     else if (this.filtersOpen) this.filtersOpen = false;
   };
+  private catalogRequests = new RequestScope();
   private catalogDocument: Item = {};
   private skillText?: typeof import("./shared/skill-text");
   private songDetailRewards?: typeof import("./song-detail-rewards");
@@ -562,6 +592,7 @@ export class CatalogScreen extends LitElement {
     this.detailVideoPlaying = false;
     this.characterSection = "profile";
     this.chartMode = "simple";
+    this.detailReady = false;
     this.docked = matches(EXPANDED);
     this.compact = matches(COMPACT);
     this.density = "comfortable";
@@ -573,14 +604,15 @@ export class CatalogScreen extends LitElement {
   private disposeSongDisplay?: () => void;
   private onLocale = () => {
     this.settings = { ...this.settings, locale: preferredLocale() };
-    this.settings.labels = this.settings.labelsByLocale?.[this.settings.locale] || this.settings.labels;
     this.requestUpdate();
+    queueMicrotask(() => this.syncEntityChrome());
   };
   connectedCallback() {
     super.connectedCallback();
     this.disposeSongDisplay = observeSongDisplay(() => {
       this.resultCache = undefined;
       this.requestUpdate();
+      queueMicrotask(() => this.syncEntityChrome());
     });
     // A swap-persisted element keeps its OLD attributes: the new document's
     // screen (holding the destination collection's config) is discarded, so
@@ -607,47 +639,60 @@ export class CatalogScreen extends LitElement {
     // observed to go silent on some production chunk splits, so the host
     // carries its own imperative listener as the durable path.
     this.addEventListener("click", this.onScreenClick);
-    window.setTimeout(() => {
-      this.settings = JSON.parse(this.config || "{}") as Config;
-      this.settings.locale = preferredLocale(this.settings.locale);
-      this.settings.labels = this.settings.labelsByLocale?.[this.settings.locale] || this.settings.labels;
-      this.profile = profiles[this.settings.resource] ?? fallbackProfile;
-      const params = new URLSearchParams(location.search);
-      this.query = params.get("q") ?? "";
-      this.selectedSongDifficulty = params.get("chartDifficulty") || "expert";
-      this.sort = this.normalizeSort(params.get("sort") ?? this.profile.defaultSort);
-      this.order = params.has("order") ? (params.get("order") === "desc" ? "desc" : "asc") : this.profile.defaultOrder;
-      this.view = this.profile.perDifficulty ? "table" : collectionView(params.get("view"));
-      const bandRail = this.hasBandRail();
-      this.activeBand = bandRail ? Number(params.get("band") || 0) : 0;
-      this.selectedId = params.get(this.selectionParam()) || "";
-      this.activeMedia = params.get("media") || "full";
-      this.characterSection = params.get("section") || "profile";
-      const typeParam = ["member", "support"].includes(this.profile.presentation)
-        ? "cardType"
-        : this.profile.presentation === "song"
-          ? "musicType"
-          : "type";
-      this.facets = {
-        // The character catalogue uses `character` for the open detail. It is
-        // not a facet there; treating it as both collapsed the background list
-        // to the selected row whenever a detail was opened.
-        character: this.profile.presentation === "character" ? [] : params.getAll("character"),
-        collectionBand: bandRail
-          ? params.getAll("collectionBand")
-          : [...params.getAll("band"), ...params.getAll("collectionBand")],
-        type: [...params.getAll(typeParam), ...(typeParam === "type" ? [] : params.getAll("type"))],
-        rarity: params.getAll("rarity"),
-        category: params.getAll("category"),
-        status: params.getAll("status"),
-        kind: params.getAll("kind"),
-        ...Object.fromEntries(EXTRA_FILTERS.map((key) => [key, params.getAll(key)])),
+    this.settings = JSON.parse(this.config || "{}") as Config;
+    const selection = parseEntitySelection(location.pathname);
+    if (
+      selection?.source === "canonical" &&
+      selection.route.kind === resourceKindForCollection(this.settings.resource)
+    ) {
+      this.settings = {
+        ...this.settings,
+        server: selection.route.server,
+        entityKind: selection.route.kind,
+        entityId: selection.route.id,
+        entityContext: true,
       };
-      this.ensureSongMeta();
-      void this.load();
-    }, 0);
+    }
+    this.settings.locale = preferredLocale(this.settings.locale);
+    this.dataset.entityReady = "false";
+    this.detailReady = false;
+    this.profile = profiles[this.settings.resource] ?? fallbackProfile;
+    const params = new URLSearchParams(location.search);
+    this.query = params.get("q") ?? "";
+    this.selectedSongDifficulty = params.get("chartDifficulty") || "expert";
+    this.sort = this.normalizeSort(params.get("sort") ?? this.profile.defaultSort);
+    this.order = params.has("order") ? (params.get("order") === "desc" ? "desc" : "asc") : this.profile.defaultOrder;
+    this.view = this.profile.perDifficulty ? "table" : collectionView(params.get("view"));
+    const bandRail = this.hasBandRail();
+    this.activeBand = bandRail ? Number(params.get("band") || 0) : 0;
+    this.selectedId = this.settings.entityId || params.get(this.selectionParam()) || "";
+    this.activeMedia = params.get("media") || "full";
+    this.characterSection = params.get("section") || "profile";
+    const typeParam = ["member", "support"].includes(this.profile.presentation)
+      ? "cardType"
+      : this.profile.presentation === "song"
+        ? "musicType"
+        : "type";
+    this.facets = {
+      // The character catalogue uses `character` for the open detail. It is
+      // not a facet there; treating it as both collapsed the background list
+      // to the selected row whenever a detail was opened.
+      character: this.profile.presentation === "character" ? [] : params.getAll("character"),
+      collectionBand: bandRail
+        ? params.getAll("collectionBand")
+        : [...params.getAll("band"), ...params.getAll("collectionBand")],
+      type: [...params.getAll(typeParam), ...(typeParam === "type" ? [] : params.getAll("type"))],
+      rarity: params.getAll("rarity"),
+      category: params.getAll("category"),
+      status: params.getAll("status"),
+      kind: params.getAll("kind"),
+      ...Object.fromEntries(EXTRA_FILTERS.map((key) => [key, params.getAll(key)])),
+    };
+    this.ensureSongMeta();
+    void this.load();
   }
   disconnectedCallback() {
+    this.catalogRequests.cancel();
     this.disposeSongDisplay?.();
     this.removeEventListener("click", this.onScreenClick);
     removeEventListener("haneoka:locale-ready", this.onLocale);
@@ -659,6 +704,8 @@ export class CatalogScreen extends LitElement {
     this.disposeMedia.forEach((dispose) => dispose());
     this.disposeMedia = [];
     this.lazyImages.disconnect();
+    clearAppBarActions(this.entityAppBarOwner);
+    clearAppBarIdentity(this.entityAppBarOwner);
     window.removeEventListener(DENSITY_EVENT, this.onDensity);
     window.removeEventListener("keydown", this.onKeydown);
     window.removeEventListener("haneoka-audio-state", this.onAudioState);
@@ -666,6 +713,7 @@ export class CatalogScreen extends LitElement {
   }
   private onDensity = () => (this.density = currentDensity());
   private onScreenClick = (event: Event) => {
+    if (this.settings.entityContext) return;
     const target = event.target as Element | null;
     const holder = target?.closest?.("[data-open-item]");
     if (!holder) return;
@@ -673,17 +721,140 @@ export class CatalogScreen extends LitElement {
     const item = (this.items || []).find((it) => this.itemId(it) === id);
     if (item) this.open(item);
   };
+  private setEntityReady(value: boolean) {
+    this.detailReady = value;
+    if (this.settings.entityContext) this.dataset.entityReady = String(value);
+  }
+  private runtimeReturnTo(): string | undefined {
+    if (!this.settings.entityContext) return undefined;
+    const value = new URL(location.href).searchParams.get("return")?.trim() || "";
+    if (!value || !value.startsWith("/") || value.startsWith("//")) return undefined;
+    try {
+      const target = new URL(value, location.origin);
+      if (target.origin !== location.origin) return undefined;
+      return `${target.pathname}${target.search}${target.hash}`;
+    } catch {
+      return undefined;
+    }
+  }
+  private entityFallbackHref() {
+    return document.querySelector<HTMLAnchorElement>("[data-entity-back]")?.dataset.entityFallbackHref || "";
+  }
+  private entityReturnHref() {
+    return this.runtimeReturnTo() || this.entityFallbackHref();
+  }
+  private withReturn(href: string, returnTo?: string) {
+    if (!returnTo) return href;
+    try {
+      const target = new URL(href, location.href);
+      if (target.origin !== location.origin) return href;
+      target.searchParams.set("return", returnTo);
+      return `${target.pathname}${target.search}${target.hash}`;
+    } catch {
+      return href;
+    }
+  }
+  private syncEntityChrome() {
+    if (!this.settings.entityContext) return;
+    const item = this.selected;
+    if (item) {
+      const title = this.itemTitleValue(item);
+      const heading = document.querySelector<HTMLElement>("[data-entity-title]");
+      if (heading) {
+        heading.textContent = title.text;
+        if (title.locale) heading.lang = title.locale;
+      }
+    }
+    const returnTo = this.runtimeReturnTo();
+    const back = document.querySelector<HTMLAnchorElement>("[data-entity-back]");
+    if (back) back.href = returnTo || this.entityFallbackHref() || back.href;
+    document.querySelectorAll<HTMLAnchorElement>("[data-entity-navigation]").forEach((link) => {
+      const base = link.dataset.entityBaseHref || link.href;
+      link.href = this.withReturn(base, returnTo);
+    });
+    if (item && this.detailReady) {
+      setAppBarIdentity(
+        this.entityAppBarOwner,
+        html`
+          ${this.renderDetailLeading(item)}
+        `,
+        this,
+      );
+      setAppBarActions(
+        this.entityAppBarOwner,
+        html`
+          ${this.renderDetailActions(item)}
+        `,
+        this,
+      );
+    } else {
+      clearAppBarActions(this.entityAppBarOwner);
+      clearAppBarIdentity(this.entityAppBarOwner);
+    }
+  }
+  private async navigateEntityBack() {
+    const href = this.entityReturnHref();
+    if (!href) return;
+    await navigateDetailPage(href, "replace");
+  }
+  private captureCollectionState(returnTo: string, focusItemId: string) {
+    const main = document.querySelector<HTMLElement>("#main-content");
+    const active = document.activeElement as HTMLElement | null;
+    const focusedItemId = active?.closest<HTMLElement>("[data-open-item]")?.dataset.openItem || focusItemId;
+    try {
+      sessionStorage.setItem(
+        "haneoka.catalog.return.v1",
+        JSON.stringify({ url: returnTo, scrollTop: main?.scrollTop || 0, focusedItemId }),
+      );
+    } catch {}
+  }
+  private restoreCollectionState() {
+    if (this.settings.entityContext || this.restoredCollectionState || this.phase !== "ready") return;
+    const current = `${location.pathname}${location.search}`;
+    type CollectionReturnState = { url?: string; scrollTop?: number; focusedItemId?: string };
+    let snapshot: CollectionReturnState | null = null;
+    try {
+      const stored = sessionStorage.getItem("haneoka.catalog.return.v1");
+      snapshot = stored ? (JSON.parse(stored) as CollectionReturnState) : null;
+    } catch {}
+    if (!snapshot?.url || snapshot.url !== current) return;
+    const saved = snapshot;
+    this.restoredCollectionState = true;
+    void this.updateComplete.then(() => {
+      requestAnimationFrame(() => {
+        const main = document.querySelector<HTMLElement>("#main-content");
+        if (main && Number.isFinite(saved.scrollTop)) main.scrollTop = Number(saved.scrollTop);
+        if (saved.focusedItemId) {
+          const target = [...this.querySelectorAll<HTMLElement>("[data-open-item]")].find(
+            (node) => node.dataset.openItem === saved.focusedItemId,
+          );
+          target?.focus({ preventScroll: true });
+        }
+        try {
+          sessionStorage.removeItem("haneoka.catalog.return.v1");
+        } catch {}
+      });
+    });
+  }
   updated() {
     // Focus containment follows whichever overlay is on top: the detail pane
     // wins over the filter panel, and a docked filter panel is not an overlay
     // at all, so it is never trapped.
-    this.paneFocus.sync(this.selected ? this.querySelector<HTMLElement>("[data-detail-pane]") : null, () =>
-      this.close(),
+    this.paneFocus.sync(
+      this.selected && !this.settings.entityContext ? this.querySelector<HTMLElement>("[data-detail-pane]") : null,
+      () => this.close(),
     );
     this.filterFocus.sync(
       !this.selected && this.filtersOpen && !this.docked ? this.querySelector<HTMLElement>(".browse__filters") : null,
       () => (this.filtersOpen = false),
     );
+    if (this.settings.entityContext) {
+      clearBrowseBar();
+      this.syncEntityChrome();
+    } else {
+      clearAppBarActions(this.entityAppBarOwner);
+      clearAppBarIdentity(this.entityAppBarOwner);
+    }
     // tile() defers its artwork as `data-src`; this is what promotes it.
     this.lazyImages.observe(this);
   }
@@ -699,18 +870,32 @@ export class CatalogScreen extends LitElement {
   }
   /** Resolves a resource against whichever origin this screen was given. */
   private sourceUrl(resource: string, id = "") {
-    if (this.settings.origin !== "bestdori") return catalogUrl(resource, id);
+    if (this.settings.origin !== "bestdori") return catalogUrl(resource, id, this.dataServer());
     const base = `/api/v1/garupa/bestdori/${this.bestdoriRegion()}`;
     const path = id ? `${resource}/${encodeURIComponent(id)}` : resource;
     return `${base}/${path}?lang=${encodeURIComponent(this.settings.locale)}`;
   }
+  private dataServer(): ReleaseServer {
+    return this.settings.server || (currentReleaseServer() as ReleaseServer);
+  }
+  private canonicalKind(): ResourceKind | undefined {
+    return this.settings.entityKind || resourceKindForCollection(this.settings.resource);
+  }
+  private entityLink(id: string): string | undefined {
+    const kind = this.canonicalKind();
+    if (!kind || this.settings.origin === "bestdori") return undefined;
+    const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
+    return entityHref({
+      server: this.dataServer(),
+      locale: preferredLocale(this.settings.locale) as Locale,
+      kind,
+      id,
+      returnTo,
+    });
+  }
   private label(key: string, fallback: string) {
-    const value = this.settings.labels[key];
-    return value && value !== key
-      ? value
-      : uiText(this.settings.locale, key) !== key
-        ? uiText(this.settings.locale, key)
-        : fallback;
+    const alias = this.settings.labelAliases?.[key] || key;
+    return clientText(this.settings.locale, alias, fallback);
   }
   private normalizeSort(value: string) {
     const aliases: Record<string, string> = {
@@ -774,7 +959,7 @@ export class CatalogScreen extends LitElement {
     if (this.profile.presentation === "band-item") {
       const bandId = Number(item.bandId || 0);
       if (bandId)
-        return `/assets/${currentReleaseServer()}/Assets/AddressableResources/Band/${bandId}/BandItem/${this.itemId(item)}/band_item.png`;
+        return `/assets/${this.dataServer()}/Assets/AddressableResources/Band/${bandId}/BandItem/${this.itemId(item)}/band_item.png`;
     }
     const value = this.first(item, this.profile.image);
     const source =
@@ -805,9 +990,12 @@ export class CatalogScreen extends LitElement {
     return this.image(item);
   }
   private async load() {
+    const signal = this.catalogRequests.begin();
     this.phase = "loading";
+    this.setEntityReady(false);
     try {
       if (this.profile.presentation === "character") await import("./character-detail-archive");
+      if (!this.isConnected || !this.catalogRequests.current(signal)) return;
       const needsRelations = ["member", "support", "character", "comic", "stamp", "song", "band-item"].includes(
         this.profile.presentation,
       );
@@ -818,31 +1006,39 @@ export class CatalogScreen extends LitElement {
       const [response, characters, bands, marks, gameItems] = await Promise.all([
         fetch(this.sourceUrl(this.profile.collection || this.settings.resource), {
           headers: { accept: "application/json" },
+          signal,
         }),
-        needsRelations ? fetch(this.sourceUrl("characters"), { headers: { accept: "application/json" } }) : null,
-        needsRelations ? fetch(this.sourceUrl("bands"), { headers: { accept: "application/json" } }) : null,
+        needsRelations
+          ? fetch(this.sourceUrl("characters"), { headers: { accept: "application/json" }, signal })
+          : null,
+        needsRelations ? fetch(this.sourceUrl("bands"), { headers: { accept: "application/json" }, signal }) : null,
         // Game-sprite marks and item tables are release-only projections.
         needsGameMarks && this.settings.origin !== "bestdori"
-          ? fetch(catalogUrl("ui-marks"), { headers: { accept: "application/json" } })
+          ? fetch(catalogUrl("ui-marks"), { headers: { accept: "application/json" }, signal })
           : null,
         needsItems && this.settings.origin !== "bestdori"
-          ? fetch(catalogUrl("items"), { headers: { accept: "application/json" } })
+          ? fetch(catalogUrl("items"), { headers: { accept: "application/json" }, signal })
           : null,
       ]);
       if (!response.ok) throw new Error(String(response.status));
-      const document = (await response.json()) as unknown;
+      const [document, characterData, bandData, itemData, markData] = await Promise.all([
+        response.json(),
+        characters?.ok ? characters.json() : [],
+        bands?.ok ? bands.json() : [],
+        gameItems?.ok ? gameItems.json() : [],
+        marks?.ok ? marks.json() : {},
+      ]);
+      if (!this.isConnected || !this.catalogRequests.current(signal)) return;
       this.catalogDocument = document && typeof document === "object" ? (document as Item) : {};
       this.items = asItems(document, this.profile.document);
-      this.characters = characters?.ok ? asItems(await characters.json()) : [];
-      this.bands = bands?.ok ? asItems(await bands.json()) : [];
+      this.characters = asItems(characterData);
+      this.bands = asItems(bandData);
       this.facetCache = undefined;
       this.resultCache = undefined;
-      this.gameItems = gameItems?.ok ? asItems(await gameItems.json(), "items") : [];
-      if (marks?.ok) {
-        const projected = (await marks.json()) as Record<string, string>;
-        for (const [logical, path] of Object.entries(projected))
-          this.gameMarks.set(logical, `/runtime/${currentReleaseServer()}/${path.slice("runtime/".length)}`);
-      }
+      this.gameItems = asItems(itemData, "items");
+      this.gameMarks.clear();
+      for (const [logical, path] of Object.entries(markData as Record<string, string>))
+        this.gameMarks.set(logical, `/runtime/${this.dataServer()}/${path.slice("runtime/".length)}`);
       // A rail always has a destination selected.
       if (this.hasBandRail() && !this.bands.some((band) => Number(band.bandId || 0) === this.activeBand))
         this.activeBand = Number(this.railBands()[0]?.bandId || 0);
@@ -850,12 +1046,16 @@ export class CatalogScreen extends LitElement {
         const selected = this.items.find((item) => this.itemId(item) === this.selectedId);
         if (selected) {
           this.selected = selected;
+          this.setEntityReady(false);
           void this.loadEntityDetail(selected);
         }
       }
       this.phase = "ready";
+      this.restoreCollectionState();
     } catch {
+      if (!this.isConnected || !this.catalogRequests.current(signal)) return;
       this.phase = "error";
+      this.setEntityReady(false);
     }
   }
   private syncUrl() {
@@ -1500,9 +1700,7 @@ export class CatalogScreen extends LitElement {
       // Person names have no natural order; the most credited writer leads.
       const members = [...counts.keys()].filter(Boolean);
       if (key === "composer" || key === "lyrics" || key === "arrangement")
-        members.sort(
-          (a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b, this.settings.locale),
-        );
+        members.sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b, this.settings.locale));
       groups.push({
         key,
         label:
@@ -1735,10 +1933,30 @@ export class CatalogScreen extends LitElement {
     if ((kind === "member" || kind === "support") && ids.length) return this.characterAvatars(ids);
     return nothing;
   }
-  private open(item: Item) {
+  private async open(item: Item) {
     if (this.selected === item && this.selectedId === this.itemId(item) && this.selected) return;
+    const id = this.itemId(item);
+    const canonical = this.entityLink(this.itemId(item));
+    if (canonical) {
+      if (this.pendingNavigation) return;
+      const kind = this.canonicalKind();
+      if (!kind) return;
+      const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
+      this.captureCollectionState(returnTo, id);
+      this.pendingNavigation = canonical;
+      try {
+        // The collection stays untouched until Astro has adopted the
+        // canonical document. This prevents its filters, title and modal
+        // state from leaking into the entity page during the transition.
+        await navigateDetailPage(canonical, "push");
+      } finally {
+        if (this.pendingNavigation === canonical) this.pendingNavigation = "";
+      }
+      return;
+    }
+
     this.selected = item;
-    this.selectedId = this.itemId(item);
+    this.selectedId = id;
     this.detailAux = {};
     this.sim = null;
     this.activeMedia = "full";
@@ -1761,14 +1979,18 @@ export class CatalogScreen extends LitElement {
     this.detailVideoPlaying = false;
     this.characterSection = "profile";
     this.chartMode = "simple";
-    const params = new URLSearchParams(location.search);
-    params.set(this.selectionParam(), this.itemId(item));
-    openDetailLocation(`${location.pathname}?${params}`);
+    if (!canonical) {
+      const params = new URLSearchParams(location.search);
+      params.set(this.selectionParam(), id);
+      openDetailLocation(`${location.pathname}?${params}`);
+    }
     void this.loadEntityDetail(item);
   }
   private async loadEntityDetail(summary: Item) {
+    if (!this.isConnected) return;
     const signal = this.detailRequests.begin();
     const id = this.itemId(summary);
+    let loadedActualDetail = false;
     if (this.profile.presentation === "song") {
       const rewards = this.songDetailRewards
         ? Promise.resolve()
@@ -1797,19 +2019,27 @@ export class CatalogScreen extends LitElement {
         { headers: { accept: "application/json" }, signal },
       );
       if (response.ok) {
-        const detail = (await response.json()) as Item;
-        if (this.detailRequests.current(signal) && this.selectedId === id)
+        const value = (await response.json()) as unknown;
+        const detail = value && typeof value === "object" && !Array.isArray(value) ? (value as Item) : {};
+        if (Object.keys(detail).length && this.detailRequests.current(signal) && this.selectedId === id) {
           this.selected = {
             ...summary,
             ...detail,
             artistName: detail.artistName || summary.artistName,
             bandName: detail.bandName || summary.bandName,
           };
+          loadedActualDetail = true;
+          this.setEntityReady(true);
+        }
       }
     } catch {
       // The summary remains a complete offline fallback.
     }
     if (!this.detailRequests.current(signal)) return;
+    // Canonical pages keep their SSR article visible while the actual detail
+    // is unavailable. A summary row is a browse projection, not a usable
+    // replacement for the page's detail payload.
+    if (this.settings.entityContext && !loadedActualDetail) return;
     const views: string[] = [];
     if (this.profile.presentation === "member")
       views.push("member-card-levels", "member-card-awake-resources", "skill-level-resources");
@@ -1906,6 +2136,7 @@ export class CatalogScreen extends LitElement {
     this.detailRequests.cancel();
     this.selected = null;
     this.selectedId = "";
+    this.setEntityReady(false);
     this.detailAux = {};
     this.chartOpen = false;
     const params = new URLSearchParams(location.search);
@@ -1963,6 +2194,12 @@ export class CatalogScreen extends LitElement {
   render() {
     const { items, source } = this.results();
     const kind = this.profile.presentation;
+    if (this.settings.entityContext) {
+      if (this.selected && this.detailReady) return this.renderDetail(this.selected);
+      // The server-rendered article remains the readable loading/error
+      // fallback. Do not replace it with a second loading pane.
+      return nothing;
+    }
     const appliedCount = Object.values(this.facets).reduce((sum, values) => sum + values.length, 0);
     const shown = this.phase === "ready" ? items.length : null;
     return html`
@@ -1995,6 +2232,7 @@ export class CatalogScreen extends LitElement {
           : undefined,
         heading: this.hasBandRail() && this.activeBand ? { title: this.bandName(this.activeBand) } : undefined,
         controls: this.renderBarControls(items),
+        modes: this.renderBarModes(),
         applied: appliedCount || this.query ? this.renderApplied() : undefined,
         results: this.renderContent(items),
         filters: {
@@ -2036,16 +2274,6 @@ export class CatalogScreen extends LitElement {
     const first = this.profile.presentation === "song" ? items.find((item) => item.musicUrl) : undefined;
     return html`
       ${
-        // The meta collection is a table by definition; there is nothing to switch.
-        this.profile.perDifficulty
-          ? nothing
-          : viewSwitch(this.settings.locale, this.view, (view) => {
-              this.view = view;
-              this.ensureSongMeta();
-              this.syncUrl();
-            })
-      }
-      ${
         this.profile.presentation === "song"
           ? iconButton({
               label: this.label("playAll", "Play all"),
@@ -2058,6 +2286,16 @@ export class CatalogScreen extends LitElement {
           : nothing
       }
     `;
+  }
+
+  private renderBarModes() {
+    // The meta collection is a table by definition; there is nothing to switch.
+    if (this.profile.perDifficulty) return nothing;
+    return viewSwitch(this.settings.locale, this.view, (view) => {
+      this.view = view;
+      this.ensureSongMeta();
+      this.syncUrl();
+    });
   }
 
   /**
@@ -2597,9 +2835,9 @@ export class CatalogScreen extends LitElement {
         )
       : "";
     const entity = String(
-      (card ? "" : character?.faceImage) ||
-        (this.profile.presentation === "song" ? this.bandLogo(Number(item.bandId || 0)) : band?.logo || band?.icon) ||
-        "",
+      this.profile.presentation === "song"
+        ? this.bandLogo(Number(item.bandId || 0)) || band?.logo || band?.icon || ""
+        : (card ? "" : character?.faceImage) || band?.logo || band?.icon || "",
     );
     return html`
       <span class="detail-header-leading">
@@ -3049,6 +3287,8 @@ export class CatalogScreen extends LitElement {
       ${renderPane({
         kind: this.profile.presentation,
         open: true,
+        hideHeader: Boolean(this.settings.entityContext),
+        page: Boolean(this.settings.entityContext),
         // The clef bar on the pane's leading edge takes the subject's own
         // colour — the same mark the home staff uses for a band line.
         style: `--entity-accent:${this.detailAccent(item)}`,
@@ -3341,14 +3581,6 @@ export class CatalogScreen extends LitElement {
                     ${this.itemTitle(item)} — ${String(chart.difficultyName || "").toUpperCase()}
                     ${chart.displayLevel || ""}
                   </strong>
-                  <div class="segmented chart-detail-mode" aria-label=${this.label("view", "View")}>
-                    <button aria-pressed=${this.chartMode === "simple"} @click=${() => (this.chartMode = "simple")}>
-                      ${this.label("simple", "Simple")}
-                    </button>
-                    <button aria-pressed=${this.chartMode === "watch"} @click=${() => (this.chartMode = "watch")}>
-                      ${this.label("watch", "Watch")}
-                    </button>
-                  </div>
                   <button
                     class="icon-button chart-detail-download"
                     @click=${() => void this.downloadChartImage(item)}
@@ -3357,6 +3589,18 @@ export class CatalogScreen extends LitElement {
                   >
                     <svg class="material-icon" width="20" height="20"><use href="/icons.svg#download"></use></svg>
                   </button>
+                  <span class="chart-detail-mode">
+                    ${segmented({
+                      label: this.label("view", "View"),
+                      value: this.chartMode,
+                      iconOnly: true,
+                      options: [
+                        { value: "simple" as const, label: this.label("simple", "Simple"), icon: "view_week" },
+                        { value: "watch" as const, label: this.label("watch", "Watch"), icon: "play_circle" },
+                      ],
+                      onSelect: (mode) => (this.chartMode = mode),
+                    })}
+                  </span>
                 </header>
                 <chart-simulator
                   source=${String(chart.file)}
@@ -3364,7 +3608,7 @@ export class CatalogScreen extends LitElement {
                   band-id=${Number(item.bandId || 1)}
                   label=${this.itemTitle(item)}
                   locale=${this.settings.locale}
-                  server=${currentReleaseServer()}
+                  server=${this.dataServer()}
                   .mode=${this.chartMode}
                 ></chart-simulator>
               </aside>
@@ -3379,7 +3623,7 @@ export class CatalogScreen extends LitElement {
       this.songDetailRewards?.renderSongRewards({
         item,
         chart: this.chartRow(item),
-        server: currentReleaseServer(),
+        server: this.dataServer(),
         label: (key, fallback) => this.label(key, fallback),
         localized: (value) => this.localized(value),
       }) ?? nothing

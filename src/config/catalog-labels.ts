@@ -1,5 +1,5 @@
-import { LOCALES, type Locale } from "../i18n/locales";
-import { t } from "../i18n/messages";
+import type { Locale } from "../i18n/locales";
+import type { ReleaseServer } from "../lib/release-server";
 
 /**
  * The label table every catalogue screen is configured with.
@@ -8,7 +8,8 @@ import { t } from "../i18n/messages";
  * wanted the same presentation — the community's Bestdori mirrors — had to
  * copy a hundred keys and then drift. One table, imported where needed.
  */
-const LABEL_ENTRIES: ReadonlyArray<readonly [string, string]> = [
+/** Client label names and their central catalog lookup aliases. */
+export const LABEL_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["filter", "filter"],
   ["reset", "reset"],
   ["search", "search"],
@@ -193,18 +194,15 @@ const LABEL_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["season-pass", "system.seasonPass"],
   ["monthly-pass", "system.monthlyPass"],
 ];
-
-/** Every locale's resolved labels, for the client-side locale switch. */
-export const catalogLabelsByLocale: Record<string, Record<string, string>> = Object.fromEntries(
-  LOCALES.map((target) => [
-    target,
-    Object.fromEntries(LABEL_ENTRIES.map(([key, message]) => [key, t(target, message, key)])),
-  ]),
-);
+const LABEL_ALIASES: Readonly<Record<string, string>> = Object.freeze(Object.fromEntries(LABEL_ENTRIES));
 
 export interface CatalogConfigOptions {
   resource: string;
   locale: Locale;
+  server?: ReleaseServer;
+  entityKind?: string;
+  entityId?: string;
+  entityContext?: boolean;
   aspectRatio?: string;
   origin?: "release" | "bestdori";
 }
@@ -214,8 +212,11 @@ export function catalogConfig(options: CatalogConfigOptions): string {
   return JSON.stringify({
     resource: options.resource,
     locale: options.locale,
-    labels: catalogLabelsByLocale[options.locale],
-    labelsByLocale: catalogLabelsByLocale,
+    ...(options.server ? { server: options.server } : {}),
+    ...(options.entityKind ? { entityKind: options.entityKind } : {}),
+    ...(options.entityId ? { entityId: options.entityId } : {}),
+    ...(options.entityContext ? { entityContext: true } : {}),
+    labelAliases: LABEL_ALIASES,
     aspectRatio: options.aspectRatio ?? "1",
     ...(options.origin ? { origin: options.origin } : {}),
   });

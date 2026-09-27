@@ -13,6 +13,7 @@ import { icon } from "./icon";
 export function loadingState(label: string): TemplateResult {
   return html`
     <div class="state" role="status" aria-live="polite">
+      <span class="state__spinner-fallback" aria-hidden="true"></span>
       <md-circular-progress indeterminate aria-hidden="true"></md-circular-progress>
       <p class="state__body">${label}</p>
     </div>

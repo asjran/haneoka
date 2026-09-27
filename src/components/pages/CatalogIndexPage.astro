@@ -3,7 +3,9 @@ import Icon from "../Icon.astro";
 import I18nText from "../I18nText.astro";
 import { CATALOG_HUB, NAV_SECTIONS } from "../../config/navigation";
 import { localePath, type Locale } from "../../i18n/locales";
-const { locale } = Astro.props as { locale: Locale };
+import { resourceCollectionHref } from "../../lib/resource-route";
+import type { ReleaseServer } from "../../lib/release-server";
+const { locale, server = "intl" } = Astro.props as { locale: Locale; server?: ReleaseServer };
 const resources = new Map(CATALOG_HUB.map((item) => [item.route, item.resource]));
 // Every catalogue section except the community; the hub mirrors the drawer's grouping.
 const sections = NAV_SECTIONS.filter((section) => section.id !== "community");
@@ -15,7 +17,7 @@ const sections = NAV_SECTIONS.filter((section) => section.id !== "community");
       <ul class="catalog-hub__grid" role="list">
         {section.items.map((item) => (
           <li>
-            <a class="hub-link state-layer" href={localePath(item.route, locale)}>
+            <a class="hub-link state-layer" href={resourceCollectionHref(item.route, server, locale) ?? `${localePath(item.route, locale)}${item.route.startsWith("/catalog") ? `?server=${server}` : ""}`} data-hub-route={item.route}>
               <span class="hub-link__icon"><Icon name={item.icon} size={22} /></span>
               <I18nText keyName={item.label} fallback={item.label} locale={locale} />
               <span class="hub-link__count tabular" data-count-resource={resources.get(item.route)}></span>
@@ -28,7 +30,16 @@ const sections = NAV_SECTIONS.filter((section) => section.id !== "community");
 </div>
 <script>
   import { catalogUrl, fetchJson, type JsonRecord } from "../../lit/shared/catalog";
+  import { readReleaseServer } from "../../lib/release-server";
+  import { resourceCollectionHref } from "../../lib/resource-route";
+  import { localeFromPath, localePath } from "../../i18n/locales";
   const fillCounts = async () => {
+    const server = readReleaseServer();
+    const locale = localeFromPath(location.pathname) || "en";
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-hub-route]")) {
+      const route = link.dataset.hubRoute || "/catalog";
+      link.href = resourceCollectionHref(route, server, locale) ?? `${localePath(route, locale)}${route.startsWith("/catalog") ? `?server=${server}` : ""}`;
+    }
     const nodes = document.querySelectorAll<HTMLElement>("[data-count-resource]");
     if (!nodes.length) return;
     try {

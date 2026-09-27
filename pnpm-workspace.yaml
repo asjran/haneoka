@@ -47,6 +47,7 @@ catalog:
   "@iconify-json/material-symbols": ^1.2.90
   "@fontsource/material-symbols-rounded": ^5.3.4
   photoswipe: ^5.4.4
+  fflate: ^0.8.3
 catalogMode: prefer
 cleanupUnusedCatalogs: true
 allowBuilds:

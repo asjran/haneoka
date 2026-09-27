@@ -1,23 +1,29 @@
 import { LitElement, html, nothing, type PropertyValues } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { resolveLocalizedText } from "../lib/localized-text";
+import { isLocale, localePath } from "../i18n/locales";
 import { localizedText, uiText, type JsonRecord } from "./shared/catalog";
 import {
   compareVoices,
   VOICE_GROUPS,
   voiceGroup,
-  voiceKey,
+  voiceGroupLabelKey,
+  voiceGroupMasterType,
   voiceLines,
   voiceText,
   voiceTitleKey,
 } from "./shared/voice-catalog";
 import { icon } from "./ui/icon";
-import { iconButton } from "./ui/controls";
+import { dialogueRow, type DialogueRowState } from "./ui/dialogue-row";
 import { emptyState } from "./ui/state";
-import "@material/web/select/outlined-select.js";
-import "@material/web/select/select-option.js";
-import "@material/web/slider/slider.js";
 import "../styles/character-voices.css";
+
+type PlaybackState = Extract<DialogueRowState, "idle" | "loading" | "playing" | "error" | "cancelled">;
+
+interface ClipStatus {
+  state: PlaybackState;
+  message?: string;
+}
 
 export class CharacterVoices extends LitElement {
   static properties = {
@@ -25,142 +31,83 @@ export class CharacterVoices extends LitElement {
     characters: { attribute: false },
     locale: {},
     characterId: { type: Number },
-    group: { state: true },
-    query: { state: true },
-    partner: { state: true },
-    activeKey: { state: true },
-    lineIndex: { state: true },
-    playing: { state: true },
-    busy: { state: true },
-    time: { state: true },
-    duration: { state: true },
-    finished: { state: true },
-    error: { state: true },
+    activeClipKey: { state: true },
   };
   declare entries: JsonRecord[];
   declare characters: JsonRecord[];
   declare locale: string;
   declare characterId: number;
-  declare group: string;
-  declare query: string;
-  declare partner: string;
-  declare activeKey: string;
-  declare lineIndex: number;
-  declare playing: boolean;
-  declare busy: boolean;
-  declare time: number;
-  declare duration: number;
-  declare finished: boolean;
-  declare error: string;
-  private audio = new Audio();
+  declare activeClipKey: string;
+  private audio?: HTMLAudioElement;
+  private audioEvents?: AbortController;
   private generation = 0;
-  private queue: string[] = [];
-  private queueIndex = 0;
+  private clipStatuses = new Map<string, ClipStatus>();
   private onMusic = (event: Event) => {
-    if ((event as CustomEvent<{ playing: boolean }>).detail?.playing) this.pause();
+    if ((event as CustomEvent<{ playing: boolean }>).detail?.playing) this.cancelActive();
   };
   private onOtherVoice = (event: Event) => {
-    if ((event as CustomEvent).detail !== this) this.pause();
+    if ((event as CustomEvent).detail !== this) this.cancelActive();
   };
+
   constructor() {
     super();
     this.entries = [];
     this.characters = [];
     this.locale = "ja";
     this.characterId = 0;
-    this.group = "all";
-    this.query = "";
-    this.partner = "";
-    this.activeKey = "";
-    this.lineIndex = 0;
-    this.playing = false;
-    this.busy = false;
-    this.time = 0;
-    this.duration = 0;
-    this.finished = false;
-    this.error = "";
-    this.audio.preload = "none";
-    this.audio.addEventListener("play", () => {
-      this.playing = true;
-    });
-    this.audio.addEventListener("playing", () => {
-      this.busy = false;
-    });
-    this.audio.addEventListener("waiting", () => {
-      if (!this.audio.paused) this.busy = true;
-    });
-    this.audio.addEventListener("pause", () => {
-      this.playing = false;
-      this.busy = false;
-    });
-    this.audio.addEventListener("timeupdate", () => {
-      this.time = this.audio.currentTime;
-    });
-    this.audio.addEventListener("loadedmetadata", () => {
-      this.duration = Number.isFinite(this.audio.duration) ? this.audio.duration : 0;
-    });
-    this.audio.addEventListener("ended", () => this.advance());
-    this.audio.addEventListener("error", () => {
-      if (this.audio.getAttribute("src")) {
-        this.busy = false;
-        this.playing = false;
-        this.error = this.v("failure");
-      }
-    });
+    this.activeClipKey = "";
   }
+
   createRenderRoot() {
     return this;
   }
+
   connectedCallback() {
     super.connectedCallback();
     addEventListener("haneoka-audio-state", this.onMusic);
     addEventListener("haneoka:character-voice", this.onOtherVoice);
   }
+
   disconnectedCallback() {
-    this.stop();
+    this.releaseMedia();
     removeEventListener("haneoka-audio-state", this.onMusic);
     removeEventListener("haneoka:character-voice", this.onOtherVoice);
     super.disconnectedCallback();
   }
+
   protected willUpdate(changed: PropertyValues) {
     if (changed.has("characterId")) {
-      this.stop();
-      this.group = "all";
-      this.query = "";
-      this.partner = "";
+      this.releaseMedia();
+      this.clipStatuses.clear();
     } else if (
       changed.has("entries") &&
-      this.activeKey &&
-      !this.entries.some((entry) => voiceKey(entry) === this.activeKey)
-    )
-      this.stop();
-  }
-  protected updated(changed: PropertyValues) {
-    if (changed.has("entries") || changed.has("locale")) {
-      for (const select of this.querySelectorAll<
-        HTMLElement & { updateComplete: Promise<boolean>; value: string; select(value: string): void }
-      >("md-outlined-select")) {
-        void select.updateComplete.then(() => {
-          if (select.isConnected) select.select(select.value);
-        });
-      }
+      this.activeClipKey &&
+      !this.entries.some((entry) => this.activeClipKey.startsWith(`${this.voiceKey(entry)}:`))
+    ) {
+      this.releaseMedia();
     }
   }
+
   private v(key: string, ...values: Array<string | number>) {
     return voiceText(this.locale, key, ...values);
   }
+
   private t(key: string) {
     return uiText(this.locale, key);
   }
+
   private character(id: number) {
     return this.characters.find((item) => Number(item.characterId) === id);
   }
+
   private name(id: number) {
     return localizedText(this.character(id)?.characterName, this.locale) || this.t("character");
   }
-  private get active() {
-    return this.entries.find((entry) => voiceKey(entry) === this.activeKey);
+
+  private voiceKey(entry: JsonRecord) {
+    return String(entry.voiceKey || `${entry.masterType}:${entry.masterId}`);
   }
+
   private entryTitle(entry: JsonRecord) {
     const title = localizedText(entry.title, this.locale) || this.v(voiceTitleKey(entry));
     const rank = Number(entry.scoreRank || 0);
@@ -168,375 +115,266 @@ export class CharacterVoices extends LitElement {
       Number(entry.masterType) === 1 && Number(entry.characterVoiceType) === 7 && rank > 0
         ? ["", "E", "D", "C", "B", "A", "S", "SS"][rank]
         : "";
-    const call =
-      Number(entry.masterType) === 5
-        ? Number(entry.dialogueCallType) === 1
-          ? this.v("call")
-          : Number(entry.dialogueCallType) === 2
-            ? this.v("response")
-            : ""
-        : "";
+    const call = [5, 6].includes(Number(entry.masterType))
+      ? Number(entry.dialogueCallType) === 1
+        ? this.v("call")
+        : Number(entry.dialogueCallType) === 2
+          ? this.v("response")
+          : ""
+      : "";
     return [title, score, call].filter(Boolean).join(" · ");
   }
-  private filtered() {
-    const query = this.query.trim().normalize("NFKC").toLocaleLowerCase(this.locale);
-    return [...this.entries].sort(compareVoices).filter((entry) => {
-      if (this.group !== "all" && voiceGroup(entry) !== this.group) return false;
-      if (this.partner && !((entry.characterIds as unknown[]) || []).map(String).includes(this.partner)) return false;
-      const text = `${this.entryTitle(entry)} ${voiceLines(entry)
-        .map((line) => `${this.name(line.characterId)} ${localizedText(line.text, this.locale)}`)
-        .join(" ")}`;
-      return !query || text.normalize("NFKC").toLocaleLowerCase(this.locale).includes(query);
-    });
+
+  private clipKey(entry: JsonRecord, index: number) {
+    return `${this.voiceKey(entry)}:${index}`;
   }
-  private pause() {
+
+  private clipStatus(key: string): ClipStatus {
+    return this.clipStatuses.get(key) || { state: "idle" };
+  }
+
+  private setClipStatus(key: string, state: PlaybackState, message?: string) {
+    this.clipStatuses.set(key, { state, message });
+    this.requestUpdate();
+  }
+
+  private releaseMedia(status: "cancelled" | "idle" = "cancelled") {
+    const key = this.activeClipKey;
     this.generation++;
-    this.audio.pause();
-    this.busy = false;
+    this.activeClipKey = "";
+    const audio = this.audio;
+    this.audio = undefined;
+    this.audioEvents?.abort();
+    this.audioEvents = undefined;
+    audio?.pause();
+    audio?.removeAttribute("src");
+    audio?.load();
+    if (key) this.setClipStatus(key, status);
   }
-  private stop() {
-    this.pause();
-    this.audio.removeAttribute("src");
-    this.audio.load();
-    this.activeKey = "";
-    this.lineIndex = 0;
-    this.time = 0;
-    this.duration = 0;
-    this.finished = false;
-    this.error = "";
-    this.queue = [];
-    this.queueIndex = 0;
+
+  private cancelActive() {
+    this.releaseMedia("cancelled");
   }
-  private async playCurrent() {
+
+  private finishActive() {
+    if (!this.activeClipKey) return;
+    this.releaseMedia("idle");
+  }
+
+  private failActive() {
+    const key = this.activeClipKey;
+    if (!key) return;
+    this.releaseMedia("idle");
+    this.setClipStatus(key, "error", this.v("failure"));
+  }
+
+  private async playLine(entry: JsonRecord, index: number) {
+    const line = voiceLines(entry)[index];
+    if (!line?.url) return;
+    const key = this.clipKey(entry, index);
+    const status = this.clipStatus(key).state;
+    if (this.activeClipKey === key && (status === "loading" || status === "playing")) {
+      this.cancelActive();
+      return;
+    }
+    this.cancelActive();
     const generation = ++this.generation;
-    this.error = "";
-    this.busy = true;
+    const audio = new Audio();
+    const events = new AbortController();
+    this.audio = audio;
+    this.audioEvents = events;
+    this.activeClipKey = key;
+    const ownsClip = () => this.audio === audio && this.generation === generation && this.activeClipKey === key;
+    const listen = (type: string, action: () => void) =>
+      audio.addEventListener(
+        type,
+        () => {
+          if (ownsClip()) action();
+        },
+        { signal: events.signal },
+      );
+    audio.preload = "none";
+    listen("playing", () => this.setClipStatus(key, "playing"));
+    listen("waiting", () => {
+      if (!audio.paused) this.setClipStatus(key, "loading", this.v("loading"));
+    });
+    listen("ended", () => this.finishActive());
+    listen("error", () => this.failActive());
+    this.setClipStatus(key, "loading", this.v("loading"));
     document.querySelector<HTMLElement & { pausePlayback?: () => void }>("audio-dock")?.pausePlayback?.();
     dispatchEvent(new CustomEvent("haneoka:character-voice", { detail: this }));
+    audio.src = line.url;
     try {
-      await this.audio.play();
-      if (generation === this.generation) this.busy = false;
+      await audio.play();
+      if (ownsClip()) this.setClipStatus(key, "playing");
     } catch (error) {
-      if (generation === this.generation && !(error instanceof DOMException && error.name === "AbortError")) {
-        this.error = this.v("failure");
-        this.playing = false;
-        this.busy = false;
+      if (ownsClip() && !(error instanceof DOMException && error.name === "AbortError")) {
+        this.failActive();
       }
     }
   }
-  private async loadLine(index: number) {
-    const entry = this.active;
-    if (!entry) return;
-    const lines = voiceLines(entry);
-    const next = lines.findIndex((line, at) => at >= index && Boolean(line.url));
-    if (next < 0) {
-      this.advanceEntry();
-      return;
-    }
-    this.generation++;
-    this.audio.pause();
-    this.lineIndex = next;
-    this.time = 0;
-    this.duration = lines[next]!.duration;
-    this.finished = false;
-    this.audio.src = lines[next]!.url;
-    await this.playCurrent();
-  }
-  private start(entry: JsonRecord, index = 0, queue: JsonRecord[] = [entry]) {
-    this.queue = queue.filter((item) => voiceLines(item).some((line) => line.url)).map(voiceKey);
-    this.queueIndex = Math.max(0, this.queue.indexOf(voiceKey(entry)));
-    this.activeKey = voiceKey(entry);
-    void this.loadLine(index);
-  }
-  private toggle(entry: JsonRecord) {
-    if (voiceKey(entry) !== this.activeKey) {
-      this.start(entry);
-      return;
-    }
-    if (this.playing || this.busy) this.pause();
-    else if (this.finished || this.error) void this.loadLine(0);
-    else void this.playCurrent();
-  }
-  private advance() {
-    void this.loadLine(this.lineIndex + 1);
-  }
-  private advanceEntry() {
-    if (this.queueIndex + 1 < this.queue.length) this.selectQueue(this.queueIndex + 1);
-    else {
-      this.busy = false;
-      this.playing = false;
-      this.finished = true;
-    }
-  }
-  private selectQueue(index: number) {
-    const key = this.queue[index];
-    if (!key) return;
-    this.queueIndex = index;
-    this.activeKey = key;
-    void this.loadLine(0);
-  }
-  private clock(value: number) {
-    const seconds = Math.max(0, Math.floor(value));
-    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-  }
-  private renderPlayer() {
-    const active = this.active;
-    if (!active) return nothing;
-    const lines = voiceLines(active);
+
+  private lineAction(entry: JsonRecord, index: number, line: ReturnType<typeof voiceLines>[number]) {
+    const key = this.clipKey(entry, index);
+    const status = this.clipStatus(key);
+    const active = this.activeClipKey === key;
+    const playing = active && status.state === "playing";
+    const loading = active && status.state === "loading";
+    const label = loading
+      ? `${this.v("loading")} · ${this.name(line.characterId)}`
+      : playing
+        ? `${this.v("stop")} · ${this.name(line.characterId)}`
+        : status.state === "error"
+          ? `${this.t("retry")} · ${this.name(line.characterId)}`
+          : `${this.v("playLine")} · ${this.name(line.characterId)}`;
     return html`
-      <section class="voice-player" aria-label=${this.t("player")}>
-        <div class="voice-player__heading">
-          <strong>${this.entryTitle(active)}</strong>
-          <small>
-            ${lines.length > 1 ? this.v("clip", this.lineIndex + 1, lines.length) : this.v(voiceGroup(active))}
-          </small>
-          ${iconButton({ icon: "close", label: this.t("close"), onClick: () => this.stop() })}
-        </div>
-        <div class="voice-player__controls">
-          ${iconButton({ icon: "skip_previous", label: this.t("previous"), disabled: this.queueIndex === 0, onClick: () => this.selectQueue(this.queueIndex - 1) })}
-          ${iconButton({ icon: this.playing || this.busy ? "pause" : this.finished ? "replay" : "play_arrow", label: this.playing || this.busy ? this.t("pause") : this.finished ? this.v("replay") : this.t("play"), variant: "filled", onClick: () => this.toggle(active) })}
-          ${iconButton({ icon: "skip_next", label: this.t("next"), disabled: this.queueIndex + 1 >= this.queue.length, onClick: () => this.selectQueue(this.queueIndex + 1) })}
-          <md-slider
-            min="0"
-            .max=${Math.max(0.01, this.duration)}
-            .value=${Math.min(this.time, this.duration)}
-            step="0.01"
-            ?disabled=${this.duration <= 0 || this.audio.readyState < 1}
-            aria-label=${this.t("playbackPosition")}
-            aria-valuetext=${`${this.clock(this.time)} / ${this.clock(this.duration)}`}
-            @input=${(event: Event) => {
-              const value = Number((event.target as HTMLElement & { value: number }).value);
-              if (this.audio.readyState >= 1) {
-                this.audio.currentTime = Math.min(this.duration, Math.max(0, value));
-                this.time = this.audio.currentTime;
-                this.finished = false;
-              }
-            }}
-          ></md-slider>
-          <span class="voice-player__time">${this.clock(this.time)} / ${this.clock(this.duration)}</span>
-        </div>
+      <button
+        class="icon-button dialogue-row__play"
+        type="button"
+        ?disabled=${!line.url}
+        aria-label=${label}
+        aria-pressed=${String(playing)}
+        title=${label}
+        @click=${() => void this.playLine(entry, index)}
+      >
         ${
-          this.error
+          loading
             ? html`
-                <p class="voice-player__error" role="alert">${this.error}</p>
+                <span class="dialogue-row__spinner" aria-hidden="true"></span>
+              `
+            : icon(playing ? "stop" : status.state === "error" ? "refresh" : "play_arrow", 24)
+        }
+      </button>
+    `;
+  }
+
+  private renderLine(entry: JsonRecord, index: number) {
+    const line = voiceLines(entry)[index]!;
+    const text = resolveLocalizedText(line.text, this.locale);
+    const character = this.character(line.characterId);
+    const image = String(character?.faceImage || "");
+    const key = this.clipKey(entry, index);
+    const status = this.clipStatus(key);
+    const statusMessage = status.message || (!line.url ? this.v("unavailable") : "");
+    return dialogueRow({
+      key,
+      className: `voice-line voice-line--${voiceGroup(entry)}`,
+      avatar: image
+        ? html`
+            <img src=${image} alt="" loading="lazy" width="48" height="48" />
+          `
+        : icon("person", 24),
+      speaker: this.name(line.characterId),
+      speakerLanguage: resolveLocalizedText(character?.characterName, this.locale).locale,
+      text: text.text || this.v("noText"),
+      textLanguage: text.locale,
+      action: this.lineAction(entry, index, line),
+      state: status.state,
+      statusMessage,
+    });
+  }
+
+  private condition(entry: JsonRecord) {
+    return Number(entry.unlockCharacterRank) > 0
+      ? this.v("unlockRank", Number(entry.unlockCharacterRank))
+      : Number(entry.unlockFriendshipRank) > 0
+        ? this.v("unlockBond", Number(entry.unlockFriendshipRank))
+        : "";
+  }
+
+  private renderEntry(entry: JsonRecord, previous?: JsonRecord) {
+    const lines = voiceLines(entry);
+    const title = this.entryTitle(entry);
+    const titleLanguage = entry.title ? resolveLocalizedText(entry.title, this.locale).locale : this.locale;
+    const condition = this.condition(entry);
+    const showHeading =
+      !previous ||
+      title !== this.entryTitle(previous) ||
+      condition !== this.condition(previous) ||
+      entry.cardId !== previous.cardId;
+    return html`
+      <article
+        class="voice-entry"
+        data-voice-key=${this.voiceKey(entry)}
+        data-master-type=${String(entry.masterType ?? "")}
+      >
+        ${
+          showHeading
+            ? html`
+                <header class="voice-entry__header">
+                  <div class="voice-entry__identity">
+                    <h4 lang=${titleLanguage}>
+                      ${
+                        entry.cardId
+                          ? html`
+                              <a
+                                href=${`${localePath("/catalog/member-cards", isLocale(this.locale) ? this.locale : "en")}?card=${encodeURIComponent(String(entry.cardId))}`}
+                              >
+                                ${title}
+                              </a>
+                            `
+                          : title
+                      }
+                    </h4>
+                    ${
+                      condition
+                        ? html`
+                            <small>${condition}</small>
+                          `
+                        : nothing
+                    }
+                  </div>
+                </header>
               `
             : nothing
         }
-      </section>
-    `;
-  }
-  private renderEntry(entry: JsonRecord) {
-    const key = voiceKey(entry);
-    const active = key === this.activeKey;
-    const lines = voiceLines(entry);
-    const playable = lines.some((line) => line.url);
-    const playing = active && (this.playing || this.busy);
-    const duration = lines.reduce((total, line) => total + line.duration, 0);
-    const title = this.entryTitle(entry);
-    const nameLanguage = entry.title ? resolveLocalizedText(entry.title, this.locale).locale : this.locale;
-    const condition =
-      Number(entry.unlockCharacterRank) > 0
-        ? this.v("unlockRank", Number(entry.unlockCharacterRank))
-        : Number(entry.unlockFriendshipRank) > 0
-          ? this.v("unlockBond", Number(entry.unlockFriendshipRank))
-          : "";
-    return html`
-      <article class=${`voice-entry${active ? " is-active" : ""}`} data-voice-key=${key}>
-        <header>
-          <div>
-            <h4 lang=${nameLanguage}>
-              ${
-                entry.cardId
-                  ? html`
-                      <a href=${`/catalog/member-cards/?card=${encodeURIComponent(String(entry.cardId))}`}>${title}</a>
-                    `
-                  : title
-              }
-            </h4>
-            ${
-              condition
-                ? html`
-                    <small>${condition}</small>
-                  `
-                : nothing
-            }
-          </div>
-          <span class="voice-entry__duration">
-            ${playable && duration ? this.clock(duration) : !playable ? this.v("unavailable") : ""}
-          </span>
-          <button
-            class="icon-button"
-            type="button"
-            ?disabled=${!playable}
-            aria-label=${`${playing ? this.t("pause") : this.t("play")} · ${title}`}
-            aria-pressed=${playing}
-            @click=${() => this.toggle(entry)}
-          >
-            ${playing ? icon("pause", 24) : icon("play_arrow", 24)}
-          </button>
-        </header>
         <div class="voice-entry__lines">
-          ${lines.map((line, index) => {
-            const text = resolveLocalizedText(line.text, this.locale);
-            const character = this.character(line.characterId);
-            const image = String(character?.faceImage || "");
-            return html`
-              <div class=${`voice-line${active && this.lineIndex === index ? " is-current" : ""}`}>
-                ${
-                  lines.length > 1
-                    ? html`
-                        <span class="voice-line__avatar">
-                          ${
-                            image
-                              ? html`
-                                  <img src=${image} alt="" loading="lazy" width="28" height="28" />
-                                `
-                              : icon("person", 24)
-                          }
-                        </span>
-                      `
-                    : nothing
-                }
-                <div>
-                  ${
-                    lines.length > 1
-                      ? html`
-                          <strong lang=${resolveLocalizedText(character?.characterName, this.locale).locale}>
-                            ${this.name(line.characterId)}
-                          </strong>
-                        `
-                      : nothing
-                  }
-                  <p
-                    lang=${text.locale}
-                    class=${text.text ? "" : "voice-line__missing"}
-                    .textContent=${text.text || this.v("noText")}
-                  ></p>
-                  ${
-                    !line.url && playable
-                      ? html`
-                          <small>${this.v("unavailable")}</small>
-                        `
-                      : nothing
-                  }
-                </div>
-                ${
-                  lines.length > 1
-                    ? html`
-                        <button
-                          class="icon-button"
-                          ?disabled=${!line.url}
-                          aria-label=${`${this.v("playLine")} · ${this.name(line.characterId)}`}
-                          @click=${() => this.start(entry, index)}
-                        >
-                          ${icon("volume_up", 20)}
-                        </button>
-                      `
-                    : nothing
-                }
-              </div>
-            `;
-          })}
+          ${repeat(
+            lines,
+            (_, index) => this.clipKey(entry, index),
+            (_, index) => this.renderLine(entry, index),
+          )}
         </div>
       </article>
     `;
   }
+
+  private grouped() {
+    const entries = [...this.entries].sort(compareVoices);
+    return VOICE_GROUPS.map((group) => ({
+      group,
+      items: entries.filter((entry) => voiceGroup(entry) === group),
+    })).filter(({ items }) => items.length);
+  }
+
   render() {
-    const rows = this.filtered();
-    const groups = VOICE_GROUPS.filter((group) => this.entries.some((entry) => voiceGroup(entry) === group));
-    const partners = [
-      ...new Set(
-        this.entries.flatMap((entry) =>
-          Array.isArray(entry.characterIds) && entry.characterIds.length > 1 ? entry.characterIds.map(Number) : [],
-        ),
-      ),
-    ]
-      .filter((id) => id !== this.characterId)
-      .sort((a, b) => a - b);
-    const playable = rows.filter((entry) => voiceLines(entry).some((line) => line.url));
+    const groups = this.grouped();
     return html`
-      <section class="character-voices">
-        <div class="voice-filters">
-          <label class="search-bar">
-            ${icon("search", 20)}
-            <input
-              type="search"
-              .value=${this.query}
-              placeholder=${this.v("search")}
-              aria-label=${this.v("search")}
-              @input=${(event: Event) => (this.query = (event.target as HTMLInputElement).value)}
-            />
-          </label>
-          <md-outlined-select
-            label=${this.v("category")}
-            .value=${this.group}
-            @change=${(event: Event) => {
-              this.group = (event.target as HTMLElement & { value: string }).value;
-              if (this.group !== "interaction" && this.group !== "all") this.partner = "";
-            }}
-          >
-            <md-select-option value="all">
-              <span slot="headline">${this.v("all")} · ${this.entries.length}</span>
-            </md-select-option>
-            ${groups.map(
-              (group) => html`
-                <md-select-option value=${group}>
-                  <span slot="headline">
-                    ${this.v(group)} · ${this.entries.filter((entry) => voiceGroup(entry) === group).length}
-                  </span>
-                </md-select-option>
-              `,
-            )}
-          </md-outlined-select>
-          ${
-            partners.length && ["all", "interaction"].includes(this.group)
-              ? html`
-                  <md-outlined-select
-                    label=${this.v("partner")}
-                    .value=${this.partner}
-                    @change=${(event: Event) => (this.partner = (event.target as HTMLElement & { value: string }).value)}
-                  >
-                    <md-select-option value=""><span slot="headline">${this.t("all")}</span></md-select-option>
-                    ${partners.map(
-                      (id) => html`
-                        <md-select-option value=${String(id)}>
-                          <span slot="headline">${this.name(id)}</span>
-                        </md-select-option>
-                      `,
-                    )}
-                  </md-outlined-select>
-                `
-              : nothing
-          }
-        </div>
-        <div class="voice-list-actions">
-          <span role="status">${this.v("count", rows.length)}</span>
-          <button
-            class="button button--tonal"
-            ?disabled=${!playable.length}
-            @click=${() => this.start(playable[0]!, 0, playable)}
-          >
-            ${icon("playlist_play", 20)}${this.v("sequential")}
-          </button>
-        </div>
-        ${this.renderPlayer()}
+      <section class="character-voices" aria-label=${this.v("title")}>
         ${
-          rows.length
-            ? VOICE_GROUPS.map((group) => {
-                const items = rows.filter((entry) => voiceGroup(entry) === group);
-                return items.length
-                  ? html`
-                      <section class="voice-group">
-                        <h3>
-                          ${this.v(group)}
-                          <span>${items.length}</span>
-                        </h3>
-                        <div>${repeat(items, voiceKey, (entry) => this.renderEntry(entry))}</div>
-                      </section>
-                    `
-                  : nothing;
-              })
-            : emptyState({ title: this.t("empty"), icon: "search_off" })
+          groups.length
+            ? groups.map(
+                ({ group, items }) => html`
+                  <section
+                    class="voice-group"
+                    id=${`voice-group-${group}`}
+                    data-source-master-type=${String(voiceGroupMasterType(group))}
+                  >
+                    <h3>
+                      <span class="voice-group__title">${this.v(voiceGroupLabelKey(group))}</span>
+                      <span class="voice-group__count">${items.length}</span>
+                    </h3>
+                    <div>
+                      ${repeat(
+                        items,
+                        (entry) => this.voiceKey(entry),
+                        (entry, index) => this.renderEntry(entry, items[index - 1]),
+                      )}
+                    </div>
+                  </section>
+                `,
+              )
+            : emptyState({ title: this.t("empty"), icon: "volume_off" })
         }
       </section>
     `;

@@ -106,6 +106,7 @@ jobs:
       AWS_EC2_METADATA_DISABLED: "true"
       PYTHONPATH: scripts
       R2_BUCKET: hotdori-assets
+      RELEASE_SERVER: intl
 
     steps:
       - name: Check out repository
@@ -170,9 +171,9 @@ jobs:
 
       - name: Fetch release presentation assets
         # Materialize only the runtime slices the build reads (note-se audio,
-        # NoteEffect definitions, the lane mask) from the current jp-cbt release.
+        # NoteEffect definitions, the lane mask) from the current Intl release.
         run: |
-          python scripts/pipeline.py --server jp-cbt fetch-sonolus-inputs \
+          python scripts/pipeline.py --server intl fetch-sonolus-inputs \
             --output "$RUNNER_TEMP/sonolus-release"
 
       - name: Build the global Sonolus payload

@@ -42,6 +42,18 @@ const BESTDORI_STORY_ICONS: Record<(typeof BESTDORI_STORY_ROUTES)[number], strin
   card: "style",
 };
 
+export const UTILITY_DESTINATIONS = [
+  { route: "/account", icon: "account_circle", label: "account" },
+  { route: "/settings", icon: "settings", label: "settings" },
+  { route: "/about", icon: "info", label: "about" },
+] as const;
+
+export const INFORMATION_DESTINATIONS = [
+  { route: "/license", label: "licensePage.title" },
+  { route: "/terms", label: "termsPage.title" },
+  { route: "/privacy", label: "privacyPage.title" },
+] as const;
+
 export const PRIMARY_DESTINATIONS: PrimaryDestination[] = [
   { id: "home", route: "/", icon: "home", label: "home", match: ["/"] },
   {

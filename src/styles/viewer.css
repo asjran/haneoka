@@ -74,7 +74,8 @@
     border-color: var(--md-sys-color-outline-variant);
     background: var(--md-sys-color-surface-container);
   }
-  .runtime-chip[aria-pressed="true"] {
+  .runtime-chip[aria-pressed="true"],
+  .runtime-button[aria-pressed="true"] {
     color: var(--md-sys-color-on-secondary-container);
     border-color: transparent;
     background: var(--md-sys-color-secondary-container);
@@ -181,7 +182,7 @@
     display: grid;
     min-width: 0;
     min-height: 0;
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 336px);
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
   }
   .viewer-detail__runtime {
     min-height: 0;
@@ -215,11 +216,16 @@
   .viewer-parameter-editor label {
     display: grid;
     min-width: 0;
-    grid-template-columns: minmax(78px, 0.8fr) minmax(110px, 1.2fr) 48px 40px;
+    grid-template-columns: minmax(76px, 0.9fr) minmax(0, 1.4fr) 44px 36px;
     align-items: center;
     gap: 8px;
     color: var(--md-sys-color-on-surface-variant);
     font-size: var(--md-sys-typescale-label-medium-size);
+  }
+  .viewer-transform-controls label md-slider,
+  .viewer-parameter-editor label md-slider {
+    min-width: 0;
+    width: 100%;
   }
   .viewer-transform-controls label md-slider {
     grid-column: 2 / -1;
@@ -305,7 +311,9 @@
     width: 36px;
     height: 36px;
   }
-  .viewer-parameter-editor label > span {
+  .viewer-parameter-editor label > span,
+  .viewer-part-row > span {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -319,6 +327,13 @@
     flex: 1;
     min-width: 0;
   }
+  .viewer-panel-button {
+    min-height: 40px;
+    min-width: 0;
+    padding: 0 14px;
+    flex: 0 0 auto;
+    font-size: var(--md-sys-typescale-label-large-size);
+  }
   .viewer-pose-toolbar {
     display: grid;
     gap: 8px;
@@ -331,15 +346,18 @@
   }
   .viewer-pose-toolbar__row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
   }
   .viewer-pose-toolbar__row .viewer-inspector-select {
-    flex: 1;
+    flex: 1 1 160px;
     min-width: 0;
   }
+  .viewer-pose-toolbar__row .viewer-pose-name {
+    flex: 1 1 160px;
+  }
   .viewer-pose-name {
-    flex: 1;
     min-width: 0;
     min-height: 40px;
     padding: 0 12px;
@@ -362,11 +380,6 @@
     gap: 12px;
     color: var(--md-sys-color-on-surface-variant);
     font-size: var(--md-sys-typescale-label-medium-size);
-  }
-  .viewer-part-row > span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .viewer-background-color__controls {
     display: flex;
@@ -401,11 +414,13 @@
     }
     .viewer-detail__body {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: clamp(320px, 52dvh, 520px) auto;
-      overflow: auto;
+      /* The stage row stays pinned; only the info panel scrolls beneath it. */
+      grid-template-rows: clamp(320px, 52vh, 520px) minmax(0, 1fr);
+      grid-template-rows: clamp(320px, 52dvh, 520px) minmax(0, 1fr);
+      overflow: hidden;
     }
     .viewer-detail__info {
-      overflow: visible;
+      overflow: auto;
       border-top: 1px solid var(--md-sys-color-outline-variant);
       border-left: 0;
     }
@@ -444,5 +459,226 @@
     color: var(--md-sys-color-on-error-container);
     background: var(--md-sys-color-error-container);
     font: 400 14px/20px var(--app-font);
+  }
+}
+
+@layer pages {
+  /* Canonical model routes are document content. Collection selections keep
+   * the pane-layer dialog above; the entity-id attribute is the explicit page
+   * contract used by both viewers. */
+  live2d-workspace[entity-id],
+  spine-workspace[entity-id] {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+
+  .viewer-ssr-stage {
+    position: relative;
+    display: grid;
+    width: 100%;
+    min-height: clamp(360px, 58dvh, 720px);
+    aspect-ratio: var(--viewer-stage-ratio, 3 / 4);
+    margin: 0;
+    place-items: center;
+    overflow: hidden;
+    isolation: isolate;
+    background: radial-gradient(
+      circle at 50% 42%,
+      var(--md-sys-color-surface-container-lowest),
+      var(--md-sys-color-surface-container-high)
+    );
+  }
+  .viewer-ssr-stage > img,
+  .viewer-ssr-stage > .viewer-stage__placeholder {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .viewer-stage__placeholder {
+    background: linear-gradient(
+      135deg,
+      var(--md-sys-color-surface-container-high),
+      var(--md-sys-color-surface-container-lowest)
+    );
+  }
+  .viewer-stage__preview {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 1;
+    transition: opacity var(--md-sys-motion-duration-medium2) linear;
+  }
+  live2d-workspace[data-entity-ready="true"] .viewer-stage__preview,
+  spine-workspace[data-entity-ready="true"] .viewer-stage__preview {
+    opacity: 0;
+  }
+  .viewer-stage canvas {
+    position: relative;
+    z-index: 1;
+    display: block;
+    background: transparent;
+  }
+  .spine-stage {
+    z-index: 1;
+  }
+  .viewer-state {
+    z-index: 3;
+    color: var(--md-sys-color-on-surface);
+  }
+  .viewer-state span:not(.progress) {
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  .viewer-detail--page {
+    position: static;
+    display: block;
+    width: 100%;
+    min-height: 0;
+    overflow: visible;
+    border-radius: 0;
+    background: var(--md-sys-color-surface);
+  }
+  .viewer-detail--page > .viewer-detail__body {
+    width: min(100%, var(--content-max));
+    min-height: 0;
+    overflow: visible;
+    margin-inline: auto;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    gap: var(--pane-gap);
+    align-items: start;
+    padding: var(--pane-gutter) var(--pane-gutter) calc(32px + env(safe-area-inset-bottom));
+  }
+  .viewer-detail--page .viewer-detail__runtime {
+    position: sticky;
+    z-index: 2;
+    top: 0;
+    width: 100%;
+    min-height: clamp(360px, 58dvh, 720px);
+    height: auto;
+    aspect-ratio: var(--viewer-stage-ratio, 3 / 4);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-large);
+    box-shadow: var(--md-sys-elevation-level1);
+  }
+  .viewer-detail--page .viewer-detail__info {
+    min-height: 0;
+    padding: 4px 0 0;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+  .viewer-detail--page .viewer-detail__info section:first-of-type {
+    margin-top: 0;
+  }
+  .viewer-detail--page .viewer-detail__info h3 {
+    margin-top: 24px;
+  }
+  .viewer-metadata-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+  }
+
+  .viewer-controls {
+    z-index: 4;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    left: max(16px, env(safe-area-inset-left));
+  }
+  .viewer-controls .icon-button,
+  .viewer-detail__navigation .icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .viewer-panel-button,
+  .viewer-parameter-actions .button,
+  .viewer-part-toolbar .button {
+    min-height: 44px;
+  }
+  .viewer-pose-name {
+    min-height: 44px;
+  }
+  .viewer-parameter-editor label > .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+  .viewer-controls md-outlined-select {
+    --md-outlined-select-text-field-container-color: var(--md-sys-color-surface-container);
+    --md-outlined-field-label-text-color: var(--md-sys-color-on-surface);
+    --md-outlined-field-input-text-color: var(--md-sys-color-on-surface);
+  }
+
+  @media (max-width: 959px) {
+    .viewer-ssr-stage {
+      width: calc(
+        100% - max(var(--pane-gutter), env(safe-area-inset-left)) - max(var(--pane-gutter), env(safe-area-inset-right))
+      );
+      height: clamp(320px, 52vh, 520px);
+      height: clamp(320px, 52dvh, 520px);
+      min-height: 0;
+      margin-inline-start: max(var(--pane-gutter), env(safe-area-inset-left));
+      margin-inline-end: max(var(--pane-gutter), env(safe-area-inset-right));
+      aspect-ratio: auto;
+    }
+    .viewer-detail--page > .viewer-detail__body {
+      display: block;
+      padding-inline: max(var(--pane-gutter), env(safe-area-inset-left))
+        max(var(--pane-gutter), env(safe-area-inset-right));
+    }
+    .viewer-detail--page .viewer-detail__runtime {
+      top: 0;
+      height: clamp(320px, 52vh, 520px);
+      height: clamp(320px, 52dvh, 520px);
+      min-height: 0;
+      aspect-ratio: auto;
+      border-radius: var(--md-sys-shape-corner-large);
+    }
+    .viewer-detail--page .viewer-detail__info {
+      padding: 20px 0 calc(24px + env(safe-area-inset-bottom));
+    }
+    .viewer-detail--page .viewer-detail__info section:first-of-type {
+      margin-top: 0;
+    }
+  }
+  @media (max-width: 479px) {
+    .viewer-ssr-stage {
+      width: calc(100% - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right)));
+      height: clamp(300px, 50vh, 460px);
+      height: clamp(300px, 50dvh, 460px);
+      margin-inline-start: max(12px, env(safe-area-inset-left));
+      margin-inline-end: max(12px, env(safe-area-inset-right));
+    }
+    .viewer-detail--page > .viewer-detail__body {
+      padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+    }
+    .viewer-detail--page .viewer-detail__runtime {
+      height: clamp(300px, 50vh, 460px);
+      height: clamp(300px, 50dvh, 460px);
+    }
+  }
+  @media (min-width: 960px) {
+    .viewer-detail--page .viewer-detail__runtime {
+      min-height: 260px;
+      max-height: max(260px, calc(100vh - var(--md-comp-top-app-bar-safe-height) - 2 * var(--pane-gutter)));
+      max-height: max(260px, calc(100dvh - var(--md-comp-top-app-bar-safe-height) - 2 * var(--pane-gutter)));
+    }
+    .viewer-ssr-stage {
+      width: calc(min(100%, var(--content-max)) - (2 * var(--pane-gutter)) - 360px - var(--pane-gap));
+      margin-inline: max(var(--pane-gutter), calc((100% - var(--content-max)) / 2 + var(--pane-gutter))) auto;
+    }
   }
 }

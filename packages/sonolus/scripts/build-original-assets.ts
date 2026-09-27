@@ -1,6 +1,8 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { deflateSync, gunzipSync, gzipSync, inflateSync } from "node:zlib";
+import { resolveSonolusReleaseWorkspace } from "../src/server/releaseWorkspace.ts";
+import { validateSonolusInputProvenance } from "../src/server/sonolusProvenance.ts";
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
@@ -105,6 +107,9 @@ function byteAt(buffer: Uint8Array, index: number, context: string): number {
 }
 
 const root = resolve(process.env.OUR_NOTES_ROOT || process.cwd());
+const releaseServer = process.env.RELEASE_SERVER || "intl";
+const workspace = resolveSonolusReleaseWorkspace(releaseServer, root);
+const inputProvenance = validateSonolusInputProvenance(workspace, root);
 const source = resolve(process.env.SONOLUS_ORIGINAL_ASSETS_DIR || resolve(root, "packages/sonolus/assets/original"));
 const out = resolve(root, "packages/sonolus/dist/our-notes");
 
@@ -638,6 +643,9 @@ writeFileSync(
   JSON.stringify(
     {
       profile: "baked-3d-30fps",
+      releaseInputsValidated: inputProvenance.sourceProvenanceValidated,
+      sourceProvenanceValidated: false,
+      visualReferenceValidated: capture.referenceValidated === true,
       referenceValidated: capture.referenceValidated === true,
       maxFrames: 32,
       textureBytes: 8192 * 8192 * 4,
@@ -664,5 +672,6 @@ writeFileSync(resolve(out, "effect.data"), gzipSync(JSON.stringify(effectData), 
 copyFileSync(resolve(source, "effect.audio"), resolve(out, "effect.audio"));
 
 console.log(
-  `built Our Notes Sonolus resources: ${sprites.length} skin sprites, ${baked.effects.length} native particle effects -> ${out}`,
+  `built Our Notes Sonolus resources: ${sprites.length} skin sprites, ${baked.effects.length} native particle effects ` +
+    `-> ${out} (validated release inputs: ${inputProvenance.sourceId}/${inputProvenance.releaseId})`,
 );

@@ -18,8 +18,8 @@
       "source": "Framework/vega-cubism-web-runtime.mjs",
       "target": "public/cubism-runtime/vega-cubism-web-runtime.mjs",
       "output": "cubism-runtime/vega-cubism-web-runtime.mjs",
-      "bytes": 476369,
-      "sha256": "ff3c283abc8733f40cb8abbd7eb53f47c795eeab8d1214306d6fb181db77168a"
+      "bytes": 479422,
+      "sha256": "a775df734ce45a349d631f63d621f8a39063e1cbe69fe7bf38f83f2dd47fe408"
     },
     {
       "source": "Framework/LICENSE.md",

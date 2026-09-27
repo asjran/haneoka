@@ -1,3 +1,4 @@
+import { clientText } from "../i18n/client";
 import { LitElement, html, nothing } from "lit";
 import { loadingState } from "./ui/state";
 import { svg as discordSvg } from "@thesvg/icons/discord";
@@ -5,6 +6,18 @@ import { svg as githubSvg } from "@thesvg/icons/github";
 import { svg as googleSvg } from "@thesvg/icons/google";
 import { svg as xSvg } from "@thesvg/icons/x";
 import { preferredLocale } from "./shared/catalog";
+
+const ACCOUNT_LABEL_KEYS: Readonly<Record<string, string>> = {
+  appeal: "communityPage.appeal",
+  appealStatement: "communityPage.appealStatement",
+  submitAppeal: "communityPage.submitAppeal",
+  appealSubmitted: "communityPage.appealSubmitted",
+  appealFailed: "communityPage.appealFailed",
+  close: "close",
+  save: "save",
+  privacy: "homePage.privacy",
+  terms: "homePage.terms",
+};
 
 type Value = Record<string, unknown>;
 type AuthMode = "signIn" | "signUp" | "forgotPassword" | "verifyEmail";
@@ -30,7 +43,6 @@ const oauthIcon = (provider: string) =>
 
 export class AccountWorkspace extends LitElement {
   static properties = {
-    labels: { type: String },
     phase: { state: true },
     config: { state: true },
     session: { state: true },
@@ -47,7 +59,6 @@ export class AccountWorkspace extends LitElement {
     appealOpen: { state: true },
     captchaToken: { state: true },
   };
-  declare labels: string;
   declare phase: "loading" | "ready";
   declare config: Value;
   declare session: Value | null;
@@ -63,12 +74,10 @@ export class AccountWorkspace extends LitElement {
   declare avatarPreview: string;
   declare appealOpen: boolean;
   declare captchaToken: string;
-  private copy: Record<string, string> = {};
   private turnstileId: string | number | null = null;
 
   constructor() {
     super();
-    this.labels = "{}";
     this.phase = "loading";
     this.config = {};
     this.session = null;
@@ -92,8 +101,7 @@ export class AccountWorkspace extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    const values = JSON.parse(this.labels || "{}") as Record<string, Record<string, string>>;
-    this.copy = values[preferredLocale()] || values.ja || {};
+    addEventListener("haneoka:locale-ready", this.onLocale);
     void Promise.all([
       import("@material/web/progress/circular-progress.js"),
       import("@material/web/textfield/outlined-text-field.js"),
@@ -105,7 +113,9 @@ export class AccountWorkspace extends LitElement {
     void this.load();
   }
 
+  private readonly onLocale = () => this.requestUpdate();
   disconnectedCallback() {
+    removeEventListener("haneoka:locale-ready", this.onLocale);
     if (this.avatarPreview) URL.revokeObjectURL(this.avatarPreview);
     super.disconnectedCallback();
   }
@@ -115,7 +125,7 @@ export class AccountWorkspace extends LitElement {
   }
 
   private label(key: string, fallback: string) {
-    return this.copy[key] || fallback;
+    return clientText(preferredLocale(), ACCOUNT_LABEL_KEYS[key] ?? `accountPage.${key}`, fallback);
   }
   private user() {
     return (this.session?.user as Value | undefined) || null;

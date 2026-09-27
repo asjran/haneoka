@@ -19,6 +19,9 @@
   grid-template-rows: minmax(0, 1fr) auto;
   background: var(--md-sys-color-surface-container);
 }
+:root {
+  --shell-progress-height: 4px;
+}
 .skip-link {
   position: fixed;
   z-index: var(--md-sys-z-index-a11y);
@@ -39,7 +42,7 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: var(--top-bar-height) minmax(0, 1fr);
+  grid-template-rows: var(--top-bar-height) var(--shell-progress-height) minmax(0, 1fr);
   grid-column: 2;
   grid-row: 1;
 }
@@ -51,10 +54,9 @@
 .top-app-bar {
   position: relative;
   z-index: var(--md-sys-z-index-local-sticky);
-  display: grid;
+  display: flex;
   min-width: 0;
   height: var(--top-bar-height);
-  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 4px;
   padding-inline: max(4px, env(safe-area-inset-left)) max(4px, env(safe-area-inset-right));
@@ -62,7 +64,22 @@
   background: var(--md-sys-color-surface-container);
   transition: background-color var(--md-sys-motion-duration-medium1) linear;
 }
+.top-app-bar__leading {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+.top-app-bar__identity,
+.top-app-bar__identity-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
 .top-app-bar > h1 {
+  flex: 1 1 0;
   min-width: 0;
   margin: 0;
   padding-inline: 12px;
@@ -72,16 +89,66 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.top-app-bar > h1.top-app-bar__title--omitted {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  clip-path: inset(50%);
+}
 /* The trailing slot. Pages render their page-level actions here through
-   lib/app-bar.ts; it is a flex row that shrinks its own contents rather than
-   the title, and it is empty (and zero-width) on pages that have none. */
+   lib/app-bar.ts. Controls take priority over decorative context and title;
+   the row scrolls only after those optional elements have yielded space. */
 .top-app-bar__actions {
   justify-self: end;
   display: flex;
   min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  margin-inline-start: auto;
+  overflow-x: auto;
+  overflow-y: clip;
+  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+}
+.top-app-bar__actions::-webkit-scrollbar {
+  display: none;
+}
+.top-app-bar__actions:has(.top-app-bar__search[data-search-expanded="true"]) {
+  overflow: visible;
+  width: auto;
+  max-width: none;
+}
+.top-app-bar__actions {
+  --action-fade-start: #000;
+  --action-fade-end: #000;
+  mask-image: linear-gradient(
+    to right,
+    var(--action-fade-start),
+    #000 8px,
+    #000 calc(100% - 8px),
+    var(--action-fade-end)
+  );
+}
+.top-app-bar__actions[data-app-bar-scroll-start="true"] {
+  --action-fade-start: transparent;
+}
+.top-app-bar__actions[data-app-bar-scroll-end="true"] {
+  --action-fade-end: transparent;
+}
+.top-app-bar__actions:has(.top-app-bar__search[data-search-expanded="true"]) {
+  mask-image: none;
+}
+.top-app-bar__secondary-actions {
+  display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
+  order: 1;
 }
 /* One group per owning component (lib/app-bar.ts). */
 .top-app-bar__group {
@@ -89,11 +156,111 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
+  order: 2;
+}
+.top-app-bar__search-group {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+}
+.top-app-bar__search {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+.top-app-bar__search-toggle {
+  display: none;
+}
+.top-app-bar__search-field {
+  display: block;
+  min-width: 0;
+}
+.top-app-bar__search-field input {
+  width: clamp(160px, 22vw, 320px);
+  height: var(--control-height);
+  padding-inline: 14px;
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-full);
+  outline: none;
+  background: var(--md-sys-color-surface-container-high);
+  font: var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size) /
+    var(--md-sys-typescale-body-medium-line-height) var(--app-font);
+}
+.top-app-bar__search-field input:focus {
+  border-color: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 1px var(--md-sys-color-primary);
+}
+.app-shell__progress {
+  position: relative;
+  z-index: calc(var(--md-sys-z-index-local-sticky) + 1);
+  width: 100%;
+  height: var(--shell-progress-height);
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+}
+.app-shell__progress md-linear-progress {
+  display: none;
+  width: 100%;
+  height: var(--shell-progress-height);
+  --md-linear-progress-track-height: var(--shell-progress-height);
+}
+.app-shell__progress[data-page-progress-md3="true"][data-page-progress-active="true"] md-linear-progress {
+  display: block;
+}
+.app-shell__progress-fallback {
+  position: absolute;
+  inset: 0;
+  display: block;
+  visibility: hidden;
+  background: var(--md-sys-color-secondary-container);
+}
+.app-shell__progress-fallback::after {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  content: "";
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+  transform-origin: left center;
+  transform: scaleX(var(--page-progress-scale, 0.38));
+}
+.app-shell__progress[data-page-progress-active="true"] .app-shell__progress-fallback {
+  visibility: visible;
+}
+.app-shell__progress[data-page-progress-md3="true"] .app-shell__progress-fallback {
+  display: none;
+}
+.app-shell__progress[data-page-progress-active="true"][data-page-progress-indeterminate="true"]
+  .app-shell__progress-fallback::after {
+  width: 38%;
+  animation: page-progress-slide 1.6s var(--ease-standard) infinite;
+  transform: none;
+}
+.app-shell__progress-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@keyframes page-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
 }
 .app-shell__main {
   position: relative;
   min-width: 0;
-  height: var(--shell-stage-block);
+  height: calc(var(--shell-stage-block) - var(--shell-progress-height));
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -126,7 +293,39 @@
     background: var(--md-sys-color-surface-container);
   }
   .top-app-bar > h1 {
+    min-width: 0;
     padding-inline: 4px;
+  }
+  .top-app-bar__actions {
+    justify-self: end;
+  }
+  .top-app-bar__search-group {
+    position: static;
+  }
+  .top-app-bar__search-toggle {
+    display: inline-grid;
+  }
+  .top-app-bar__search-field {
+    display: none;
+  }
+  .top-app-bar__search[data-search-expanded="true"] {
+    position: absolute;
+    z-index: 2;
+    inset: 8px 4px;
+    padding-inline: 4px;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface);
+  }
+  .top-app-bar__search[data-search-expanded="true"] .top-app-bar__search-field {
+    display: block;
+    width: 100%;
+  }
+  .top-app-bar__search[data-search-expanded="true"] input {
+    width: 100%;
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .top-app-bar__search[data-search-expanded="true"] .top-app-bar__search-toggle {
+    display: none;
   }
 }
 
@@ -142,6 +341,9 @@
   .top-app-bar .top-app-bar__menu {
     display: none;
   }
+  .top-app-bar__leading:not(:has([data-entity-back])) {
+    display: none;
+  }
   .app-shell__main {
     margin-right: max(16px, env(safe-area-inset-right));
     border-radius: var(--md-sys-shape-corner-extra-large);
@@ -150,10 +352,9 @@
     clip-path: inset(0 round var(--md-sys-shape-corner-extra-large));
   }
   .app-shell__body {
-    grid-template-rows: var(--top-bar-height) minmax(0, 1fr) var(--shell-pane-gap);
+    grid-template-rows: var(--top-bar-height) var(--shell-progress-height) minmax(0, 1fr) var(--shell-pane-gap);
   }
   .top-app-bar {
-    grid-template-columns: minmax(0, 1fr) auto;
     padding-inline: 4px max(16px, env(safe-area-inset-right));
   }
   .nav__header {
@@ -227,5 +428,9 @@
   ::view-transition-old(*),
   ::view-transition-new(*) {
     animation: none !important;
+  }
+  .app-shell__progress[data-page-progress-indeterminate="true"] .app-shell__progress-fallback::after {
+    animation: none;
+    transform: translateX(0);
   }
 }

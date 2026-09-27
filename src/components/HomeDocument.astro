@@ -2,61 +2,16 @@
 import Base from "../layouts/Base.astro";
 import AppShell from "./AppShell.astro";
 import HomePage from "./pages/HomePage.astro";
-import { CATALOG_HUB, NAV_SECTIONS } from "../config/navigation";
-import { group, t } from "../i18n/messages";
-import { LOCALES, type Locale } from "../i18n/locales";
+import { t } from "../i18n/messages";
+import type { Locale } from "../i18n/locales";
 const { locale } = Astro.props as { locale: Locale };
 const title = t(locale, "homePage.overview", "haneoka");
-const seoTitleValues: Record<Locale, string> = {
-  ja: "BanG Dream! Our Notes 資料アーカイブ",
-  en: "BanG Dream! Our Notes Archive",
-  "zh-TW": "BanG Dream! Our Notes 資料庫",
-  "zh-CN": "BanG Dream! Our Notes 资料库",
-  ko: "BanG Dream! Our Notes 자료 아카이브",
-};
-const extraKeys = [
-  "tuneTitle",
-  "tuneDefault",
-  "expertLevel",
-  "songsCount",
-  "members",
-  "viewAll",
-  "latestSongs",
-  "catalog",
-  "archive",
-  "cards",
-  "memberCards",
-  ...CATALOG_HUB.map((item) => item.label),
-  // Spotlight (banner carousel + event card), relative time and directory copy.
-  "banners",
-  "noBanner",
-  "noEndDate",
-  "noEvent",
-  "spanDays",
-  "spanHours",
-  "spanMinutes",
-  "startsIn",
-  "endsIn",
-  "releasedToday",
-  "releasedAgo",
-  "releasesIn",
-  "voicesRole",
-  "daysAwayOne",
-  // The directory headings and entries mirror the navigation drawer.
-  ...NAV_SECTIONS.flatMap((section) => [section.label, ...section.items.map((item) => item.label)]),
-];
-const labels = JSON.stringify(
-  Object.fromEntries(
-    LOCALES.map((target) => [
-      target,
-      { ...group(target, "homePage"), ...Object.fromEntries(extraKeys.map((key) => [key, t(target, key, key)])) },
-    ]),
-  ),
-);
+const seoTitle = t(locale, "seo.homeTitle", "BanG Dream! Our Notes Archive");
+
 ---
 
-<Base locale={locale} route="/" title={title} titleKey="homePage.overview" seoTitleValues={seoTitleValues}>
+<Base locale={locale} route="/" title={title} titleKey="homePage.overview" seoTitleValues={{ [locale]: seoTitle }}>
   <AppShell locale={locale} route="/" title={title} titleKey="homePage.overview">
-    <HomePage locale={locale} labels={labels} />
+    <HomePage locale={locale} />
   </AppShell>
 </Base>

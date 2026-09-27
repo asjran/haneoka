@@ -14,6 +14,14 @@ import {
   RuntimeChartDataProvider,
 } from "@haneoka/sonolus";
 import { localReleaseFile, releaseWorkspace, type ReleaseWorkspace } from "./releaseWorkspace.ts";
+import {
+  isReleaseServer,
+  legacyEntityRedirectTarget,
+  parseResourceRoute,
+  resourcePath,
+  type ResourceKind,
+  type ResourceRoute,
+} from "../src/lib/resource-route.ts";
 
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
@@ -57,6 +65,11 @@ const PORT = parsePort(process.env.PORT);
 const sonolusLevelService = new SonolusLevelService(3);
 const allowedMethods: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 const catalogRouteKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:~-]{0,255}$/u;
+const releaseIdPattern = /^r-[a-f0-9]{20}$/u;
+const releaseSourceIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const releaseIdentitySchema = "haneoka-resource-release-identity-v1";
+const releaseIdentityFilename = "release-identity.json";
+const releaseIdentityKeys = ["releaseId", "schema", "server", "sourceId"] as const;
 const BESTDORI_PROVIDER_API_PREFIX = "/api/v1/garupa/bestdori";
 const BESTDORI_SONOLUS_LEVEL_PREFIX = "/sonolus/levels/bestdori-level-";
 const BESTDORI_SONOLUS_PLAYLIST_PREFIX = "/sonolus/playlists/bestdori-playlist-";
@@ -151,12 +164,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
 }
 
-function json(res: ServerResponse, status: number, value: JsonValue, cache = "no-cache"): void {
+function json(
+  res: ServerResponse,
+  status: number,
+  value: JsonValue,
+  cache = "no-cache",
+  extraHeaders: Readonly<Record<string, string>> = {},
+): void {
   const body = JSON.stringify(value);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
     "Cache-Control": cache,
+    ...extraHeaders,
   });
   res.end(body);
 }
@@ -491,6 +511,77 @@ function catalogStorageManifest(workspace: Readonly<ReleaseWorkspace>): JsonObje
   return manifest;
 }
 
+const DOCUMENT_RESOURCE_NAMES: Readonly<Partial<Record<ResourceKind, string>>> = {
+  characters: "characters",
+  songs: "songs",
+  "member-cards": "cards",
+  "support-cards": "support-cards",
+  comics: "comics",
+  stamps: "stamps",
+  stickers: "stickers",
+  backgrounds: "backgrounds",
+  "band-items": "band-items",
+  items: "items",
+  events: "events",
+  "real-lives": "real-lives",
+  gacha: "gacha",
+  "login-campaigns": "login-campaigns",
+  shop: "shop",
+  exchange: "exchange",
+  circle: "circle",
+  challenge: "challenge",
+  passes: "passes",
+  stories: "stories",
+  missions: "missions",
+  "tgw-card": "tgw-card",
+  live2d: "live2d",
+  spine: "spine",
+  help: "help",
+};
+
+type StoryMode = "band" | "link" | "home" | "afterlive" | "tutorial";
+const STORY_MODES: ReadonlySet<string> = new Set(["band", "link", "home", "afterlive", "tutorial"]);
+
+function storyModeForEntity(entity: JsonObject): StoryMode | undefined {
+  if (Number(entity.chapterId || 0) < 900_000) return "band";
+  switch (entity.chapterKey) {
+    case "asset_linkstory":
+      return "link";
+    case "asset_home":
+      return "home";
+    case "asset_afterlive":
+      return "afterlive";
+    case "asset_tutorial":
+      return "tutorial";
+    default:
+      return undefined;
+  }
+}
+
+interface DocumentEntityAvailability {
+  entity: JsonObject;
+  storyMode?: StoryMode;
+}
+
+function documentEntityAvailability(route: ResourceRoute & { id: string }): DocumentEntityAvailability | null {
+  const resourceName = DOCUMENT_RESOURCE_NAMES[route.kind];
+  if (!resourceName || !isReleaseServer(route.server)) return null;
+  const workspace = selectedWorkspace(route.server);
+  if (!workspace) return null;
+  const resources = catalogStorageManifest(workspace).resources;
+  if (!isJsonObject(resources)) return null;
+  const resource = ownJsonValue(resources, resourceName);
+  if (!isJsonObject(resource)) return null;
+  const entity = ownJsonValue(catalogShardDocument(workspace, resource.entities, route.id), route.id);
+  if (!isJsonObject(entity)) return null;
+  const availability: DocumentEntityAvailability = { entity };
+  if (route.kind === "stories") {
+    const storyMode = storyModeForEntity(entity);
+    if (storyMode) availability.storyMode = storyMode;
+  }
+  return availability;
+}
+
 function catalogStorageFile(workspace: Readonly<ReleaseWorkspace>, releasePath: JsonValue | undefined): string | null {
   const prefix = "api/v1/catalog/";
   if (typeof releasePath !== "string" || !releasePath.startsWith(prefix) || !releasePath.endsWith(".json")) {
@@ -550,7 +641,7 @@ function sendCatalogStorageFile(
 ): boolean {
   const file = catalogStorageFile(workspace, releasePath);
   if (!file) return false;
-  sendFile(req, res, file);
+  sendFile(req, res, file, undefined, releaseResponseHeaders(workspace));
   return true;
 }
 
@@ -564,14 +655,15 @@ function serveCatalogStorageApi(
   const manifest = catalogStorageManifest(workspace);
   const manifestResources = manifest.resources;
   if (!isJsonObject(manifestResources)) throw new Error("Catalog storage resources are invalid");
+  const writeJson = (status: number, value: JsonValue): void => releaseJson(res, status, value, workspace);
 
   if (tail.length === 1 && tail[0] === "catalog") {
-    json(res, 200, manifest);
+    writeJson(200, manifest);
     return true;
   }
   if (tail.length === 2 && tail[0] === "catalog" && tail[1] === "summary") {
     if (!sendCatalogStorageFile(req, res, workspace, manifest.summary)) {
-      json(res, 502, { error: { code: "catalog_missing", message: "Catalog summary is missing" } });
+      writeJson(502, { error: { code: "catalog_missing", message: "Catalog summary is missing" } });
     }
     return true;
   }
@@ -579,7 +671,7 @@ function serveCatalogStorageApi(
   const resourceName = tail[0] ?? "";
   const resource = ownJsonValue(manifestResources, resourceName);
   if (!isJsonObject(resource)) {
-    json(res, 404, { error: { code: "resource_not_found", message: "Catalog resource not found" } });
+    writeJson(404, { error: { code: "resource_not_found", message: "Catalog resource not found" } });
     return true;
   }
 
@@ -587,9 +679,9 @@ function serveCatalogStorageApi(
     if (url.searchParams.has("id")) {
       const ids = catalogBatchIds(url);
       if (!ids) {
-        json(res, 400, { error: { code: "invalid_batch", message: "Catalog batch contains an invalid entity id" } });
+        writeJson(400, { error: { code: "invalid_batch", message: "Catalog batch contains an invalid entity id" } });
       } else {
-        json(res, 200, catalogBatchValue(workspace, resource.entities, ids));
+        writeJson(200, catalogBatchValue(workspace, resource.entities, ids));
       }
     } else if (catalogProjectionTables(resourceName).length) {
       const file = catalogStorageFile(workspace, resource.index);
@@ -599,10 +691,10 @@ function serveCatalogStorageApi(
           return [name, fs.existsSync(source) ? JSON.parse(fs.readFileSync(source, "utf8")) : null];
         }),
       );
-      if (file) json(res, 200, projectCatalogDocument(resourceName, JSON.parse(fs.readFileSync(file, "utf8")), tables));
-      else json(res, 502, { error: { code: "catalog_missing", message: "Catalog index is missing" } });
+      if (file) writeJson(200, projectCatalogDocument(resourceName, JSON.parse(fs.readFileSync(file, "utf8")), tables));
+      else writeJson(502, { error: { code: "catalog_missing", message: "Catalog index is missing" } });
     } else if (!sendCatalogStorageFile(req, res, workspace, resource.index)) {
-      json(res, 502, { error: { code: "catalog_missing", message: "Catalog index is missing" } });
+      writeJson(502, { error: { code: "catalog_missing", message: "Catalog index is missing" } });
     }
     return true;
   }
@@ -613,9 +705,9 @@ function serveCatalogStorageApi(
       ? ownJsonValue(catalogShardDocument(workspace, resource.entities, id), id)
       : undefined;
     if (entity === undefined) {
-      json(res, 404, { error: { code: "entity_not_found", message: "Catalog entity not found" } });
+      writeJson(404, { error: { code: "entity_not_found", message: "Catalog entity not found" } });
     } else {
-      json(res, 200, entity);
+      writeJson(200, entity);
     }
     return true;
   }
@@ -625,19 +717,19 @@ function serveCatalogStorageApi(
     const views = isJsonObject(resource.views) ? resource.views : null;
     const view = ownJsonValue(views, viewName);
     if (!isJsonObject(view)) {
-      json(res, 404, { error: { code: "view_not_found", message: "Catalog view not found" } });
+      writeJson(404, { error: { code: "view_not_found", message: "Catalog view not found" } });
       return true;
     }
     if (tail.length === 3) {
       if (url.searchParams.has("id")) {
         const ids = catalogBatchIds(url);
         if (!ids) {
-          json(res, 400, { error: { code: "invalid_batch", message: "Catalog batch contains an invalid entity id" } });
+          writeJson(400, { error: { code: "invalid_batch", message: "Catalog batch contains an invalid entity id" } });
         } else {
-          json(res, 200, catalogBatchValue(workspace, view.entities, ids));
+          writeJson(200, catalogBatchValue(workspace, view.entities, ids));
         }
       } else if (!sendCatalogStorageFile(req, res, workspace, view.index)) {
-        json(res, 502, { error: { code: "catalog_missing", message: "Catalog view index is missing" } });
+        writeJson(502, { error: { code: "catalog_missing", message: "Catalog view index is missing" } });
       }
       return true;
     }
@@ -647,13 +739,13 @@ function serveCatalogStorageApi(
         ? ownJsonValue(catalogShardDocument(workspace, view.entities, id), id)
         : undefined;
       if (entity === undefined) {
-        json(res, 404, { error: { code: "entity_not_found", message: "Catalog view entity not found" } });
+        writeJson(404, { error: { code: "entity_not_found", message: "Catalog view entity not found" } });
       } else {
-        json(res, 200, entity);
+        writeJson(200, entity);
       }
       return true;
     }
-    json(res, 404, { error: { code: "view_not_found", message: "Catalog view not found" } });
+    writeJson(404, { error: { code: "view_not_found", message: "Catalog view not found" } });
     return true;
   }
 
@@ -663,17 +755,17 @@ function serveCatalogStorageApi(
     const relations = isJsonObject(resource.relations) ? resource.relations : null;
     const relation = ownJsonValue(relations, relationName);
     if (!isJsonObject(relation) || !catalogRouteKeyPattern.test(relationKey)) {
-      json(res, 404, { error: { code: "relation_not_found", message: "Catalog relation not found" } });
+      writeJson(404, { error: { code: "relation_not_found", message: "Catalog relation not found" } });
       return true;
     }
     const value = ownJsonValue(catalogShardDocument(workspace, relation, relationKey), relationKey);
     if (value === undefined) {
-      json(res, 200, {});
+      writeJson(200, {});
       return true;
     }
     if (relation.valueMode === "records") {
       if (!isJsonObject(value)) throw new Error(`Invalid catalog relation records: ${resourceName}:${relationName}`);
-      json(res, 200, value);
+      writeJson(200, value);
       return true;
     }
     if (relation.valueMode !== "ids" || !Array.isArray(value) || value.some((id) => typeof id !== "string")) {
@@ -683,22 +775,112 @@ function serveCatalogStorageApi(
     if (result.missing.length) {
       throw new Error(`Catalog relation references missing entities: ${resourceName}:${relationName}`);
     }
-    json(res, 200, result.items);
+    writeJson(200, result.items);
     return true;
   }
 
-  json(res, 404, { error: { code: "resource_not_found", message: "Catalog resource not found" } });
+  writeJson(404, { error: { code: "resource_not_found", message: "Catalog resource not found" } });
   return true;
 }
 
-function selectedWorkspace(server: string): Readonly<ReleaseWorkspace> | undefined {
+const historicalWorkspaces = new Map<string, Readonly<ReleaseWorkspace>>();
+
+function selectedWorkspace(server: string, requestedReleaseId?: string): Readonly<ReleaseWorkspace> | undefined {
   const selection = WORKSPACES.get(server);
-  if (!selection || workspaceSelectionsAreFixed) return selection?.workspace;
+  if (!selection) return undefined;
+  if (requestedReleaseId !== undefined) {
+    if (!releaseIdPattern.test(requestedReleaseId)) return undefined;
+    if (selection.workspace.releaseId === requestedReleaseId) return selection.workspace;
+    if (workspaceSelectionsAreFixed) return undefined;
+    const key = `${server}\u0000${requestedReleaseId}`;
+    const cached = historicalWorkspaces.get(key);
+    if (cached) return cached;
+    const releaseRoot = path.join(selection.workspace.serverRoot, "releases", requestedReleaseId);
+    try {
+      const historical = releaseWorkspace(server, ROOT, {
+        ...process.env,
+        RESOURCE_RELEASE_ROOT: releaseRoot,
+      });
+      historicalWorkspaces.set(key, historical);
+      return historical;
+    } catch {
+      return undefined;
+    }
+  }
+  if (workspaceSelectionsAreFixed) return selection.workspace;
   const pointerModifiedAt = fs.existsSync(selection.pointerFile) ? fs.statSync(selection.pointerFile).mtimeMs : 0;
   if (pointerModifiedAt === selection.pointerModifiedAt) return selection.workspace;
   selection.workspace = releaseWorkspace(server, ROOT);
   selection.pointerModifiedAt = pointerModifiedAt;
   return selection.workspace;
+}
+
+const releaseResponseHeadersCache = new Map<string, Readonly<Record<string, string>>>();
+
+function releaseIdentity(workspace: Readonly<ReleaseWorkspace>): JsonObject {
+  const descriptorFile = path.join(workspace.releaseRoot, releaseIdentityFilename);
+  if (fs.existsSync(descriptorFile)) {
+    const descriptor = readJsonFile(descriptorFile);
+    if (
+      !isJsonObject(descriptor) ||
+      Object.keys(descriptor).sort().join("\0") !== releaseIdentityKeys.join("\0") ||
+      descriptor.schema !== releaseIdentitySchema ||
+      descriptor.server !== workspace.id ||
+      descriptor.releaseId !== workspace.releaseId ||
+      typeof descriptor.sourceId !== "string" ||
+      !releaseSourceIdPattern.test(descriptor.sourceId)
+    ) {
+      throw new Error(`Invalid release identity descriptor: ${descriptorFile}`);
+    }
+    return descriptor;
+  }
+
+  // Existing local current releases may predate the descriptor. The validated
+  // current pointer is the only migration fallback; historical releases must
+  // have their own descriptor and never borrow current identity.
+  const selection = WORKSPACES.get(workspace.id);
+  if (selection?.workspace.releaseId === workspace.releaseId && fs.existsSync(selection.pointerFile)) {
+    const pointer = readJsonFile(selection.pointerFile);
+    if (
+      isJsonObject(pointer) &&
+      pointer.schema === "haneoka-resource-pointer-v1" &&
+      pointer.server === workspace.id &&
+      pointer.releaseId === workspace.releaseId &&
+      typeof pointer.sourceId === "string" &&
+      releaseSourceIdPattern.test(pointer.sourceId)
+    ) {
+      return {
+        schema: releaseIdentitySchema,
+        server: workspace.id,
+        releaseId: workspace.releaseId,
+        sourceId: pointer.sourceId,
+      };
+    }
+  }
+  throw new Error(`Release identity descriptor is missing: ${descriptorFile}`);
+}
+
+function releaseResponseHeaders(workspace: Readonly<ReleaseWorkspace>): Readonly<Record<string, string>> {
+  const key = `${workspace.id}\u0000${workspace.releaseId}`;
+  const cached = releaseResponseHeadersCache.get(key);
+  if (cached) return cached;
+  const identity = releaseIdentity(workspace);
+  const headers = Object.freeze({
+    "X-Haneoka-Release-Id": workspace.releaseId,
+    "X-Haneoka-Source-Id": String(identity.sourceId),
+  });
+  releaseResponseHeadersCache.set(key, headers);
+  return headers;
+}
+
+function releaseJson(
+  res: ServerResponse,
+  status: number,
+  value: JsonValue,
+  workspace: Readonly<ReleaseWorkspace>,
+  cache = "no-cache",
+): void {
+  json(res, status, value, cache, releaseResponseHeaders(workspace));
 }
 
 function localReleaseJson(workspace: Readonly<ReleaseWorkspace>, releasePath: string): JsonValue | null {
@@ -869,8 +1051,70 @@ function localReleaseRegistry(): JsonObject {
   };
 }
 
+function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerResponse, url: URL): boolean {
+  const route = parseResourceRoute(url.pathname);
+  if (!route) return false;
+
+  const candidates = (pathname: string): string[] => {
+    const relative = pathname === "/" ? "index.html" : pathname.slice(1);
+    return pathname === "/" ? [relative] : [relative, `${relative}/index.html`, `${relative}.html`];
+  };
+  if (route.id) {
+    if (route.kind === "stories" && STORY_MODES.has(route.id)) {
+      const target = new URL(url);
+      target.pathname = resourcePath({ server: route.server, locale: route.locale, kind: "stories" });
+      target.searchParams.set("mode", route.id);
+      res.writeHead(308, { Location: `${target.pathname}${target.search}` });
+      res.end();
+      return true;
+    }
+    for (const candidate of candidates(url.pathname)) {
+      const file = safeFile(DIST, candidate);
+      if (file) {
+        sendFile(req, res, file, "no-cache");
+        return true;
+      }
+    }
+    const availability = documentEntityAvailability(route as ResourceRoute & { id: string });
+    if (!availability) {
+      json(res, 404, { error: { code: "entity_not_found", message: "Resource entity not found" } });
+      return true;
+    }
+    if (route.kind === "stories" && availability.storyMode && !url.searchParams.has("mode")) {
+      const target = new URL(url);
+      target.searchParams.set("mode", availability.storyMode);
+      res.writeHead(302, { Location: target.toString(), "Cache-Control": "no-store" });
+      res.end();
+      return true;
+    }
+    const shell = safeFile(DIST, `${route.server}/${route.locale}/${route.kind}/index.html`);
+    if (shell) {
+      sendFile(req, res, shell, "no-cache");
+      return true;
+    }
+    json(res, 404, { error: { code: "document_not_found", message: "Resource document not found" } });
+    return true;
+  }
+
+  for (const candidate of candidates(url.pathname)) {
+    const file = safeFile(DIST, candidate);
+    if (file) {
+      sendFile(req, res, file, "no-cache");
+      return true;
+    }
+  }
+  json(res, 404, { error: { code: "document_not_found", message: "Resource collection not found" } });
+  return true;
+}
+
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://preview.invalid");
+  const legacyEntityTarget = legacyEntityRedirectTarget(url.pathname, url.search);
+  if (legacyEntityTarget && ((req.method ?? "GET") === "GET" || (req.method ?? "GET") === "HEAD")) {
+    res.writeHead(308, { Location: legacyEntityTarget, "Cache-Control": "public, max-age=86400" });
+    res.end();
+    return;
+  }
   if (isApplicationWorkerRequest(url.pathname) && APPLICATION_WORKER_ORIGIN) {
     await proxyApplicationWorker(req, res, url);
     return;
@@ -885,6 +1129,11 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // The asset explorer's SPA sub-routes are the one worker-first prefix whose
   // unprefixed document addresses still negotiate, matching the worker.
   const localePattern = /^\/(?:ja|en|zh-TW|zh-CN|ko)(?:\/|$)/u;
+  const serverFirstParts = url.pathname.split("/").filter(Boolean);
+  const serverFirstDocument =
+    serverFirstParts.length >= 3 &&
+    isReleaseServer(serverFirstParts[0]) &&
+    /^(?:ja|en|zh-TW|zh-CN|ko)$/u.test(serverFirstParts[1] ?? "");
   const lastSegment = url.pathname.split("/").pop() ?? "";
   const unprefixedAppPrefixes = [
     "/api/",
@@ -899,6 +1148,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   ];
   if (
     !localePattern.test(url.pathname) &&
+    !serverFirstDocument &&
     ((req.method ?? "GET") === "GET" || req.method === "HEAD") &&
     !lastSegment.includes(".") &&
     !unprefixedAppPrefixes.some((prefix) => url.pathname.startsWith(prefix))
@@ -930,6 +1180,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     res.end();
     return;
   }
+
+  if (serveCanonicalResourceDocument(req, res, url)) return;
 
   // The transformed Garupa API belongs to a configured provider/Worker. It is
   // never a file in a raw Bestdori mirror, even when a mirror is available for
@@ -1049,9 +1301,21 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       json(res, 400, { error: { code: "invalid_path", message: "Invalid URL encoding" } });
       return;
     }
-    const workspace = selectedWorkspace(server);
+    const releaseValues = url.searchParams.getAll("release");
+    if (releaseValues.length > 1 || (releaseValues[0] !== undefined && !releaseIdPattern.test(releaseValues[0]))) {
+      json(res, 400, { error: { code: "invalid_release", message: "Release must be a valid immutable release id" } });
+      return;
+    }
+    const requestedReleaseId = releaseValues[0];
+    const workspace = selectedWorkspace(server, requestedReleaseId);
     if (!workspace) {
-      json(res, 404, { error: { code: "server_not_found", message: "Server not found" } });
+      const knownServer = WORKSPACES.has(server);
+      json(res, 404, {
+        error: {
+          code: knownServer && requestedReleaseId ? "release_not_found" : "server_not_found",
+          message: knownServer && requestedReleaseId ? "Requested release is not available" : "Server not found",
+        },
+      });
       return;
     }
     const tail = decodePath(encodedTail);
@@ -1060,7 +1324,27 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       return;
     }
     if (tail.length === 1 && tail[0] === "release") {
-      sendFile(req, res, path.join(workspace.releaseRoot, "release.json"));
+      const projections = url.searchParams.getAll("projection");
+      if (projections.length > 1 || (projections[0] !== undefined && projections[0] !== "identity")) {
+        releaseJson(
+          res,
+          400,
+          { error: { code: "invalid_projection", message: "Release projection must be identity" } },
+          workspace,
+        );
+        return;
+      }
+      if (projections[0] === "identity") {
+        releaseJson(res, 200, releaseIdentity(workspace), workspace, "public, max-age=30, must-revalidate");
+        return;
+      }
+      sendFile(
+        req,
+        res,
+        path.join(workspace.releaseRoot, "release.json"),
+        undefined,
+        releaseResponseHeaders(workspace),
+      );
       return;
     }
     if (tail.length === 1 && tail[0] === "ui-marks") {
@@ -1081,23 +1365,34 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         )
           projected[logical] = value.path;
       }
-      json(res, 200, projected, "public, max-age=86400, stale-while-revalidate=604800");
+      json(
+        res,
+        200,
+        projected,
+        "public, max-age=86400, stale-while-revalidate=604800",
+        releaseResponseHeaders(workspace),
+      );
       return;
     }
     if (tail[0] === "sources" && tail[1] === "tree" && tail.length === 2) {
       const sourceTreeFile = path.join(workspace.metadataRoot, "source-index", "tree.json");
       if (!fs.existsSync(sourceTreeFile)) throw new Error(`Source tree is missing: ${sourceTreeFile}`);
-      sendFile(req, res, sourceTreeFile);
+      sendFile(req, res, sourceTreeFile, undefined, releaseResponseHeaders(workspace));
       return;
     }
     if (tail[0] === "sources" && tail[1] !== undefined && ["Assets", "Packages"].includes(tail[1])) {
       const file = safeFile(path.join(workspace.metadataRoot, "sources"), `${tail.slice(1).join("/")}.json`);
       if (file) {
-        sendFile(req, res, file);
+        sendFile(req, res, file, undefined, releaseResponseHeaders(workspace));
       } else {
-        json(res, 404, {
-          error: { code: "source_not_found", message: "Unity source not found" },
-        });
+        releaseJson(
+          res,
+          404,
+          {
+            error: { code: "source_not_found", message: "Unity source not found" },
+          },
+          workspace,
+        );
       }
       return;
     }

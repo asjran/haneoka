@@ -13,12 +13,20 @@ import { EXPANDED, matches, watchMedia } from "./ui/media";
 import { LazyImages } from "./ui/lazy-images";
 import { PaneFocus } from "./ui/pane";
 import { errorState, loadingState } from "./ui/state";
+import { entityHref, parseEntitySelection, returnStateFromLocation } from "../lib/resource-route";
+import { readReleaseServer } from "../lib/release-server";
+import { openDetailLocation, updateEntityHeading } from "../lib/detail-navigation";
+import type { Locale } from "@haneoka/i18n";
 type Value = Record<string, unknown>;
 
 export class SpineWorkspace extends LitElement {
   static properties = {
     locale: { type: String },
+    entityId: { type: String, attribute: "entity-id" },
+    previewSrc: { type: String, attribute: "preview-src" },
     phase: { state: true },
+    modelPhase: { state: true },
+    modelError: { state: true },
     capturing: { state: true },
     captureMessage: { state: true },
     models: { state: true },
@@ -41,7 +49,11 @@ export class SpineWorkspace extends LitElement {
   declare capturing: boolean;
   declare captureMessage: string;
   declare locale: string;
+  declare entityId: string;
+  declare previewSrc: string;
   declare phase: "loading" | "ready" | "error";
+  declare modelPhase: "idle" | "loading" | "ready" | "error";
+  declare modelError: string;
   declare models: Value[];
   declare selected: string;
   declare detail: Value | null;
@@ -63,12 +75,20 @@ export class SpineWorkspace extends LitElement {
   private paneFocus = new PaneFocus();
   private lazyImages = new LazyImages();
   private generation = 0;
+  private catalogRequest?: AbortController;
+  private selectionRequest?: AbortController;
+  private initializationTimer?: number;
+  private ssrStageRemoved = false;
   constructor() {
     super();
     this.capturing = false;
     this.captureMessage = "";
     this.locale = "ja";
+    this.entityId = "";
+    this.previewSrc = "";
     this.phase = "loading";
+    this.modelPhase = "idle";
+    this.modelError = "";
     this.models = [];
     this.selected = "";
     this.detail = null;
@@ -91,25 +111,29 @@ export class SpineWorkspace extends LitElement {
   }
   connectedCallback() {
     super.connectedCallback();
+    const selection = parseEntitySelection(location.pathname);
+    if (selection?.source === "canonical" && selection.route.kind === "spine") this.entityId = selection.route.id;
     this.locale = preferredLocale(this.locale);
     this.disposeMedia = watchMedia(EXPANDED, (value) => (this.docked = value));
     void Promise.all([
       import("@material/web/select/outlined-select.js"),
       import("@material/web/select/select-option.js"),
       import("@material/web/textfield/outlined-text-field.js"),
+      import("@material/web/switch/switch.js"),
       import("@material/web/progress/circular-progress.js"),
     ]);
-    window.setTimeout(() => {
+    this.initializationTimer = window.setTimeout(() => {
+      this.initializationTimer = undefined;
+      if (!this.isConnected) return;
       const params = new URLSearchParams(location.search);
-      this.selected = params.get("model") || "";
+      this.selected = this.entityId || params.get("model") || "";
       this.query = params.get("q") || "";
       this.view = collectionView(params.get("view"));
       this.metaFilters = Object.fromEntries(
         ["quality", "costumeId", "subCharacter", "preview"].map((key) => [key, params.get(key) || ""]),
       );
-      this.sort = (
-        ["id", "source", "family", "version"].includes(params.get("sort") || "") ? params.get("sort") : "id"
-      ) as typeof this.sort;
+      const sort = params.get("sort");
+      this.sort = sort === "source" || sort === "family" || sort === "version" ? sort : "id";
       this.order = params.get("order") === "desc" ? "desc" : "asc";
       this.familyFilter = params.get("family") || "";
       this.versionFilter = params.get("version") || "";
@@ -117,30 +141,48 @@ export class SpineWorkspace extends LitElement {
     }, 0);
   }
   disconnectedCallback() {
+    this.generation += 1;
+    this.catalogRequest?.abort();
+    this.selectionRequest?.abort();
+    if (this.initializationTimer != null) window.clearTimeout(this.initializationTimer);
+    this.initializationTimer = undefined;
     clearBrowseBar();
     this.lazyImages.disconnect();
     this.disposeMedia?.();
     this.paneFocus.detach();
     this.stage?.dispose();
+    this.stage = undefined;
+    this.modelPhase = "idle";
     super.disconnectedCallback();
   }
   private url(id = "") {
     return catalogUrl("spine", id);
   }
   private async loadCatalog() {
+    this.catalogRequest?.abort();
+    const controller = new AbortController();
+    this.catalogRequest = controller;
+    this.error = "";
+    // The selected detail is independent of the collection index. Loading it
+    // beside the catalog keeps canonical pages responsive without duplicating
+    // the SpineStage lifecycle.
+    if (this.selected && this.modelPhase !== "ready") void this.select(this.selected, false);
     try {
-      const data = await fetchJson<Value>(this.url());
+      const data = await fetchJson<Value>(this.url(), { signal: controller.signal });
+      if (!this.isConnected || controller.signal.aborted || this.catalogRequest !== controller) return;
       this.models = Object.values((data.models as Record<string, Value>) || {});
       this.phase = "ready";
-      if (this.selected) void this.select(this.selected, false);
     } catch (error) {
+      if (!this.isConnected || controller.signal.aborted || this.catalogRequest !== controller) return;
       this.phase = "error";
       this.error = error instanceof Error ? error.message : String(error);
+      // A selected detail request is independent of the collection index. Do
+      // not cover a ready stage, but keep an unresolved failure actionable.
     }
   }
   private modelTitle(model: Value) {
     return (
-      String(model.sourcePathKey || model.id || "Spine")
+      String(model.sourcePathKey || model.id || uiText(this.locale, "spine"))
         .split("/")
         .at(-1)
         ?.replace(/_SkeletonData(?:\.asset)?$/i, "") || String(model.id)
@@ -148,38 +190,66 @@ export class SpineWorkspace extends LitElement {
   }
   private familyName(value: unknown) {
     const family = String(value || "");
-    if (family === "home-spot")
-      return this.locale === "ja"
-        ? "ホーム画面"
-        : this.locale === "ko"
-          ? "홈 화면"
-          : this.locale === "en"
-            ? "Home spot"
-            : "首页看板";
+    if (family === "home-spot") return uiText(this.locale, "spinePage.families.homeSpot");
     return family || "—";
   }
   private async select(id: string, updateUrl = true) {
+    if (updateUrl && id !== this.entityId) {
+      openDetailLocation(
+        entityHref({
+          server: readReleaseServer(),
+          locale: preferredLocale(this.locale) as Locale,
+          kind: "spine",
+          id,
+          returnTo: this.entityId
+            ? new URLSearchParams(location.search).get("return") || undefined
+            : returnStateFromLocation(location.pathname, location.search, "spine"),
+        }),
+      );
+      return;
+    }
     const generation = ++this.generation;
+    this.selectionRequest?.abort();
+    const controller = new AbortController();
+    this.selectionRequest = controller;
+    this.dataset.entityReady = "false";
     this.selected = id;
     this.detail = null;
-    this.error = "";
+    this.modelError = "";
+    this.modelPhase = "loading";
     this.stage?.dispose();
+    this.stage = undefined;
     if (updateUrl) {
       const params = new URLSearchParams(location.search);
       params.set("model", id);
       history.replaceState(history.state, "", `${location.pathname}?${params}`);
     }
     try {
-      const detail = await fetchJson<Value>(this.url(id));
-      if (generation !== this.generation) return;
+      const detail = await fetchJson<Value>(this.url(id), { signal: controller.signal });
+      if (generation !== this.generation || controller.signal.aborted || !this.isConnected) return;
       this.detail = detail;
       await this.updateComplete;
       const host = this.querySelector<HTMLElement>("[data-spine-stage]");
-      if (!host) return;
-      this.stage = new SpineStage(host);
-      await this.stage.load(detail);
+      if (!host || generation !== this.generation || controller.signal.aborted || !this.isConnected) return;
+      const stage = new SpineStage(host);
+      this.stage = stage;
+      await stage.load(detail, controller.signal);
+      if (generation !== this.generation || controller.signal.aborted || !this.isConnected) {
+        stage.dispose();
+        return;
+      }
+      stage.setLoop(this.loop);
+      stage.setPaused(this.paused);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      if (generation === this.generation && !controller.signal.aborted && this.isConnected) {
+        this.modelPhase = "ready";
+        this.dataset.entityReady = "true";
+      }
     } catch (error) {
-      if (generation === this.generation) this.error = error instanceof Error ? error.message : String(error);
+      if (generation === this.generation && !controller.signal.aborted && this.isConnected) {
+        this.modelPhase = "error";
+        this.modelError = error instanceof Error ? error.message : String(error);
+      }
     }
   }
   private togglePaused() {
@@ -265,17 +335,45 @@ export class SpineWorkspace extends LitElement {
       });
   }
   updated() {
-    // The model viewer is a modal pane: focus belongs inside it.
-    this.paneFocus.sync(this.querySelector<HTMLElement>("[data-overlay-pane]"), () => this.closeDetail());
+    if (this.entityId && this.detail) updateEntityHeading(this, this.modelTitle(this.detail));
+    this.removeSsrStageWhenOwned();
+    // Collection details are modal panes; canonical entity routes are ordinary
+    // page flow and must leave focus in the shell/document.
+    this.paneFocus.sync(this.entityId ? null : this.querySelector<HTMLElement>("[data-overlay-pane]"), () =>
+      this.closeDetail(),
+    );
     // tile() defers its artwork as `data-src`; this is what promotes it.
     this.lazyImages.observe(this);
   }
+  private removeSsrStageWhenOwned() {
+    if (this.ssrStageRemoved || !this.entityId) return;
+    const managedStage = this.querySelector<HTMLElement>(".viewer-detail--page .viewer-detail__runtime");
+    const ssrStage = this.querySelector<HTMLElement>(".viewer-ssr-stage");
+    if (!managedStage || !ssrStage) return;
+    if (!managedStage.querySelector(".viewer-stage__preview, .viewer-stage__placeholder")) return;
+    ssrStage.remove();
+    this.ssrStageRemoved = true;
+  }
   private closeDetail() {
+    this.generation += 1;
+    this.selectionRequest?.abort();
+    this.selectionRequest = undefined;
     this.stage?.dispose();
     this.stage = undefined;
     this.selected = "";
     this.detail = null;
+    this.modelPhase = "idle";
+    this.modelError = "";
+    this.dataset.entityReady = "false";
     this.sync();
+  }
+  private retryModel() {
+    if (this.phase === "error") {
+      void this.loadCatalog();
+      return;
+    }
+    if (!this.selected) return;
+    void this.select(this.selected, false);
   }
   private adjacentModel(offset: number) {
     const models = this.filteredModels();
@@ -298,7 +396,7 @@ export class SpineWorkspace extends LitElement {
   }
   private renderCatalogWorkspace() {
     const models = this.filteredModels();
-    if (this.selected) {
+    if (this.entityId || this.selected) {
       clearBrowseBar();
       return this.renderModelDetail();
     }
@@ -308,7 +406,7 @@ export class SpineWorkspace extends LitElement {
       ${renderBrowse({
         kind: "model",
         count: { value: models.length, label: "" },
-        controls: viewSwitch(this.locale, this.view, (view) => {
+        modes: viewSwitch(this.locale, this.view, (view) => {
           this.view = view;
           this.sync();
         }),
@@ -440,6 +538,29 @@ export class SpineWorkspace extends LitElement {
   private preview(model: Value) {
     return String((model.preview as Value | undefined)?.url || "");
   }
+  private previewSource(detail?: Value | null): string {
+    if (this.previewSrc) return this.previewSrc;
+    if (detail?.preview && typeof detail.preview === "object") {
+      const preview = detail.preview as Value;
+      const source = String(preview.url || preview.path || "");
+      if (source) return source;
+    }
+    const selected = this.models.find((model) => String(model.id) === this.selected);
+    return (selected && this.preview(selected)) || this.previewSrc;
+  }
+  private previewRatio(detail?: Value | null): string {
+    const values = [detail?.preview, this.models.find((model) => String(model.id) === this.selected)?.preview];
+    for (const value of values) {
+      if (!value || typeof value !== "object") continue;
+      const preview = value as Value;
+      const width = Number(preview.width || preview.imageWidth || preview.naturalWidth || 0);
+      const height = Number(preview.height || preview.imageHeight || preview.naturalHeight || 0);
+      if (width > 0 && height > 0) return `${width} / ${height}`;
+      const ratio = Number(preview.aspectRatio || preview.ratio || 0);
+      if (ratio > 0) return `${ratio}`;
+    }
+    return "";
+  }
   private renderModelCard(model: Value) {
     const title = this.modelTitle(model);
     return tile({
@@ -497,67 +618,104 @@ export class SpineWorkspace extends LitElement {
   }
   private renderModelDetail() {
     const detail = this.detail;
+    const page = Boolean(this.entityId);
     const animations = Array.isArray(detail?.animations) ? detail.animations : [];
     const animationName = (animation: unknown) =>
       typeof animation === "string" ? animation : String((animation as Value | undefined)?.name || "");
     const models = this.filteredModels();
     const modelIndex = models.findIndex((model) => String(model.id) === this.selected);
+    const previewSrc = this.previewSource(detail);
+    const previewRatio = this.previewRatio(detail);
     return html`
       <aside
-        class="viewer-detail pane-layer"
-        role="dialog"
-        aria-modal="true"
-        aria-label=${uiText(this.locale, "model")}
-        tabindex="-1"
-        data-overlay-pane
+        class=${page ? "viewer-detail viewer-detail--page" : "viewer-detail pane-layer"}
+        role=${page ? nothing : "dialog"}
+        aria-modal=${page ? nothing : "true"}
+        aria-label=${page ? nothing : uiText(this.locale, "model")}
+        tabindex=${page ? nothing : "-1"}
+        data-overlay-pane=${page ? nothing : "true"}
       >
-        <header>
-          <button class="icon-button" @click=${this.closeDetail} aria-label=${uiText(this.locale, "close")}>
-            <svg class="material-icon" width="24" height="24"><use href="/icons.svg#arrow_back"></use></svg>
-          </button>
-          <span>
-            <strong>${detail ? this.modelTitle(detail) : this.selected}</strong>
-            <small>${this.familyName(detail?.family || detail?.spineVersion || "Spine")}</small>
-          </span>
-          <nav class="viewer-detail__navigation" aria-label="Spine">
-            <button
-              class="icon-button"
-              ?disabled=${modelIndex <= 0}
-              @click=${() => this.adjacentModel(-1)}
-              aria-label=${uiText(this.locale, "previous")}
-            >
-              <svg class="material-icon" width="20" height="20"><use href="/icons.svg#chevron_left"></use></svg>
-            </button>
-            <button class="icon-button" @click=${this.closeDetail} aria-label=${uiText(this.locale, "grid")}>
-              <svg class="material-icon" width="20" height="20"><use href="/icons.svg#grid_view"></use></svg>
-            </button>
-            <button
-              class="icon-button"
-              ?disabled=${modelIndex < 0 || modelIndex >= models.length - 1}
-              @click=${() => this.adjacentModel(1)}
-              aria-label=${uiText(this.locale, "next")}
-            >
-              <svg class="material-icon" width="20" height="20"><use href="/icons.svg#chevron_right"></use></svg>
-            </button>
-          </nav>
-        </header>
+        ${
+          page
+            ? nothing
+            : html`
+                <header>
+                  <button class="icon-button" @click=${this.closeDetail} aria-label=${uiText(this.locale, "close")}>
+                    <svg class="material-icon" width="24" height="24"><use href="/icons.svg#arrow_back"></use></svg>
+                  </button>
+                  <span>
+                    <strong>${detail ? this.modelTitle(detail) : this.selected}</strong>
+                    <small>
+                      ${this.familyName(detail?.family || detail?.spineVersion || uiText(this.locale, "spine"))}
+                    </small>
+                  </span>
+                  <nav class="viewer-detail__navigation" aria-label=${uiText(this.locale, "spine")}>
+                    <button
+                      class="icon-button"
+                      ?disabled=${modelIndex <= 0}
+                      @click=${() => this.adjacentModel(-1)}
+                      aria-label=${uiText(this.locale, "previous")}
+                    >
+                      <svg class="material-icon" width="20" height="20"><use href="/icons.svg#chevron_left"></use></svg>
+                    </button>
+                    <button class="icon-button" @click=${this.closeDetail} aria-label=${uiText(this.locale, "grid")}>
+                      <svg class="material-icon" width="20" height="20"><use href="/icons.svg#grid_view"></use></svg>
+                    </button>
+                    <button
+                      class="icon-button"
+                      ?disabled=${modelIndex < 0 || modelIndex >= models.length - 1}
+                      @click=${() => this.adjacentModel(1)}
+                      aria-label=${uiText(this.locale, "next")}
+                    >
+                      <svg class="material-icon" width="20" height="20">
+                        <use href="/icons.svg#chevron_right"></use>
+                      </svg>
+                    </button>
+                  </nav>
+                </header>
+              `
+        }
         <div class="viewer-detail__body">
-          <div class="viewer-stage viewer-detail__runtime">
-            <div data-spine-stage class="spine-stage"></div>
+          <div
+            class="viewer-stage viewer-detail__runtime"
+            aria-busy=${this.modelPhase === "loading"}
+            aria-label=${detail ? this.modelTitle(detail) : uiText(this.locale, "spine")}
+            style=${previewRatio ? `--viewer-stage-ratio: ${previewRatio};` : nothing}
+          >
             ${
-              !detail && !this.error
+              previewSrc
                 ? html`
-                    <div class="viewer-state"><md-circular-progress indeterminate></md-circular-progress></div>
+                    <img class="viewer-stage__preview" src=${previewSrc} alt="" aria-hidden="true" decoding="async" />
+                  `
+                : html`
+                    <span class="viewer-stage__preview viewer-stage__placeholder" aria-hidden="true"></span>
+                  `
+            }
+            <div data-spine-stage class="spine-stage"></div>
+            ${detail ? this.modelTitle(detail) : this.selected || uiText(this.locale, "spine")}
+            </p>
+            ${
+              this.modelPhase === "loading"
+                ? html`
+                    <div class="viewer-state" role="status" aria-live="polite">
+                      <md-circular-progress indeterminate aria-hidden="true"></md-circular-progress>
+                      <span>${uiText(this.locale, "loading")}</span>
+                    </div>
                   `
                 : nothing
             }${
-              this.error
+              this.modelError && this.modelPhase === "error"
                 ? html`
-                    <div class="viewer-state">${this.error}</div>
+                    <div class="viewer-state" role="alert">
+                      <span>${this.modelError}</span>
+                      <button class="button button--tonal" type="button" @click=${this.retryModel}>
+                        ${uiText(this.locale, "retry")}
+                      </button>
+                    </div>
                   `
                 : nothing
             }${
-              detail
+              detail && this.modelPhase === "ready"
                 ? html`
                     ${
                       this.captureMessage
@@ -593,16 +751,24 @@ export class SpineWorkspace extends LitElement {
                           <use href="/icons.svg#photo_camera"></use>
                         </svg>
                       </button>
-                      <button class="chip runtime-chip" aria-pressed=${this.loop} @click=${this.toggleLoop}>
-                        ${uiText(this.locale, "loop")}
-                      </button>
                     </div>
                   `
                 : nothing
             }
           </div>
-          <aside class="viewer-detail__info">
-            <h2>${detail ? this.modelTitle(detail) : "Spine"}</h2>
+          <aside class="viewer-detail__info" ?inert=${this.modelPhase !== "ready"}>
+            ${
+              this.phase === "error" && this.modelPhase === "ready"
+                ? html`
+                    <div class="viewer-metadata-status" role="alert">
+                      <span>${uiText(this.locale, "metadataUnavailable")}</span>
+                      <button class="button button--text" @click=${() => void this.loadCatalog()}>
+                        ${uiText(this.locale, "retry")}
+                      </button>
+                    </div>
+                  `
+                : nothing
+            }
             <dl class="spec-list">
               <div>
                 <dt>${uiText(this.locale, "family")}</dt>
@@ -617,6 +783,17 @@ export class SpineWorkspace extends LitElement {
                 <dd>${Number(detail?.animationCount || animations.length)}</dd>
               </div>
             </dl>
+            <section class="viewer-behavior-controls">
+              <h3>${uiText(this.locale, "settings")}</h3>
+              <label>
+                <span>${uiText(this.locale, "loop")}</span>
+                <md-switch
+                  .selected=${this.loop}
+                  @change=${this.toggleLoop}
+                  aria-label=${uiText(this.locale, "loop")}
+                ></md-switch>
+              </label>
+            </section>
             ${
               animations.length
                 ? html`

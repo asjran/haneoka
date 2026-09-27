@@ -3,6 +3,8 @@ BUNDLED FONT LICENSE NOTICES
 The generated Haneoka site includes variable font files from these
 @fontsource-variable packages at version 5.2.10:
 
+- Roboto: Copyright 2011 The Roboto Project Authors
+  (https://github.com/googlefonts/roboto-classic)
 - Noto Sans: Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/latin-greek-cyrillic)
 - Noto Sans JP: Google Inc.

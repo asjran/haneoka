@@ -93,8 +93,10 @@ export interface BrowseOptions {
   /** Inline custom properties for the results area (tile ratio, accents). */
   style?: string;
   count: { value: number | null; label: string };
-  /** Segmented switches (view, density) and page actions, in bar order. */
+  /** Ordinary page actions, before the filter and mode controls. */
   controls?: unknown;
+  /** Mode switches are kept at the far trailing edge of the bar. */
+  modes?: unknown;
   rail?: BrowseRail;
   heading?: BrowseHeading;
   applied?: unknown;
@@ -173,6 +175,7 @@ export function browseBar(options: BrowseOptions): TemplateResult {
           })
         : nothing
     }
+    ${options.modes}
   `;
 }
 

@@ -1,8 +1,15 @@
 import { LOCALES, type Locale } from "../i18n/locales";
 import { projectHaneokaTranscript } from "@haneoka/vega-plugin-haneoka/transcript";
 import { resolveLocalizedText } from "./localized-text";
-import { asRecord, fetchStaticCatalog, fetchStaticCatalogBatch, type RecordValue } from "./static-catalog-source";
+import {
+  asRecord,
+  fetchStaticCatalog,
+  fetchStaticCatalogBatch,
+  staticCatalogRelease,
+  type RecordValue,
+} from "./static-catalog-source";
 import { disambiguateTitles } from "./title-disambiguation";
+import type { ReleaseServer } from "./release-server";
 
 export type StoryMode = "band" | "link" | "home" | "afterlive" | "tutorial";
 
@@ -130,21 +137,29 @@ function firstLineValue(episode: EpisodeRecord): unknown {
   return undefined;
 }
 
-let pagesPromise: Promise<SearchableStoryPage[]> | undefined;
+const pagesPromises = new Map<ReleaseServer, Promise<SearchableStoryPage[]>>();
 
-export function searchableStoryPages(): Promise<SearchableStoryPage[]> {
-  pagesPromise ??= buildSearchableStoryPages();
-  return pagesPromise;
+export function searchableStoryPages(server: ReleaseServer = "intl"): Promise<SearchableStoryPage[]> {
+  const existing = pagesPromises.get(server);
+  if (existing) return existing;
+  const promise = buildSearchableStoryPages(server);
+  pagesPromises.set(server, promise);
+  return promise;
 }
 
-async function buildSearchableStoryPages(): Promise<SearchableStoryPage[]> {
+async function buildSearchableStoryPages(server: ReleaseServer): Promise<SearchableStoryPage[]> {
+  const release = await staticCatalogRelease(server);
   const [document, charactersDocument] = await Promise.all([
-    fetchStaticCatalog("stories?projection=4"),
-    fetchStaticCatalog("characters"),
+    fetchStaticCatalog("stories?projection=4", server, release),
+    fetchStaticCatalog("characters", server, release),
   ]);
-  const episodes = asRecord(asRecord(document)?.episodes) ?? {};
+  const storiesRoot = asRecord(document);
+  const episodes = storiesRoot ? asRecord(storiesRoot.episodes) : undefined;
+  if (!storiesRoot || !episodes) throw new Error(`Invalid stories catalog response for ${server}`);
+  const charactersRoot = asRecord(charactersDocument);
+  if (!charactersRoot) throw new Error(`Invalid characters catalog response for ${server}`);
   const characters = new Map(
-    Object.entries(asRecord(charactersDocument) ?? {}).flatMap(([key, raw]) => {
+    Object.entries(charactersRoot).flatMap(([key, raw]) => {
       const record = asRecord(raw);
       return record ? [[Number(record.characterId ?? key), record] as [number, RecordValue]] : [];
     }),
@@ -156,7 +171,7 @@ async function buildSearchableStoryPages(): Promise<SearchableStoryPage[]> {
     const mode = episode ? modeOf(episode) : undefined;
     return episode && mode ? [[key, episode, mode] as [string, EpisodeRecord, StoryMode]] : [];
   });
-  const details = await fetchStaticCatalogBatch("stories", wanted.map(([key]) => key));
+  const details = await fetchStaticCatalogBatch("stories", wanted.map(([key]) => key), server, release);
   console.warn(`Static stories: ${details.size}/${wanted.length} episode scripts available`);
 
   const built = wanted.flatMap(([key, episode, mode]) => {
@@ -224,6 +239,6 @@ async function buildSearchableStoryPages(): Promise<SearchableStoryPage[]> {
   return built;
 }
 
-export async function searchableStoryUrls(): Promise<string[]> {
-  return (await searchableStoryPages()).map(({ route }) => `${route}/`);
+export async function searchableStoryUrls(server: ReleaseServer = "intl"): Promise<string[]> {
+  return (await searchableStoryPages(server)).map(({ route }) => `${route}/`);
 }

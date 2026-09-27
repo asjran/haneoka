@@ -7,8 +7,9 @@ import "@fontsource-variable/noto-sans-tc/wght.css";
 import "@fontsource-variable/noto-sans-sc/wght.css";
 import "@fontsource-variable/noto-sans-kr/wght.css";
 import { ClientRouter } from "astro:transitions";
-import { LOCALES, localePath, localeTag, type Locale } from "../i18n/locales";
+import { LOCALES, localeFromPath, localePath, localeTag, type Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
+import { createServerI18nContext, serializeI18nSeed } from "../i18n/server";
 import { canonicalPath, pageDescription, pageStructuredData, shouldNoindex } from "../lib/seo";
 interface Props {
   locale: Locale;
@@ -16,65 +17,43 @@ interface Props {
   titleKey?: string;
   description?: string;
   route: string;
+  /** Public canonical path when the logical page route is server-first. */
+  canonicalRoute?: string;
   seoTitleValues?: Partial<Record<Locale, string>>;
   seoDescriptionValues?: Partial<Record<Locale, string>>;
 }
-const { locale, title, titleKey, description, route, seoTitleValues, seoDescriptionValues } = Astro.props;
+const { locale, title, titleKey, description, route, canonicalRoute, seoTitleValues, seoDescriptionValues } = Astro.props;
 const origin = Astro.site?.origin ?? "https://haneoka.org";
 const formatTitle = (value: string) => (value === "haneoka" ? value : `${value} · haneoka`);
-// Locale-prefixed pages are built for the archive sections only; app areas
-// (community, the asset explorer, account) stay at the root and keep their
-// own addresses as canonical.
-const isLocalizedRoute = route === "/" || route.startsWith("/catalog/");
+const isLocalizedRoute = canonicalRoute
+  ? localeFromPath(canonicalRoute) !== undefined
+  : localeFromPath(Astro.url.pathname) !== undefined;
 // Catalogue pages spell out where they sit: "楽曲 · カタログ · haneoka".
 const withCatalogHierarchy = (target: Locale, value: string) => {
   if (!route.startsWith("/catalog/") || route === "/catalog") return value;
   const hub = t(target, "catalog", "Catalog");
   return value.includes(` · ${hub} ·`) || value.endsWith(` · ${hub}`) ? value : `${value} · ${hub}`;
 };
-const titleValues = Object.fromEntries(
-  LOCALES.map((target) => {
-    const raw = seoTitleValues
-      ? (seoTitleValues[target] ?? title)
-      : titleKey
-        ? t(target, titleKey, title)
-        : title;
-    return [target, formatTitle(withCatalogHierarchy(target, raw))];
-  }),
-);
-const fullTitle = titleValues[locale] ?? formatTitle(title);
-const descriptionValues = Object.fromEntries(
-  LOCALES.map((target) => {
-    const localizedTitle = titleKey ? t(target, titleKey, title) : title;
-    const customDescription = description?.trim() && description.trim() !== title.trim() ? description : undefined;
-    return [target, seoDescriptionValues?.[target] ?? customDescription ?? pageDescription(target, route, localizedTitle)];
-  }),
-);
+const localizedTitle = seoTitleValues?.[locale] ?? (titleKey ? t(locale, titleKey, title) : title);
+const fullTitle = formatTitle(withCatalogHierarchy(locale, localizedTitle));
+const customDescription = description?.trim() && description.trim() !== title.trim() ? description : undefined;
+const pageSummary = seoDescriptionValues?.[locale] ?? customDescription ?? pageDescription(locale, route, localizedTitle);
+const publicRoute = canonicalRoute ?? (isLocalizedRoute ? localePath(route, locale) : route);
 // Each locale's page canonicalizes to itself and points at its language
 // siblings, so every language can rank on its own URL.
 const canonicalHref = isLocalizedRoute
-  ? `${origin}${canonicalPath(localePath(route, locale))}`
+  ? `${origin}${canonicalPath(publicRoute)}`
   : `${origin}${canonicalPath(route)}`;
 const languageAlternates = isLocalizedRoute
   ? LOCALES.map((target) => ({
       locale: target,
-      href: `${origin}${canonicalPath(localePath(route, target))}`,
+      href: `${origin}${canonicalPath(canonicalRoute ? localePath(publicRoute, target) : localePath(route, target))}`,
     }))
   : [];
-const structuredValues = Object.fromEntries(
-  LOCALES.map((target) => [
-    target,
-    JSON.stringify(
-      pageStructuredData(
-        origin,
-        isLocalizedRoute ? localePath(route, target) : route,
-        target,
-        titleValues[target],
-        descriptionValues[target],
-      ),
-    ).replaceAll("<", "\\u003c"),
-  ]),
-);
+const structuredData = JSON.stringify(
+  pageStructuredData(origin, route, locale, fullTitle, pageSummary, isLocalizedRoute, publicRoute),
+).replaceAll("<", "\\u003c");
+const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed());
 ---
 
 <!doctype html>
@@ -85,6 +64,7 @@ const structuredValues = Object.fromEntries(
     </style>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <script id="haneoka-i18n-seed" type="application/json" is:inline set:html={i18nSeed}></script>
     <script is:inline>
       if (!window.__haneokaDetailHistoryHook) {
         window.__haneokaDetailHistoryHook = true;
@@ -100,42 +80,6 @@ const structuredValues = Object.fromEntries(
       }
     </script>
     <ClientRouter fallback="none" />
-    <script is:inline>
-      (() => {
-        const ok = /^(ja|en|zh-TW|zh-CN|ko)$/;
-        const match = (v) => {
-          try {
-            const p =
-              Intl.getCanonicalLocales(String(v || "").replaceAll("_", "-"))[0]
-                ?.toLowerCase()
-                .split("-") || [];
-            if (p[0] === "ja" || p[0] === "en" || p[0] === "ko") return p[0];
-            if (p[0] !== "zh") return null;
-            if (p.includes("hant") || p.some((x) => ["tw", "hk", "mo"].includes(x))) return "zh-TW";
-            return "zh-CN";
-          } catch {
-            return null;
-          }
-        };
-        let l = "";
-        try {
-          const s = localStorage.getItem("haneoka.locale");
-          l = ok.test(s || "") ? s : "";
-        } catch {}
-        // A language-prefixed URL is an explicit locale choice: it wins over
-        // stored and browser preferences for this page.
-        const prefix = location.pathname.replace(/^\/+/, "").split("/")[0];
-        if (ok.test(prefix)) l = prefix;
-        if (!l) l = (navigator.languages || [navigator.language]).map(match).find(Boolean) || "en";
-        const d = document.documentElement,
-          t = { ja: "ja-JP", en: "en-US", "zh-TW": "zh-TW", "zh-CN": "zh-CN", ko: "ko-KR" };
-        d.lang = t[l];
-        d.dataset.locale = l;
-        try {
-          localStorage.setItem("haneoka.locale", l);
-        } catch {}
-      })();
-    </script>
     <script is:inline>
       (() => {
         const d = document.documentElement;
@@ -157,24 +101,24 @@ const structuredValues = Object.fromEntries(
         }
       })();
     </script>
-    <title data-i18n-values={JSON.stringify(titleValues)}>{fullTitle}</title>
-    <meta name="description" content={descriptionValues[locale]} data-i18n-values={JSON.stringify(descriptionValues)} />
+    <title>{fullTitle}</title>
+    <meta name="description" content={pageSummary} />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="haneoka" />
-    <meta property="og:title" content={fullTitle} data-i18n-values={JSON.stringify(titleValues)} />
+    <meta property="og:title" content={fullTitle} />
     <meta
       property="og:description"
-      content={descriptionValues[locale]}
-      data-i18n-values={JSON.stringify(descriptionValues)}
+      content={pageSummary}
+
     />
     <meta property="og:url" content={canonicalHref} />
     <meta property="og:image" content={`${origin}/images/haneoka-social-card.png`} />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content={fullTitle} data-i18n-values={JSON.stringify(titleValues)} />
+    <meta name="twitter:title" content={fullTitle} />
     <meta
       name="twitter:description"
-      content={descriptionValues[locale]}
-      data-i18n-values={JSON.stringify(descriptionValues)}
+      content={pageSummary}
+
     />
     <meta name="twitter:image" content={`${origin}/images/haneoka-social-card.png`} />
     <meta name="theme-color" content="#f0edf1" />
@@ -198,46 +142,16 @@ const structuredValues = Object.fromEntries(
       <script
         type="application/ld+json"
         is:inline
-        data-i18n-values={JSON.stringify(structuredValues)}
-        set:html={structuredValues[locale]}
+        set:html={structuredData}
       ></script>
     )}
   </head>
   <body>
     <slot />
     <audio-dock transition:persist="haneoka-audio"></audio-dock>
-    <script is:inline>
-      (() => {
-        const tags = { ja: "ja-JP", en: "en-US", "zh-TW": "zh-TW", "zh-CN": "zh-CN", ko: "ko-KR" };
-        const apply = (l) => {
-          if (!tags[l]) return;
-          const d = document.documentElement;
-          d.dataset.locale = l;
-          d.lang = tags[l];
-          try {
-            localStorage.setItem("haneoka.locale", l);
-          } catch {}
-          document.cookie = "haneoka.locale=" + encodeURIComponent(l) + "; Path=/; Max-Age=31536000; SameSite=Lax";
-          document.querySelectorAll("[data-i18n-values]").forEach((n) => {
-            try {
-              const v = JSON.parse(n.getAttribute("data-i18n-values") || "{}");
-              if (typeof v[l] === "string") {
-                if (n instanceof HTMLMetaElement) n.content = v[l];
-                else n.textContent = v[l];
-              }
-            } catch {}
-          });
-          document.querySelectorAll("[data-i18n-aria-label-values]").forEach((n) => {
-            try {
-              const v = JSON.parse(n.getAttribute("data-i18n-aria-label-values") || "{}");
-              if (typeof v[l] === "string") n.setAttribute("aria-label", v[l]);
-            } catch {}
-          });
-          window.dispatchEvent(new CustomEvent("haneoka:locale-ready", { detail: l }));
-        };
-        window.__haneokaApplyLocale = apply;
-        apply(document.documentElement.dataset.locale || "ja");
-      })();
+    <script>
+      import { installI18nDom } from "../i18n/dom";
+      installI18nDom();
     </script>
     <script>
       if ("serviceWorker" in navigator)
@@ -258,26 +172,12 @@ const structuredValues = Object.fromEntries(
       };
       void restoreAudioDock();
       document.addEventListener("astro:page-load", restoreAudioDock);
-      const localeTags = { ja: "ja-JP", en: "en-US", "zh-TW": "zh-TW", "zh-CN": "zh-CN", ko: "ko-KR" };
-      document.addEventListener("astro:before-swap", (event) => {
-        const locale = document.documentElement.dataset.locale || "ja";
-        const next = (event as Event & { newDocument: Document }).newDocument;
-        if (next) {
-          next.documentElement.dataset.locale = locale;
-          next.documentElement.lang = localeTags[locale as keyof typeof localeTags] || "ja-JP";
-        }
-      });
-      document.addEventListener("astro:after-swap", () => {
-        let locale = document.documentElement.dataset.locale || "";
-        try {
-          locale = localStorage.getItem("haneoka.locale") || locale;
-        } catch {}
-        (window as Window & { __haneokaApplyLocale?: (locale: string) => void }).__haneokaApplyLocale?.(locale || "ja");
-      });
     </script>
     <script>
       import { SEED_KEY, isSeed, syncThemeColor } from "../lib/tuning";
       import { installRipple } from "../lib/ripple";
+      import { installLoadingProgress } from "../lib/loading-progress";
+      installLoadingProgress();
       installRipple();
       // Page changes swap instantly: no view-transition name is projected onto
       // the content pane, so there is no cross-fade to watch between routes.

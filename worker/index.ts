@@ -17,6 +17,14 @@ import { handlePublicProfileRequest } from "./public-profile";
 import { cleanupCommunityUploads, handleUploadRequest } from "./uploads";
 import { projectCatalogCharts, SonolusLevelService } from "@haneoka/sonolus-core";
 import {
+  isReleaseServer,
+  legacyEntityRedirectTarget,
+  parseResourceRoute,
+  resourcePath,
+  type ResourceKind,
+  type ResourceRoute,
+} from "../src/lib/resource-route";
+import {
   parseReleaseChartDataId,
   ReleaseChartCatalogProvider,
   ReleaseLevelTemplateProvider,
@@ -28,6 +36,7 @@ type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 
 interface Release {
+  identityKey: string;
   indexPrefix: string;
   manifestKey: string;
   releaseId: string;
@@ -223,7 +232,12 @@ const CATALOG_ROUTE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:~-]{0,255}$/u;
 const RESOURCE_SERVER_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/u;
 const RESOURCE_PREFIX_PATTERN = /^[a-z0-9](?:[a-z0-9/_-]{0,198}[a-z0-9])?$/u;
 const SOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const RELEASE_ID_PATTERN = /^r-[a-f0-9]{20}$/u;
+const RELEASE_IDENTITY_SCHEMA = "haneoka-resource-release-identity-v1";
+const RELEASE_IDENTITY_FILENAME = "release-identity.json";
+const RELEASE_IDENTITY_KEYS = ["releaseId", "schema", "server", "sourceId"] as const;
 const RESOURCE_SERVER_REGIONS = new Set(["global", "jp", "kr", "tw", "cn", "en"]);
+const SERVER_FIRST_LOCALES = new Set(["ja", "en", "zh-TW", "zh-CN", "ko"]);
 
 const GAME_CLIENT_SCHEMA = "haneoka-game-client-v1";
 const GAME_CLIENT_ADDRESSABLES_INDEX_SCHEMA = "haneoka-game-client-addressables-index-v1";
@@ -334,6 +348,61 @@ function cleanRelativePath(value: string): string | null {
   return output.join("/");
 }
 
+function isServerFirstDocumentPath(pathname: string): boolean {
+  const parts = pathname.split("/").filter(Boolean);
+  return parts.length >= 3 && isReleaseServer(parts[0]) && SERVER_FIRST_LOCALES.has(parts[1] || "");
+}
+
+const DOCUMENT_RESOURCE_NAMES: Readonly<Partial<Record<ResourceKind, string>>> = {
+  characters: "characters",
+  songs: "songs",
+  "member-cards": "cards",
+  "support-cards": "support-cards",
+  comics: "comics",
+  stamps: "stamps",
+  stickers: "stickers",
+  backgrounds: "backgrounds",
+  "band-items": "band-items",
+  items: "items",
+  events: "events",
+  "real-lives": "real-lives",
+  gacha: "gacha",
+  "login-campaigns": "login-campaigns",
+  shop: "shop",
+  exchange: "exchange",
+  circle: "circle",
+  challenge: "challenge",
+  passes: "passes",
+  stories: "stories",
+  missions: "missions",
+  "tgw-card": "tgw-card",
+  live2d: "live2d",
+  spine: "spine",
+  help: "help",
+};
+const STORY_MODES = new Set(["band", "link", "home", "afterlive", "tutorial"]);
+
+interface DocumentEntityAvailability {
+  entity: JsonObject;
+  storyMode?: "band" | "link" | "home" | "afterlive" | "tutorial";
+}
+
+function storyModeForEntity(entity: JsonObject): DocumentEntityAvailability["storyMode"] {
+  if (Number(entity.chapterId || 0) < 900_000) return "band";
+  switch (entity.chapterKey) {
+    case "asset_linkstory":
+      return "link";
+    case "asset_home":
+      return "home";
+    case "asset_afterlive":
+      return "afterlive";
+    case "asset_tutorial":
+      return "tutorial";
+    default:
+      return undefined;
+  }
+}
+
 const validResourcePrefix = (value: string): boolean =>
   RESOURCE_PREFIX_PATTERN.test(value) &&
   !value.includes("..") &&
@@ -363,6 +432,17 @@ function errorResponse(
   });
 }
 
+class ReleaseIdentityError extends Error {
+  readonly status: 404 | 502;
+  readonly code: "release_identity_missing" | "release_identity_invalid";
+
+  constructor(status: 404 | 502, code: "release_identity_missing" | "release_identity_invalid", message: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function jsonResponse(request: Request, value: JsonValue, cacheControl = "public, max-age=60"): Response {
   return new Response(request.method === "HEAD" ? null : JSON.stringify(value), {
     status: 200,
@@ -371,6 +451,7 @@ function jsonResponse(request: Request, value: JsonValue, cacheControl = "public
 }
 
 const pointerCache = new Map<string, ReleaseCacheEntry>();
+const requestedReleaseCache = new Map<string, Promise<Release | null>>();
 const resourceServerRouteCache = new Map<string, ResourceServerRouteCacheEntry>();
 let resourceServerRouteListCache: ResourceServerRouteListCacheEntry | undefined;
 const catalogStorageManifestCache = new Map<string, Promise<CatalogStorageManifest | null>>();
@@ -525,7 +606,7 @@ async function currentRelease(env: Env, server: ResourceServerRoute): Promise<Re
   if (
     value.server !== server.slug ||
     value.schema !== "haneoka-resource-pointer-v1" ||
-    !/^r-[a-f0-9]{20}$/.test(releaseId) ||
+    !RELEASE_ID_PATTERN.test(releaseId) ||
     !SOURCE_ID_PATTERN.test(sourceId) ||
     value.releaseManifest !== manifestKey ||
     releaseIndex?.algorithm !== RELEASE_INDEX_ALGORITHM ||
@@ -534,13 +615,89 @@ async function currentRelease(env: Env, server: ResourceServerRoute): Promise<Re
   ) {
     throw new Error(`invalid release pointer: ${key}`);
   }
-  const release: Release = { indexPrefix, manifestKey, releaseId, server: server.slug, sourceId };
+  const release: Release = {
+    identityKey: `${server.resourcePrefix}/releases/${releaseId}/${RELEASE_IDENTITY_FILENAME}`,
+    indexPrefix,
+    manifestKey,
+    releaseId,
+    server: server.slug,
+    sourceId,
+  };
   cacheCurrentRelease(key, { expiresAt: now + POINTER_TTL_MS, value: release }, now);
   return release;
 }
 
+/**
+ * Resolve an explicitly requested immutable release. An exact match with the
+ * validated current pointer is a migration fast path; every other release is
+ * resolved only from its tiny immutable identity descriptor.
+ */
+async function requestedRelease(env: Env, server: ResourceServerRoute, releaseId: string): Promise<Release | null> {
+  if (!RELEASE_ID_PATTERN.test(releaseId)) return null;
+  const key = `${server.slug}\u0000${server.resourcePrefix}\u0000${releaseId}`;
+  const existing = requestedReleaseCache.get(key);
+  if (existing) return existing;
+  let immutable = false;
+  const pending = (async () => {
+    const manifestKey = `${server.resourcePrefix}/releases/${releaseId}/release.json`;
+    const identityKey = `${server.resourcePrefix}/releases/${releaseId}/${RELEASE_IDENTITY_FILENAME}`;
+    const value = await readR2Json(env, identityKey);
+    if (value === null) {
+      const current = await currentRelease(env, server);
+      if (current?.releaseId === releaseId) return current;
+      throw new ReleaseIdentityError(
+        404,
+        "release_identity_missing",
+        `Requested release identity descriptor is missing: ${identityKey}; backfill the retained R2 release descriptor`,
+      );
+    }
+    if (
+      !isJsonObject(value) ||
+      Object.keys(value).sort().join("\0") !== RELEASE_IDENTITY_KEYS.join("\0") ||
+      value.schema !== RELEASE_IDENTITY_SCHEMA ||
+      value.server !== server.slug ||
+      value.releaseId !== releaseId ||
+      typeof value.sourceId !== "string" ||
+      !SOURCE_ID_PATTERN.test(value.sourceId)
+    ) {
+      throw new ReleaseIdentityError(
+        502,
+        "release_identity_invalid",
+        `Invalid requested release identity descriptor: ${identityKey}`,
+      );
+    }
+    immutable = true;
+    return {
+      identityKey,
+      indexPrefix: `${server.resourcePrefix}/releases/${releaseId}/index/`,
+      manifestKey,
+      releaseId,
+      server: server.slug,
+      sourceId: value.sourceId,
+    };
+  })();
+  requestedReleaseCache.set(key, pending);
+  while (requestedReleaseCache.size > POINTER_CACHE_LIMIT) {
+    const oldestKey = requestedReleaseCache.keys().next().value;
+    if (!oldestKey) break;
+    requestedReleaseCache.delete(oldestKey);
+  }
+  try {
+    const value = await pending;
+    // A current-pointer fallback is valid only while that pointer is current.
+    // Retain immutable descriptors, never promote this migration fallback into
+    // an indefinitely cached historical release.
+    if (!immutable && requestedReleaseCache.get(key) === pending) requestedReleaseCache.delete(key);
+    return value;
+  } catch (error) {
+    if (requestedReleaseCache.get(key) === pending) requestedReleaseCache.delete(key);
+    throw error;
+  }
+}
+
 function releaseCacheRequest(request: Request, releaseRevision: string): Request {
   const url = new URL(request.url);
+  url.searchParams.delete("release");
   url.searchParams.set("__release", releaseRevision);
   url.searchParams.set("__representation", RELEASE_REPRESENTATION_VERSION);
   return new Request(url, request);
@@ -1406,6 +1563,15 @@ function releaseResponseHeaders(response: Response, release: Release): Response 
   });
 }
 
+function releaseIdentityDocument(release: Release): JsonObject {
+  return {
+    schema: RELEASE_IDENTITY_SCHEMA,
+    server: release.server,
+    releaseId: release.releaseId,
+    sourceId: release.sourceId,
+  };
+}
+
 function gameClientError(request: Request, status: number, message: string): Response {
   return new Response(request.method === "HEAD" ? null : message, {
     status,
@@ -1791,8 +1957,28 @@ async function handleCatalogApi(
     return errorResponse(request, 404, "server_not_found", "Server not found");
   const server = await activeResourceServer(env, serverSlug);
   if (!server) return errorResponse(request, 404, "server_not_found", "Server not found");
-  const release = await currentRelease(env, server);
-  if (!release) return errorResponse(request, 503, "release_unavailable", "No release is published");
+  const releaseValues = new URL(request.url).searchParams.getAll("release");
+  if (releaseValues.length > 1 || (releaseValues[0] !== undefined && !RELEASE_ID_PATTERN.test(releaseValues[0]))) {
+    return errorResponse(request, 400, "invalid_release", "Release must be a valid immutable release id");
+  }
+  const requested = releaseValues[0];
+  let release: Release | null;
+  try {
+    release = requested ? await requestedRelease(env, server, requested) : await currentRelease(env, server);
+  } catch (error) {
+    if (error instanceof ReleaseIdentityError) {
+      return errorResponse(request, error.status, error.code, error.message);
+    }
+    throw error;
+  }
+  if (!release) {
+    return errorResponse(
+      request,
+      requested ? 404 : 503,
+      requested ? "release_not_found" : "release_unavailable",
+      requested ? "Requested release is not available" : "No release is published",
+    );
+  }
   const tail = cleanRelativePath(rawTail);
   if (!tail) return errorResponse(request, 404, "route_not_found", "API route not found");
   if (tail === "ui-marks") {
@@ -1809,6 +1995,21 @@ async function handleCatalogApi(
     );
   }
   if (tail === "release") {
+    const projections = new URL(request.url).searchParams.getAll("projection");
+    if (projections.length > 1 || (projections[0] !== undefined && projections[0] !== "identity")) {
+      return errorResponse(request, 400, "invalid_projection", "Release projection must be identity");
+    }
+    if (projections[0] === "identity") {
+      const cacheRequest = releaseCacheRequest(request, release.releaseId);
+      const response = await edgeCached(
+        cacheRequest,
+        ctx,
+        API_CACHE_TTL,
+        async () => jsonResponse(request, releaseIdentityDocument(release), CATALOG_API_CACHE_CONTROL),
+        CATALOG_API_CACHE_CONTROL,
+      );
+      return releaseResponseHeaders(response, release);
+    }
     const response = await serveR2Object(env, request, release.manifestKey, "application/json; charset=utf-8");
     return releaseResponseHeaders(
       response ? response : errorResponse(request, 502, "release_invalid", "Release manifest is missing"),
@@ -2289,9 +2490,7 @@ async function serveStaticAsset(request: Request, env: Env): Promise<Response> {
         const location = hit.headers.get("Location");
         const resolved = location ? new URL(location, candidate) : null;
         const direct =
-          resolved && resolved.origin === url.origin
-            ? await env.ASSETS.fetch(new Request(resolved, request))
-            : null;
+          resolved && resolved.origin === url.origin ? await env.ASSETS.fetch(new Request(resolved, request)) : null;
         if (direct && direct.status !== 404 && direct.status < 300) return direct;
         continue;
       }
@@ -2308,6 +2507,73 @@ async function serveStaticAsset(request: Request, env: Env): Promise<Response> {
     if (entry) return entry;
   }
   return response;
+}
+
+async function documentEntityAvailability(
+  env: Env,
+  route: ResourceRoute & { id: string },
+): Promise<DocumentEntityAvailability | null> {
+  const resourceName = DOCUMENT_RESOURCE_NAMES[route.kind];
+  if (!resourceName) return null;
+  const server = await activeResourceServer(env, route.server);
+  if (!server) return null;
+  const release = await currentRelease(env, server);
+  if (!release) return null;
+  const manifest = await catalogStorageManifest(env, release);
+  const storage = manifest?.resources[resourceName];
+  if (!storage?.entities) return null;
+  const shard = await readCatalogShard(env, release, storage.entities, route.id);
+  const value = ownJsonValue(shard, route.id);
+  if (!isJsonObject(value)) return null;
+  const availability: DocumentEntityAvailability = { entity: value };
+  if (route.kind === "stories") {
+    const storyMode = storyModeForEntity(value);
+    if (storyMode) availability.storyMode = storyMode;
+  }
+  return availability;
+}
+
+/**
+ * A server can have a valid entity after the static detail matrix was built.
+ * Serve the bounded server-first collection shell in that case, but only
+ * after the immutable release index proves that the requested entity exists.
+ */
+async function serveCanonicalResourceDocument(request: Request, env: Env): Promise<Response | null> {
+  const route = parseResourceRoute(new URL(request.url).pathname);
+  if (!route || (request.method !== "GET" && request.method !== "HEAD")) return null;
+
+  if (!route.id) {
+    const collection = await env.ASSETS.fetch(request);
+    return collection.status === 404 ? new Response("Not found", { status: 404 }) : collection;
+  }
+
+  // Story sections use a fourth path segment for the collection mode. Keep
+  // that namespace separate from numeric/entity story IDs.
+  if (route.kind === "stories" && STORY_MODES.has(route.id)) {
+    const shellUrl = new URL(request.url);
+    shellUrl.pathname = resourcePath({ server: route.server, locale: route.locale, kind: "stories" });
+    shellUrl.searchParams.set("mode", route.id);
+    return new Response(null, { status: 308, headers: { Location: shellUrl.toString() } });
+  }
+
+  const direct = await env.ASSETS.fetch(request);
+  if (direct.status !== 404) return direct;
+
+  const availability = await documentEntityAvailability(env, route as ResourceRoute & { id: string });
+  if (!availability) return new Response("Not found", { status: 404 });
+
+  const url = new URL(request.url);
+  if (route.kind === "stories" && availability.storyMode && !url.searchParams.has("mode")) {
+    url.searchParams.set("mode", availability.storyMode);
+    return new Response(null, {
+      status: 302,
+      headers: { Location: url.toString(), "Cache-Control": "no-store" },
+    });
+  }
+
+  url.pathname = resourcePath({ server: route.server, locale: route.locale, kind: route.kind });
+  const shell = await env.ASSETS.fetch(new Request(url, request));
+  return shell.status === 404 ? new Response("Not found", { status: 404 }) : shell;
 }
 
 /**
@@ -2351,7 +2617,15 @@ const WORKER_FIRST_PREFIXES = [
 
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  const legacyEntityTarget = legacyEntityRedirectTarget(url.pathname, url.search);
+  if (legacyEntityTarget && (request.method === "GET" || request.method === "HEAD")) {
+    return new Response(null, {
+      status: 308,
+      headers: { Location: legacyEntityTarget, "Cache-Control": "public, max-age=86400" },
+    });
+  }
   const hasLocalePrefix = /^\/(?:ja|en|zh-TW|zh-CN|ko)(?:\/|$)/u.test(url.pathname);
+  const serverFirstDocument = isServerFirstDocumentPath(url.pathname);
   const lastSegment = url.pathname.split("/").pop() || "";
   // The asset explorer's SPA sub-routes are the one worker-first prefix whose
   // unprefixed document addresses still negotiate: no unprefixed page is
@@ -2360,6 +2634,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   const assetExplorerRoute = /^\/catalog\/assets(?:\/|$)/u.test(url.pathname);
   if (
     !hasLocalePrefix &&
+    !serverFirstDocument &&
     (request.method === "GET" || request.method === "HEAD") &&
     !lastSegment.includes(".") &&
     (!WORKER_FIRST_PREFIXES.some((prefix) => url.pathname.startsWith(prefix)) || assetExplorerRoute)
@@ -2421,6 +2696,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   const artifact = await handleArtifact(env, ctx, request, url.pathname);
   if (artifact) return artifact;
   if (url.pathname.startsWith("/api/")) return errorResponse(request, 404, "route_not_found", "API route not found");
+  const canonicalDocument = await serveCanonicalResourceDocument(request, env);
+  if (canonicalDocument) return canonicalDocument;
   return serveStaticAsset(request, env);
 }
 

@@ -1,9 +1,4 @@
 ---
-import ja from "../../public/i18n/ja.json";
-import en from "../../public/i18n/en.json";
-import zhCN from "../../public/i18n/zh-CN.json";
-import zhTW from "../../public/i18n/zh-TW.json";
-import ko from "../../public/i18n/ko.json";
 import Base from "../layouts/Base.astro";
 import AppShell from "./AppShell.astro";
 import { LOCALES, type Locale } from "../i18n/locales";
@@ -27,13 +22,7 @@ const seoTitleValues = Object.fromEntries(
     <anon-tokyo-workspace
       locale={locale}
       mode={mode}
-      labels={JSON.stringify({
-        ja: ja.anonTokyoPage,
-        en: en.anonTokyoPage,
-        "zh-CN": zhCN.anonTokyoPage,
-        "zh-TW": zhTW.anonTokyoPage,
-        ko: ko.anonTokyoPage,
-      })}
+
     ></anon-tokyo-workspace>
   </AppShell>
 </Base>

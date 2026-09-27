@@ -2,9 +2,19 @@ import { BESTDORI_CATALOG_VERSION } from "@haneoka/bestdori/resources";
 import { LitElement, html, nothing } from "lit";
 import { resolveStoryRuntimeAssets, storySourceUrl } from "../../lib/story-assets";
 import { resolveLocalizedText } from "../../lib/localized-text";
+import { beginLoading } from "../../lib/loading-progress";
+import { clientText } from "../../i18n/client";
 import { uiText } from "../shared/catalog";
+import { PlaybackControlsController } from "../ui/playback-controls";
+import { ViewportFullscreenController } from "./viewport-fullscreen";
 import { loadingState } from "../ui/state";
-import { createVega, type AdvStory, type VegaEngine, type VegaPlayerHandle } from "@haneoka/vega/engine";
+import {
+  createVega,
+  createVegaPlayerState,
+  type AdvStory,
+  type VegaEngine,
+  type VegaPlayerHandle,
+} from "@haneoka/vega/engine";
 import type { StoryResolvedText } from "@haneoka/vega/runtime";
 import type { CubismRuntimeAdapter } from "@haneoka/vega-plugin-cubism";
 import { createCubismPlugin } from "@haneoka/vega-plugin-cubism";
@@ -87,13 +97,8 @@ const merge = (base: unknown, authored: unknown): RecordValue => {
   return result;
 };
 
-type StoryTransportKey = "auto" | "storyProgress";
-
-/** Transport copy in the locale order `ui()` indexes. */
-const TRANSPORT_TEXT: Record<StoryTransportKey, readonly [string, string, string, string, string]> = {
-  auto: ["オート", "Auto", "自動", "自动", "자동"],
-  storyProgress: ["シナリオ進行", "Story progress", "劇情進度", "剧情进度", "이야기 진행"],
-};
+type StoryTransportKey =
+  "auto" | "storyProgress" | "resources" | "preparing" | "sceneIndex" | "preparationTasks" | "collapse" | "expand";
 
 export class VegaStoryStage extends LitElement {
   static properties = {
@@ -103,18 +108,22 @@ export class VegaStoryStage extends LitElement {
     providerBase: { type: String, attribute: "provider-base" },
     phase: { state: true },
     issue: { state: true },
+    transportIssue: { state: true },
     autoMode: { state: true },
     ordinal: { state: true },
     maximum: { state: true },
     transportVisible: { state: true },
     fullscreenActive: { state: true },
+    transportCollapsed: { state: true },
+    transportAutoHidden: { state: true },
   };
   declare story: RecordValue;
   declare server: string;
   declare locale: string;
   declare providerBase: string;
-  declare phase: "loading" | "ready" | "error";
+  declare phase: "loading" | "booting" | "ready" | "error";
   declare issue: string;
+  declare transportIssue: string;
   /** AUTO advance, mirrored from the player for the transport button. */
   declare autoMode: boolean;
   /** Current and last reachable story line, the slider's whole range. */
@@ -122,9 +131,14 @@ export class VegaStoryStage extends LitElement {
   declare maximum: number;
   declare transportVisible: boolean;
   declare fullscreenActive: boolean;
+  declare transportCollapsed: boolean;
+  declare transportAutoHidden: boolean;
   private loadedKey = "";
+  private appliedLocale = "";
   private engine?: VegaEngine;
   private handle?: VegaPlayerHandle;
+  private playerState?: ReturnType<typeof createVegaPlayerState>;
+  private bootStateTimer = 0;
   private loadController?: AbortController;
   private continuousPlay = false;
   private sequenceListeners = new Set<() => void>();
@@ -134,8 +148,11 @@ export class VegaStoryStage extends LitElement {
   private scrubbing = false;
   private resumeAfterScrub = false;
   private pausedBeforeScrub = false;
-  private viewportFullscreen = false;
-  private fullscreenLayer?: HTMLElement;
+  private viewportFullscreen: ViewportFullscreenController;
+  private transportVisibility = new PlaybackControlsController((snapshot) => {
+    this.transportCollapsed = snapshot.collapsed;
+    this.transportAutoHidden = snapshot.autoHidden;
+  });
 
   constructor() {
     super();
@@ -145,11 +162,18 @@ export class VegaStoryStage extends LitElement {
     this.providerBase = "";
     this.phase = "loading";
     this.issue = "";
+    this.transportIssue = "";
     this.autoMode = false;
     this.ordinal = 0;
     this.maximum = 0;
     this.transportVisible = false;
     this.fullscreenActive = false;
+    this.transportCollapsed = false;
+    this.transportAutoHidden = false;
+    this.viewportFullscreen = new ViewportFullscreenController({
+      owner: this,
+      onChange: () => this.syncFullscreenState(),
+    });
     try {
       this.continuousPlay = localStorage.getItem("haneoka:story-continuous") === "true";
     } catch {
@@ -171,16 +195,27 @@ export class VegaStoryStage extends LitElement {
     this.loadController?.abort();
     this.loadedKey = "";
     document.removeEventListener("fullscreenchange", this.fullscreenChanged);
-    this.exitViewportFullscreen();
+    this.viewportFullscreen.dispose();
+    this.transportVisibility.dispose();
+    if (document.fullscreenElement === this && typeof document.exitFullscreen === "function") {
+      void document.exitFullscreen().catch(() => undefined);
+    }
     void this.disposePlayer();
     super.disconnectedCallback();
   }
   updated() {
+    this.transportVisibility.bind(this.querySelector<HTMLElement>(".playback-controls"));
+    this.transportVisibility.setFullscreen(this.fullscreenActive);
     if (!this.isConnected || !this.story?.storyId) return;
-    const key = JSON.stringify([this.server, this.story.storyId, this.locale, this.providerBase]);
+    // The story/runtime and Live2D resource URLs do not vary by UI locale.
+    // Keep one player alive when only the shell language changes; the resolver
+    // below reads `this.locale` at call time for the core's locale fallback.
+    const key = JSON.stringify([this.server, this.story.storyId, this.providerBase]);
     if (key !== this.loadedKey) {
       this.loadedKey = key;
       void this.load();
+    } else if (this.handle && this.appliedLocale !== this.locale) {
+      this.refreshPlayerLocale();
     }
   }
   private onDocumentLocale = () => {
@@ -200,11 +235,12 @@ export class VegaStoryStage extends LitElement {
     const { signal } = controller;
     const story = this.story;
     const server = this.server;
-    const locale = this.locale;
     const providerBase = this.providerBase;
     const active = () => !signal.aborted && this.isConnected && this.loadController === controller;
     const url = (resource: string, id = "") =>
       `/api/v1/servers/${encodeURIComponent(server)}/${resource}${id ? `/${encodeURIComponent(id)}` : ""}`;
+    const loadingReporter = beginLoading(uiText(this.locale, "loading"), { signal });
+    loadingReporter.update({ stageLabel: this.ui("resources") });
     this.phase = "loading";
     this.issue = "";
     try {
@@ -226,12 +262,23 @@ export class VegaStoryStage extends LitElement {
           : Promise.all(keys.map((key) => this.json(url("live2d", key), signal))),
       ]);
       if (!active()) return;
+      const resolvedRuntime = resolveStoryRuntimeAssets(merge(runtime, story.runtime), server);
+      if (matchMedia("(pointer: coarse)").matches) {
+        // Bound speculative residency; the renderer still protects every visible actor.
+        Object.assign(resolvedRuntime, {
+          characterPreloadInitialCount: 2,
+          characterPreloadCacheMax: 4,
+          textureCacheMegabytes: 128,
+        });
+      }
       const hydrated = hydrateStoryPayload({
         ...story,
         assets: { ...assets, live2d: live2d.map((entry, index) => ({ id: keys[index], ...(entry as RecordValue) })) },
-        runtime: resolveStoryRuntimeAssets(merge(runtime, story.runtime), server),
+        runtime: resolvedRuntime,
       }) as AdvStory;
-      this.phase = "ready";
+      this.phase = "booting";
+      this.playerState = createVegaPlayerState();
+      loadingReporter.update({ stageLabel: this.bootStageLabel() });
       await this.updateComplete;
       if (!active()) return;
       const mount = this.querySelector<HTMLElement>(".vega-story-runtime__mount");
@@ -282,10 +329,14 @@ export class VegaStoryStage extends LitElement {
         },
         { once: true },
       );
+      const playerState = this.playerState;
+      if (!playerState) throw new Error("Vega player state is unavailable");
+      this.startBootStateObserver(playerState, active, loadingReporter);
       const player = await engine.createPlayer({
         mount,
         story: hydrated,
-        resolveLocalizedText: this.localizedTextResolver(locale),
+        state: playerState,
+        resolveLocalizedText: this.localizedTextResolver(),
         renderBackend: "vega-three-webgl2",
         theme: "haneoka",
         shell: {
@@ -295,13 +346,18 @@ export class VegaStoryStage extends LitElement {
           initialSettings: this.legacySettings(),
         },
       });
+      this.stopBootStateObserver();
       if (!active()) {
         await engine.dispose();
         return;
       }
       this.handle = player;
-      player.shell?.setSetting("uiLanguage", locale);
+      player.shell?.setSetting("uiLanguage", this.locale);
+      player.player.setLocale(this.locale, { refresh: true });
+      this.appliedLocale = this.locale;
       player.shell?.resume();
+      loadingReporter.finish();
+      this.phase = "ready";
       this.completionEmitted = false;
       this.startTransportLoop();
       const completion = () => {
@@ -321,9 +377,19 @@ export class VegaStoryStage extends LitElement {
       if (!active()) return;
       console.error(error);
       this.issue = error instanceof Error ? error.message : String(error);
+      loadingReporter.fail(error);
       this.phase = "error";
       await this.disposePlayer();
     }
+  }
+
+  private refreshPlayerLocale() {
+    const player = this.handle;
+    if (!player) return;
+    player.shell?.setSetting("uiLanguage", this.locale);
+    player.player.setLocale(this.locale, { refresh: true });
+    this.appliedLocale = this.locale;
+    this.requestUpdate();
   }
   private legacySettings() {
     const defaults = { autoDelay: 0.5, bgmVolume: 1, voiceVolume: 1, seVolume: 1 };
@@ -344,11 +410,57 @@ export class VegaStoryStage extends LitElement {
       return defaults;
     }
   }
-  private localizedTextResolver(locale: string) {
+  private localizedTextResolver() {
     return (value: unknown): StoryResolvedText => {
-      const resolved = resolveLocalizedText(value, locale);
+      const resolved = resolveLocalizedText(value, this.locale);
       return { text: resolved.text, lang: resolved.locale };
     };
+  }
+
+  private startBootStateObserver(
+    state: ReturnType<typeof createVegaPlayerState>,
+    active: () => boolean,
+    loadingReporter: ReturnType<typeof beginLoading>,
+  ) {
+    this.stopBootStateObserver();
+    this.playerState = state;
+    const update = () => {
+      if (!active() || this.phase !== "booting" || this.playerState !== state) {
+        this.bootStateTimer = 0;
+        return;
+      }
+      // The state object is created by this host and passed through the public
+      // engine option; this observes owned preload state, not engine internals.
+      this.requestUpdate();
+      loadingReporter.update({ stageLabel: this.bootStageLabel() });
+      this.bootStateTimer = window.setTimeout(update, 100);
+    };
+    this.bootStateTimer = window.setTimeout(update, 0);
+  }
+
+  private stopBootStateObserver() {
+    if (this.bootStateTimer) window.clearTimeout(this.bootStateTimer);
+    this.bootStateTimer = 0;
+  }
+
+  private bootLoadingLabel() {
+    return [uiText(this.locale, "loading"), this.bootStageLabel()].filter(Boolean).join(" · ");
+  }
+
+  private bootStageLabel() {
+    const preload = this.playerState?.preload;
+    if (!preload) return this.ui("preparing");
+    const stage = String(preload.label || "").trim();
+    const stageLabel = stage === "scene index" ? this.ui("sceneIndex") : stage;
+    const done = Number(preload.done);
+    const total = Number(preload.total);
+    const count =
+      Number.isFinite(total) && total > 0
+        ? `${done}/${total} ${this.ui("preparationTasks")}`
+        : Number.isFinite(done) && done > 0
+          ? `${done} ${this.ui("preparationTasks")}`
+          : "";
+    return [this.ui("preparing"), stageLabel, count].filter(Boolean).join(" · ");
   }
 
   /**
@@ -377,10 +489,15 @@ export class VegaStoryStage extends LitElement {
         progress: timeline.ratio,
         progressEnabled: timeline.maximum > 0,
         progressLabel: timeline.label || undefined,
+        playbackControlsVisible: this.transportVisible && !this.transportCollapsed && !this.transportAutoHidden,
       };
     };
     return {
       externalPlaybackControls: true,
+      setPlaybackControlsVisible: (visible) => {
+        if (visible) this.transportVisibility.expand();
+        else this.transportVisibility.collapse();
+      },
       snapshot,
       subscribe: (listener) => {
         const shell = this.handle?.shell;
@@ -410,9 +527,14 @@ export class VegaStoryStage extends LitElement {
   }
 
   private ui(key: StoryTransportKey) {
-    const index = Math.max(0, ["ja", "en", "zh-TW", "zh-CN", "ko"].indexOf(this.locale));
-    return TRANSPORT_TEXT[key][index] || TRANSPORT_TEXT[key][1]!;
+    if (key === "collapse" || key === "expand") return uiText(this.locale, key);
+    return clientText(this.locale, `story.${key}`, key);
   }
+
+  private collapseTransport = () => {
+    this.transportVisibility.collapse();
+    void this.updateComplete.then(() => this.querySelector<HTMLElement>(".haneoka-menu-entry")?.focus());
+  };
 
   private startTransportLoop() {
     cancelAnimationFrame(this.transportFrame);
@@ -423,6 +545,7 @@ export class VegaStoryStage extends LitElement {
       const screen = handle.shell?.snapshot().screen ?? "game";
       const timeline = handle.player.currentSeekProgress();
       const visible = this.phase === "ready" && screen === "game" && !state.loading && state.ready;
+      this.transportVisibility.setPlaying(Boolean(state.playing && !state.paused));
       if (visible !== this.transportVisible) this.transportVisible = visible;
       if (state.autoPlay !== this.autoMode) this.autoMode = state.autoPlay;
       if (timeline.maximum !== this.maximum) this.maximum = timeline.maximum;
@@ -439,8 +562,21 @@ export class VegaStoryStage extends LitElement {
   private seekTransportRatio(ratio: number) {
     const handle = this.handle;
     if (!handle) return;
-    const target = handle.player.resolveSeekRatio(ratio);
-    void handle.player.seekTo(target, { resume: false }).catch(() => undefined);
+    try {
+      const target = handle.player.resolveSeekRatio(ratio);
+      void handle.player.seekTo(target, { resume: false }).then(
+        () => {
+          this.transportIssue = "";
+        },
+        (error) => {
+          this.transportIssue = error instanceof Error ? error.message : String(error);
+          this.requestUpdate();
+        },
+      );
+    } catch (error) {
+      this.transportIssue = error instanceof Error ? error.message : String(error);
+      this.requestUpdate();
+    }
   }
 
   private previewTransportSeek(ordinal: number) {
@@ -449,8 +585,10 @@ export class VegaStoryStage extends LitElement {
     const player = handle.player;
     const maximum = Math.max(1, this.maximum);
     const value = Math.max(0, Math.min(maximum, Math.round(ordinal)));
+    const wasScrubbing = this.scrubbing;
     this.scrubbing = true;
-    if (!this.resumeAfterScrub) {
+    this.transportVisibility.setScrubbing(true);
+    if (!wasScrubbing) {
       this.resumeAfterScrub = player.state.playing && !player.state.paused;
       this.pausedBeforeScrub = player.state.paused;
     }
@@ -465,11 +603,14 @@ export class VegaStoryStage extends LitElement {
     const player = handle.player;
     const maximum = Math.max(1, this.maximum);
     const value = Math.max(0, Math.min(maximum, Math.round(ordinal)));
-    this.scrubbing = false;
     try {
       await player.seekTo(player.resolveSeekRatio(value / maximum), { resume: false });
-    } catch {
-      /* A rejected target leaves the slider on the last reachable line. */
+      this.transportIssue = "";
+    } catch (error) {
+      // Keep the last reachable line, but make malformed/unavailable targets
+      // visible in the local runtime instead of turning them into a no-op.
+      this.transportIssue = error instanceof Error ? error.message : String(error);
+      this.requestUpdate();
     }
     if (!handle.shell || handle.shell.snapshot().screen === "game") {
       if (!this.pausedBeforeScrub) player.resume();
@@ -477,6 +618,8 @@ export class VegaStoryStage extends LitElement {
     }
     this.resumeAfterScrub = false;
     this.pausedBeforeScrub = false;
+    this.scrubbing = false;
+    this.transportVisibility.setScrubbing(false);
   }
 
   /**
@@ -484,51 +627,67 @@ export class VegaStoryStage extends LitElement {
    * no element fullscreen at all, the detail pane expands over the viewport
    * instead (see [data-story-fullscreen] in story.css).
    */
-  async toggleFullscreen() {
-    if (typeof document.documentElement.requestFullscreen !== "function") {
-      this.viewportFullscreen = !this.viewportFullscreen;
-      if (this.viewportFullscreen) {
-        this.fullscreenLayer = this.closest<HTMLElement>(".pane-layer") ?? undefined;
-        this.fullscreenLayer?.setAttribute("data-story-fullscreen", "true");
-      } else this.exitViewportFullscreen();
-      this.syncFullscreenState();
-      return;
+  async toggleFullscreen(): Promise<boolean> {
+    if (this.viewportFullscreen.isActive()) return this.viewportFullscreen.exit();
+    if (document.fullscreenElement) return this.exitNativeFullscreen();
+
+    if (
+      typeof document.documentElement.requestFullscreen !== "function" ||
+      typeof this.requestFullscreen !== "function"
+    ) {
+      return this.viewportFullscreen.enter();
     }
+
     try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else {
-        await this.requestFullscreen();
-        const orientation = screen.orientation as ScreenOrientation & {
-          lock?: (mode: string) => Promise<void>;
-        };
-        await orientation.lock?.("landscape");
-      }
+      await this.requestFullscreen();
     } catch {
-      /* Fullscreen and orientation support depend on the host. */
+      // Some WebKit/embedded hosts expose the method but reject the element.
+      // Only enter the pane fallback when native fullscreen is truly absent.
+      if (!document.fullscreenElement) return this.viewportFullscreen.enter();
+      return this.syncFullscreenState();
     }
+
+    // Orientation is a hint. A failure here must not undo a native fullscreen
+    // session that the browser has already granted.
+    try {
+      const orientation = globalThis.screen?.orientation as
+        (ScreenOrientation & { lock?: (mode: string) => Promise<void> }) | undefined;
+      await orientation?.lock?.("landscape");
+    } catch {
+      /* Native fullscreen remains usable when the host declines the hint. */
+    }
+    return this.syncFullscreenState();
   }
 
-  private exitViewportFullscreen() {
-    if (!this.viewportFullscreen) return;
-    this.viewportFullscreen = false;
-    // The stage can already be disconnected (mode switch), so release the
-    // pane captured on enter rather than searching the tree again.
-    this.fullscreenLayer?.removeAttribute("data-story-fullscreen");
-    this.fullscreenLayer = undefined;
-    this.syncFullscreenState();
+  private async exitNativeFullscreen(): Promise<boolean> {
+    if (typeof document.exitFullscreen !== "function") {
+      this.syncFullscreenState();
+      return true;
+    }
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // The browser still owns the native fullscreen session. Report that
+      // state to callers so the exit control remains actionable.
+      this.syncFullscreenState();
+      return true;
+    }
+    return this.syncFullscreenState();
   }
 
   private fullscreenChanged = () => this.syncFullscreenState();
 
-  private syncFullscreenState() {
-    const active = this.viewportFullscreen || document.fullscreenElement === this;
-    if (active === this.fullscreenActive) return;
+  private syncFullscreenState(): boolean {
+    const active = this.viewportFullscreen.isActive() || document.fullscreenElement === this;
+    if (active === this.fullscreenActive) return active;
     this.fullscreenActive = active;
     this.dispatchEvent(new CustomEvent("vega-story-fullscreen", { bubbles: true, detail: { active } }));
+    return active;
   }
 
   private async disposePlayer() {
     cancelAnimationFrame(this.transportFrame);
+    this.stopBootStateObserver();
     this.stopCompletionObserver?.();
     this.stopCompletionObserver = undefined;
     const engine = this.engine;
@@ -536,29 +695,61 @@ export class VegaStoryStage extends LitElement {
     this.handle = undefined;
     this.transportVisible = false;
     this.autoMode = false;
+    this.transportVisibility.setPlaying(false);
+    this.transportVisibility.setScrubbing(false);
     this.ordinal = 0;
     this.maximum = 0;
+    this.playerState = undefined;
+    this.appliedLocale = "";
+    this.transportIssue = "";
     await engine?.dispose().catch(() => undefined);
   }
+
+  private retryPlayer = () => {
+    if (!this.isConnected) return;
+    void this.load();
+  };
+
   render() {
     return html`
-      <section class="vega-story-runtime">
+      <section
+        class="vega-story-runtime"
+        data-phase=${this.phase}
+        aria-busy=${this.phase === "loading" || this.phase === "booting" ? "true" : "false"}
+      >
         ${
-          this.phase === "loading"
+          this.phase === "loading" || this.phase === "booting"
             ? html`
-                ${loadingState(uiText(this.locale, "loading"))}
+                <div class="vega-story-runtime__loading">${loadingState(this.bootLoadingLabel())}</div>
               `
             : ""
         }
         ${
           this.phase === "error"
             ? html`
-                <div class="notice" role="alert"><p>${this.issue}</p></div>
+                <div class="vega-story-runtime__error">
+                  <div class="notice" role="alert">
+                    <p>${this.issue}</p>
+                    <button class="button button--tonal" type="button" @click=${this.retryPlayer}>
+                      ${uiText(this.locale, "retry")}
+                    </button>
+                  </div>
+                </div>
               `
             : ""
         }
-        <div class="vega-story-runtime__mount" ?hidden=${this.phase !== "ready"}></div>
+        <div
+          class="vega-story-runtime__mount"
+          aria-busy=${this.phase === "loading" || this.phase === "booting" ? "true" : "false"}
+        ></div>
         ${this.renderTransport()}
+        ${
+          this.transportIssue
+            ? html`
+                <p class="vega-story-runtime__transport-error" role="alert">${this.transportIssue}</p>
+              `
+            : nothing
+        }
       </section>
     `;
   }
@@ -573,36 +764,72 @@ export class VegaStoryStage extends LitElement {
     if (this.phase !== "ready") return nothing;
     const maximum = Math.max(0, this.maximum);
     return html`
-      <footer class="chart-runtime__controls" ?hidden=${!this.transportVisible}>
-        <button
-          class="icon-button"
-          type="button"
-          aria-pressed=${this.autoMode}
-          aria-label=${this.ui("auto")}
-          .title=${this.ui("auto")}
-          @click=${this.toggleAutoMode}
+      <footer
+        class="chart-runtime__controls playback-controls"
+        ?hidden=${!this.transportVisible}
+        data-collapsed=${this.transportCollapsed ? "true" : "false"}
+        data-auto-hidden=${this.transportAutoHidden ? "true" : "false"}
+        aria-label=${uiText(this.locale, "morePlaybackControls")}
+      >
+        <div
+          class="playback-controls__expanded"
+          ?inert=${this.transportCollapsed || this.transportAutoHidden}
+          aria-hidden=${this.transportCollapsed || this.transportAutoHidden}
         >
-          <svg class="material-icon" width="24" height="24">
-            <use href=${`/icons.svg#${this.autoMode ? "pause" : "play_arrow"}`}></use>
-          </svg>
-        </button>
-        <div class="chart-runtime__timeline">
-          <small>${this.ordinal}</small>
-          <md-slider
-            class="md3-slider md3-slider--runtime"
-            min="0"
-            max=${maximum || 1}
-            step="1"
-            .value=${String(this.ordinal)}
-            aria-label=${this.ui("storyProgress")}
-            aria-valuetext=${`${this.ordinal} / ${maximum}`}
-            ?disabled=${maximum < 1}
-            @input=${(event: Event) =>
-              this.previewTransportSeek(Number((event.target as HTMLElement & { value?: number }).value))}
-            @change=${(event: Event) =>
-              void this.commitTransportSeek(Number((event.target as HTMLElement & { value?: number }).value))}
-          ></md-slider>
-          <small>${maximum}</small>
+          <button
+            class="icon-button"
+            type="button"
+            aria-pressed=${this.autoMode}
+            aria-label=${this.ui("auto")}
+            .title=${this.ui("auto")}
+            @click=${this.toggleAutoMode}
+          >
+            <svg class="material-icon" width="24" height="24">
+              <use href=${`/icons.svg#${this.autoMode ? "pause" : "play_arrow"}`}></use>
+            </svg>
+          </button>
+          <div class="chart-runtime__timeline">
+            <small>${this.ordinal}</small>
+            <md-slider
+              class="md3-slider md3-slider--runtime"
+              min="0"
+              max=${maximum || 1}
+              step="1"
+              .value=${this.ordinal}
+              aria-label=${this.ui("storyProgress")}
+              aria-valuetext=${`${this.ordinal} / ${maximum}`}
+              ?disabled=${maximum < 1}
+              @input=${(event: Event) =>
+                this.previewTransportSeek(Number((event.target as HTMLElement & { value?: number }).value))}
+              @change=${(event: Event) =>
+                void this.commitTransportSeek(Number((event.target as HTMLElement & { value?: number }).value))}
+            ></md-slider>
+            <small>${maximum}</small>
+          </div>
+          <div class="chart-runtime__actions">
+            <button
+              class="icon-button"
+              type="button"
+              aria-pressed=${this.fullscreenActive}
+              aria-label=${uiText(this.locale, this.fullscreenActive ? "fullscreenExit" : "fullscreen")}
+              title=${uiText(this.locale, this.fullscreenActive ? "fullscreenExit" : "fullscreen")}
+              @click=${() => void this.toggleFullscreen()}
+            >
+              <svg class="material-icon" width="20" height="20">
+                <use href=${`/icons.svg#${this.fullscreenActive ? "fullscreen_exit" : "fullscreen"}`}></use>
+              </svg>
+            </button>
+            <button
+              class="icon-button"
+              type="button"
+              @click=${this.collapseTransport}
+              aria-label=${this.ui("collapse")}
+            >
+              <svg class="material-icon" width="20" height="20">
+                <use href="/icons.svg#expand_more"></use>
+              </svg>
+            </button>
+          </div>
         </div>
       </footer>
     `;

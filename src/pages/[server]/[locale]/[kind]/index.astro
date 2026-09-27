@@ -1,0 +1,62 @@
+---
+import HelpDocument from "../../../../components/HelpDocument.astro";
+import Live2DDocument from "../../../../components/Live2DDocument.astro";
+import RouteDocument from "../../../../components/RouteDocument.astro";
+import SpineDocument from "../../../../components/SpineDocument.astro";
+import StoryDocument from "../../../../components/StoryDocument.astro";
+import { findRoute, titleOf } from "../../../../config/routes";
+import { LOCALES, type Locale } from "../../../../i18n/locales";
+import { RELEASE_SERVERS, type ReleaseServer } from "../../../../lib/release-server";
+import { RESOURCE_KINDS, type ResourceKind } from "../../../../lib/resource-route";
+
+const CATALOG_ROUTES: Readonly<Partial<Record<ResourceKind, string>>> = {
+  characters: "/catalog/characters",
+  songs: "/catalog/songs",
+  "member-cards": "/catalog/member-cards",
+  "support-cards": "/catalog/support-cards",
+  comics: "/catalog/comics",
+  stamps: "/catalog/stamps",
+  stickers: "/catalog/stickers",
+  backgrounds: "/catalog/backgrounds",
+  "band-items": "/catalog/band-items",
+  items: "/catalog/items",
+  events: "/catalog/events",
+  "real-lives": "/catalog/real-lives",
+  gacha: "/catalog/gacha",
+  "login-campaigns": "/catalog/login-campaigns",
+  shop: "/catalog/shop",
+  exchange: "/catalog/exchange",
+  circle: "/catalog/circle",
+  challenge: "/catalog/challenge",
+  passes: "/catalog/passes",
+  "tgw-card": "/catalog/tgw-card",
+  missions: "/catalog/missions",
+};
+
+export function getStaticPaths() {
+  return RELEASE_SERVERS.flatMap((server) =>
+    LOCALES.flatMap((locale) => RESOURCE_KINDS.map((kind) => ({ params: { server, locale, kind } }))),
+  );
+}
+
+const { server, locale, kind } = Astro.params as {
+  server: ReleaseServer;
+  locale: Locale;
+  kind: ResourceKind;
+};
+const catalogRoute = CATALOG_ROUTES[kind];
+const catalogEntry = catalogRoute ? findRoute(catalogRoute) : undefined;
+const storyMode = (Astro.url.searchParams.get("mode") || "band") as
+  | "band"
+  | "link"
+  | "home"
+  | "afterlive"
+  | "tutorial";
+if (catalogRoute && !catalogEntry) throw new Error(`Missing route definition for ${catalogRoute}`);
+---
+
+{kind === "live2d" && <Live2DDocument locale={locale} server={server} />}
+{kind === "spine" && <SpineDocument locale={locale} server={server} />}
+{kind === "help" && <HelpDocument locale={locale} server={server} />}
+{kind === "stories" && <StoryDocument locale={locale} mode={storyMode} server={server} />}
+{catalogEntry && <RouteDocument locale={locale} entry={catalogEntry} title={titleOf(catalogEntry, locale)} server={server} />}

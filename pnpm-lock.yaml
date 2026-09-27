@@ -66,6 +66,9 @@ catalogs:
     express:
       specifier: 4.22.2
       version: 4.22.2
+    fflate:
+      specifier: ^0.8.3
+      version: 0.8.3
     multer:
       specifier: 2.2.0
       version: 2.2.0
@@ -137,6 +140,9 @@ importers:
       '@haneoka/design-tokens':
         specifier: workspace:*
         version: link:packages/design-tokens
+      '@haneoka/i18n':
+        specifier: workspace:*
+        version: link:packages/i18n
       '@haneoka/sonolus':
         specifier: workspace:*
         version: link:packages/sonolus
@@ -182,6 +188,9 @@ importers:
       circle-flags:
         specifier: 2.8.3
         version: 2.8.3
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.3
       lit:
         specifier: ^3.3.3
         version: 3.3.3
@@ -255,6 +264,9 @@ importers:
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
+      prettier:
+        specifier: 3.7.4
+        version: 3.7.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -471,6 +483,10 @@ importers:
         version: 3.3.6(typescript@6.0.3)
 
   .dependencies/vega-plugin-cubism:
+    dependencies:
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
     devDependencies:
       '@haneoka/vega':
         specifier: ^0.1.0

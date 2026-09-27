@@ -1,3 +1,4 @@
+import { clientText } from "../i18n/client";
 import { observeSongDisplay, songTitle } from "../lib/song-display";
 import { LitElement, html, nothing, type PropertyValues } from "lit";
 import {
@@ -91,7 +92,6 @@ const hideBrokenImage = (event: Event) => {
 export class HomeDashboard extends LitElement {
   static properties = {
     locale: { type: String },
-    labels: { type: String },
     phase: { state: true },
     songs: { state: true },
     characters: { state: true },
@@ -105,7 +105,6 @@ export class HomeDashboard extends LitElement {
     songLimit: { state: true },
   };
   declare locale: string;
-  declare labels: string;
   declare phase: "loading" | "ready" | "error";
   declare songs: JsonRecord[];
   declare characters: JsonRecord[];
@@ -120,7 +119,6 @@ export class HomeDashboard extends LitElement {
   declare slide: number;
   /** How many songs fill exactly two grid rows; measured, clamped 8–14. */
   declare songLimit: number;
-  private copies: Record<string, Record<string, string>> = {};
   private action?: HTMLButtonElement;
   private characterProfiles: JsonRecord[] = [];
   private castProfiles: JsonRecord[] = [];
@@ -137,7 +135,6 @@ export class HomeDashboard extends LitElement {
   constructor() {
     super();
     this.locale = "ja";
-    this.labels = "{}";
     this.phase = "loading";
     this.songs = [];
     this.characters = [];
@@ -157,7 +154,6 @@ export class HomeDashboard extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.disposeSongDisplay = observeSongDisplay(() => this.requestUpdate());
-    this.copies = JSON.parse(this.labels || "{}");
     this.locale = preferredLocale(this.locale);
     this.restoreLayout();
     addEventListener("haneoka:locale-ready", this.localeListener);
@@ -203,11 +199,8 @@ export class HomeDashboard extends LitElement {
   }
 
   /* ---------- copy ---------- */
-  private get copy() {
-    return this.copies[this.locale] || this.copies.ja || {};
-  }
   private text(key: string, fallback: string) {
-    return this.copy[key] || fallback;
+    return clientText(this.locale, key, clientText(this.locale, `homePage.${key}`, fallback));
   }
   private count(value: number) {
     return value.toLocaleString(this.locale);
@@ -221,6 +214,7 @@ export class HomeDashboard extends LitElement {
     this.action.title = label;
   }
   private mountAction() {
+    if (!this.isConnected) return;
     const host = document.querySelector("[data-top-app-bar-actions]");
     if (!host || this.action?.isConnected) return;
     const button = document.createElement("button");

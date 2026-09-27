@@ -199,7 +199,10 @@
     "animations": "动画",
     "skins": "皮肤",
     "source": "源资源",
-    "runtime": "运行时"
+    "runtime": "运行时",
+    "families": {
+      "homeSpot": "主页场景"
+    }
   },
   "chartEditorPage": {
     "edit": "编辑",
@@ -1426,20 +1429,95 @@
     "empty": "暂无内容。"
   },
   "aboutPage": {
-    "eyebrow": "非官方粉丝项目",
-    "title": "关于 haneoka",
-    "description": "Haneoka 是由社区维护的 BanG Dream! Our Notes 资料整理与浏览器查看项目。",
-    "fanProjectTitle": "独立粉丝项目",
-    "fanProjectBody": "Haneoka 是以学习和社区交流为目的、由爱好者独立维护的非官方、非商业粉丝项目，未获得 BanG Dream! Project、株式会社ブシロード、株式会社FROM TOKYO、bilibili game 或其他权利人的授权、批准、认可或背书，与其亦不存在隶属、合作、赞助或其他关联。",
-    "rightsTitle": "权利归属",
-    "rightsBody": "BanG Dream!、BanG Dream! Our Notes 及相关名称、标志、角色、美术、图像、音频、音乐、视频、剧情、文字、数据、字体和其他素材的权利均归各自权利人所有。Haneoka 不主张拥有这些素材，也不授予其使用权。",
-    "materialsTitle": "资源来源与用途",
-    "materialsBody": "本页面展示或索引的游戏相关素材均从可通过互联网访问的来源整理，仅用于个人学习、研究、评论、资料交流和非商业社区讨论。素材可在网络访问或列明来源，不表示其已进入公有领域或获得授权。Haneoka 明确反对并禁止未经许可的再次分发、出售、商业化、移除权利声明、规避访问或使用限制，以及任何违法、有害或侵害他人权利的利用。",
-    "sourceTitle": "源代码",
-    "sourceBody": "当前版本中由 Haneoka 编写或依 MPL 覆盖改编的源代码可在 GitHub 获取，除非具体文件或声明另有许可，均采用 MPL-2.0。第三方和派生组件保留各自许可证；仓库许可证不适用于游戏素材或其他第三方组件。",
-    "sourceLink": "GitHub",
+    "eyebrow": "让故事延展的档案馆与开放工具链",
+    "title": "关于 Haneoka",
+    "description": "Haneoka 将 BanG Dream! Our Notes 延展为一段完整的浏览器体验：从故事场景与可搜索目录，到社区空间、谱面工具，以及创作与发布的工作流。",
+    "experienceTitle": "从浏览世界开始，把故事留在手边",
+    "experienceIntro": "浏览器就是第一座舞台：故事播放器、深度目录与社区层围绕同一份资料彼此连接。",
+    "experience": [
+      {
+        "title": "跟随故事展开",
+        "body": "在浏览器故事播放器中打开对话、选择、场景演出、动画、音频与视频，再沿着历史记录、存档、设置和分支场景继续前进。"
+      },
+      {
+        "title": "沿着每条线索探索",
+        "body": "从多语言数据中搜索角色、卡片、歌曲、故事、活动与系统目录，再从详情页进入音频、漫画、资源、Live2D、Spine 和谱面体验。"
+      },
+      {
+        "title": "让它成为共同空间",
+        "body": "账户与社区工作区把信息流、帖子、评论、反应、收藏、标签、通知、个人资料和附件汇入同一座档案馆。"
+      }
+    ],
+    "ecosystemTitle": "为组合而生的生态",
+    "ecosystemIntro": "体验通过清晰的契约持续扩展：宿主、渲染器、运行时、插件、数据发布与界面各自带来专注的能力，共同搭起舞台。",
+    "ecosystem": [
+      {
+        "title": "Haneoka・浏览器舞台",
+        "body": "Astro 渲染多语言文档路由与共享外壳；Lit 和 TypeScript 挂载按路由划分的工作区；Workers、D1 与 R2 连接服务、账户与社区数据，以及不可变的目录版本和媒体。"
+      },
+      {
+        "title": "Vega・选择你的渲染方式",
+        "body": "Vega 将渲染器、角色系统、主题、资源和界面保持为可替换部件，同时把对话、选择、场景、动画、音频、视频、存档、历史、设置和分支故事带到 Web 与原生宿主。"
+      },
+      {
+        "title": "Cassiopeia・让每一拍都有回应",
+        "body": "核心负责整数时序、候选选择、判定、计分和会话状态。类型化插件声明版本、依赖和服务；音频宿主、Three.js 渲染、Vue 界面，以及 Sonolus 的游玩、观看、预览和教程目标共同组合。"
+      },
+      {
+        "title": "开放扩展・为新表达留出空间",
+        "body": "故事工程记录插件版本、扩展字段和作者编排顺序；谱面工程保留扩展数据与来源信息。格式适配器连接不同制作流程，让项目继续进入编辑、预览与发布环节。"
+      }
+    ],
+    "toolchainTitle": "从阅读到创作，再到发布",
+    "toolchainIntro": "故事与谱面的创作工具覆盖编辑、本地化、预览、校验和发行，让想法沿着同一条工作流成为作品。",
+    "toolchain": [
+      {
+        "title": "Schedar・塑造谱面",
+        "body": "以可编辑项目模型为基础，处理节拍图、节拍吸附、视口与波形辅助、校验，以及可合并的撤销与重做历史。支持 Schedar JSON、SS、USC 的导入导出，以及带诊断信息的 SUS 导入。"
+      },
+      {
+        "title": "Altair・书写场景",
+        "body": "在可视化工作区中组合场景、对话、资源、语言和故事流程。YAML 1.2 项目与场景文档连接规范化 StoryProject 模型、插件贡献、资源浏览、历史、草稿与 Vega 预览。"
+      },
+      {
+        "title": "Deneb・整理发行",
+        "body": "检查项目资源与插件，解析构建图并整理可复现的输入，为 Web、离线可用的 PWA、Electron、Tauri、Android 和 iOS 创建发行项目。"
+      }
+    ],
+    "repositoriesTitle": "公开项目的星座",
+    "repositoriesIntro": "从浏览器档案馆到背后的引擎与创作工具，每个仓库都承载着体验的一部分。",
+    "repositories": [
+      {
+        "title": "Haneoka",
+        "body": "目录、浏览器体验、交互工作区、社区服务和部署配置。"
+      },
+      {
+        "title": "Vega",
+        "body": "视觉小说引擎、渲染器与插件契约、故事运行时和框架适配器。"
+      },
+      {
+        "title": "Cassiopeia",
+        "body": "包含时序、判定、计分、会话状态与类型化插件边界的可移植节奏核心。"
+      },
+      {
+        "title": "Cassiopeia Sonolus plugin",
+        "body": "谱面转换、游玩/观看/预览/教程引擎与特效资源。"
+      },
+      {
+        "title": "Altair",
+        "body": "视觉创作、本地化、YAML 项目文档、插件宿主、资源浏览器与 Vega 预览。"
+      },
+      {
+        "title": "Deneb",
+        "body": "项目校验、插件解析，以及 Web、PWA、桌面与移动端发行工程。"
+      }
+    ],
+    "footerBody": "Haneoka 把资料、演出与创作连接成一套开放的作品体系。每个引擎都拥有独立的接口与工具，每个插件都能成为新作品的一部分。",
+    "sourceLink": "查看 Haneoka 源代码",
     "noticesLink": "第三方声明",
-    "licenseLink": "MPL-2.0"
+    "licenseLink": "MPL-2.0 许可证",
+    "contactLink": "打开 GitHub Issue",
+    "heroTitle": "让每一段故事，都有更大的舞台"
   },
   "bandItemsPage": {
     "title": "乐队道具",
@@ -1547,7 +1625,7 @@
   },
   "privacyPage": {
     "title": "隐私政策",
-    "updated": "生效及最后更新日期：2026 年 7 月 17 日",
+    "updated": "生效及最后更新日期：2026 年 9 月 27 日",
     "summary": "本隐私政策说明 haneoka 项目维护者（下称“运营方”或“我们”）在提供公开资料库、社区、账号及相关服务（合称“本服务”）时，如何收集、使用、披露、保留和保护信息。请在创建账号或提交信息前认真阅读。",
     "sections": [
       {
@@ -1563,11 +1641,11 @@
         "title": "仅邮箱注册与第三方登录"
       },
       {
-        "body": "为保障安全、防止滥用、执行审核及保留审计依据，我们会记录 Cloudflare 提供的原始 IP、相关账号和社区操作的完整 User-Agent，以及时间、请求标识、会话、限流和操作元数据。原始 IP 以明文字段存入应用数据库，不做应用层加密；只有经授权的管理界面可在访问控制下查看。\n\n公开内容只会显示由 Cloudflare 请求元数据推导的国家或地区、一级行政区，以及由 User-Agent 概括得到的浏览器和操作系统图标。本服务不使用 GPS 精确定位。使用代理、VPN、移动网络或企业网关时，IP 属地可能不准确。",
+        "body": "为保障安全、防止滥用、执行审核及保留审计依据，我们会记录 Cloudflare 提供的原始 IP、相关账号和社区操作的完整 User-Agent，以及时间、请求标识、会话、限流和操作元数据。原始 IP 以明文字段存入应用数据库，不做应用层加密；只有经授权的管理界面可在访问控制下查看。\n\n公开内容只会显示由 Cloudflare 请求元数据推导的国家或地区、一级行政区，以及由 User-Agent 概括得到的浏览器和操作系统图标。本服务不使用 GPS 精确定位。使用代理、VPN、移动网络或企业网关时，IP 属地可能不准确。\n\nCloudflare 还会处理服务运行日志与抽样请求追踪，用于定位错误、分析性能和处理安全问题。日志内容与保留方式由相应服务配置决定。",
         "title": "网络、IP 属地与设备信息"
       },
       {
-        "body": "本服务使用维持登录、保护会话和完成 OAuth 流程所必需的 Cookie 或同类凭据。浏览器本地存储可能保存语言、发行服务器、页面布局、播放器、工作区状态、本地帖子草稿等偏好；这些信息通常留在你的设备上，直至你清除或应用覆盖。\n\n本服务目前不接入第三方广告、跨站行为广告或广告画像追踪。你主动与 Google、GitHub、X、Discord、Cloudflare Turnstile 等第三方交互时，相关第三方可能依据其自身政策使用 Cookie 或设备信息。",
+        "body": "本服务使用登录、会话安全和 OAuth 流程所需的 Cookie，并使用有效期一年的语言偏好 Cookie，记住页面显示语言。浏览器本地存储还会保存主题、发行服务器、页面布局、播放器、工作区状态和本地帖子草稿等设置；这些内容保留在设备上，可通过浏览器清除。\n\n服务工作线程会缓存公开页面、静态文件和图片，供后续访问复用。本服务的 Cookie 用于认证和偏好设置；第三方登录及 Cloudflare Turnstile 等服务依其各自政策处理 Cookie 和设备信息。\n\n本服务目前不接入第三方广告、跨站行为广告或广告画像追踪。你主动与 Google、GitHub、X、Discord、Cloudflare Turnstile 等第三方交互时，相关第三方可能依据其自身政策使用 Cookie 或设备信息。",
         "title": "Cookie 与本地存储"
       },
       {
@@ -1583,7 +1661,7 @@
         "title": "内容审核与推荐"
       },
       {
-        "body": "在合理必要范围内，我们会使用服务提供方，包括由 Cloudflare 提供网络分发、请求元数据、机器人验证、无服务器执行、数据库与对象存储，以及用于自动审核的 AI 推理；由邮件服务投递账号邮件；以及在你主动选择时由 Google、GitHub、X 或 Discord 提供登录。各服务商依其条款及适用的合同或法律保障处理信息。\n\n默认头像由应用在本地生成。页面可能从游戏发行方、已配置的 Our Notes 发行服务器或其他已标明的来源主机获取资料库或人物资料媒体。即使你没有点击相应媒体，浏览器直接请求通常仍会向该主机提供请求 IP、User-Agent、时间、请求 URL 与常规请求元数据；这些主机依据其自身政策处理请求。\n\n为遵守有效法律程序，保护用户、权利人、公众或本服务，调查欺诈、安全事件或滥用，取得专业意见，或在具备适当保障的情况下完成项目重组、转移或承继，我们可能披露必要信息。我们不出售个人信息，不向数据经纪商提供信息，也不为跨情境行为广告共享信息。",
+        "body": "我们使用 Cloudflare 提供网络分发、请求元数据、机器人验证、服务执行、数据库、对象存储和自动审核所需的 AI 推理；账号邮件通过邮件服务投递。选择第三方登录时，相应身份提供方负责认证。\n\n头像可使用经审核的上传图片；没有可显示的图片时，界面以本地生成的首字母图形呈现。资料和媒体通过 Haneoka 及所配置的资源主机提供。浏览器连接资源主机时，该主机会收到请求 IP、User-Agent、时间、请求 URL 等常规网络信息，并依据其政策处理。\n\n为遵守有效法律程序，保护用户、权利人、公众或本服务，调查欺诈、安全事件或滥用，取得专业意见，或在具备适当保障的情况下完成项目重组、转移或承继，我们可能披露必要信息。我们不出售个人信息，不向数据经纪商提供信息，也不为跨情境行为广告共享信息。",
         "title": "服务提供方与对外披露"
       },
       {
@@ -1591,7 +1669,7 @@
         "title": "跨境处理"
       },
       {
-        "body": "账号有效期间及提供服务所需期间会保留账号和资料。账号设置与密码重置链接通常有效一小时；会话通常最长有效七天，除非续期或撤销。过期凭据、邮件投递保护、安全记录、服务商缓存和备份可能在日常清理或覆盖前额外保留一段有限时间。\n\n帖子和评论版本、删除状态、审核案件、申诉、举报、原始 IP、User-Agent 及相关审计事件按设计不可变，可能在本服务整个运营期间保留，包括用户删除内容或注销账号后，除非法律要求提前删除。账号注销会停用公开资料与访问权限，但不会删除不可变的公开 UID，也不会删除为安全、权利保护、争议处理、法律合规或审计完整性而合理必要的记录。身份已无合理必要时，我们可以对记录去标识化。",
+        "body": "账号有效期间及提供服务所需期间会保留账号和资料。账号设置与密码重置链接通常有效一小时；会话通常最长有效七天，续期或撤销会改变其有效期。系统定期清理过期会话、验证与限流记录。邮件投递保护记录用于控制重复请求，按安全用途保留。\n\n尚未附加到帖子的上传文件设置 24 小时有效期；被拒绝或仍待审核的附件在 30 天后可进入清理流程，实际删除由定时清理任务执行。\n\n帖子和评论版本、删除状态、审核案件、申诉、举报、原始 IP、User-Agent 及相关审计事件按设计保留历史，可能在本服务运营期间继续保留，包括用户删除内容或注销账号之后。账号注销会停用公开资料与访问权限，并撤销持久会话。身份信息和历史记录的进一步处理依据安全、权利保护、争议处理及适用法律要求决定。",
         "title": "保留、删除与注销"
       },
       {
@@ -1620,7 +1698,7 @@
   },
   "termsPage": {
     "title": "使用条款",
-    "updated": "生效及最后更新日期：2026 年 7 月 17 日",
+    "updated": "生效及最后更新日期：2026 年 9 月 27 日",
     "summary": "本使用条款（下称“本条款”）是你与 haneoka 项目维护者之间关于访问和使用 haneoka 的约定。创建账号、勾选同意、提交内容或在本条款生效后继续使用本服务，即表示你同意本条款；如不同意，请勿创建账号或使用受限功能。",
     "sections": [
       {
@@ -1656,7 +1734,7 @@
         "title": "审核、编辑、删除与申诉"
       },
       {
-        "body": "隐私政策通过引用构成本条款的一部分，并说明本服务的数据处理，包括原始 IP 明文保存、管理端可见范围、公开属地和设备标签、内容版本留存、OAuth、Cookie 与账号注销。当你通过网页账号界面提交登录、注册或第三方登录时，该界面会要求你先勾选同意框。此界面确认不构成放弃适用法律规定不可放弃的权利。",
+        "body": "隐私政策构成本条款的一部分，说明账号、社区内容、Cookie、原始 IP、设备信息、内容版本及注销后的记录处理方式。邮箱登录与注册表单要求勾选同意；第三方登录通过所选服务商完成认证。适用法律赋予用户的强制性权利继续有效。",
         "title": "隐私"
       },
       {
@@ -1702,5 +1780,286 @@
     ],
     "contactLabel": "联系项目维护者",
     "backHome": "返回首页"
-  }
+  },
+  "licensePage": {
+    "title": "开源许可",
+    "description": "Haneoka 的源代码、组件与第三方资源的许可说明。",
+    "summary": "开放的源代码连接起 Haneoka 的引擎、工具与网站。这里汇集项目的代码许可、第三方声明与资源权利信息。",
+    "sections": [
+      {
+        "title": "源代码 · MPL 2.0",
+        "body": "Haneoka 自有源代码及受 MPL 覆盖的改编文件采用 Mozilla Public License 2.0，具体文件另有声明时按其声明执行。MPL 允许使用、修改和分发代码，也允许将其与独立许可的文件组合成更大的作品。\n\n分发受 MPL 覆盖的源文件及其修改时，需保留相应声明并继续适用 MPL；分发可执行形式时，需按许可证要求提供受覆盖部分的源码获取方式。完整权利与义务见许可证原文。"
+      },
+      {
+        "title": "引擎、插件与第三方组件",
+        "body": "Vega、Cassiopeia、Altair、Schedar、Deneb 及其插件各自维护源代码、发布配置与许可声明。组合使用时，可在对应仓库查看具体文件和依赖的许可证。\n\n网站所使用的框架、字体、图标及运行库保留各自许可。第三方声明集中列出直接使用、随构建提供或改编的组件，以及对应的权利信息。"
+      },
+      {
+        "title": "游戏素材与品牌",
+        "body": "BanG Dream!、BanG Dream! Our Notes 的名称、角色、美术、剧情、音乐、影像及相关游戏素材，其权利归各自权利人所有。素材的使用范围依据对应权利人的授权及适用法律确定。\n\nHaneoka 由爱好者独立维护。代码许可适用于对应的软件文件；游戏素材、第三方标志和专有运行库按各自权利条款处理。"
+      }
+    ],
+    "sourceLink": "查看完整许可证",
+    "noticesLink": "第三方声明",
+    "contactLabel": "联系维护者"
+  },
+  "catalogCompat": {
+    "band": {
+      "1": "MyGO!!!!!",
+      "2": "Ave Mujica",
+      "3": "梦限大MewType",
+      "4": "millsage",
+      "5": "一家Dumb Rock!"
+    },
+    "gameSystems": "游戏系统",
+    "systemNavMissions": "任务",
+    "systemNavPasses": "通行证",
+    "realLives": "现场演出",
+    "banners": "当前招募横幅",
+    "noBanner": "目前没有进行中的招募横幅。",
+    "noEndDate": "长期开放",
+    "noEvent": "目前没有可显示的活动。",
+    "spanDays": "{count}天",
+    "spanHours": "{count}小时",
+    "spanMinutes": "{count}分钟",
+    "startsIn": "{time}后开始",
+    "endsIn": "{time}后结束",
+    "releasedToday": "今日上线",
+    "releasedAgo": "{time}前上线",
+    "releasesIn": "{time}后上线",
+    "voicesRole": "配音{name}",
+    "stickers": "贴纸",
+    "backgrounds": "背景",
+    "tgw": {
+      "card": "T.G.W CARD",
+      "about": "关于 T.G.W CARD",
+      "dailyPoints": "连续领取点数",
+      "consecutive": "连续{days}天",
+      "rankRewards": "升级奖励",
+      "dailyRewards": "每日奖励",
+      "empty": "此版本没有等级资料。",
+      "reward": "奖励"
+    },
+    "system": {
+      "ongoing": "正在进行",
+      "upcoming": "即将开始",
+      "ended": "已结束",
+      "retired": "已绝版",
+      "availability": "即将结束",
+      "starts": "开始",
+      "ends": "结束",
+      "status": "状态",
+      "price": "价格",
+      "inAppPurchase": "应用内购买",
+      "featured": "精选奖励",
+      "drawOptions": "招募选项",
+      "draw": "抽取{count}次",
+      "drawOne": "抽取{count}次",
+      "prizePool": "奖池",
+      "dailyRewards": "每日登录奖励",
+      "day": "第{day}天",
+      "watchAd": "观看广告",
+      "premium": "高级",
+      "free": "普通",
+      "points": "{points}点数",
+      "passMissions": "通行证任务",
+      "contents": "内容",
+      "exchangeGoods": "兑换道具",
+      "rankRewards": "排名奖励",
+      "levelRewards": "等级奖励",
+      "regularMission": "任务",
+      "limitedMission": "限时任务",
+      "goal": "目标",
+      "viewSong": "查看乐曲",
+      "rates": "出现概率",
+      "simulator": "模拟招募",
+      "simulatorNote": "基于游戏公布概率的本地重现，不发放也不消耗任何道具。",
+      "spent": "已消耗",
+      "gachaPoint": "招募Pt",
+      "guaranteed": "确定获得",
+      "drawCount": "抽取次数",
+      "limit": "次数限制",
+      "requiresRank": "需要 T.G.W CARD 等级{rank}",
+      "pickup": "精选",
+      "firstTime": "首次",
+      "seasonPass": "赛季通行证",
+      "monthlyPass": "月度通行证",
+      "bonus": "额外奖励",
+      "kind": {
+        "gameEvent": "游戏活动",
+        "realLive": "现场演出"
+      }
+    },
+    "gachaType": {
+      "stars": "星钻招募",
+      "ticket": "票券招募",
+      "ad": "广告招募",
+      "pass": "通行证招募",
+      "bonus": "T.G.W 特典"
+    },
+    "resourceTypes": {
+      "MemberCard": "成员",
+      "SupportCard": "留影",
+      "Item": "道具"
+    },
+    "voice": {
+      "live": "演出",
+      "other": "其他",
+      "stop": "停止",
+      "sourceTalk": "对话",
+      "sourceCharacterVoice": "角色语音",
+      "sourceMemberCard": "成员卡",
+      "sourceLiveCharacter": "演出角色",
+      "sourceLiveGekisouVoice": "激奏语音",
+      "sourceLiveDialogueCommon": "演出互动对话・通用",
+      "sourceLiveDialogueFixedPair": "演出互动对话・固定组合",
+      "sourceLiveStartCharacterVoice": "演出开始角色语音",
+      "sourceUnknown": "未分类来源",
+      "unavailable": "暂无音源",
+      "noText": "暂无台词文本",
+      "loading": "加载中",
+      "cancelled": "已停止播放",
+      "failure": "播放失败，请重试。",
+      "playLine": "播放这句台词",
+      "replay": "重新播放",
+      "unlockRank": "角色等级 {0} 解锁",
+      "unlockBond": "羁绊等级 {0} 解锁",
+      "normal": "日常对话",
+      "seasonal": "季节台词",
+      "birthday": "生日",
+      "levelUp": "等级提升",
+      "awaken": "觉醒",
+      "skillUp": "技能升级",
+      "rankUp": "Rank 提升",
+      "clear": "演出完成",
+      "fullCombo": "全连击",
+      "allPerfect": "全 Perfect",
+      "result": "演出结果",
+      "battleFirst": "对战・第一名",
+      "battleHigh": "对战・高排名",
+      "battleLow": "对战・低排名",
+      "start": "演出开场",
+      "skill": "演出技能",
+      "combo": "连击",
+      "call": "呼唤",
+      "response": "回应",
+      "gekisouCombo": "激奏・连击",
+      "gekisouJust": "激奏・JUST",
+      "gekisouLuck": "激奏・LUCK",
+      "gekisouTop": "激奏・最高排名",
+      "gacha": "成员招募",
+      "title": "语音"
+    },
+    "story": {
+      "auto": "自动",
+      "storyProgress": "剧情进度",
+      "resources": "故事资源",
+      "preparing": "准备播放",
+      "sceneIndex": "场景索引",
+      "preparationTasks": "项准备工作"
+    },
+    "loading": {
+      "file": "个文件",
+      "files": "个文件",
+      "failed": "加载失败"
+    }
+  },
+  "seo": {
+    "homeTitle": "BanG Dream! Our Notes 资料库",
+    "descriptions": {
+      "home": "由社区维护的 BanG Dream! Our Notes 非官方资料归档，整理歌曲、成员、卡牌、角色、故事和活动资料，并提供浏览器查看。",
+      "catalog": "浏览 BanG Dream! Our Notes 非官方资料库，内容包括歌曲、成员、卡牌、角色和故事。",
+      "catalogItem": "{title}的数据与相关条目。BanG Dream! Our Notes 资料查询。",
+      "about": "haneoka 是由社区维护、用于整理和浏览 BanG Dream! Our Notes 参考资料的非官方项目。",
+      "community": "浏览 BanG Dream! Our Notes 相关的社区帖子。",
+      "communityTags": "浏览 BanG Dream! Our Notes 社区使用的标签。",
+      "communityPlaylists": "浏览 BanG Dream! Our Notes 社区分享的播放列表。",
+      "communitySongs": "浏览 BanG Dream! Girls Band Party! 的歌曲资料。",
+      "communityStories": "浏览 GBP 活动、乐队、主线、区域对话和卡牌故事。",
+      "terms": "查看 haneoka 及其社区功能的使用条款和规则。",
+      "privacy": "查看 haneoka 对账户信息、Cookie 和其他数据的处理方式。",
+      "general": "haneoka 的{title}页面，收录于社区维护的 BanG Dream! Our Notes 非官方资料库。"
+    },
+    "resources": {
+      "songs": "BanG Dream! Our Notes 乐曲的制作信息、谱面难度、音符数量与发布信息。",
+      "characters": "BanG Dream! Our Notes 角色立绘、个人资料、所属乐队、卡牌与相关故事。",
+      "member-cards": "成员卡的能力、技能、培养阶段与每一级所需材料。",
+      "support-cards": "留影卡的能力、技能、等级与培养信息。",
+      "band-items": "乐队道具的效果与各等级升级所需材料。",
+      "live2d": "预览 Live2D 模型、切换动作与表情、调整参数并导出图片。",
+      "spine": "Spine 模型目录、动画预览与透明 PNG 图片导出。"
+    }
+  },
+  "lookX": "水平视线",
+  "lookY": "垂直视线",
+  "invalidParameterPose": "姿势文件中的参数值无效。",
+  "modelDescriptorMissing": "模型配置文件不可用。",
+  "back": "返回",
+  "table": "表格",
+  "songMeta": "乐曲分析",
+  "characterBonds": "角色羁绊",
+  "missions": "任务",
+  "previousImage": "上一张图片",
+  "nextImage": "下一张图片",
+  "originalImage": "打开原图",
+  "portrait": "立绘",
+  "mirrors": "关联资料",
+  "downloadChart": "下载谱面图片",
+  "category": "分类",
+  "initial": "初始值",
+  "rankUpItem": "升阶材料",
+  "notes": "音符数",
+  "battle": "对战",
+  "lyricist": "作词",
+  "arranger": "编曲",
+  "value": "数值",
+  "time": "时长",
+  "score": "得分系数",
+  "eff": "每分钟得分效率",
+  "bpm": "BPM",
+  "n": "音符数",
+  "nps": "每秒音符数",
+  "sr": "技能覆盖率",
+  "media": "媒体",
+  "playAll": "全部播放",
+  "friendship": "羁绊等级",
+  "effectsByLevel": "各级效果",
+  "schoolClass": "班级",
+  "constellation": "星座",
+  "favoriteFood": "喜欢的食物",
+  "hatedFood": "不喜欢的食物",
+  "simple": "简易",
+  "density": "显示密度",
+  "comfortable": "舒适",
+  "compact": "紧凑",
+  "model": "模型",
+  "animations": "动画",
+  "family": "分类",
+  "version": "版本",
+  "sway": "视线跟随",
+  "backgroundColor": "背景颜色",
+  "drag": "移动模型",
+  "screenshot": "截取图片",
+  "downloadModel": "下载模型 ZIP",
+  "stop": "停止",
+  "scale": "缩放",
+  "parameterMode": "参数模式",
+  "customPoses": "已保存的姿势",
+  "defaultPose": "默认姿势",
+  "savePose": "保存姿势",
+  "rename": "重命名",
+  "confirm": "确认",
+  "partsVisibility": "部件显示",
+  "visualAssets": "模型资源",
+  "progress": "进度",
+  "captureFailed": "未能截取图片，请重试。",
+  "captureCopyFailed": "未能复制图片，请使用下载。",
+  "metadataUnavailable": "部分模型资料未能加载。",
+  "background": "背景",
+  "illustration": "插图",
+  "video": "视频",
+  "conversation": "对话",
+  "stamp": "表情",
+  "playVoice": "播放语音",
+  "fullscreenExit": "退出全屏"
 }

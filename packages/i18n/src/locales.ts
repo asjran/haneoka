@@ -8,14 +8,18 @@ export const supportedLocales = [
   { value: "ko", label: "한국어", tag: "ko-KR" },
 ] as const;
 
-export type Locale = (typeof supportedLocales)[number]["value"];
+export type UiLocale = (typeof supportedLocales)[number]["value"];
+/** @deprecated Use UiLocale for UI copy and AuthorLocale for authored data. */
+export type Locale = UiLocale;
+/** Canonical BCP 47 authored-content tags are not restricted to UiLocale. */
+export type AuthorLocale = string;
 export type LanguageTag = (typeof supportedLocales)[number]["tag"];
-export type LocalizedLanguageTag = LanguageTag | "und";
+export type LocalizedLanguageTag = AuthorLocale | "und";
 
-export const DEFAULT_LOCALE: Locale = "ja";
+export const DEFAULT_LOCALE: UiLocale = "ja";
 
 const localeTags = Object.fromEntries(supportedLocales.map(({ value, tag }) => [value, tag])) as Record<
-  Locale,
+  UiLocale,
   LanguageTag
 >;
 
@@ -51,23 +55,54 @@ export const matchLocale = (value: unknown): Locale | null => {
   return segments.some((segment) => ["tw", "hk", "mo"].includes(segment)) ? "zh-TW" : "zh-CN";
 };
 
-export const isLocale = (value: unknown): value is Locale =>
+export const isLocale = (value: unknown): value is UiLocale =>
   typeof value === "string" && supportedLocales.some((locale) => locale.value === value);
 
-export const normalizeLocale = (value: unknown, fallback: Locale = DEFAULT_LOCALE): Locale =>
+export const normalizeLocale = (value: unknown, fallback: UiLocale = DEFAULT_LOCALE): UiLocale =>
   matchLocale(value) ?? fallback;
 
-export const languageTagFor = (locale: Locale): LanguageTag => localeTags[locale];
+export const languageTagFor = (locale: UiLocale): LanguageTag => localeTags[locale];
+
+export const normalizeAuthorLocale = (value: unknown): AuthorLocale | null => normalizeLanguageTag(value);
+
+/** Return the resolved ISO 15924 script, retaining explicit BCP 47 scripts. */
+export const scriptForLanguageTag = (value: unknown): string => {
+  const tag = normalizeLanguageTag(value);
+  if (!tag || tag === "und") return "und";
+  try {
+    return new Intl.Locale(tag).maximize().script || "und";
+  } catch {
+    return "und";
+  }
+};
 
 /** UI copy falls back only to the Japanese source before exposing its key. */
-export const uiLocaleFallbacks = (requested: Locale): readonly Locale[] =>
+export const uiLocaleFallbacks = (requested: UiLocale): readonly UiLocale[] =>
   requested === DEFAULT_LOCALE ? [DEFAULT_LOCALE] : [requested, DEFAULT_LOCALE];
 
-/** Content may use every known translation after the requested and source locales. */
-export const contentLocaleFallbacks = (requested: Locale): readonly Locale[] => [
-  requested,
-  ...(requested === DEFAULT_LOCALE ? [] : ([DEFAULT_LOCALE] as const)),
-  ...supportedLocales
-    .map(({ value }) => value)
-    .filter((candidate) => candidate !== requested && candidate !== DEFAULT_LOCALE),
-];
+/**
+ * Build an authored-content chain from the caller's explicit availability.
+ * The package does not append the five UI locales implicitly: game content can
+ * carry arbitrary BCP 47 tags and its source policy belongs to the caller.
+ */
+export const contentLocaleFallbacks = (
+  requested: AuthorLocale,
+  available: readonly AuthorLocale[] = [],
+): readonly AuthorLocale[] => {
+  const canonical = normalizeAuthorLocale(requested) ?? "und";
+  const locale = canonical === "und" ? null : new Intl.Locale(canonical);
+  const script = locale?.maximize().script;
+  const candidates = [
+    canonical,
+    script && locale?.language ? `${locale.language}-${script}` : undefined,
+    locale?.language,
+    ...available,
+  ];
+  return [
+    ...new Set(
+      candidates
+        .filter((candidate): candidate is string => Boolean(candidate))
+        .map((candidate) => normalizeAuthorLocale(candidate) ?? candidate),
+    ),
+  ];
+};

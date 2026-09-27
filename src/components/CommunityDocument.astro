@@ -1,8 +1,8 @@
 ---
 import Base from "../layouts/Base.astro";
 import AppShell from "./AppShell.astro";
-import { LOCALES, type Locale } from "../i18n/locales";
-import { group, t } from "../i18n/messages";
+import { type Locale } from "../i18n/locales";
+import { t } from "../i18n/messages";
 import "../lit/community-workspace";
 import "../styles/catalog.css";
 import "../styles/community.css";
@@ -16,7 +16,7 @@ const modeTitleKeys: Record<string, string> = {
 };
 const titleKey = modeTitleKeys[mode] || "community";
 const title = t(locale, titleKey, mode === "feeds" ? "Community" : mode);
-const labels = JSON.stringify(Object.fromEntries(LOCALES.map((target) => [target, group(target, "communityPage")])));
+
 ---
-<Base locale={locale} route={route} title={title} titleKey={titleKey}><AppShell locale={locale} route={route} title={title} titleKey={titleKey}><community-workspace locale={locale} mode={mode} labels={labels}></community-workspace></AppShell></Base>
+<Base locale={locale} route={route} title={title} titleKey={titleKey}><AppShell locale={locale} route={route} title={title} titleKey={titleKey}><community-workspace locale={locale} mode={mode}></community-workspace></AppShell></Base>
 <script>import "../lit/community-workspace";</script>

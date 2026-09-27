@@ -330,8 +330,7 @@ a.detail-object:hover {
   cursor: pointer;
   border-radius: inherit;
   color: var(--md-sys-color-on-surface);
-  font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) /
-    var(--app-font);
+  font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) / var(--app-font);
 }
 
 .detail-fold summary::-webkit-details-marker {

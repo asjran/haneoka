@@ -11,6 +11,9 @@ import { tile } from "./ui/tile";
 import { storyCastMedia } from "./ui/story-media";
 import { LazyImages, nextImageCandidate } from "./ui/lazy-images";
 import { rovingKeydown } from "./ui/controls";
+import { entityHref, parseResourceRoute, returnStateFromLocation, type ResourceKind } from "../lib/resource-route";
+import { readReleaseServer } from "../lib/release-server";
+import type { Locale } from "../i18n/locales";
 import "../styles/character-detail.css";
 
 type Item = Record<string, unknown>;
@@ -43,6 +46,20 @@ const values = (value: unknown, key?: string): Item[] => {
   const source = key && value && typeof value === "object" ? (value as Item)[key] : value;
   if (!source || typeof source !== "object") return [];
   return Object.values(source as Item).filter((entry): entry is Item => !!entry && typeof entry === "object");
+};
+
+const resourceHrefForCurrent = (kind: ResourceKind, id: string, query?: Record<string, string>): string => {
+  const current = parseResourceRoute(location.pathname);
+  const locale = (current?.locale || document.documentElement.dataset.locale || "ja") as Locale;
+  const server = current?.server || readReleaseServer();
+  return entityHref({
+    server,
+    locale,
+    kind,
+    id,
+    returnTo: returnStateFromLocation(location.pathname, location.search, kind),
+    query,
+  });
 };
 
 export class CharacterDetailArchive extends LitElement {
@@ -219,7 +236,7 @@ export class CharacterDetailArchive extends LitElement {
         model: entry,
         character: c.character(characterId),
         locale: document.documentElement.dataset.locale || "ja",
-        href: `/catalog/live2d/?model=${encodeURIComponent(c.relatedId(entry, route))}`,
+        href: resourceHrefForCurrent("live2d", c.relatedId(entry, route)),
       });
     const kind =
       route === "member-cards"
@@ -267,7 +284,8 @@ export class CharacterDetailArchive extends LitElement {
               : nothing;
     const attribute = route === "songs" ? c.attributeMark(entry.musicType, true) : c.attributeMark(entry.cardType);
     const rarity = c.rarityMark(entry.rarity);
-    const hrefRoute = route === "stories" ? `stories/${storyVisual?.category || "band"}` : route;
+    const hrefKind = (route === "stories" ? "stories" : route) as ResourceKind;
+    const hrefQuery = route === "stories" ? { mode: storyVisual?.category || "band" } : undefined;
     return tile({
       kind,
       title: c.relatedTitle(entry, route),
@@ -283,7 +301,7 @@ export class CharacterDetailArchive extends LitElement {
       label: c.relatedTitle(entry, route),
       image: source,
       imageCandidates,
-      href: `/catalog/${hrefRoute}?${c.relatedParam(route)}=${encodeURIComponent(c.relatedId(entry, route))}`,
+      href: resourceHrefForCurrent(hrefKind, c.relatedId(entry, route), hrefQuery),
       fit: "contain",
       natural:
         route !== "live2d" &&

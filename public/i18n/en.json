@@ -199,7 +199,10 @@
     "animations": "Animations",
     "skins": "Skins",
     "source": "Source asset",
-    "runtime": "Runtime"
+    "runtime": "Runtime",
+    "families": {
+      "homeSpot": "Home spot"
+    }
   },
   "chartEditorPage": {
     "edit": "Edit",
@@ -1426,20 +1429,95 @@
     "empty": "Nothing to display."
   },
   "aboutPage": {
-    "eyebrow": "Unofficial fan project",
-    "title": "About haneoka",
-    "description": "Haneoka is a community-maintained project for organizing and viewing BanG Dream! Our Notes materials in a web browser.",
-    "fanProjectTitle": "Independent fan project",
-    "fanProjectBody": "Haneoka is an unofficial, non-commercial fan project maintained independently for learning and community exchange. It is not authorized, affiliated with, endorsed by, sponsored by, or otherwise connected to BanG Dream! Project, Bushiroad Inc., FROM TOKYO Inc., bilibili game, or any other rights holder.",
-    "rightsTitle": "Rights and ownership",
-    "rightsBody": "BanG Dream!, BanG Dream! Our Notes, and all related names, marks, characters, artwork, images, audio, music, video, stories, text, data, fonts, and other materials remain the property of their respective rights holders. Haneoka claims no ownership of, and grants no rights to, those materials.",
-    "materialsTitle": "Online sources and permitted purpose",
-    "materialsBody": "Game-related materials displayed or indexed here are compiled from sources accessible on the Internet solely for individual learning, research, commentary, and non-commercial community exchange. Online availability or source attribution does not place material in the public domain or establish authorization. Haneoka opposes and prohibits unauthorized redistribution, sale, commercialization, removal of rights notices, circumvention of access or usage controls, and any unlawful, harmful, or rights-infringing use.",
-    "sourceTitle": "Source code",
-    "sourceBody": "Haneoka-authored Source Code Form and MPL-covered adaptations in the current revision are available from GitHub under MPL-2.0 unless a file or notice states otherwise. Third-party and derived components retain their own licenses; the repository license does not cover game materials or other third-party components.",
-    "sourceLink": "GitHub",
+    "eyebrow": "A living archive and open toolchain",
+    "title": "About Haneoka",
+    "description": "Haneoka turns BanG Dream! Our Notes into a browser experience that moves from story scenes and searchable catalogues to community spaces, chart tools, and the craft of making and publishing.",
+    "experienceTitle": "Read the world, then stay in it",
+    "experienceIntro": "The browser is the first stage: a story player, a deep catalogue, and a social layer meet around the same material.",
+    "experience": [
+      {
+        "title": "Follow the story",
+        "body": "Open dialogue, choices, scene direction, animation, audio, and video in a browser story player, then carry the thread through history, saves, settings, and branching scenes."
+      },
+      {
+        "title": "Explore every thread",
+        "body": "Search multilingual game data across characters, cards, songs, stories, events, and system collections, then move from detail pages into audio, comic, asset, Live2D, Spine, and chart experiences."
+      },
+      {
+        "title": "Make it a shared place",
+        "body": "Accounts and community workspaces bring feeds, posts, comments, reactions, bookmarks, tags, notifications, profiles and attachments into the same archive."
+      }
+    ],
+    "ecosystemTitle": "An ecosystem built to compose",
+    "ecosystemIntro": "The experience grows through explicit contracts: hosts, renderers, runtimes, plugins, data releases, and interfaces each bring a focused capability to the stage.",
+    "ecosystem": [
+      {
+        "title": "Haneoka · the browser stage",
+        "body": "Astro renders locale-aware document routes and a shared shell; Lit and TypeScript mount route-scoped workspaces, while Workers, D1, and R2 connect services, account and community data, and immutable catalogue releases and media."
+      },
+      {
+        "title": "Vega · choose the renderer",
+        "body": "Vega keeps the renderer, character systems, themes, resources, and interface replaceable while its runtime carries dialogue, choices, scenes, animation, audio, video, saves, history, settings, and branching stories across web and native hosts."
+      },
+      {
+        "title": "Cassiopeia · rhythm by contract",
+        "body": "The kernel owns integer timing, candidate selection, judgement, scoring, and session state. Typed plugins declare versions, dependencies, and services; audio hosts, Three.js rendering, Vue UI, and Sonolus play, watch, preview, and tutorial targets compose around it."
+      },
+      {
+        "title": "Typed extensions · room for new forms",
+        "body": "Story projects carry plugin versions, extension fields and authored order; chart projects retain extension data and source metadata. Format adapters connect authoring workflows and carry editable projects into preview and release."
+      }
+    ],
+    "toolchainTitle": "From reading to making to publishing",
+    "toolchainIntro": "The surrounding tools carry an idea from a precise project model through authoring, localization, validation, and release targets.",
+    "toolchain": [
+      {
+        "title": "Schedar · shape the chart",
+        "body": "An editable chart model brings together tempo maps, beat snapping, viewport and waveform tools, validation, and mergeable undo/redo history. Import and export Schedar JSON, SS and USC, and import SUS with conversion diagnostics."
+      },
+      {
+        "title": "Altair · author the scene",
+        "body": "Compose scenes, dialogue, assets, languages, and story flow in a visual workspace. YAML 1.2 project and scene documents pair with a canonical StoryProject model, plugin contributions, resource browsing, history, drafts, and Vega preview."
+      },
+      {
+        "title": "Deneb · prepare the release",
+        "body": "Check project resources and plugins, resolve the build graph, make inputs reproducible, and create release projects for the web, offline-capable PWAs, Electron, Tauri, Android, and iOS."
+      }
+    ],
+    "repositoriesTitle": "The public constellation",
+    "repositoriesIntro": "Each repository carries a distinct piece of the experience, from the browser archive to the engines and authoring tools behind it.",
+    "repositories": [
+      {
+        "title": "Haneoka",
+        "body": "The catalogue, browser experience, interactive workspaces, community services, and deployment surface."
+      },
+      {
+        "title": "Vega",
+        "body": "Visual-novel engine, renderer and plugin contracts, story runtime, and framework adapters."
+      },
+      {
+        "title": "Cassiopeia",
+        "body": "Portable rhythm kernel with timing, judgement, scoring, session state, and typed plugin boundaries."
+      },
+      {
+        "title": "Cassiopeia Sonolus plugin",
+        "body": "Chart conversion, play, watch, preview, tutorial engines, and effect resources."
+      },
+      {
+        "title": "Altair",
+        "body": "Visual authoring, localization, YAML project documents, plugin host, resource browser, and Vega preview."
+      },
+      {
+        "title": "Deneb",
+        "body": "Project validation, plugin resolution, and release projects for web, PWA, desktop and mobile targets."
+      }
+    ],
+    "footerBody": "Haneoka connects reference, performance and creation through an open collection of engines and tools. Each engine has its own interfaces and workflow; each plugin can become part of a new work.",
+    "sourceLink": "Browse the Haneoka source",
     "noticesLink": "Third-party notices",
-    "licenseLink": "MPL-2.0"
+    "licenseLink": "MPL-2.0 license",
+    "contactLink": "Open a GitHub issue",
+    "heroTitle": "Give every story a bigger stage"
   },
   "bandItemsPage": {
     "title": "Band Items",
@@ -1547,7 +1625,7 @@
   },
   "privacyPage": {
     "title": "Privacy policy",
-    "updated": "Effective and last updated: July 17, 2026",
+    "updated": "Effective and last updated: September 27, 2026",
     "summary": "This Privacy Policy describes how the maintainers of haneoka (the “Operator”, “we”, “us”, or “our”) collect, use, disclose, retain, and protect information when haneoka provides its public archive, community, account, and related services (collectively, the “Service”). Please read it before creating an account or submitting information.",
     "sections": [
       {
@@ -1563,11 +1641,11 @@
         "title": "Email-only registration and third-party sign-in"
       },
       {
-        "body": "For security, abuse prevention, moderation, and audit purposes, we record the original IP address supplied by Cloudflare and the full User-Agent associated with relevant account and community actions, together with timestamps, request identifiers, session and rate-limit data, and action metadata. The original IP address is stored in plaintext in the application database and is not application-level encrypted. It is available only through authorized administrative interfaces, subject to access controls.\n\nPublic content may show only the country or territory and first-level administrative region derived from Cloudflare request metadata, plus generalized browser and operating-system icons derived from the User-Agent. The Service does not use GPS to determine precise location. IP-based location can be inaccurate, particularly when a proxy, VPN, mobile network, or corporate gateway is used.",
+        "body": "For security, abuse prevention, moderation, and audit purposes, we record the original IP address supplied by Cloudflare and the full User-Agent associated with relevant account and community actions, together with timestamps, request identifiers, session and rate-limit data, and action metadata. The original IP address is stored in plaintext in the application database and is not application-level encrypted. It is available only through authorized administrative interfaces, subject to access controls.\n\nPublic content may show only the country or territory and first-level administrative region derived from Cloudflare request metadata, plus generalized browser and operating-system icons derived from the User-Agent. The Service does not use GPS to determine precise location. IP-based location can be inaccurate, particularly when a proxy, VPN, mobile network, or corporate gateway is used.\n\nCloudflare also processes operational logs and sampled request traces to diagnose errors, analyse performance and address security issues. The relevant service configuration determines their contents and retention.",
         "title": "Network, IP-region, and device information"
       },
       {
-        "body": "The Service uses strictly necessary cookies or equivalent credentials to maintain authentication, protect sessions, and complete OAuth flows. Browser local storage may retain language, release-server and layout choices, player settings, workspace state, locally saved post drafts, and similar preferences. Locally stored information generally remains on your device until you clear it or the application replaces it.\n\nThe Service does not currently operate third-party advertising, cross-site behavioral advertising, or advertising-profile trackers. Google, GitHub, X, Discord, Cloudflare Turnstile, or other third-party services may use their own cookies or device information when you actively interact with them, under their own policies.",
+        "body": "The service uses cookies for sign-in, session security and OAuth, plus a language-preference cookie with a one-year lifetime. Browser local storage also keeps settings such as theme, release server, layout, player and workspace state, and local post drafts. These remain on your device and can be cleared through your browser.\n\nA service worker caches public pages, static files and images for subsequent visits. The service uses cookies for authentication and preferences; third-party sign-in and Cloudflare Turnstile process cookies and device information under their own policies.\n\nThe Service does not currently operate third-party advertising, cross-site behavioral advertising, or advertising-profile trackers. Google, GitHub, X, Discord, Cloudflare Turnstile, or other third-party services may use their own cookies or device information when you actively interact with them, under their own policies.",
         "title": "Cookies and local device storage"
       },
       {
@@ -1583,7 +1661,7 @@
         "title": "Moderation and recommendations"
       },
       {
-        "body": "We use service providers where reasonably necessary, including Cloudflare for network delivery, request metadata, bot verification, serverless execution, database and object storage, and AI inference for automated moderation; an email delivery service for account messages; and Google, GitHub, X, or Discord when you choose their sign-in service. Providers process information under their own terms and, where applicable, contractual or legal safeguards.\n\nDefault avatars are generated locally in the application. Pages may retrieve archive or profile media from game publishers, configured Our Notes release servers, or other identified source hosts. A direct browser request ordinarily discloses the requesting IP address, User-Agent, time, requested URL, and ordinary request metadata to that host even if you do not click the media. Those hosts process the request under their own policies.\n\nWe may disclose information when reasonably necessary to comply with valid legal process; protect users, rights holders, the public, or the Service; investigate fraud, security incidents, or abuse; obtain professional advice; or complete a reorganization, transfer, or succession of the project subject to appropriate safeguards. We do not sell personal information, disclose it to data brokers, or share it for cross-context behavioral advertising.",
+        "body": "Cloudflare provides network delivery, request metadata, bot verification, application execution, databases, object storage and AI inference for automated moderation. An email service delivers account messages. When you choose third-party sign-in, the selected identity provider handles authentication.\n\nAvatars can use approved uploaded images; when an image is unavailable, the interface displays an initial generated locally. Reference data and media are served through Haneoka and configured resource hosts. When your browser connects to a resource host, that host receives ordinary network information such as the request IP, User-Agent, time and URL, and processes it under its own policies.\n\nWe may disclose information when reasonably necessary to comply with valid legal process; protect users, rights holders, the public, or the Service; investigate fraud, security incidents, or abuse; obtain professional advice; or complete a reorganization, transfer, or succession of the project subject to appropriate safeguards. We do not sell personal information, disclose it to data brokers, or share it for cross-context behavioral advertising.",
         "title": "Service providers and disclosures"
       },
       {
@@ -1591,7 +1669,7 @@
         "title": "International processing"
       },
       {
-        "body": "We retain account and profile data while the account is active and as needed to provide the Service. Account setup and password-reset links are normally valid for one hour; sessions are normally valid for up to seven days unless renewed or revoked. Expired credentials, delivery guards, security records, provider caches, and backups may remain for a limited additional period until routine cleanup or overwrite.\n\nPost and comment revisions, deletion states, moderation cases, appeals, reports, raw IP addresses, User-Agents, and related audit events are designed to be immutable and may be retained for the operating life of the Service, including after a user deletes content or closes an account, unless earlier erasure is legally required. Account deletion disables the public profile and access but does not delete the immutable public UID or records reasonably required for safety, rights protection, dispute handling, legal compliance, or audit integrity. We may de-identify records when identification is no longer reasonably necessary.",
+        "body": "Account and profile information is kept while an account is active and as needed to provide the service. Account-setup and password-reset links normally last one hour; sessions normally last up to seven days, subject to renewal or revocation. Scheduled jobs clean up expired sessions, verification records and rate-limit records. Email-delivery protection records are retained for security and repeated-request control.\n\nUploads not attached to a post receive a 24-hour expiry. Rejected or pending-review attachments become eligible for cleanup after 30 days; scheduled jobs perform deletion.\n\nPost and comment revisions, deletion states, moderation cases, appeals, reports, original IP addresses, User-Agent values and related audit events retain their history and may remain throughout service operation, including after content or account deletion. Account deletion disables the public profile and access, and revokes durable sessions. Further handling of identity and historical records follows security, rights-protection, dispute-resolution and applicable legal requirements.",
         "title": "Retention, deletion, and account closure"
       },
       {
@@ -1620,7 +1698,7 @@
   },
   "termsPage": {
     "title": "Terms of use",
-    "updated": "Effective and last updated: July 17, 2026",
+    "updated": "Effective and last updated: September 27, 2026",
     "summary": "These Terms of Use (the “Terms”) form an agreement between you and the haneoka project maintainers concerning your access to and use of haneoka. By creating an account, selecting the agreement checkbox, submitting content, or otherwise using the Service after these Terms take effect, you agree to them. If you do not agree, do not create an account or use restricted features.",
     "sections": [
       {
@@ -1656,7 +1734,7 @@
         "title": "Moderation, editing, deletion, and appeals"
       },
       {
-        "body": "The Privacy Policy is incorporated into these Terms by reference and explains the Service’s data practices, including plaintext storage of original IP addresses, administrative visibility, public region and device labels, content-version retention, OAuth, cookies, and account deletion. When you submit sign-in, registration, or provider sign-in through the web account interface, that interface requires you to select an agreement checkbox before continuing. The interface confirmation does not waive rights that applicable law makes non-waivable.",
+        "body": "The Privacy Policy forms part of these Terms and explains how accounts, community content, cookies, original IP addresses, device information, content revisions and records after account deletion are handled. Email sign-in and registration forms require agreement confirmation; provider sign-in completes authentication through the selected service. Mandatory rights under applicable law remain in effect.",
         "title": "Privacy"
       },
       {
@@ -1702,5 +1780,286 @@
     ],
     "contactLabel": "Contact the project maintainers",
     "backHome": "Back to home"
-  }
+  },
+  "licensePage": {
+    "title": "Open-source licenses",
+    "description": "Licensing information for Haneoka source code, components and third-party resources.",
+    "summary": "Open source connects Haneoka’s engines, tools and website. This page brings together the code license, third-party notices and rights information for the resources they use.",
+    "sections": [
+      {
+        "title": "Source code · MPL 2.0",
+        "body": "Haneoka-authored source code and MPL-covered adaptations use the Mozilla Public License 2.0, subject to individual file notices. MPL permits use, modification and distribution, including combination with separately licensed files in a larger work.\n\nDistribution of covered source files and their modifications requires preserving the relevant notices and continuing to use MPL for those files. Distribution in executable form requires making the covered source available as specified by the license. The full license sets out these rights and obligations."
+      },
+      {
+        "title": "Engines, plugins and dependencies",
+        "body": "Vega, Cassiopeia, Altair, Schedar, Deneb and their plugins maintain their own source code, release configurations and license notices. Each repository identifies the licenses for its files and dependencies.\n\nFrameworks, fonts, icons and runtimes used by the website retain their respective licenses. The third-party notices identify directly used, build-injected and adapted components and their rights information."
+      },
+      {
+        "title": "Game materials and branding",
+        "body": "The names, characters, artwork, stories, music, video and other game materials associated with BanG Dream! and BanG Dream! Our Notes belong to their respective rights holders. Their use is governed by the relevant permissions and applicable law.\n\nHaneoka is independently maintained by fans. The code license applies to the corresponding software files; game materials, third-party marks and proprietary runtimes are governed by their own terms."
+      }
+    ],
+    "sourceLink": "Read the full license",
+    "noticesLink": "Third-party notices",
+    "contactLabel": "Contact the maintainers"
+  },
+  "catalogCompat": {
+    "band": {
+      "1": "MyGO!!!!!",
+      "2": "Ave Mujica",
+      "3": "Mugendai MewType",
+      "4": "millsage",
+      "5": "Ikka Dumb Rock!"
+    },
+    "gameSystems": "Game systems",
+    "systemNavMissions": "Missions",
+    "systemNavPasses": "Passes",
+    "realLives": "Real Lives",
+    "banners": "Current banners",
+    "noBanner": "No banner is currently listed.",
+    "noEndDate": "Open-ended",
+    "noEvent": "No event is currently listed.",
+    "spanDays": "{count}d",
+    "spanHours": "{count}h",
+    "spanMinutes": "{count}m",
+    "startsIn": "Starts in {time}",
+    "endsIn": "Ends in {time}",
+    "releasedToday": "Added today",
+    "releasedAgo": "Added {time} ago",
+    "releasesIn": "Coming in {time}",
+    "voicesRole": "Voices {name}",
+    "stickers": "Stickers",
+    "backgrounds": "Backgrounds",
+    "tgw": {
+      "card": "T.G.W CARD",
+      "about": "About T.G.W CARD",
+      "dailyPoints": "Daily points",
+      "consecutive": "{days} consecutive days",
+      "rankRewards": "Rank-up rewards",
+      "dailyRewards": "Daily rewards",
+      "empty": "No rank data in this release.",
+      "reward": "Reward"
+    },
+    "system": {
+      "ongoing": "Ongoing",
+      "upcoming": "Upcoming",
+      "ended": "Ended",
+      "retired": "Retired",
+      "availability": "Ending soonest",
+      "starts": "Starts",
+      "ends": "Ends",
+      "status": "Status",
+      "price": "Price",
+      "inAppPurchase": "In-app purchase",
+      "featured": "Featured rewards",
+      "drawOptions": "Draw options",
+      "draw": "{count} draws",
+      "drawOne": "{count} draw",
+      "prizePool": "Prize pool",
+      "dailyRewards": "Daily rewards",
+      "day": "Day {day}",
+      "watchAd": "Watch an ad",
+      "premium": "Premium",
+      "free": "Free",
+      "points": "{points} points",
+      "passMissions": "Pass missions",
+      "contents": "Contents",
+      "exchangeGoods": "Exchange goods",
+      "rankRewards": "Rank rewards",
+      "levelRewards": "Level rewards",
+      "regularMission": "Mission",
+      "limitedMission": "Limited mission",
+      "goal": "Goal",
+      "viewSong": "View song",
+      "rates": "Rates",
+      "simulator": "Simulator",
+      "simulatorNote": "A local reconstruction of the game's published rates; nothing is granted or spent.",
+      "spent": "Spent",
+      "gachaPoint": "Gacha points",
+      "guaranteed": "Guaranteed",
+      "drawCount": "Draw count",
+      "limit": "Purchase limit",
+      "requiresRank": "Requires T.G.W CARD rank {rank}",
+      "pickup": "Pickup",
+      "firstTime": "First time",
+      "seasonPass": "Season pass",
+      "monthlyPass": "Monthly pass",
+      "bonus": "Bonus",
+      "kind": {
+        "gameEvent": "In-game event",
+        "realLive": "Live schedule"
+      }
+    },
+    "gachaType": {
+      "stars": "Stars",
+      "ticket": "Ticket",
+      "ad": "Ad watch",
+      "pass": "Pass perk",
+      "bonus": "T.G.W perk"
+    },
+    "resourceTypes": {
+      "MemberCard": "Member",
+      "SupportCard": "Snapshot",
+      "Item": "Item"
+    },
+    "voice": {
+      "live": "Performance",
+      "other": "Other",
+      "stop": "Stop",
+      "sourceTalk": "Talk",
+      "sourceCharacterVoice": "Character voice",
+      "sourceMemberCard": "Member card",
+      "sourceLiveCharacter": "Live character",
+      "sourceLiveGekisouVoice": "Live Gekisou voice",
+      "sourceLiveDialogueCommon": "Live dialogue · common",
+      "sourceLiveDialogueFixedPair": "Live dialogue · fixed pair",
+      "sourceLiveStartCharacterVoice": "Live start character voice",
+      "sourceUnknown": "Unclassified source",
+      "unavailable": "Audio unavailable",
+      "noText": "Transcript unavailable",
+      "loading": "Loading",
+      "cancelled": "Playback stopped",
+      "failure": "Playback failed. Try again.",
+      "playLine": "Play this line",
+      "replay": "Replay",
+      "unlockRank": "Unlocks at character rank {0}",
+      "unlockBond": "Unlocks at bond rank {0}",
+      "normal": "Daily dialogue",
+      "seasonal": "Seasonal dialogue",
+      "birthday": "Birthday",
+      "levelUp": "Level up",
+      "awaken": "Awakening",
+      "skillUp": "Skill level up",
+      "rankUp": "Rank up",
+      "clear": "Live clear",
+      "fullCombo": "Full combo",
+      "allPerfect": "All perfect",
+      "result": "Live results",
+      "battleFirst": "Battle · first place",
+      "battleHigh": "Battle · high rank",
+      "battleLow": "Battle · low rank",
+      "start": "Live opening",
+      "skill": "Live skill",
+      "combo": "Combo",
+      "call": "Call",
+      "response": "Response",
+      "gekisouCombo": "Gekisou · combo",
+      "gekisouJust": "Gekisou · JUST",
+      "gekisouLuck": "Gekisou · LUCK",
+      "gekisouTop": "Gekisou · top rank",
+      "gacha": "Recruitment",
+      "title": "Voice"
+    },
+    "story": {
+      "auto": "Auto",
+      "storyProgress": "Story progress",
+      "resources": "Story resources",
+      "preparing": "Preparing playback",
+      "sceneIndex": "Scene index",
+      "preparationTasks": "preparation tasks"
+    },
+    "loading": {
+      "file": "file",
+      "files": "files",
+      "failed": "Loading failed"
+    }
+  },
+  "seo": {
+    "homeTitle": "BanG Dream! Our Notes Archive",
+    "descriptions": {
+      "home": "An unofficial BanG Dream! Our Notes archive maintained by the community. Browse songs, members, cards, characters, stories, and event data.",
+      "catalog": "Browse the community-maintained, unofficial BanG Dream! Our Notes archive, including songs, members, cards, characters, and stories.",
+      "catalogItem": "{title}: game data and related entries from BanG Dream! Our Notes.",
+      "about": "Haneoka is a community-maintained, unofficial project for organizing and browsing BanG Dream! Our Notes reference data.",
+      "community": "Browse community posts related to BanG Dream! Our Notes.",
+      "communityTags": "Browse tags used in the BanG Dream! Our Notes community.",
+      "communityPlaylists": "Browse playlists shared by the BanG Dream! Our Notes community.",
+      "communitySongs": "Browse song information from BanG Dream! Girls Band Party!.",
+      "communityStories": "Browse GBP event, band, main, area conversation, and card stories.",
+      "terms": "Read the terms and rules for using haneoka and its community features.",
+      "privacy": "Read how haneoka handles account information, cookies, and other data.",
+      "general": "{title} in the community-maintained, unofficial BanG Dream! Our Notes archive, haneoka."
+    },
+    "resources": {
+      "songs": "Song credits, chart difficulties, note counts, and release details for BanG Dream! Our Notes.",
+      "characters": "Character portraits, profiles, bands, cards, and related stories from BanG Dream! Our Notes.",
+      "member-cards": "Member card stats, skills, progression stages, and materials required for each upgrade.",
+      "support-cards": "Support card stats, skills, ranks, and progression details.",
+      "band-items": "Band item effects and materials required for each upgrade level.",
+      "live2d": "Preview Live2D models, switch motions and expressions, adjust parameters, and export images.",
+      "spine": "Browse Spine models, preview animations, and export transparent PNG images."
+    }
+  },
+  "lookX": "Look horizontally",
+  "lookY": "Look vertically",
+  "invalidParameterPose": "The pose file has invalid parameter values.",
+  "modelDescriptorMissing": "The model descriptor is unavailable.",
+  "back": "Back",
+  "table": "Table",
+  "songMeta": "Song analysis",
+  "characterBonds": "Character bonds",
+  "missions": "Missions",
+  "previousImage": "Previous image",
+  "nextImage": "Next image",
+  "originalImage": "Open original",
+  "portrait": "Portrait",
+  "mirrors": "Related archives",
+  "downloadChart": "Download chart image",
+  "category": "Category",
+  "initial": "Initial",
+  "rankUpItem": "Rank-up material",
+  "notes": "Notes",
+  "battle": "Battle",
+  "lyricist": "Lyrics",
+  "arranger": "Arrangement",
+  "value": "Value",
+  "time": "Duration",
+  "score": "Score coefficient",
+  "eff": "Score per minute",
+  "bpm": "BPM",
+  "n": "Notes",
+  "nps": "Notes per second",
+  "sr": "Skill coverage",
+  "media": "Media",
+  "playAll": "Play all",
+  "friendship": "Bond level",
+  "effectsByLevel": "Effects by level",
+  "schoolClass": "Class",
+  "constellation": "Zodiac sign",
+  "favoriteFood": "Favorite food",
+  "hatedFood": "Disliked food",
+  "simple": "Simple",
+  "density": "Display density",
+  "comfortable": "Comfortable",
+  "compact": "Compact",
+  "model": "Model",
+  "animations": "Animations",
+  "family": "Category",
+  "version": "Version",
+  "sway": "Follow pointer",
+  "backgroundColor": "Background color",
+  "drag": "Move model",
+  "screenshot": "Capture image",
+  "downloadModel": "Download model ZIP",
+  "stop": "Stop",
+  "scale": "Zoom",
+  "parameterMode": "Parameter mode",
+  "customPoses": "Saved poses",
+  "defaultPose": "Default pose",
+  "savePose": "Save pose",
+  "rename": "Rename",
+  "confirm": "Confirm",
+  "partsVisibility": "Visible parts",
+  "visualAssets": "Model resources",
+  "progress": "Progress",
+  "captureFailed": "The image could not be captured. Try again.",
+  "captureCopyFailed": "The image could not be copied. Download it instead.",
+  "metadataUnavailable": "Some model information could not be loaded.",
+  "background": "Background",
+  "illustration": "Illustration",
+  "video": "Video",
+  "conversation": "Conversation",
+  "stamp": "Sticker",
+  "playVoice": "Play voice",
+  "fullscreenExit": "Exit fullscreen"
 }

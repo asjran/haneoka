@@ -20,6 +20,47 @@
     display: block;
     min-height: 0;
   }
+  story-workspace[data-player-active="true"] {
+    height: 100%;
+  }
+  .story-detail--page {
+    min-width: 0;
+    min-height: 0;
+  }
+  .story-detail--page[data-view="play"] {
+    display: grid;
+    height: 100%;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .story-detail--page[data-story-fullscreen="true"] {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .story-detail--page > header {
+    display: flex;
+    min-width: 0;
+    min-height: 56px;
+    align-items: center;
+    gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+  }
+  .story-detail > header {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+    background: var(--md-sys-color-surface);
+  }
+  .story-detail[data-story-fullscreen="true"] > header {
+    display: none;
+  }
+  .story-detail[data-story-fullscreen="true"] > vega-story-stage {
+    grid-row: 1 / -1;
+  }
+  .story-detail > header > .segmented--icon {
+    flex: 0 0 auto;
+  }
+  .story-detail--page[data-view="text"] > .story-detail__body {
+    overflow: visible;
+  }
   /* Story art is a wide banner, so a story tile is wider than a jacket tile.
    Everything else about it comes from patterns/collection.css. */
   .collection--story {
@@ -192,29 +233,57 @@
   .vega-story-runtime {
     position: relative;
     display: grid;
-    /* The transport footer sits outside the letterboxed stage, laid out like
-       the chart player's controls row rather than overlaid on the game. */
-    grid-template-rows: minmax(0, 1fr) auto;
+    /* The transport is an overlay so collapse/fade never resizes the game. */
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
     --haneoka-font: var(--app-font);
     font-family: var(--app-font);
   }
   .vega-story-runtime__mount {
+    grid-area: 1 / 1;
     position: relative;
     width: 100%;
     height: 100%;
     min-width: 0;
     min-height: 0;
   }
-  /* iPhone WebKit has no element fullscreen. The detail pane itself expands
-     over the whole viewport instead — same chrome as native fullscreen, with
-     the pane's own app bar kept as the way back out. */
-  .pane-layer[data-story-fullscreen="true"] {
-    inset: 0;
-    border-radius: 0;
+  .vega-story-runtime__loading,
+  .vega-story-runtime__error {
+    z-index: 2;
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    grid-area: 1 / 1;
+    place-items: center;
+    padding: 16px;
+    background: #111317;
   }
-  .pane-layer[data-story-fullscreen="true"] .chart-runtime__controls,
-  .pane-layer[data-story-fullscreen="true"] .haneoka-progress {
+  .vega-story-runtime__loading .state {
+    width: min(100%, 560px);
+    min-height: 0;
+    height: 100%;
+    padding: 24px 16px;
+    background: transparent;
+  }
+  .vega-story-runtime__error .notice {
+    width: min(100%, 560px);
+    margin: 0;
+  }
+  .vega-story-runtime__transport-error {
+    position: absolute;
+    z-index: 12;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    margin: 0;
+    padding: 8px 16px;
+    color: var(--md-sys-color-on-error-container);
+    background: var(--md-sys-color-error-container);
+    font: var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size) /
+      var(--md-sys-typescale-body-small-line-height) var(--app-font);
+    overflow-wrap: anywhere;
+  }
+  :is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] .haneoka-progress {
     padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
@@ -231,16 +300,30 @@
     }
   }
 
+  @media (pointer: coarse) {
+    .story-detail > header > .segmented--icon,
+    .story-detail > header > .segmented--icon > button {
+      min-height: var(--md-comp-control-height-touch);
+    }
+    .story-detail > header > .segmented--icon > button {
+      width: var(--md-comp-control-height-touch);
+      min-width: var(--md-comp-control-height-touch);
+    }
+  }
+
   .story-transcript {
     display: grid;
     width: 100%;
     min-width: 0;
     grid-template-columns: minmax(0, 1fr);
     margin: 0;
-    gap: 4px;
-    padding-block: 16px 40px;
+    gap: var(--md-sys-spacing-4);
+    padding-block: var(--md-sys-spacing-4) var(--md-sys-spacing-8);
   }
-  .story-transcript__entry {
+  .story-transcript > .dialogue-row {
+    padding-block: 0;
+  }
+  .story-transcript__entry:not(.dialogue-row) {
     display: flex;
     min-width: 0;
     gap: 20px;
@@ -250,11 +333,10 @@
     content-visibility: auto;
     contain-intrinsic-size: auto 108px;
   }
-  .story-transcript__entry--message,
   .story-transcript__entry--stamp {
     margin-inline: 24px;
     background: var(--md-sys-color-surface-container-low);
-    border-radius: 20px 20px 20px 6px;
+    border-radius: var(--md-sys-shape-corner-large);
   }
   .story-transcript__line {
     flex: 1;
@@ -337,11 +419,10 @@
     object-fit: contain;
   }
   @media (max-width: 599px) {
-    .story-transcript__entry {
+    .story-transcript__entry:not(.dialogue-row) {
       padding: 16px 4px;
       gap: 12px;
     }
-    .story-transcript__entry--message,
     .story-transcript__entry--stamp {
       margin-inline: 0;
       padding: 16px;
@@ -475,13 +556,13 @@
   .story-transcript__avatars {
     display: grid;
     gap: 6px;
-    flex: 0 0 48px;
-    width: 48px;
+    flex: 0 0 32px;
+    width: 32px;
   }
   .story-transcript__avatars img {
     display: block;
-    width: 48px;
-    height: 48px;
+    width: 32px;
+    height: 32px;
     object-fit: contain;
     border-radius: 50%;
   }
@@ -500,16 +581,8 @@
     overflow-wrap: anywhere;
   }
   @media (max-width: 599px) {
-    .story-transcript__avatars {
-      flex-basis: 36px;
-      width: 36px;
-    }
-    .story-transcript__avatars img {
-      width: 36px;
-      height: 36px;
-    }
     .story-transcript__voices {
-      max-width: 44px;
+      flex-direction: column;
     }
   }
 }

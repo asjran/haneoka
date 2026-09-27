@@ -1,4 +1,4 @@
-import { uiLocaleFallbacks, type Locale } from "./locales.js";
+import { languageTagFor, scriptForLanguageTag, uiLocaleFallbacks, type Locale } from "./locales.js";
 
 export type MessageList = readonly MessageNode[];
 export interface MessageTree {
@@ -8,6 +8,28 @@ export type MessageNode = string | MessageTree | MessageList;
 export type MessageCatalog = MessageTree;
 export type MessageCatalogs = Partial<Record<Locale, MessageCatalog>>;
 export type MessageParams = Readonly<Record<string, string | number>> | ReadonlyArray<string | number>;
+
+export type UiFallbackReason = "none" | "ui-default" | "missing";
+
+export interface ResolvedMessage {
+  readonly key: string;
+  readonly text: string;
+  readonly requestedLocale: Locale;
+  readonly sourceLocale: Locale | null;
+  readonly lang: string;
+  readonly script: string;
+  readonly isFallback: boolean;
+  readonly fallbackReason: UiFallbackReason;
+}
+
+export interface Catalog {
+  readonly locale: Locale;
+  resolve(key: string, params?: MessageParams): ResolvedMessage;
+  text(key: string, params?: MessageParams, fallback?: string): string;
+  plural(key: string, count: number, params?: MessageParams): ResolvedMessage;
+  has(key: string): boolean;
+  group<T = MessageTree>(path: string): T | undefined;
+}
 
 export type TranslationShape<Value> = Value extends string
   ? string
@@ -46,8 +68,15 @@ export const isMessageCatalog = (value: unknown): value is MessageCatalog =>
 export const messageNodeAtPath = (catalog: MessageCatalog | undefined, path: string): MessageNode | undefined => {
   let value: MessageNode | undefined = catalog;
   for (const segment of path.split(".")) {
+    if (Array.isArray(value)) {
+      if (!/^(?:0|[1-9]\d*)$/u.test(segment)) return undefined;
+      const index = Number(segment);
+      if (!Number.isSafeInteger(index)) return undefined;
+      value = value[index];
+      continue;
+    }
     if (!isMessageTree(value)) return undefined;
-    value = value[segment];
+    value = Object.prototype.hasOwnProperty.call(value, segment) ? value[segment] : undefined;
   }
   return value;
 };
@@ -67,21 +96,49 @@ export const interpolateMessage = (message: string, params?: MessageParams): str
   });
 };
 
+export const resolveUiMessageResult = (
+  catalogs: MessageCatalogs,
+  requested: Locale,
+  key: string,
+  params?: MessageParams,
+): ResolvedMessage => {
+  for (const locale of uiLocaleFallbacks(requested)) {
+    const message = messageAtPath(catalogs[locale], key);
+    if (message !== undefined) {
+      const isFallback = locale !== requested;
+      return {
+        key,
+        text: interpolateMessage(message, params),
+        requestedLocale: requested,
+        sourceLocale: locale,
+        lang: languageTagFor(locale),
+        script: scriptForLanguageTag(languageTagFor(locale)),
+        isFallback,
+        fallbackReason: isFallback ? "ui-default" : "none",
+      };
+    }
+  }
+  return {
+    key,
+    text: key,
+    requestedLocale: requested,
+    sourceLocale: null,
+    lang: "und",
+    script: "und",
+    isFallback: true,
+    fallbackReason: "missing",
+  };
+};
+
 /** Resolve requested UI copy, then Japanese, and finally expose the key. */
 export const resolveUiMessage = (
   catalogs: MessageCatalogs,
   requested: Locale,
   key: string,
   params?: MessageParams,
-): string => {
-  for (const locale of uiLocaleFallbacks(requested)) {
-    const message = messageAtPath(catalogs[locale], key);
-    if (message !== undefined) return interpolateMessage(message, params);
-  }
-  return key;
-};
+): string => resolveUiMessageResult(catalogs, requested, key, params).text;
 
-const mergeMessageNodes = (
+export const mergeMessageNodes = (
   fallback: MessageNode | undefined,
   preferred: MessageNode | undefined,
 ): MessageNode | undefined => {
@@ -95,6 +152,31 @@ const mergeMessageNodes = (
   }
   return merged;
 };
+
+export const resolveUiCatalog = (catalogs: MessageCatalogs, requested: Locale): MessageCatalog => {
+  const fallback = requested === "ja" ? undefined : catalogs.ja;
+  const merged = mergeMessageNodes(fallback, catalogs[requested]);
+  return isMessageTree(merged) ? merged : {};
+};
+
+export const createCatalog = (requested: Locale, catalogs: MessageCatalogs): Catalog => ({
+  locale: requested,
+  resolve: (key, params) => resolveUiMessageResult(catalogs, requested, key, params),
+  text: (key, params, fallback = key) => {
+    const result = resolveUiMessageResult(catalogs, requested, key, params);
+    return result.fallbackReason === "missing" ? fallback : result.text;
+  },
+  plural: (key, count, params) => {
+    const category = new Intl.PluralRules(languageTagFor(requested)).select(count);
+    const values: MessageParams = Array.isArray(params) ? params : { ...(params || {}), count };
+    const candidate = resolveUiMessageResult(catalogs, requested, `${key}.${category}`, values);
+    return candidate.fallbackReason === "missing"
+      ? resolveUiMessageResult(catalogs, requested, key, values)
+      : { ...candidate, key };
+  },
+  has: (key) => uiLocaleFallbacks(requested).some((locale) => messageAtPath(catalogs[locale], key) !== undefined),
+  group: <T = MessageTree>(path: string) => resolveUiMessageNode(catalogs, requested, path) as T | undefined,
+});
 
 /** Resolve a message subtree while retaining Japanese values for missing leaves. */
 export const resolveUiMessageNode = (

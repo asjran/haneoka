@@ -91,6 +91,34 @@
   /* ==========================================================================
    Detail pane variants
    ========================================================================== */
+  /* Canonical entity routes are pages, not modal panes. Keep the same detail
+     markup and feature styling, but return scrolling and document flow to the
+     shell's main surface. Bestdori/local catalogue details do not carry this
+     class and remain genuine dialogs. */
+  .sheet--detail.sheet--detail-page {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    display: grid;
+    width: 100%;
+    min-height: 100%;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: visible;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--md-sys-color-surface);
+    transform: none;
+    opacity: 1;
+    visibility: visible;
+    transition: none;
+  }
+  .sheet--detail.sheet--detail-page > .sheet__body {
+    min-height: auto;
+    overflow: visible;
+    overscroll-behavior: auto;
+    scrollbar-gutter: auto;
+  }
+
   .pane-sections {
     display: grid;
     min-width: 0;
@@ -362,8 +390,31 @@
     z-index: var(--md-sys-z-index-overlay-dialog);
     grid-template-rows: 56px minmax(0, 1fr);
   }
+  .chart-detail-layer[data-story-fullscreen="true"] {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .chart-detail-layer > header {
+    min-width: 0;
+    gap: 4px;
+    background: var(--md-sys-color-surface);
+  }
+  .chart-detail-layer > header > strong {
+    flex: 1 1 auto;
+  }
   .chart-detail-mode {
+    display: inline-flex;
     margin-left: auto;
+    flex: 0 0 auto;
+  }
+  @media (pointer: coarse) {
+    .chart-detail-mode > .segmented--icon,
+    .chart-detail-mode > .segmented--icon > button {
+      min-height: var(--md-comp-control-height-touch);
+    }
+    .chart-detail-mode > .segmented--icon > button {
+      width: var(--md-comp-control-height-touch);
+      min-width: var(--md-comp-control-height-touch);
+    }
   }
   chart-simulator,
   .chart-runtime {
@@ -376,7 +427,7 @@
   .chart-runtime {
     position: relative;
     display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
     background: #16171b;
   }
@@ -415,39 +466,6 @@
   }
   .chart-runtime__hud {
     z-index: 2;
-  }
-  .chart-runtime__controls {
-    position: relative;
-    z-index: 10;
-    display: grid;
-    min-height: 68px;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    color: var(--md-sys-color-on-surface);
-    background: var(--md-sys-color-surface-container-lowest);
-  }
-  .chart-runtime__timeline {
-    display: grid;
-    min-width: 0;
-    grid-template-columns: auto minmax(56px, 1fr) auto;
-    align-items: center;
-    gap: 8px;
-  }
-  .chart-runtime__timeline small {
-    min-width: 34px;
-    color: var(--md-sys-color-on-surface-variant);
-    font-variant-numeric: tabular-nums;
-    text-align: center;
-  }
-  .chart-runtime__actions {
-    display: flex;
-    align-items: center;
-  }
-  .chart-runtime__actions .icon-button[aria-pressed="true"] {
-    color: var(--md-sys-color-on-secondary-container);
-    background: var(--md-sys-color-secondary-container);
   }
   .chart-runtime__settings {
     position: absolute;
@@ -538,16 +556,6 @@
     accent-color: var(--md-sys-color-primary);
   }
   @media (max-width: 420px) {
-    .chart-runtime__controls {
-      gap: 4px;
-      padding-inline: 6px;
-    }
-    .chart-runtime__timeline {
-      gap: 4px;
-    }
-    .chart-runtime__timeline small {
-      display: none;
-    }
     .chart-runtime__settings {
       right: 6px;
       bottom: 74px;
@@ -558,17 +566,17 @@
    facts instead of beside them, and the header sheds its decorative emblems
    so the title keeps its room. */
   @media (max-width: 959px) {
-    .detail-header-leading {
+    .sheet__header .detail-header-leading {
       gap: 2px;
     }
-    .detail-header-entity {
+    .sheet__header .detail-header-entity {
       display: none;
     }
-    .detail-header-mark {
+    .sheet__header .detail-header-mark {
       width: 28px;
       height: 28px;
     }
-    .detail-header-mark--rarity {
+    .sheet__header .detail-header-mark--rarity {
       width: 26px;
     }
   }

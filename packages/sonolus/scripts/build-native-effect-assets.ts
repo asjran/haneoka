@@ -9,10 +9,12 @@ import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
 import { resolveSonolusReleaseWorkspace } from "../src/server/releaseWorkspace.ts";
+import { validateSonolusInputProvenance } from "../src/server/sonolusProvenance.ts";
 
 const root = resolve(process.env.OUR_NOTES_ROOT || process.cwd());
 const releaseServer = process.env.RELEASE_SERVER || "intl";
 const workspace = resolveSonolusReleaseWorkspace(releaseServer, root);
+const inputProvenance = validateSonolusInputProvenance(workspace, root);
 const source = resolve(workspace.runtimeRoot, "note-se");
 const output = resolve(process.env.SONOLUS_ORIGINAL_ASSETS_DIR || resolve(root, "packages/sonolus/assets/original"));
 const ffmpeg = process.env.FFMPEG || "ffmpeg";
@@ -140,7 +142,10 @@ try {
     if (!encodedFile) throw new Error(`Encoded effect cue is missing: ${cue}`);
     return sum + readFileSync(encodedFile).length;
   }, 0);
-  console.log(`built native Our Notes Sonolus effect pack: ${clips.length} clips, ${bytes} encoded bytes`);
+  console.log(
+    `built native Our Notes Sonolus effect pack: ${clips.length} clips, ${bytes} encoded bytes ` +
+      `(source ${inputProvenance.sourceId}, ${inputProvenance.releaseId})`,
+  );
 } finally {
   rmSync(staging, { recursive: true, force: true });
 }

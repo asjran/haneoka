@@ -1,6 +1,6 @@
 ---
 import Icon from "./Icon.astro";
-import { LOCALES, type Locale } from "../i18n/locales";
+import type { Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
 
 interface Props {
@@ -17,9 +17,6 @@ interface Props {
 }
 const { name, value, locale, label, keyName, icon, image, swatch, beta, selected } = Astro.props;
 const text = keyName ? t(locale, keyName, label) : label;
-const labels = keyName
-  ? JSON.stringify(Object.fromEntries(LOCALES.map((language) => [language, t(language, keyName, label)])))
-  : undefined;
 ---
 
 <label
@@ -36,7 +33,8 @@ const labels = keyName
     value={value}
     checked={selected}
     aria-label={text}
-    data-i18n-aria-label-values={labels}
+    data-i18n-aria-label={keyName}
+    data-i18n-aria-label-fallback={keyName ? label : undefined}
   />
   <span class="settings-option__face" aria-hidden="true">
     {swatch ? (
@@ -54,7 +52,7 @@ const labels = keyName
       icon && <Icon name={icon} />
     )}
   </span>
-  <span class="settings-option__tooltip" aria-hidden="true" data-i18n-values={labels}>
+  <span class="settings-option__tooltip" aria-hidden="true" data-i18n={keyName} data-i18n-fallback={keyName ? label : undefined}>
     {text}
   </span>
 </label>

@@ -1,6 +1,9 @@
 import { html, nothing } from "lit";
 import "../styles/card-detail.css";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
+import { entityHref, parseResourceRoute, returnStateFromLocation } from "../lib/resource-route";
+import { readReleaseServer } from "../lib/release-server";
+import type { Locale } from "../i18n/locales";
 
 type Item = Record<string, unknown>;
 type Controller = Record<string, any>;
@@ -209,7 +212,18 @@ export function renderCardRelations(c: Controller, item: Item) {
               const image = String(character?.faceImage || character?.thumbnailImage || "");
               return html`
                 <a
-                  href=${`${location.pathname.replace(/\/catalog\/(?:member-cards|support-cards)$/u, "/catalog/characters")}?character=${id}`}
+                  href=${(() => {
+                    const current = parseResourceRoute(location.pathname);
+                    const locale = (current?.locale || document.documentElement.dataset.locale || "ja") as Locale;
+                    const server = current?.server || readReleaseServer();
+                    return entityHref({
+                      server,
+                      locale,
+                      kind: "characters",
+                      id: String(id),
+                      returnTo: returnStateFromLocation(location.pathname, location.search, "characters"),
+                    });
+                  })()}
                 >
                   ${
                     image

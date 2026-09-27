@@ -6,19 +6,35 @@ import { catalogConfig } from "../../config/catalog-labels";
 import { findRoute, titleOf } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
 import { t } from "../../i18n/messages";
+import {
+  resourceKindForCollection,
+  resourcePath,
+  type EntityLink,
+  type ResourceKind,
+} from "../../lib/resource-route";
+import type { ReleaseServer } from "../../lib/release-server";
 import type { SearchableCatalogPage } from "../../lib/searchable-catalog";
 import "../../lit/catalog-screen";
 import "../../styles/catalog.css";
+import "../../styles/static-detail.css";
 
 interface Props {
   page: SearchableCatalogPage;
   locale: Locale;
+  server?: ReleaseServer;
+  canonical?: boolean;
+  returnTo?: string;
+  previous?: EntityLink;
+  next?: EntityLink;
 }
-const { page, locale } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next } = Astro.props;
 const collectionRoute = findRoute(page.route);
 if (!collectionRoute) throw new Error(`Missing route definition for ${page.route}`);
 const sectionTitle = titleOf(collectionRoute, locale);
-const route = `${page.route}/${page.id}`;
+const kind = resourceKindForCollection(page.collection) as ResourceKind;
+const canonicalHref = resourcePath({ server, locale, kind, id: page.id });
+const route = canonical ? canonicalHref : `${page.route}/${page.id}`;
+const backHref = returnTo || resourcePath({ server, locale, kind });
 const seoTitleValues = Object.fromEntries(
   LOCALES.map((target) => {
     const localizedSection = titleOf(collectionRoute, target);
@@ -33,37 +49,62 @@ const sectionHeading = t(locale, "details", "Details");
 const screenConfig = catalogConfig({
   resource: page.resource,
   locale,
+  server,
+  entityKind: kind,
+  ...(canonical ? { entityId: page.id, entityContext: true } : {}),
   aspectRatio: page.resource === "cards" ? "224 / 294" : "1",
 });
+const entity = canonical
+  ? {
+      title: page.titles[locale],
+      backHref,
+      previous,
+      next,
+    }
+  : undefined;
 ---
 
 <Base
   locale={locale}
   route={route}
+  canonicalRoute={canonical ? canonicalHref : undefined}
   title={sectionTitle}
   titleKey={collectionRoute.titleKey}
   description={page.descriptions[locale]}
   seoTitleValues={seoTitleValues}
   seoDescriptionValues={page.descriptions}
 >
-  <AppShell locale={locale} route={page.route} title={sectionTitle} titleKey={collectionRoute.titleKey}>
+  <AppShell
+    locale={locale}
+    route={page.route}
+    server={server}
+    title={canonical ? page.titles[locale] : sectionTitle}
+    titleKey={canonical ? undefined : collectionRoute.titleKey}
+    entity={entity}
+  >
     <catalog-screen config={screenConfig}></catalog-screen>
-    <aside
-      class:list={["sheet", "sheet--detail", `sheet--detail-${page.kind}`, "is-open", "static-detail"]}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={`static-detail-${page.id}-title`}
+    <article
+      class:list={canonical ? ["static-detail", `static-detail--${page.kind}`] : ["sheet", "sheet--detail", `sheet--detail-${page.kind}`, "is-open", "static-detail"]}
+      role={canonical ? undefined : "dialog"}
+      aria-modal={canonical ? undefined : "true"}
+      aria-labelledby={canonical ? undefined : `static-detail-${page.id}-title`}
+      data-static-detail
       style={page.accent ? `--entity-accent:${page.accent}` : undefined}
     >
       <header class="sheet__header">
-        <a class="icon-button" href={`/${locale}${page.route}/`} aria-label={t(locale, "close", "Close")}>
-          <Icon name="arrow_back" />
-        </a>
-        <span class="sheet__title" id={`static-detail-${page.id}-title`}>
-          <strong lang={page.titles[locale] === page.title ? "ja" : undefined}>{page.titles[locale]}</strong>
-          {page.subtitles[locale] && <small>{page.subtitles[locale]}</small>}
-        </span>
-        <span class="sheet__actions"></span>
+        {!canonical && (
+          <>
+            <a class="icon-button" href={backHref} aria-label={t(locale, "close", "Close")}>
+              <Icon name="arrow_back" />
+            </a>
+            <span class="sheet__title" id={`static-detail-${page.id}-title`}>
+              <strong lang={page.titles[locale] === page.title ? "ja" : undefined}>{page.titles[locale]}</strong>
+              {page.subtitles[locale] && <small>{page.subtitles[locale]}</small>}
+            </span>
+            <span class="sheet__actions"></span>
+          </>
+        )}
+        {canonical && page.subtitles[locale] && <p class="static-detail__subtitle">{page.subtitles[locale]}</p>}
       </header>
       <div class="sheet__body">
         <div class="detail-layout">
@@ -94,21 +135,14 @@ const screenConfig = catalogConfig({
           </div>
         </div>
       </div>
-    </aside>
+    </article>
   </AppShell>
 </Base>
-<script is:inline define:vars={{ selectionParam: page.selectionParam, id: page.id }}>
-  const params = new URLSearchParams(location.search);
-  if (!params.has(selectionParam)) {
-    params.set(selectionParam, id);
-    history.replaceState(history.state, "", `${location.pathname}?${params}`);
-  }
-</script>
 <script>
   import "../../lit/catalog-screen";
 </script>
 <style is:global>
-  catalog-screen:not(:empty) ~ .static-detail {
+  catalog-screen[data-entity-ready="true"] ~ [data-static-detail] {
     display: none;
   }
 </style>

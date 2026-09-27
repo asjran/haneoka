@@ -1,7 +1,15 @@
 import { LOCALES, type Locale } from "../i18n/locales";
 import { resolveLocalizedText } from "./localized-text";
-import { asRecord, fetchStaticCatalog, fetchStaticCatalogBatch, type RecordValue } from "./static-catalog-source";
+import {
+  asRecord,
+  fetchOptionalStaticCatalog,
+  fetchStaticCatalog,
+  fetchStaticCatalogBatch,
+  staticCatalogRelease,
+  type RecordValue,
+} from "./static-catalog-source";
 import { disambiguateTitles } from "./title-disambiguation";
+import type { ReleaseServer } from "./release-server";
 
 export interface SearchableModelPage {
   kind: "live2d" | "spine";
@@ -19,23 +27,33 @@ const text = (value: unknown, locale: Locale): string => resolveLocalizedText(va
 const localizedAll = (value: unknown): Record<Locale, string> =>
   Object.fromEntries(LOCALES.map((locale) => [locale, text(value, locale)])) as Record<Locale, string>;
 
-let pagesPromise: Promise<SearchableModelPage[]> | undefined;
+const pagesPromises = new Map<ReleaseServer, Promise<SearchableModelPage[]>>();
 
-export function searchableModelPages(): Promise<SearchableModelPage[]> {
-  pagesPromise ??= buildSearchableModelPages();
-  return pagesPromise;
+export function searchableModelPages(server: ReleaseServer = "intl"): Promise<SearchableModelPage[]> {
+  const existing = pagesPromises.get(server);
+  if (existing) return existing;
+  const promise = buildSearchableModelPages(server);
+  pagesPromises.set(server, promise);
+  return promise;
 }
 
-async function buildSearchableModelPages(): Promise<SearchableModelPage[]> {
-  const [live2dDocument, spineDocument] = await Promise.all([
-    fetchStaticCatalog("live2d"),
-    fetchStaticCatalog("spine"),
+async function buildSearchableModelPages(server: ReleaseServer): Promise<SearchableModelPage[]> {
+  const release = await staticCatalogRelease(server);
+  const [live2dDocument, spineResult] = await Promise.all([
+    fetchStaticCatalog("live2d", server, release),
+    fetchOptionalStaticCatalog("spine", server, release),
   ]);
-  const live2dModels = Object.entries(asRecord(live2dDocument) ?? {}).flatMap(([key, raw]) => {
+  const spineDocument = spineResult.value;
+  const live2dRoot = asRecord(live2dDocument);
+  if (!live2dRoot) throw new Error(`Invalid live2d catalog response for ${server}`);
+  const spineRoot = asRecord(spineDocument);
+  const spineModelsRoot = spineRoot ? asRecord(spineRoot.models) : undefined;
+  if (spineDocument !== null && !spineModelsRoot) throw new Error(`Invalid spine catalog response for ${server}`);
+  const live2dModels = Object.entries(live2dRoot ?? {}).flatMap(([key, raw]) => {
     const record = asRecord(raw);
     return record ? [[key, record] as [string, RecordValue]] : [];
   });
-  const spineModels = Object.entries(asRecord(asRecord(spineDocument)?.models) ?? {}).flatMap(([key, raw]) => {
+  const spineModels = Object.entries(spineModelsRoot ?? {}).flatMap(([key, raw]) => {
     const record = asRecord(raw);
     return record ? [[key, record] as [string, RecordValue]] : [];
   });
@@ -44,6 +62,8 @@ async function buildSearchableModelPages(): Promise<SearchableModelPage[]> {
   const live2dDetails = await fetchStaticCatalogBatch(
     "live2d",
     live2dModels.map(([key]) => key),
+    server,
+    release,
   );
 
   const live2dPages = live2dModels.map(([key, model]) => {
@@ -109,12 +129,16 @@ async function buildSearchableModelPages(): Promise<SearchableModelPage[]> {
         if (model.spineVersion) rows.push({ key: "version", value: String(model.spineVersion) });
         if (model.skinCount != null) rows.push({ key: "costumeId", value: String(model.skinCount) });
         if (animations.length)
-          rows.push({ key: "animations", value: `${model.animationCount ?? animations.length}（${animations.join("、")}）` });
+          rows.push({
+            key: "animations",
+            value: `${model.animationCount ?? animations.length}（${animations.join("、")}）`,
+          });
         return [locale, rows];
       }),
     ) as Record<Locale, Array<{ key: string; value: string }>>;
     const preview = asRecord(model.preview);
-    const previewPath = typeof preview?.url === "string" ? preview.url : typeof preview?.path === "string" ? preview.path : "";
+    const previewPath =
+      typeof preview?.url === "string" ? preview.url : typeof preview?.path === "string" ? preview.path : "";
     return {
       kind: "spine" as const,
       id,
@@ -160,6 +184,6 @@ async function buildSearchableModelPages(): Promise<SearchableModelPage[]> {
   return [...live2dPages, ...spinePages];
 }
 
-export async function searchableModelUrls(): Promise<string[]> {
-  return (await searchableModelPages()).map(({ route }) => `${route}/`);
+export async function searchableModelUrls(server: ReleaseServer = "intl"): Promise<string[]> {
+  return (await searchableModelPages(server)).map(({ route }) => `${route}/`);
 }

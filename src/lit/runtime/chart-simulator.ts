@@ -1,6 +1,7 @@
 import { LitElement, html, nothing } from "lit";
 import { uiText } from "../shared/catalog";
 import { loadingState } from "../ui/state";
+import { icon } from "../ui/icon";
 import { type ChartDocument } from "@haneoka/cassiopeia";
 import {
   CassiopeiaRuntime,
@@ -24,14 +25,10 @@ import {
   type OurNotesNoteSkin,
 } from "@haneoka/cassiopeia-plugin-our-notes";
 import { THREE_RENDERER, createThreeRendererPlugin, type OurNotesRenderer } from "@haneoka/cassiopeia-renderer-three";
-import {
-  WEB_HOST,
-  createWebHostPlugin,
-  type MediaClock,
-  type NoteSoundPlayer,
-  type OurNotesInput,
-} from "@haneoka/cassiopeia-host-web";
+import { WEB_HOST, createWebHostPlugin, type MediaClock, type NoteSoundPlayer } from "@haneoka/cassiopeia-host-web";
 import { countNoteKinds, drawDetailedChartOverview, loadDetailedOverviewSkin } from "./chart-overview-renderer";
+import { PlaybackControlsController } from "../ui/playback-controls";
+import { ViewportFullscreenController } from "./viewport-fullscreen";
 import {
   chartImageFileName,
   composeChartOverviewImage,
@@ -80,7 +77,9 @@ type ChartUiKey =
   | "guidelineCount"
   | "noteTap"
   | "noteFlick"
-  | "noteSlide";
+  | "noteSlide"
+  | "collapse"
+  | "expand";
 
 const SETTINGS_KEY = "haneoka:chart-player:v1";
 
@@ -116,6 +115,8 @@ export class ChartSimulator extends LitElement {
     stageBackground: { state: true },
     playbackRate: { state: true },
     volume: { state: true },
+    transportCollapsed: { state: true },
+    transportAutoHidden: { state: true },
   };
   declare source: string;
   declare audioUrl: string;
@@ -137,6 +138,8 @@ export class ChartSimulator extends LitElement {
   declare stageBackground: StageBackground;
   declare playbackRate: number;
   declare volume: number;
+  declare transportCollapsed: boolean;
+  declare transportAutoHidden: boolean;
   private pluginRuntime?: CassiopeiaRuntime;
   private runtime() {
     return (this.pluginRuntime ??= new CassiopeiaRuntime([
@@ -153,15 +156,21 @@ export class ChartSimulator extends LitElement {
   private frames?: RenderFrameBuilder;
   private clock?: MediaClock;
   private noteSounds?: NoteSoundPlayer;
-  private input?: OurNotesInput;
+  private stagePointer?: { x: number; y: number };
   private overviewSkin?: Awaited<ReturnType<typeof loadDetailedOverviewSkin>>;
   private resizeObserver?: ResizeObserver;
   private animationFrame = 0;
   private loadedKey = "";
+  private loadAbort?: AbortController;
   private availableNoteSkins: readonly OurNotesNoteSkin[] = ["skin001"];
   private availableNoteEffectSkins: readonly OurNotesNoteEffectSkin[] = ["effect001"];
   private sourceFilesCache?: { server: string; promise: Promise<Set<string>> };
   private resumeAfterScrub = false;
+  private viewportFullscreen: ViewportFullscreenController;
+  private transportVisibility = new PlaybackControlsController((snapshot) => {
+    this.transportCollapsed = snapshot.collapsed;
+    this.transportAutoHidden = snapshot.autoHidden;
+  });
 
   constructor() {
     super();
@@ -185,6 +194,15 @@ export class ChartSimulator extends LitElement {
     this.stageBackground = "auto";
     this.playbackRate = 1;
     this.volume = 0.8;
+    this.transportCollapsed = false;
+    this.transportAutoHidden = false;
+    this.viewportFullscreen = new ViewportFullscreenController({
+      owner: this,
+      onChange: (active) => {
+        this.fullscreen = active || document.fullscreenElement === this;
+        this.requestUpdate();
+      },
+    });
     this.restoreSettings();
   }
   createRenderRoot() {
@@ -199,12 +217,17 @@ export class ChartSimulator extends LitElement {
   disconnectedCallback() {
     this.persistSettings();
     this.dispose();
+    this.viewportFullscreen.dispose();
+    this.transportVisibility.dispose();
     document.removeEventListener("fullscreenchange", this.fullscreenChanged);
     super.disconnectedCallback();
   }
   updated() {
     const key = `${this.server}:${this.source}`;
     if (this.source && key !== this.loadedKey) void this.load();
+    this.transportVisibility.bind(this.querySelector<HTMLElement>(".playback-controls"));
+    this.transportVisibility.setFullscreen(this.fullscreen);
+    this.transportVisibility.setPlaying(this.playing);
     if (this.mode === "simple") requestAnimationFrame(() => this.drawOverview());
   }
 
@@ -214,16 +237,16 @@ export class ChartSimulator extends LitElement {
       .map(encodeURIComponent)
       .join("/")}`;
   }
-  private async descriptor(source: string) {
-    const response = await fetch(this.descriptorUrl(source));
+  private async descriptor(source: string, signal: AbortSignal) {
+    const response = await fetch(this.descriptorUrl(source), { signal });
     if (!response.ok) throw new Error(`Runtime source ${response.status}`);
     return (await response.json()) as RuntimeDescriptor;
   }
-  private async sourceFiles() {
+  private async sourceFiles(signal: AbortSignal) {
     const server = this.server;
     if (this.sourceFilesCache?.server === server) return this.sourceFilesCache.promise;
     const promise = (async () => {
-      const response = await fetch(`/api/v1/servers/${encodeURIComponent(server)}/sources/tree`);
+      const response = await fetch(`/api/v1/servers/${encodeURIComponent(server)}/sources/tree`, { signal });
       if (!response.ok) throw new Error(`Runtime source tree ${response.status}`);
       const tree = (await response.json()) as Record<string, unknown>;
       const files = new Set<string>();
@@ -257,8 +280,9 @@ export class ChartSimulator extends LitElement {
     if (matches.length !== 1) throw new Error(`Missing ${type} ${name || ""}`);
     return `/runtime/${encodeURIComponent(this.server)}/${matches[0]!.path.replace(/^runtime\//u, "")}`;
   }
-  private async runtimeAssets() {
-    const files = await this.sourceFiles();
+  private async runtimeAssets(signal: AbortSignal) {
+    const files = await this.sourceFiles(signal);
+    signal.throwIfAborted();
     const source = (name: string) => this.sourceWithName(files, name);
     const fontSource = [...files].filter((path) => path.endsWith("/VibeMOPro-Medium SDF.asset"));
     this.availableNoteSkins = OUR_NOTES_NOTE_SKINS.filter((skin) =>
@@ -275,13 +299,16 @@ export class ChartSimulator extends LitElement {
     this.noteEffectSkin = selectedEffectSkin;
     const noteSkinSource = `Assets/AddressableResources/Live/Note/${selectedSkin}/LiveNoteSkinAsset.asset`;
     const [note, judgement, live, combo, font, noteSkin] = await Promise.all([
-      this.descriptor(source(`${selectedSkin}.spriteatlasv2`)),
-      this.descriptor(source("JudgementAtlas.spriteatlasv2")),
-      this.descriptor(source("LiveAtlas.spriteatlasv2")),
-      this.descriptor(source("LiveComboAtlas.spriteatlasv2")),
-      fontSource.length === 1 ? this.descriptor(fontSource[0]!).catch(() => undefined) : Promise.resolve(undefined),
-      files.has(noteSkinSource) ? this.descriptor(noteSkinSource) : Promise.resolve(undefined),
+      this.descriptor(source(`${selectedSkin}.spriteatlasv2`), signal),
+      this.descriptor(source("JudgementAtlas.spriteatlasv2"), signal),
+      this.descriptor(source("LiveAtlas.spriteatlasv2"), signal),
+      this.descriptor(source("LiveComboAtlas.spriteatlasv2"), signal),
+      fontSource.length === 1
+        ? this.descriptor(fontSource[0]!, signal).catch(() => undefined)
+        : Promise.resolve(undefined),
+      files.has(noteSkinSource) ? this.descriptor(noteSkinSource, signal) : Promise.resolve(undefined),
     ]);
+    signal.throwIfAborted();
     const root = `/assets/${encodeURIComponent(this.server)}`;
     const assetUrl = (path: string) => `${root}/${path.split("/").map(encodeURIComponent).join("/")}`;
     const sprite = (descriptor: RuntimeDescriptor, name: string) => {
@@ -401,24 +428,32 @@ export class ChartSimulator extends LitElement {
   private async load() {
     if (!this.source) return;
     this.dispose();
+    const controller = new AbortController();
+    this.loadAbort = controller;
+    const { signal } = controller;
     this.loadedKey = `${this.server}:${this.source}`;
     this.phase = "loading";
     await this.updateComplete;
     try {
+      signal.throwIfAborted();
       const [response, assets] = await Promise.all([
-        fetch(this.source, { headers: { accept: "text/plain" } }),
-        this.runtimeAssets(),
+        fetch(this.source, { headers: { accept: "text/plain" }, signal }),
+        this.runtimeAssets(signal),
       ]);
       if (!response.ok) throw new Error(`Chart ${response.status}`);
-      this.chart = this.runtime()
-        .require(OUR_NOTES_RULES)
-        .parse(await response.text());
+      const source = await response.text();
+      signal.throwIfAborted();
+      this.chart = this.runtime().require(OUR_NOTES_RULES).parse(source);
       this.assets = assets;
+      await this.initialize(signal);
+      signal.throwIfAborted();
       this.phase = "ready";
       await this.updateComplete;
-      await this.initialize();
+      this.resize();
     } catch (error) {
+      if (signal.aborted) return;
       console.error(error);
+      this.dispose();
       this.phase = "error";
     }
   }
@@ -533,16 +568,25 @@ export class ChartSimulator extends LitElement {
     await this.applyStageBackground();
     this.draw();
   }
-  private async initialize() {
+  private async initialize(signal: AbortSignal) {
     const root = this.querySelector<HTMLElement>(".chart-runtime__stage");
     const canvas = this.querySelector<HTMLCanvasElement>(".chart-runtime__canvas");
     const hud = this.querySelector<HTMLCanvasElement>(".chart-runtime__hud");
     if (!root || !canvas || !hud || !this.chart || !this.assets) return;
-    this.renderer = this.runtime()
+    const renderer = this.runtime()
       .require(THREE_RENDERER)
       .create({ canvas, hudCanvas: hud, alpha: true, antialias: true, assets: this.assets });
-    [this.overviewSkin] = await Promise.all([loadDetailedOverviewSkin(this.assets), this.renderer.load()]);
+    this.renderer = renderer;
+    await Promise.all([
+      loadDetailedOverviewSkin(this.assets).then((skin) => {
+        if (signal.aborted) skin.dispose();
+        else this.overviewSkin = skin;
+      }),
+      renderer.load(),
+    ]);
+    signal.throwIfAborted();
     await this.applyStageBackground();
+    signal.throwIfAborted();
     this.clock = this.runtime()
       .require(WEB_HOST)
       .createClock(this.audioUrl, { volume: this.volume, playbackRate: this.playbackRate, loop: false });
@@ -555,26 +599,10 @@ export class ChartSimulator extends LitElement {
     clock.audio.addEventListener("loadedmetadata", updateDuration);
     clock.audio.addEventListener("durationchange", updateDuration);
     this.noteSounds = this.runtime().require(WEB_HOST).createNoteSounds(this.assets.noteSounds);
-    void this.noteSounds.load();
+    void this.noteSounds.load().catch((error: unknown) => {
+      if (!signal.aborted) console.warn("Unable to load chart note sounds", error);
+    });
     this.attachSession();
-    this.input = this.runtime()
-      .require(WEB_HOST)
-      .createInput(
-        root,
-        {
-          tap: () => undefined,
-          move: () => undefined,
-          release: (point) => this.session?.release(point.lane, point.timeMs, point.pointerId),
-          flick: () => undefined,
-          cancel: (pointerId) => this.session?.cancel(pointerId),
-        },
-        {
-          now: () => this.clock?.timeMs || 0,
-          laneAtClientPoint: (x, y) => this.renderer?.clientPointToLane(x, y) ?? 12,
-          screenDpi: 96,
-          flickDistanceCm: 0.2,
-        },
-      );
     this.clock.audio.addEventListener("play", () => {
       this.playing = true;
       this.animateFrames();
@@ -688,6 +716,7 @@ export class ChartSimulator extends LitElement {
     this.draw();
   }
   private previewSeek(seconds: number) {
+    this.transportVisibility.setScrubbing(true);
     if (this.playing) {
       this.resumeAfterScrub = true;
       this.clock?.pause();
@@ -695,47 +724,89 @@ export class ChartSimulator extends LitElement {
     this.seek(seconds);
   }
   private async commitSeek(seconds: number) {
-    this.seek(seconds);
-    if (!this.resumeAfterScrub) return;
-    this.resumeAfterScrub = false;
-    await Promise.all([this.noteSounds?.unlock(), this.clock?.play()]);
+    try {
+      this.seek(seconds);
+      if (!this.resumeAfterScrub) return;
+      this.resumeAfterScrub = false;
+      await Promise.all([this.noteSounds?.unlock(), this.clock?.play()]);
+    } finally {
+      this.transportVisibility.setScrubbing(false);
+    }
   }
-  private fullscreenChanged = () => (this.fullscreen = document.fullscreenElement === this);
+  private fullscreenChanged = () => {
+    this.fullscreen = this.viewportFullscreen.isActive() || document.fullscreenElement === this;
+  };
   private toggleLoop() {
     this.loop = !this.loop;
     if (this.clock) this.clock.audio.loop = this.loop;
   }
+  private collapseTransport = () => {
+    this.transportVisibility.collapse();
+    void this.updateComplete.then(() => this.querySelector<HTMLElement>(".chart-runtime__stage")?.focus());
+  };
+  private stagePointerDown = (event: PointerEvent) => {
+    if (!event.isPrimary || event.button !== 0) return;
+    this.stagePointer = { x: event.clientX, y: event.clientY };
+  };
+  private stageClick = (event: MouseEvent) => {
+    const start = this.stagePointer;
+    this.stagePointer = undefined;
+    if (event.detail === 0 || (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) <= 8))
+      this.transportVisibility.expand();
+  };
+  private stageKeydown = (event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.transportVisibility.expand();
+    if (event.key === " " && !event.repeat) void this.toggle();
+    void this.updateComplete.then(() =>
+      this.querySelector<HTMLElement>(".playback-controls__expanded button")?.focus(),
+    );
+  };
   private async toggleFullscreen() {
-    // iOS WebKit has no element fullscreen API; expand the detail pane
-    // over the whole viewport instead (same fallback as the story player).
-    if (typeof document.documentElement.requestFullscreen !== "function") {
-      if (this.fullscreen) {
-        this.closest<HTMLElement>(".pane-layer")?.removeAttribute("data-story-fullscreen");
-        this.fullscreen = false;
-      } else {
-        this.closest<HTMLElement>(".pane-layer")?.setAttribute("data-story-fullscreen", "true");
-        this.fullscreen = true;
-      }
+    // iOS WebKit has no element fullscreen API; expand the existing pane over
+    // the visual viewport instead, preserving the renderer's DOM position.
+    if (this.viewportFullscreen.isActive()) {
+      this.viewportFullscreen.exit();
       return;
     }
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await this.requestFullscreen();
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    if (
+      typeof document.documentElement.requestFullscreen !== "function" ||
+      typeof this.requestFullscreen !== "function"
+    ) {
+      this.viewportFullscreen.enter();
+      return;
+    }
+    try {
+      await this.requestFullscreen();
+    } catch {
+      if (!document.fullscreenElement) this.viewportFullscreen.enter();
+    }
   }
   private dispose() {
+    this.loadAbort?.abort();
+    this.loadAbort = undefined;
+    this.sourceFilesCache = undefined;
     this.pluginRuntime?.dispose();
     this.pluginRuntime = undefined;
     cancelAnimationFrame(this.animationFrame);
     this.playing = false;
+    this.transportVisibility.setPlaying(false);
+    this.transportVisibility.setScrubbing(false);
     this.resumeAfterScrub = false;
     this.resizeObserver?.disconnect();
-    this.input?.destroy();
+    this.stagePointer = undefined;
     this.clock?.destroy();
     this.noteSounds?.dispose();
     this.overviewSkin?.dispose();
     this.renderer?.dispose();
     this.renderer = undefined;
     this.clock = undefined;
-    this.input = undefined;
     this.noteSounds = undefined;
     this.overviewSkin = undefined;
   }
@@ -744,6 +815,7 @@ export class ChartSimulator extends LitElement {
     return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
   }
   private ui(key: ChartUiKey) {
+    if (key === "collapse" || key === "expand") return uiText(this.locale, key);
     const copy = {
       play: ["プレイ", "Play", "遊玩", "游玩", "플레이"],
       pause: ["一時停止", "Pause", "暫停", "暂停", "일시 정지"],
@@ -909,8 +981,7 @@ export class ChartSimulator extends LitElement {
                 @change=${(event: Event) => {
                   const position = this.currentTime;
                   const resume = this.playing;
-                  this.noteEffectSkin = (event.currentTarget as HTMLSelectElement)
-                    .value as OurNotesNoteEffectSkin;
+                  this.noteEffectSkin = (event.currentTarget as HTMLSelectElement).value as OurNotesNoteEffectSkin;
                   this.persistSettings();
                   void this.load().then(async () => {
                     if (this.phase !== "ready") return;
@@ -922,8 +993,9 @@ export class ChartSimulator extends LitElement {
                 ${this.availableNoteEffectSkins.map(
                   (skin) => html`
                     <option value=${skin} ?selected=${this.noteEffectSkin === skin}>
-                      ${OUR_NOTES_NOTE_EFFECT_SKIN_NAMES[skin][this.locale] ||
-                      OUR_NOTES_NOTE_EFFECT_SKIN_NAMES[skin].en}
+                      ${
+                        OUR_NOTES_NOTE_EFFECT_SKIN_NAMES[skin][this.locale] || OUR_NOTES_NOTE_EFFECT_SKIN_NAMES[skin].en
+                      }
                     </option>
                   `,
                 )}
@@ -989,64 +1061,103 @@ export class ChartSimulator extends LitElement {
         <div class="chart-simple-overview" ?hidden=${this.phase !== "ready" || this.mode !== "simple"}>
           <canvas aria-label=${this.label}></canvas>
         </div>
-        <div class="chart-runtime__stage" ?hidden=${this.phase !== "ready" || this.mode !== "watch"}>
+        <div
+          class="chart-runtime__stage"
+          ?hidden=${this.phase !== "ready" || this.mode !== "watch"}
+          role="region"
+          aria-label=${this.label}
+          tabindex="0"
+          @pointerdown=${this.stagePointerDown}
+          @click=${this.stageClick}
+          @pointercancel=${() => (this.stagePointer = undefined)}
+          @pointermove=${(event: PointerEvent) => {
+            if (event.pointerType === "mouse") this.transportVisibility.expand();
+          }}
+          @keydown=${this.stageKeydown}
+        >
           <canvas class="chart-runtime__canvas"></canvas>
           <canvas class="chart-runtime__hud"></canvas>
         </div>
         ${
           this.phase === "ready" && this.mode === "watch"
             ? html`
-                <footer class="chart-runtime__controls">
-                  <button
-                    class="icon-button"
-                    @click=${this.toggle}
-                    aria-label=${this.playing ? this.ui("pause") : this.ui("play")}
+                <footer
+                  class="chart-runtime__controls playback-controls"
+                  data-collapsed=${this.transportCollapsed ? "true" : "false"}
+                  data-auto-hidden=${this.transportAutoHidden ? "true" : "false"}
+                  aria-label=${uiText(this.locale, "morePlaybackControls")}
+                >
+                  <div
+                    class="playback-controls__expanded"
+                    ?inert=${this.transportCollapsed || this.transportAutoHidden}
+                    aria-hidden=${this.transportCollapsed || this.transportAutoHidden}
                   >
-                    <svg class="material-icon" width="24" height="24">
-                      <use href=${this.playing ? "/icons.svg#pause" : "/icons.svg#play_arrow"}></use>
-                    </svg>
-                  </button>
-                  <div class="chart-runtime__timeline">
-                    <small>${this.format(this.currentTime)}</small>
-                    <md-slider
-                      class="md3-slider md3-slider--runtime"
-                      min="0"
-                      max=${this.duration || 1}
-                      step="0.01"
-                      .value=${String(this.currentTime)}
-                      @input=${(event: Event) =>
-                        this.previewSeek(Number((event.target as HTMLElement & { value?: number }).value))}
-                      @change=${(event: Event) =>
-                        void this.commitSeek(Number((event.target as HTMLElement & { value?: number }).value))}
-                    ></md-slider>
-                    <small>${this.format(this.duration)}</small>
-                  </div>
-                  <div class="chart-runtime__actions">
                     <button
                       class="icon-button"
-                      aria-pressed=${this.settingsOpen}
-                      @click=${() => (this.settingsOpen = !this.settingsOpen)}
-                      aria-label=${this.ui("settings")}
+                      @click=${this.toggle}
+                      aria-label=${this.playing ? this.ui("pause") : this.ui("play")}
                     >
-                      <svg class="material-icon" width="20" height="20">
-                        <use href=${`/icons.svg#tune${this.settingsOpen ? "-filled" : ""}`}></use>
+                      <svg class="material-icon" width="24" height="24">
+                        <use href=${this.playing ? "/icons.svg#pause" : "/icons.svg#play_arrow"}></use>
                       </svg>
                     </button>
-                    <button
-                      class="icon-button"
-                      aria-pressed=${this.loop}
-                      @click=${this.toggleLoop}
-                      aria-label=${this.ui("loop")}
-                    >
-                      <svg class="material-icon" width="20" height="20">
-                        <use href=${`/icons.svg#refresh${this.loop ? "-filled" : ""}`}></use>
-                      </svg>
-                    </button>
-                    <button class="icon-button" @click=${this.toggleFullscreen} aria-label=${this.ui("fullscreen")}>
-                      <svg class="material-icon" width="20" height="20">
-                        <use href="/icons.svg#fullscreen"></use>
-                      </svg>
-                    </button>
+                    <div class="chart-runtime__timeline">
+                      <small>${this.format(this.currentTime)}</small>
+                      <md-slider
+                        class="md3-slider md3-slider--runtime"
+                        min="0"
+                        max=${this.duration || 1}
+                        step="0.01"
+                        .value=${String(this.currentTime)}
+                        aria-label=${uiText(this.locale, "seek")}
+                        @input=${(event: Event) =>
+                          this.previewSeek(Number((event.target as HTMLElement & { value?: number }).value))}
+                        @change=${(event: Event) =>
+                          void this.commitSeek(Number((event.target as HTMLElement & { value?: number }).value))}
+                      ></md-slider>
+                      <small>${this.format(this.duration)}</small>
+                    </div>
+                    <div class="chart-runtime__actions">
+                      <button
+                        class="icon-button"
+                        aria-pressed=${this.settingsOpen}
+                        @click=${() => (this.settingsOpen = !this.settingsOpen)}
+                        aria-label=${this.ui("settings")}
+                      >
+                        <svg class="material-icon" width="20" height="20">
+                          <use href=${`/icons.svg#tune${this.settingsOpen ? "-filled" : ""}`}></use>
+                        </svg>
+                      </button>
+                      <button
+                        class="icon-button"
+                        aria-pressed=${this.loop}
+                        @click=${this.toggleLoop}
+                        aria-label=${this.ui("loop")}
+                      >
+                        <svg class="material-icon" width="20" height="20">
+                          <use href=${`/icons.svg#refresh${this.loop ? "-filled" : ""}`}></use>
+                        </svg>
+                      </button>
+                      <button
+                        class="icon-button"
+                        @click=${this.toggleFullscreen}
+                        aria-pressed=${this.fullscreen}
+                        aria-label=${uiText(this.locale, this.fullscreen ? "fullscreenExit" : "fullscreen")}
+                        title=${uiText(this.locale, this.fullscreen ? "fullscreenExit" : "fullscreen")}
+                      >
+                        ${icon(this.fullscreen ? "fullscreen_exit" : "fullscreen", 20)}
+                      </button>
+                      <button
+                        class="icon-button"
+                        type="button"
+                        @click=${this.collapseTransport}
+                        aria-label=${this.ui("collapse")}
+                      >
+                        <svg class="material-icon" width="20" height="20">
+                          <use href="/icons.svg#expand_more"></use>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 </footer>
                 ${this.renderSettingsPanel()}

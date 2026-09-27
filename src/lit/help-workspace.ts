@@ -1,5 +1,8 @@
 import { LitElement, html, nothing } from "lit";
 import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
+import { beginLoading, type LoadingReporter } from "../lib/loading-progress";
+import { updateEntityHeading } from "../lib/detail-navigation";
+import { parseEntitySelection } from "../lib/resource-route";
 import { segmented } from "./ui/controls";
 import { errorState, loadingState } from "./ui/state";
 import {
@@ -15,6 +18,7 @@ import {
 export class HelpWorkspace extends LitElement {
   static properties = {
     locale: { type: String },
+    entityId: { type: String, attribute: "entity-id" },
     phase: { state: true },
     categories: { state: true },
     tips: { state: true },
@@ -24,6 +28,7 @@ export class HelpWorkspace extends LitElement {
     error: { state: true },
   };
   declare locale: string;
+  declare entityId: string;
   declare phase: "loading" | "ready" | "error";
   declare categories: JsonRecord[];
   declare tips: JsonRecord[];
@@ -31,9 +36,12 @@ export class HelpWorkspace extends LitElement {
   declare selectedCategory: number;
   declare selectedTopic: string;
   declare error: string;
+  private request?: AbortController;
+  private loading?: LoadingReporter;
   constructor() {
     super();
     this.locale = "ja";
+    this.entityId = "";
     this.phase = "loading";
     this.categories = [];
     this.tips = [];
@@ -47,14 +55,19 @@ export class HelpWorkspace extends LitElement {
   }
   connectedCallback() {
     super.connectedCallback();
+    const selection = parseEntitySelection(location.pathname);
+    if (selection?.source === "canonical" && selection.route.kind === "help") this.entityId = selection.route.id;
     this.locale = preferredLocale(this.locale);
     void Promise.all([import("@material/web/progress/circular-progress.js")]);
     const p = new URLSearchParams(location.search);
     this.mode = p.get("mode") === "tips" ? "tips" : "manual";
-    this.selectedTopic = p.get("topic") || "";
+    this.selectedTopic = this.entityId || p.get("topic") || "";
     void this.load();
   }
   disconnectedCallback() {
+    this.request?.abort();
+    this.request = undefined;
+    this.loading?.cancel();
     clearAppBarActions("help");
     super.disconnectedCallback();
   }
@@ -62,8 +75,20 @@ export class HelpWorkspace extends LitElement {
     return localizedText(v, this.locale);
   }
   private async load() {
+    this.request?.abort();
+    this.loading?.cancel();
+    const controller = new AbortController();
+    const progress = beginLoading(uiText(this.locale, "loading"), { scope: "owner", signal: controller.signal });
+    this.request = controller;
+    this.loading = progress;
+    this.phase = "loading";
+    this.error = "";
     try {
-      const d = await fetchJson<JsonRecord>(catalogUrl("help"));
+      const d = await fetchJson<JsonRecord>(catalogUrl("help"), { signal: controller.signal });
+      if (this.request !== controller || controller.signal.aborted) {
+        progress.cancel();
+        return;
+      }
       this.categories = recordValues(d.categories).sort((a, b) => Number(a.order) - Number(b.order));
       this.tips = recordValues(d.loadingTips).sort((a, b) => Number(a.tipId) - Number(b.tipId));
       // A deep-linked topic (?topic=) opens the category that contains it.
@@ -76,13 +101,27 @@ export class HelpWorkspace extends LitElement {
               : false,
           )
         : undefined;
-      this.selectedCategory = Number(
-        linked?.categoryId ?? this.categories[0]?.categoryId ?? 0,
-      );
+      this.selectedCategory = Number(linked?.categoryId ?? this.categories[0]?.categoryId ?? 0);
+      if (this.entityId) {
+        const entry = this.filteredEntries().find((item) => String(item.helpSubcategoryId ?? "") === this.entityId);
+        if (entry) updateEntityHeading(this, this.text(entry.title));
+      }
+      this.dataset.entityReady = String(Boolean(this.entityId && linked));
       this.phase = "ready";
+      progress.finish();
     } catch (e) {
+      if (controller.signal.aborted || this.request !== controller) {
+        progress.cancel();
+        return;
+      }
       this.phase = "error";
       this.error = e instanceof Error ? e.message : String(e);
+      progress.fail(e);
+    } finally {
+      if (this.request === controller && this.phase !== "error") {
+        this.request = undefined;
+        this.loading = undefined;
+      }
     }
   }
   private sync() {
@@ -97,6 +136,46 @@ export class HelpWorkspace extends LitElement {
   }
   render() {
     const entries = this.filteredEntries();
+    if (this.entityId) {
+      clearAppBarActions("help");
+      if (this.phase === "loading") return loadingState(uiText(this.locale, "loading"));
+      if (this.phase === "error")
+        return errorState(
+          uiText(this.locale, "unavailable"),
+          uiText(this.locale, "retry"),
+          () => void this.load(),
+          this.error,
+        );
+      const entry = entries.find((item) => String(item.helpSubcategoryId ?? "") === this.entityId);
+      return html`
+        <section class="help-workspace help-workspace--entity">
+          <main class="help-entries">
+            ${
+              entry
+                ? html`
+                    <details class="help-entry" open>
+                      <summary><span>${this.text(entry.title) || "—"}</span></summary>
+                      <div>
+                        ${this.text(entry.description)
+                        .split("\n")
+                        .map((line) =>
+                          line
+                            ? html`
+                                <p>${line}</p>
+                              `
+                            : html`
+                                <br />
+                              `,
+                        )}
+                      </div>
+                    </details>
+                  `
+                : nothing
+            }
+          </main>
+        </section>
+      `;
+    }
     // The manual/tips switch is a page-level action, so it belongs in the top
     // app bar rather than floating over it.
     setAppBarActions(
@@ -155,11 +234,13 @@ export class HelpWorkspace extends LitElement {
                     ${entries.map(
                       (item, index) => html`
                         <details
-                          class="help-entry ${String(item.helpSubcategoryId ?? "") === this.selectedTopic
-                            ? "selected"
-                            : ""}"
-                          ?open=${String(item.helpSubcategoryId ?? "") === this.selectedTopic ||
-                          (index === 0 && entries.length < 8)}
+                          class="help-entry ${
+                            String(item.helpSubcategoryId ?? "") === this.selectedTopic ? "selected" : ""
+                          }"
+                          ?open=${
+                            String(item.helpSubcategoryId ?? "") === this.selectedTopic ||
+                            (index === 0 && entries.length < 8)
+                          }
                         >
                           <summary>
                             <span>${this.text(item.title) || "—"}</span>

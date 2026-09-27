@@ -1,3 +1,4 @@
+import { clientText } from "../i18n/client";
 import { renderAnonTokyoDetails } from "./shared/anon-tokyo-detail";
 import { LitElement, html, nothing } from "lit";
 import { facet as renderFacet } from "./ui/facet";
@@ -73,7 +74,6 @@ export class AnonTokyoWorkspace extends LitElement {
   static properties = {
     locale: { type: String },
     mode: { type: String },
-    labels: { type: String },
     phase: { state: true },
     document: { state: true },
     selectedCharacter: { state: true },
@@ -90,7 +90,6 @@ export class AnonTokyoWorkspace extends LitElement {
   };
   declare locale: string;
   declare mode: string;
-  declare labels: string;
   declare phase: "loading" | "ready" | "error";
   declare document: Value | null;
   declare selectedCharacter: string;
@@ -106,7 +105,6 @@ export class AnonTokyoWorkspace extends LitElement {
   declare outfitError: string;
   private bands: Value[] = [];
   private referenceData?: Value;
-  private copies: Record<string, Record<string, string>> = {};
   private outfitStage?: OutfitStage;
   private outfitRecipeKey = "";
   private outfitStageCharacter = "";
@@ -120,7 +118,6 @@ export class AnonTokyoWorkspace extends LitElement {
     super();
     this.locale = "ja";
     this.mode = "characters";
-    this.labels = "{}";
     this.phase = "loading";
     this.document = null;
     this.selectedCharacter = "";
@@ -141,7 +138,6 @@ export class AnonTokyoWorkspace extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.locale = preferredLocale(this.locale);
-    this.copies = JSON.parse(this.labels || "{}");
     this.releaseLocation = observeDetailLocation(this.restoreLocation, this);
     addEventListener("haneoka:locale-ready", this.onLocale);
     void import("@material/web/textfield/outlined-text-field.js");
@@ -324,7 +320,7 @@ export class AnonTokyoWorkspace extends LitElement {
     }
   }
   private label(key: string) {
-    const value = this.copies[this.locale]?.[key] || this.copies.en?.[key];
+    const value = clientText(this.locale, `anonTokyoPage.${key}`, "");
     if (value) return value;
     const common = uiText(this.locale, key);
     return common !== key
@@ -345,7 +341,7 @@ export class AnonTokyoWorkspace extends LitElement {
     if (this.mode === "fever" && item.cueName && !named) return this.label("backgroundMusic");
     if (named && !/^(?:normal|helper|deliveryman|customer):\d+$/u.test(named)) return named;
     if (this.mode === "customers" && item.customerKind) return this.label(String(item.customerKind));
-    if (this.mode === "staff" && item.nameKey && this.copies[this.locale]?.[String(item.nameKey)])
+    if (this.mode === "staff" && item.nameKey && clientText(this.locale, `anonTokyoPage.${String(item.nameKey)}`, ""))
       return this.label(String(item.nameKey));
     if (this.mode === "fever" && item.bandId)
       return `${this.anonBandName(Number(item.bandId))} · ${this.label(String(item.entityGroup || "stages"))}`;
@@ -517,7 +513,7 @@ export class AnonTokyoWorkspace extends LitElement {
       ${renderBrowse({
         kind: "anon",
         count: { value: filtered.length, label: source.length === filtered.length ? "" : `/ ${source.length}` },
-        controls: viewSwitch(this.locale, this.view, (view) => {
+        modes: viewSwitch(this.locale, this.view, (view) => {
           this.view = view;
           this.sync();
         }),

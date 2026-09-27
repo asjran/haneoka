@@ -1,17 +1,35 @@
 ---
 import Icon from "./Icon.astro";
 import I18nText from "./I18nText.astro";
-import { NAV_SECTIONS, PRIMARY_DESTINATIONS, isDestinationActive, isRouteActive } from "../config/navigation";
-import { LOCALES, localePath, type Locale } from "../i18n/locales";
+import { NAV_SECTIONS, PRIMARY_DESTINATIONS, UTILITY_DESTINATIONS, INFORMATION_DESTINATIONS, isDestinationActive, isRouteActive } from "../config/navigation";
+import { localePath, type Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
+import { resourceCollectionHref } from "../lib/resource-route";
+import type { ReleaseServer } from "../lib/release-server";
 interface Props {
   locale: Locale;
   route: string;
   title: string;
   titleKey?: string;
+  server?: ReleaseServer;
+  entity?: {
+    title: string;
+    titleLanguage?: string;
+    backHref: string;
+    previous?: { href: string; title?: string };
+    next?: { href: string; title?: string };
+  };
 }
-const { locale, route, title, titleKey } = Astro.props;
+const { locale, route, title, titleKey, server, entity } = Astro.props;
+const shellTitle = entity?.title ?? title;
+const shellTitleKey = entity ? undefined : titleKey;
 const itemActive = (target: string) => isRouteActive(target, route);
+const navigationHref = (target: string) => {
+  const resource = server ? resourceCollectionHref(target, server, locale) : undefined;
+  if (resource) return resource;
+  const href = localePath(target, locale);
+  return server && target.startsWith("/catalog") ? `${href}?server=${server}` : href;
+};
 const navigation = PRIMARY_DESTINATIONS.map((destination) => ({
   ...destination,
   sections: NAV_SECTIONS.map((section) => ({
@@ -19,13 +37,9 @@ const navigation = PRIMARY_DESTINATIONS.map((destination) => ({
     items: section.items.filter((item) => isDestinationActive(destination, item.route)),
   })).filter((section) => section.items.length > 0),
 }));
-const utilities = [
-  { route: "/account", icon: "account_circle", label: "account" },
-  { route: "/settings", icon: "settings", label: "settings" },
-  { route: "/about", icon: "info", label: "about" },
-];
-const i18nValues = (key: string, fallback: string) =>
-  JSON.stringify(Object.fromEntries(LOCALES.map((target) => [target, t(target, key, fallback)])));
+const utilities = UTILITY_DESTINATIONS;
+const informationPages = INFORMATION_DESTINATIONS;
+const inInformation = route === "/about" || informationPages.some((item) => itemActive(item.route));
 ---
 
 <div class="app-shell" data-shell data-route={route}>
@@ -38,14 +52,14 @@ const i18nValues = (key: string, fallback: string) =>
     tabindex="-1"
     data-nav-close
     aria-label={t(locale, "close", "Close")}
-    data-i18n-aria-label-values={i18nValues("close", "Close")}
+    data-i18n-aria-label="close" data-i18n-aria-label-fallback="Close"
   ></button>
 
   <nav
     class="nav"
     id="global-navigation"
     aria-label={t(locale, "primaryNavigation", "Primary navigation")}
-    data-i18n-aria-label-values={i18nValues("primaryNavigation", "Primary navigation")}
+    data-i18n-aria-label="primaryNavigation" data-i18n-aria-label-fallback="Primary navigation"
     data-nav
   >
     <div class="nav__header">
@@ -56,7 +70,7 @@ const i18nValues = (key: string, fallback: string) =>
         aria-controls="global-navigation"
         aria-expanded="false"
         aria-label={t(locale, "menu", "Menu")}
-        data-i18n-aria-label-values={i18nValues("menu", "Menu")}
+        data-i18n-aria-label="menu" data-i18n-aria-label-fallback="Menu"
       >
         <Icon name="menu" />
       </button>
@@ -73,7 +87,7 @@ const i18nValues = (key: string, fallback: string) =>
           <li>
             <a
               class="rail-item"
-              href={localePath(destination.route, locale)}
+              href={navigationHref(destination.route)}
               aria-current={current ? "page" : undefined}
             >
               <span class="rail-item__indicator">
@@ -96,7 +110,7 @@ const i18nValues = (key: string, fallback: string) =>
               <div class="nav__destination">
                 <a
                   class="nav-item nav-item--primary"
-                  href={localePath(destination.route, locale)}
+                  href={navigationHref(destination.route)}
                   aria-current={current ? (route === destination.route ? "page" : "location") : undefined}
                 >
                   <Icon name={destination.icon} filled={current} />
@@ -110,7 +124,7 @@ const i18nValues = (key: string, fallback: string) =>
                     aria-controls={branchId}
                     aria-expanded={current}
                     aria-label={t(locale, destination.label, destination.id)}
-                    data-i18n-aria-label-values={i18nValues(destination.label, destination.id)}
+                    data-i18n-aria-label={destination.label} data-i18n-aria-label-fallback={destination.id}
                   >
                     <Icon name="expand_more" />
                   </button>
@@ -125,7 +139,7 @@ const i18nValues = (key: string, fallback: string) =>
                           <li>
                             <a
                               class="nav-item"
-                              href={localePath(item.route, locale)}
+                              href={navigationHref(item.route)}
                               aria-current={itemActive(item.route) ? "page" : undefined}
                             >
                               <I18nText keyName={item.label} fallback={item.label} locale={locale} />
@@ -163,12 +177,27 @@ const i18nValues = (key: string, fallback: string) =>
           <li>
             <a
               class="nav-item"
-              href={localePath(item.route, locale)}
+              href={navigationHref(item.route)}
               aria-current={itemActive(item.route) ? "page" : undefined}
             >
               <Icon name={item.icon} filled={itemActive(item.route)} />
               <I18nText keyName={item.label} fallback={item.label} locale={locale} />
             </a>
+            {item.route === "/about" && inInformation && (
+              <ul class="nav__children" role="list">
+                {informationPages.map((page) => (
+                  <li>
+                    <a
+                      class="nav-item"
+                      href={navigationHref(page.route)}
+                      aria-current={itemActive(page.route) ? "page" : undefined}
+                    >
+                      <I18nText keyName={page.label} fallback={page.label} locale={locale} />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>
@@ -178,7 +207,7 @@ const i18nValues = (key: string, fallback: string) =>
       {utilities.map((item) => (
         <a
           class="rail-item"
-          href={localePath(item.route, locale)}
+          href={navigationHref(item.route)}
           aria-current={itemActive(item.route) ? "page" : undefined}
         >
           <span class="rail-item__indicator">
@@ -192,20 +221,87 @@ const i18nValues = (key: string, fallback: string) =>
 
   <div class="app-shell__body">
     <header class="top-app-bar" data-top-app-bar>
-      <button
-        class="icon-button top-app-bar__menu"
-        type="button"
-        data-nav-toggle
-        aria-controls="global-navigation"
-        aria-expanded="false"
-        aria-label={t(locale, "menu", "Menu")}
-        data-i18n-aria-label-values={i18nValues("menu", "Menu")}
-      >
-        <Icon name="menu" />
-      </button>
-      <h1>{titleKey ? <I18nText keyName={titleKey} fallback={title} locale={locale} /> : title}</h1>
-      <div class="top-app-bar__actions" data-top-app-bar-actions></div>
+      <div class="top-app-bar__leading" data-top-app-bar-leading>
+        {entity ? (
+          <a
+            class="icon-button"
+            href={entity.backHref}
+            data-entity-back
+            data-entity-fallback-href={entity.backHref}
+            aria-label={t(locale, "back", "Back")}
+            data-i18n-aria-label="back"
+          >
+            <Icon name="arrow_back" />
+          </a>
+        ) : (
+          <button
+            class="icon-button top-app-bar__menu"
+            type="button"
+            data-nav-toggle
+            aria-controls="global-navigation"
+            aria-expanded="false"
+            aria-label={t(locale, "menu", "Menu")}
+            data-i18n-aria-label="menu" data-i18n-aria-label-fallback="Menu"
+          >
+            <Icon name="menu" />
+          </button>
+        )}
+        {entity && <div class="top-app-bar__identity" data-top-app-bar-identity></div>}
+      </div>
+      <h1
+        data-entity-title={entity ? "true" : undefined}
+        lang={entity?.titleLanguage}
+      >{shellTitleKey ? <I18nText keyName={shellTitleKey} fallback={shellTitle} locale={locale} /> : shellTitle}</h1>
+      <div class="top-app-bar__actions" data-top-app-bar-actions>
+        {entity && (
+          <div class="top-app-bar__secondary-actions">
+            <button
+              class="icon-button top-app-bar__menu"
+              type="button"
+              data-nav-toggle
+              aria-controls="global-navigation"
+              aria-expanded="false"
+              aria-label={t(locale, "menu", "Menu")}
+              data-i18n-aria-label="menu" data-i18n-aria-label-fallback="Menu"
+            >
+              <Icon name="menu" />
+            </button>
+            {entity.previous && (
+              <a
+                class="icon-button"
+                href={entity.previous.href}
+                data-entity-navigation="previous"
+                data-entity-base-href={entity.previous.href}
+                aria-label={`${t(locale, "previous", "Previous")}${entity.previous.title ? `: ${entity.previous.title}` : ""}`}
+              >
+                <Icon name="chevron_left" />
+              </a>
+            )}
+            {entity.next && (
+              <a
+                class="icon-button"
+                href={entity.next.href}
+                data-entity-navigation="next"
+                data-entity-base-href={entity.next.href}
+                aria-label={`${t(locale, "next", "Next")}${entity.next.title ? `: ${entity.next.title}` : ""}`}
+              >
+                <Icon name="chevron_right" />
+              </a>
+            )}
+          </div>
+        )}
+      </div>
     </header>
+    <div class="app-shell__progress" data-page-progress data-page-progress-active="false" aria-hidden="true">
+      <md-linear-progress
+        data-page-progress-control
+        indeterminate
+        aria-label={t(locale, "loading", "Loading")}
+        data-i18n-aria-label="loading" data-i18n-aria-label-fallback="Loading"
+      ></md-linear-progress>
+      <span class="app-shell__progress-fallback" data-page-progress-fallback aria-hidden="true"></span>
+      <span class="app-shell__progress-status" data-page-progress-status role="status" aria-live="polite"></span>
+    </div>
     <main class="app-shell__main page-stage" id="main-content" tabindex="-1">
       <slot />
     </main>
@@ -213,10 +309,12 @@ const i18nValues = (key: string, fallback: string) =>
 </div>
 <script>
   import { trapFocus } from "../lib/overlay";
+  import { syncEntityNavigation } from "../lib/detail-navigation";
   const EXPANDED_KEY = "haneoka.navigation.expanded.v2";
   const persistentQuery = matchMedia("(min-width: 1200px)");
   const root = document.documentElement;
   let releaseNavigationFocus: (() => void) | undefined;
+  let releaseActionObservers: (() => void) | undefined;
   const inertTargets = new Set<HTMLElement>();
 
   const shell = () => document.querySelector<HTMLElement>("[data-shell]");
@@ -313,10 +411,55 @@ const i18nValues = (key: string, fallback: string) =>
       },
       { capture: true, passive: true },
     );
+
+    // The trailing row advertises a scroll affordance only when its current
+    // actions exceed the available app-bar width. Lit replaces this subtree
+    // as entities load, so watch both its box and its children.
+    const actions = host.querySelector<HTMLElement>("[data-top-app-bar-actions]");
+    const syncActionOverflow = () => {
+      if (!actions || !bar) return;
+      const title = bar.querySelector<HTMLElement>("h1");
+      const identity = bar.querySelector<HTMLElement>("[data-top-app-bar-identity]");
+      const leading = bar.querySelector<HTMLElement>("[data-top-app-bar-leading]");
+      if (identity) identity.hidden = false;
+      title?.classList.remove("top-app-bar__title--omitted");
+      const style = getComputedStyle(bar);
+      const width = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const gap = parseFloat(style.columnGap) || 0;
+      const remaining = () => width - (leading?.getBoundingClientRect().width || 0) - actions.scrollWidth - gap * 2;
+      // Page controls own the available width. Identity marks and the heading
+      // are progressively omitted before the action row starts scrolling.
+      if (identity && remaining() < 96) identity.hidden = true;
+      title?.classList.toggle("top-app-bar__title--omitted", remaining() < 64);
+      actions.dataset.appBarOverflow = String(actions.scrollWidth > actions.clientWidth + 1);
+      actions.dataset.appBarScrollStart = String(actions.scrollLeft > 1);
+      actions.dataset.appBarScrollEnd = String(actions.scrollLeft + actions.clientWidth < actions.scrollWidth - 1);
+    };
+    if (actions) {
+      releaseActionObservers?.();
+      const resizeObserver = new ResizeObserver(syncActionOverflow);
+      const mutationObserver = new MutationObserver(syncActionOverflow);
+      resizeObserver.observe(bar);
+      resizeObserver.observe(actions);
+      mutationObserver.observe(bar, { childList: true, subtree: true });
+      actions.addEventListener("scroll", syncActionOverflow, { passive: true });
+      releaseActionObservers = () => {
+        resizeObserver.disconnect();
+        mutationObserver.disconnect();
+        actions.removeEventListener("scroll", syncActionOverflow);
+      };
+      syncActionOverflow();
+    }
   };
 
   initializeShell();
+  syncEntityNavigation();
+  document.addEventListener("astro:page-load", syncEntityNavigation);
   document.addEventListener("astro:page-load", initializeShell);
   persistentQuery.addEventListener("change", () => setModal(false));
-  document.addEventListener("astro:before-swap", () => setModal(false));
+  document.addEventListener("astro:before-swap", () => {
+    setModal(false);
+    releaseActionObservers?.();
+    releaseActionObservers = undefined;
+  });
 </script>

@@ -1,0 +1,220 @@
+---
+import Icon from "../Icon.astro";
+import I18nText from "../I18nText.astro";
+import { group } from "../../i18n/messages";
+import type { Locale } from "../../i18n/locales";
+
+interface AboutItem {
+  title: string;
+  body: string;
+}
+
+interface AboutCopy {
+  eyebrow: string;
+  title: string;
+  description: string;
+  heroTitle: string;
+  experienceTitle: string;
+  experienceIntro: string;
+  experience: AboutItem[];
+  ecosystemTitle: string;
+  ecosystemIntro: string;
+  ecosystem: AboutItem[];
+  toolchainTitle: string;
+  toolchainIntro: string;
+  toolchain: AboutItem[];
+  repositoriesTitle: string;
+  repositoriesIntro: string;
+  repositories: AboutItem[];
+  footerBody: string;
+  sourceLink: string;
+  noticesLink: string;
+  licenseLink: string;
+  contactLink: string;
+}
+
+const { locale } = Astro.props as { locale: Locale };
+const copy = group<AboutCopy>(locale, "aboutPage");
+
+const repositories = [
+  { href: "https://github.com/haneoka-gakuen/haneoka", icon: "archive" },
+  { href: "https://github.com/haneoka-gakuen/vega", icon: "auto_stories" },
+  { href: "https://github.com/haneoka-gakuen/cassiopeia", icon: "music_note" },
+  { href: "https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus", icon: "sports_esports" },
+  { href: "https://github.com/haneoka-gakuen/altair", icon: "edit" },
+  { href: "https://github.com/haneoka-gakuen/deneb", icon: "inventory_2" },
+] as const;
+
+const sourceHref = "https://github.com/haneoka-gakuen/haneoka";
+const contactHref = "https://github.com/haneoka-gakuen/haneoka/issues";
+const licenseHref = "https://github.com/haneoka-gakuen/haneoka/blob/main/LICENSE";
+const noticesHref = "https://github.com/haneoka-gakuen/haneoka/blob/main/THIRD_PARTY_NOTICES.md";
+---
+
+<section class="page about-page" aria-labelledby="about-heading">
+  <header class="about-hero surface surface--outlined">
+    <div class="about-hero__copy">
+      <p class="about-eyebrow">
+        <I18nText keyName="aboutPage.eyebrow" fallback={copy.eyebrow} locale={locale} />
+      </p>
+      <h2 id="about-heading">
+        <I18nText keyName="aboutPage.heroTitle" fallback={copy.heroTitle} locale={locale} />
+      </h2>
+      <p class="about-lede">
+        <I18nText keyName="aboutPage.description" fallback={copy.description} locale={locale} />
+      </p>
+    </div>
+    <div class="about-hero__mark" aria-hidden="true">
+      <span class="about-hero__mark-ring about-hero__mark-ring--outer"></span>
+      <span class="about-hero__mark-ring about-hero__mark-ring--inner"></span>
+      <span class="about-hero__mark-name">haneoka</span>
+      <span class="about-hero__mark-rule"></span>
+      <span class="about-hero__mark-label">Our Notes</span>
+    </div>
+  </header>
+
+  <section class="about-section" aria-labelledby="about-experience-heading">
+    <div class="about-section__heading">
+      <div>
+        <p class="about-section__eyebrow">01</p>
+        <h2 id="about-experience-heading">
+          <I18nText keyName="aboutPage.experienceTitle" fallback={copy.experienceTitle} locale={locale} />
+        </h2>
+      </div>
+      <p>
+        <I18nText keyName="aboutPage.experienceIntro" fallback={copy.experienceIntro} locale={locale} />
+      </p>
+    </div>
+    <div class="about-feature-grid">
+      {copy.experience.map((item, index) => (
+        <article class="about-feature">
+          <span class="about-feature__index">{String(index + 1).padStart(2, "0")}</span>
+          <h3>
+            <I18nText keyName={`aboutPage.experience.${index}.title`} fallback={item.title} locale={locale} />
+          </h3>
+          <p>
+            <I18nText keyName={`aboutPage.experience.${index}.body`} fallback={item.body} locale={locale} />
+          </p>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="about-section" aria-labelledby="about-ecosystem-heading">
+    <div class="about-section__heading">
+      <div>
+        <p class="about-section__eyebrow">02</p>
+        <h2 id="about-ecosystem-heading">
+          <I18nText keyName="aboutPage.ecosystemTitle" fallback={copy.ecosystemTitle} locale={locale} />
+        </h2>
+      </div>
+      <p>
+        <I18nText keyName="aboutPage.ecosystemIntro" fallback={copy.ecosystemIntro} locale={locale} />
+      </p>
+    </div>
+    <div class="about-ecosystem-grid">
+      {copy.ecosystem.map((item, index) => (
+        <article class="about-ecosystem">
+          <span class="about-ecosystem__index">{String(index + 1).padStart(2, "0")}</span>
+          <div>
+            <h3>
+              <I18nText keyName={`aboutPage.ecosystem.${index}.title`} fallback={item.title} locale={locale} />
+            </h3>
+            <p>
+              <I18nText keyName={`aboutPage.ecosystem.${index}.body`} fallback={item.body} locale={locale} />
+            </p>
+          </div>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="about-section" aria-labelledby="about-toolchain-heading">
+    <div class="about-section__heading">
+      <div>
+        <p class="about-section__eyebrow">03</p>
+        <h2 id="about-toolchain-heading">
+          <I18nText keyName="aboutPage.toolchainTitle" fallback={copy.toolchainTitle} locale={locale} />
+        </h2>
+      </div>
+      <p>
+        <I18nText keyName="aboutPage.toolchainIntro" fallback={copy.toolchainIntro} locale={locale} />
+      </p>
+    </div>
+    <div class="about-toolchain-grid">
+      {copy.toolchain.map((item, index) => (
+        <article class="about-tool">
+          <span class="about-tool__index">{String(index + 1).padStart(2, "0")}</span>
+          <h3>
+            <I18nText keyName={`aboutPage.toolchain.${index}.title`} fallback={item.title} locale={locale} />
+          </h3>
+          <p>
+            <I18nText keyName={`aboutPage.toolchain.${index}.body`} fallback={item.body} locale={locale} />
+          </p>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="about-section" aria-labelledby="about-repositories-heading">
+    <div class="about-section__heading">
+      <div>
+        <p class="about-section__eyebrow">04</p>
+        <h2 id="about-repositories-heading">
+          <I18nText keyName="aboutPage.repositoriesTitle" fallback={copy.repositoriesTitle} locale={locale} />
+        </h2>
+      </div>
+      <p>
+        <I18nText keyName="aboutPage.repositoriesIntro" fallback={copy.repositoriesIntro} locale={locale} />
+      </p>
+    </div>
+    <div class="about-repository-grid">
+      {copy.repositories.map((item, index) => {
+        const repository = repositories[index];
+        return (
+          <a
+            class="about-repository surface surface--outlined"
+            href={repository.href}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span class="about-repository__icon"><Icon name={repository.icon} size={20} /></span>
+            <span class="about-repository__copy">
+              <strong>
+                <I18nText keyName={`aboutPage.repositories.${index}.title`} fallback={item.title} locale={locale} />
+              </strong>
+              <span>
+                <I18nText keyName={`aboutPage.repositories.${index}.body`} fallback={item.body} locale={locale} />
+              </span>
+            </span>
+            <Icon name="open_in_new" size={18} />
+          </a>
+        );
+      })}
+    </div>
+  </section>
+
+  <footer class="about-footer surface surface--tonal">
+    <p>
+      <I18nText keyName="aboutPage.footerBody" fallback={copy.footerBody} locale={locale} />
+    </p>
+    <nav class="about-link-row" aria-labelledby="about-repositories-heading">
+      <a class="text-link" href={sourceHref} target="_blank" rel="noreferrer">
+        <I18nText keyName="aboutPage.sourceLink" fallback={copy.sourceLink} locale={locale} />
+        <Icon name="open_in_new" size={16} />
+      </a>
+      <a class="text-link" href={licenseHref} target="_blank" rel="noreferrer">
+        <I18nText keyName="aboutPage.licenseLink" fallback={copy.licenseLink} locale={locale} />
+        <Icon name="open_in_new" size={16} />
+      </a>
+      <a class="text-link" href={noticesHref} target="_blank" rel="noreferrer">
+        <I18nText keyName="aboutPage.noticesLink" fallback={copy.noticesLink} locale={locale} />
+        <Icon name="open_in_new" size={16} />
+      </a>
+      <a class="text-link" href={contactHref} target="_blank" rel="noreferrer">
+        <I18nText keyName="aboutPage.contactLink" fallback={copy.contactLink} locale={locale} />
+        <Icon name="open_in_new" size={16} />
+      </a>
+    </nav>
+  </footer>
+</section>

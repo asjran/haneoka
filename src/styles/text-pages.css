@@ -1,0 +1,97 @@
+@layer pages {
+  .text-page .text-page__hero {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .text-page__hero .about-hero__copy {
+    max-width: 76ch;
+  }
+
+  .text-page__hero .about-lede {
+    max-width: 70ch;
+  }
+
+  .text-page__updated {
+    margin: 24px 0 0;
+    color: var(--md-sys-color-on-surface-variant);
+    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size) /
+      var(--md-sys-typescale-label-large-line-height) var(--app-font);
+  }
+
+  .text-page__sections {
+    display: grid;
+    min-width: 0;
+  }
+
+  .text-page__section {
+    display: grid;
+    grid-template-columns: minmax(160px, 1fr) minmax(0, 2fr);
+    gap: clamp(24px, 4vw, 56px);
+    padding: clamp(24px, 4vw, 40px) 0;
+    border-block-end: 1px solid var(--md-sys-color-outline-variant);
+  }
+
+  .text-page__section:first-child {
+    padding-block-start: 0;
+  }
+
+  .text-page__heading {
+    min-width: 0;
+  }
+
+  .text-page__heading h2 {
+    margin: 12px 0 0;
+    color: var(--md-sys-color-on-surface);
+    font: var(--md-sys-typescale-title-large-weight) var(--md-sys-typescale-title-large-size) /
+      var(--md-sys-typescale-title-large-line-height) var(--app-font);
+    overflow-wrap: anywhere;
+  }
+
+  .text-page__body {
+    min-width: 0;
+    max-width: 72ch;
+    color: var(--md-sys-color-on-surface-variant);
+    font: var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size) /
+      var(--md-sys-typescale-body-large-line-height) var(--app-font);
+    overflow-wrap: anywhere;
+  }
+
+  .text-page__body p {
+    margin: 0;
+    white-space: pre-line;
+  }
+
+  .text-page__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 28px;
+  }
+
+  .text-page__footer .text-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 48px;
+  }
+
+  @media (max-width: 839px) {
+    .text-page__section {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .text-page__heading {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .text-page__heading h2,
+    .text-page__heading .about-section__eyebrow {
+      margin: 0;
+    }
+  }
+}
