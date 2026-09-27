@@ -2083,5 +2083,7 @@
   "stamp": "Sticker",
   "playVoice": "Play voice",
   "fullscreenExit": "Exit fullscreen",
-  "requestTimedOut": "The request timed out. Please try again."
+  "requestTimedOut": "The request timed out. Please try again.",
+  "firstCharacter": "Character",
+  "secondCharacter": "Bond partner"
 }

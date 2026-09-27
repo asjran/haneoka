@@ -9,37 +9,34 @@
   }
 
   .dialogue-row__avatar {
-    display: grid;
-    place-items: center;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    flex: 0 1 auto;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  .dialogue-row__avatar img,
+  .dialogue-row__avatar > svg {
+    display: block;
     width: calc(2 * var(--md-sys-spacing-4));
     height: calc(2 * var(--md-sys-spacing-4));
     flex: 0 0 auto;
-    overflow: hidden;
-    color: var(--md-sys-color-on-surface-variant);
+    object-fit: contain;
     border-radius: var(--md-sys-shape-corner-full);
     background: var(--md-sys-color-surface-container-high);
   }
 
-  .dialogue-row__avatar img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    border-radius: inherit;
-  }
-
   .dialogue-row__avatar-stack {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-  }
-
-  .dialogue-row__avatar > .dialogue-row__avatar-stack {
-    width: 100%;
-    height: 100%;
-  }
-
-  .dialogue-row__avatar-stack img {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--md-sys-spacing-1);
     min-width: 0;
+  }
+
+  .dialogue-row__avatar img[hidden] {
+    display: none;
   }
 
   .dialogue-row__bubble {

@@ -2083,5 +2083,7 @@
   "stamp": "表情",
   "playVoice": "播放语音",
   "fullscreenExit": "退出全屏",
-  "requestTimedOut": "请求超时，请重试。"
+  "requestTimedOut": "请求超时，请重试。",
+  "firstCharacter": "角色",
+  "secondCharacter": "羁绊对象"
 }

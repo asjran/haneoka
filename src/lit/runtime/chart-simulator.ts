@@ -15,6 +15,7 @@ import {
   OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
   OUR_NOTES_NOTE_SKINS,
   OUR_NOTES_NOTE_SKIN_NAMES,
+  OUR_NOTES_STAGE_NAMES,
   DEFAULT_RENDER_SETTINGS,
   createOurNotesPlugin,
   type RenderFrameBuilder,
@@ -42,7 +43,7 @@ type RuntimeDescriptor = {
   outputs?: RuntimeOutput[];
   runtimeObjects?: Array<{ pathId: string | number; path: string; type: string }>;
 };
-type StageBackground = "auto" | "none" | "1" | "2";
+type StageBackground = "auto" | "none" | "0" | "1" | "2" | "3" | "4" | "5";
 type NumericRenderSetting =
   "noteSpeed" | "noteSize" | "longAlpha" | "guideAlpha" | "guidelineOpacity" | "laneOpacity" | "backgroundBrightness";
 type ChartUiKey =
@@ -488,7 +489,7 @@ export class ChartSimulator extends LitElement {
             ? render.showJudgementLine
             : DEFAULT_RENDER_SETTINGS.showJudgementLine,
       };
-      if (["auto", "none", "1", "2"].includes(String(saved.stageBackground)))
+      if (["auto", "none", ...Object.keys(OUR_NOTES_STAGE_NAMES)].includes(String(saved.stageBackground)))
         this.stageBackground = saved.stageBackground as StageBackground;
       this.playbackRate = number(saved.playbackRate, 0.5, 2, 1);
       this.volume = number(saved.volume, 0, 1, 0.8);
@@ -518,7 +519,8 @@ export class ChartSimulator extends LitElement {
   }
   private stageBackgroundUrl() {
     if (this.stageBackground === "none") return undefined;
-    const band = this.stageBackground === "auto" ? Math.max(1, Number(this.bandId) || 1) : this.stageBackground;
+    const band =
+      this.stageBackground === "auto" ? (OUR_NOTES_STAGE_NAMES[this.bandId] ? this.bandId : 0) : this.stageBackground;
     return `/assets/${encodeURIComponent(this.server)}/Assets/AddressableResources/Band/${band}/live_stage/lightweight_background.png`;
   }
   private async applyStageBackground() {
@@ -1012,8 +1014,13 @@ export class ChartSimulator extends LitElement {
                   void this.setStageBackground((event.currentTarget as HTMLSelectElement).value as StageBackground)}
               >
                 <option value="auto" ?selected=${this.stageBackground === "auto"}>${this.ui("songBand")}</option>
-                <option value="1" ?selected=${this.stageBackground === "1"}>MyGO!!!!!</option>
-                <option value="2" ?selected=${this.stageBackground === "2"}>Ave Mujica</option>
+                ${Object.entries(OUR_NOTES_STAGE_NAMES).map(
+                  ([id, names]) => html`
+                    <option value=${id} ?selected=${this.stageBackground === id}>
+                      ${names[this.locale] || names.en}
+                    </option>
+                  `,
+                )}
                 <option value="none" ?selected=${this.stageBackground === "none"}>${this.ui("noBackground")}</option>
               </select>
             </label>

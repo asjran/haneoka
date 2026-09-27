@@ -2083,5 +2083,7 @@
   "stamp": "スタンプ",
   "playVoice": "ボイスを再生",
   "fullscreenExit": "全画面表示を終了",
-  "requestTimedOut": "通信がタイムアウトしました。もう一度お試しください。"
+  "requestTimedOut": "通信がタイムアウトしました。もう一度お試しください。",
+  "firstCharacter": "キャラクター",
+  "secondCharacter": "絆の相手"
 }

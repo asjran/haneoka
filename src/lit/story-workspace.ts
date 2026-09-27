@@ -41,42 +41,11 @@ import { emptyState, errorState, loadingState } from "./ui/state";
 import { tile } from "./ui/tile";
 import { storyCastMedia } from "./ui/story-media";
 import { dialogueRow } from "./ui/dialogue-row";
+import { characterPair } from "./ui/character-pair";
 import { entityHref, parseEntitySelection, returnStateFromLocation } from "../lib/resource-route";
 import { readReleaseServer } from "../lib/release-server";
 import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
 import type { Locale } from "@haneoka/i18n";
-
-/**
- * Stories — one screen for every story collection on the site.
- *
- * This is the same browse screen as every catalogue resource: a sticky bar
- * with the count and the view switch, a row of removable chips for what is
- * applied, the results, and filters in a modal side sheet. A story is a
- * resource like any other, so it is browsed like one.
- *
- * What this replaced had its own layout rather than the shared one, and that
- * cost it two things: the hand-copied browse bar went into a two-column grid
- * whose cells were already claimed, so the count and the filter button were
- * pushed into row two and the bar rendered *below* the stories; and the cards
- * were hand-built `.story-card`s with a pressed state, so a story looked
- * unlike a song, a card or a character.
- *
- * The chapter rail is kept, because a story section really is authored along
- * that axis — episodes belong to a chapter, and a flat list of five hundred
- * of them is not a story archive. It is the browse pattern's own pane rail
- * now (Material's supporting pane) rather than a bespoke column, so it is the
- * same component, the same tiles and the same selected state as the band rail
- * on the roster pages. The heading beside it names what is selected, which is
- * what a chapter's readers actually need: "42 results" never said which 42.
- *
- * Two origins, one presentation. `origin="bestdori"` points the same screen
- * at the Bestdori mirror, whose worker projection already carries chapter,
- * band and character fields in the shape this component reads. That is how
- * the site worked before the Astro rewrite — Bestdori stories and the
- * archive's own stories went through a single shared browser, and only the
- * data source differed — and it is the only way the two can be guaranteed
- * to look the same.
- */
 
 /** Sections of the archive's own story catalogue. */
 type ReleaseMode = "band" | "link" | "home" | "afterlive" | "tutorial";
@@ -108,6 +77,7 @@ const FACET_KEYS = [
   "chapter",
   "spot",
   "lead",
+  "second",
   "band",
   "character",
   "level",
@@ -699,7 +669,10 @@ export class StoryWorkspace extends LitElement {
         ...usedCharacters.map((id) => Number(this.character(id)?.bandId)),
         ...episodes.map((episode) => Number(episode.bandId || 0)),
       ]),
-    ].filter(Boolean);
+    ]
+      .filter(Boolean)
+      .sort((a, b) => a - b);
+    usedCharacters.sort((a, b) => a - b);
     if (usedBands.length > 1)
       groups.push({
         key: "band",
@@ -795,7 +768,10 @@ export class StoryWorkspace extends LitElement {
   /** Applied filters, not counting the rail — the rail is always set. */
   private appliedCount() {
     const axis = this.railAxis();
-    return Object.entries(this.facets).reduce((sum, [key, values]) => sum + (key === axis ? 0 : values.length), 0);
+    return Object.entries(this.facets).reduce(
+      (sum, [key, values]) => sum + (key === axis || key === "second" ? 0 : values.length),
+      0,
+    );
   }
 
   /* ------------------------------------------------------------------ rail */
@@ -850,7 +826,7 @@ export class StoryWorkspace extends LitElement {
     this.facets = { ...this.facets, [axis]: [items[0].value] };
   }
   private selectRail(value: string) {
-    this.facets = { ...this.facets, [this.railAxis()]: [value] };
+    this.facets = { ...this.facets, [this.railAxis()]: [value], ...(this.mode === "link" ? { second: [] } : {}) };
     this.limit = 120;
     this.sync();
   }
@@ -896,6 +872,7 @@ export class StoryWorkspace extends LitElement {
     const rangeStart = filterDateBound(facets.releaseFrom?.[0]) ?? -Infinity;
     const rangeEnd = filterDateBound(facets.releaseTo?.[0], true) ?? Infinity;
     const lead = Number((facets.lead || [])[0] || 0);
+    const partner = Number((facets.second || [])[0] || 0);
     const list = this.allEpisodes().filter((episode) => {
       const ids = this.characterIds(episode);
       if (facets.kind?.length && !facets.kind.includes(this.episodeGroup(episode))) return false;
@@ -911,6 +888,7 @@ export class StoryWorkspace extends LitElement {
       )
         return false;
       if (lead && !ids.includes(lead)) return false;
+      if (partner && !ids.includes(partner)) return false;
       if (chapters.length && !chapters.includes(String(this.chapterOf(episode)?.chapterId ?? ""))) return false;
       if (characters.length && !characters.some((id) => ids.includes(id))) return false;
       if (
@@ -1608,11 +1586,38 @@ export class StoryWorkspace extends LitElement {
 
   /* ------------------------------------------------------- staged features */
 
-  /** The Home Spot section carries a live scene above its results. */
+  /** Native scene and pair selection above their matching stories. */
   private renderStage() {
     if (this.origin !== "release") return nothing;
+    if (this.mode === "link") return this.renderFriendshipBoard();
     if (this.mode === "home") return this.renderHomeScene();
     return nothing;
+  }
+  private renderFriendshipBoard() {
+    const lead = this.railValue();
+    if (!lead) return nothing;
+    const partner = this.facets.second?.[0] || "";
+    return characterPair({
+      locale: this.locale,
+      characters: this.characters.map((character) => ({
+        value: String(character.characterId),
+        label: this.characterName(character),
+        image: String(character.faceImage || ""),
+        bandId: Number(character.bandId),
+      })),
+      bands: this.bands.map((band) => ({
+        id: Number(band.bandId),
+        label: this.bandName(Number(band.bandId)),
+        image: this.imageForLocale(String(band.logo || band.icon || "")),
+      })),
+      first: lead,
+      second: partner,
+      onSecond: (value) => {
+        this.facets = { ...this.facets, second: value && value !== lead ? [value] : [] };
+        this.limit = 120;
+        this.sync();
+      },
+    });
   }
   private renderHomeScene() {
     const spot = this.activeSpots()[0];

@@ -63,10 +63,7 @@ class CharacterPairBoard extends LitElement {
   }
   private imageFallback(event: Event) {
     const image = event.currentTarget as HTMLImageElement;
-    if (!image.dataset.fallback && currentReleaseServer() === "intl") {
-      image.dataset.fallback = "true";
-      image.src = image.src.replace("/assets/intl/", "/assets/intl-cbt/");
-    } else if (image.classList.contains("story-board__background")) this.missingBoard = true;
+    if (image.classList.contains("story-board__background")) this.missingBoard = true;
     else image.hidden = true;
   }
   render() {
@@ -85,64 +82,59 @@ class CharacterPairBoard extends LitElement {
     const root = `/assets/${currentReleaseServer()}/Assets/AddressableResources`;
     return html`
       <section class="character-pair" aria-label=${uiText(o.locale, "characters")}>
-        <div class="character-pair__toolbar">
-          <details class="character-pair__picker" ?hidden=${!o.onFirst}>
-            <summary>
-              ${
-                first?.image
-                  ? html`
-                      <img src=${first.image} alt="" />
-                    `
-                  : icon("person", 24)
-              }
-              <span>${first?.label || uiText(o.locale, "firstCharacter")}</span>
-              ${icon("expand_more", 20)}
-            </summary>
-            <div class="character-pair__choices">
-              ${characters.map(
-                (item) => html`
-                  <button
-                    type="button"
-                    aria-pressed=${item.value === o.first}
-                    @click=${(event: Event) => {
+        ${
+          o.onFirst
+            ? html`
+                <div class="character-pair__toolbar">
+                  <details class="character-pair__picker" ?hidden=${!o.onFirst}>
+                    <summary>
+                      ${
+                        first?.image
+                          ? html`
+                              <img src=${first.image} alt="" />
+                            `
+                          : icon("person", 24)
+                      }
+                      <span>${first?.label || uiText(o.locale, "firstCharacter")}</span>
+                      ${icon("expand_more", 20)}
+                    </summary>
+                    <div class="character-pair__choices">
+                      ${characters.map(
+                        (item) => html`
+                          <button
+                            type="button"
+                            aria-pressed=${item.value === o.first}
+                            @click=${(event: Event) => {
                       o.onFirst?.(item.value);
                       (event.currentTarget as HTMLElement).closest("details")?.removeAttribute("open");
                     }}
-                  >
-                    ${
+                          >
+                            ${
                       item.image
                         ? html`
                             <img src=${item.image} alt="" loading="lazy" />
                           `
                         : icon("person", 24)
                     }
-                    <span>${item.label}</span>
+                            <span>${item.label}</span>
+                          </button>
+                        `,
+                      )}
+                    </div>
+                  </details>
+                  <button
+                    class="button button--tonal"
+                    type="button"
+                    aria-pressed=${!o.second}
+                    @click=${() => o.onSecond("")}
+                  >
+                    ${uiText(o.locale, "all")}
                   </button>
-                `,
-              )}
-            </div>
-          </details>
-          ${
-            !o.onFirst
-              ? html`
-                  <span class="character-pair__identity">
-                    ${
-                      first?.image
-                        ? html`
-                            <img src=${first.image} alt="" />
-                          `
-                        : nothing
-                    }
-                    <strong>${first?.label}</strong>
-                  </span>
-                `
-              : nothing
-          }
-          <button class="button button--tonal" type="button" aria-pressed=${!o.second} @click=${() => o.onSecond("")}>
-            ${uiText(o.locale, "all")}
-          </button>
-          ${o.onSwap ? iconButton({ icon: "swap_horiz", label: uiText(o.locale, "swap"), disabled: !o.second, onClick: o.onSwap }) : nothing}
-        </div>
+                  ${o.onSwap ? iconButton({ icon: "swap_horiz", label: uiText(o.locale, "swap"), disabled: !o.second, onClick: o.onSwap }) : nothing}
+                </div>
+              `
+            : nothing
+        }
         <div class="character-pair__bands" role="group" aria-label=${uiText(o.locale, "bands")}>
           ${bands.map(
             (band) => html`

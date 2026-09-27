@@ -2083,5 +2083,7 @@
   "stamp": "表情",
   "playVoice": "播放語音",
   "fullscreenExit": "退出全螢幕",
-  "requestTimedOut": "請求逾時，請重試。"
+  "requestTimedOut": "請求逾時，請重試。",
+  "firstCharacter": "角色",
+  "secondCharacter": "羈絆對象"
 }

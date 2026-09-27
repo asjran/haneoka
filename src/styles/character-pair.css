@@ -112,62 +112,6 @@
     border-radius: var(--md-sys-shape-corner-large);
   }
 
-  /* ---------- Home scene: a live Cubism stage over its own backdrop ---------- */
-  .story-scene {
-    height: clamp(220px, 38dvh, 420px);
-    /* Not a surface role: this is a lit stage, and the game's own backgrounds
-     assume a dark surround in both colour schemes. */
-    background: #18202a;
-  }
-  .story-scene > img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-  .story-scene__runtime {
-    position: absolute;
-    z-index: 1;
-    inset: 0;
-    display: grid;
-    place-items: center;
-  }
-  .story-scene__runtime canvas {
-    width: 100%;
-    height: 100%;
-  }
-  .story-scene__runtime.ready > .progress,
-  .story-scene__runtime.failed > .progress,
-  .story-scene__runtime.ready > md-circular-progress,
-  .story-scene__runtime.failed > md-circular-progress {
-    display: none;
-  }
-  .story-scene__replay {
-    position: absolute;
-    z-index: 3;
-    top: 12px;
-    right: 12px;
-    color: #fff;
-    background: color-mix(in srgb, #101820 76%, transparent);
-    box-shadow: var(--md-sys-elevation-level1);
-  }
-  .story-scene__label {
-    position: absolute;
-    z-index: 2;
-    right: 16px;
-    bottom: 16px;
-    display: grid;
-    gap: 2px;
-    padding: 10px 14px;
-    color: #fff;
-    border-radius: var(--md-sys-shape-corner-medium);
-    background: color-mix(in srgb, #101820 76%, transparent);
-    box-shadow: var(--md-sys-elevation-level2);
-    backdrop-filter: blur(12px);
-  }
-  .story-scene__label small {
-    color: #d7dde2;
-  }
-
   /* ---------- Friendship board ----------
    The game's own photo board. Every hit target is placed from the asset's
    measured coordinates (--slot-x/--slot-y for a portrait, --arrow-x/--arrow-y
@@ -183,7 +127,8 @@
   }
   .story-board__stage {
     position: relative;
-    height: 100%;
+    height: auto;
+    max-height: 100%;
     max-width: 100%;
     aspect-ratio: 1312 / 964;
     width: min(calc(100cqw - 18px), calc((100cqh - 12px) * 1.360996));
