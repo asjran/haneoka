@@ -8,6 +8,7 @@ import { LOCALES, type Locale } from "../../i18n/locales";
 import { t } from "../../i18n/messages";
 import {
   resourceKindForCollection,
+  chartPath,
   resourcePath,
   type EntityLink,
   type ResourceKind,
@@ -26,15 +27,17 @@ interface Props {
   returnTo?: string;
   previous?: EntityLink;
   next?: EntityLink;
+  chartPage?: boolean;
 }
-const { page, locale, server = "intl", canonical = false, returnTo, previous, next } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next, chartPage = false } = Astro.props;
 const collectionRoute = findRoute(page.route);
 if (!collectionRoute) throw new Error(`Missing route definition for ${page.route}`);
 const sectionTitle = titleOf(collectionRoute, locale);
 const kind = resourceKindForCollection(page.collection) as ResourceKind;
-const canonicalHref = resourcePath({ server, locale, kind, id: page.id });
+const parentHref = resourcePath({ server, locale, kind, id: page.id });
+const canonicalHref = chartPage ? chartPath({ server, locale, id: page.id }) : parentHref;
 const route = canonical ? canonicalHref : `${page.route}/${page.id}`;
-const backHref = returnTo || resourcePath({ server, locale, kind });
+const backHref = returnTo || (chartPage ? parentHref : resourcePath({ server, locale, kind }));
 const seoTitleValues = Object.fromEntries(
   LOCALES.map((target) => {
     const localizedSection = titleOf(collectionRoute, target);
@@ -52,6 +55,7 @@ const screenConfig = catalogConfig({
   server,
   entityKind: kind,
   ...(canonical ? { entityId: page.id, entityContext: true } : {}),
+  ...(chartPage ? { chartPage: true } : {}),
   aspectRatio: page.resource === "cards" ? "224 / 294" : "1",
 });
 const entity = canonical
@@ -68,6 +72,7 @@ const entity = canonical
   locale={locale}
   route={route}
   canonicalRoute={canonical ? canonicalHref : undefined}
+  noindex={chartPage}
   title={sectionTitle}
   titleKey={collectionRoute.titleKey}
   description={page.descriptions[locale]}

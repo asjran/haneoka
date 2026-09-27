@@ -1,3 +1,4 @@
+import { navigationDocumentUrl } from "../lib/document-url";
 import "../styles/model-tile.css";
 import { saveCanvasFrame } from "../lib/canvas-capture";
 import { facet } from "./ui/facet";
@@ -35,6 +36,15 @@ export class SpineWorkspace extends LitElement {
     error: { state: true },
     paused: { state: true },
     loop: { state: true },
+    playbackSpeed: { state: true },
+    skins: { state: true },
+    skin: { state: true },
+    dragEnabled: { state: true },
+    backgroundTransparent: { state: true },
+    backgroundColor: { state: true },
+    zoom: { state: true },
+    offsetX: { state: true },
+    offsetY: { state: true },
     visible: { state: true },
     query: { state: true },
     view: { state: true },
@@ -60,6 +70,15 @@ export class SpineWorkspace extends LitElement {
   declare error: string;
   declare paused: boolean;
   declare loop: boolean;
+  declare playbackSpeed: number;
+  declare skins: string[];
+  declare skin: string;
+  declare dragEnabled: boolean;
+  declare backgroundTransparent: boolean;
+  declare backgroundColor: string;
+  declare zoom: number;
+  declare offsetX: number;
+  declare offsetY: number;
   declare visible: number;
   declare query: string;
   declare view: CollectionView;
@@ -79,6 +98,10 @@ export class SpineWorkspace extends LitElement {
   private selectionRequest?: AbortController;
   private initializationTimer?: number;
   private ssrStageRemoved = false;
+  private dragging = false;
+  private dragLastX = 0;
+  private dragLastY = 0;
+  private placement = { offsetX: 0, offsetY: 0, scale: 1 };
   constructor() {
     super();
     this.capturing = false;
@@ -95,6 +118,15 @@ export class SpineWorkspace extends LitElement {
     this.error = "";
     this.paused = false;
     this.loop = true;
+    this.playbackSpeed = 1;
+    this.skins = [];
+    this.skin = "";
+    this.dragEnabled = false;
+    this.backgroundTransparent = true;
+    this.backgroundColor = "#ecf0f1";
+    this.zoom = 1;
+    this.offsetX = 0;
+    this.offsetY = 0;
     this.visible = 80;
     this.query = "";
     this.view = "grid";
@@ -111,7 +143,7 @@ export class SpineWorkspace extends LitElement {
   }
   connectedCallback() {
     super.connectedCallback();
-    const selection = parseEntitySelection(location.pathname);
+    const selection = parseEntitySelection(navigationDocumentUrl().pathname);
     if (selection?.source === "canonical" && selection.route.kind === "spine") this.entityId = selection.route.id;
     this.locale = preferredLocale(this.locale);
     this.disposeMedia = watchMedia(EXPANDED, (value) => (this.docked = value));
@@ -119,6 +151,7 @@ export class SpineWorkspace extends LitElement {
       import("@material/web/select/outlined-select.js"),
       import("@material/web/select/select-option.js"),
       import("@material/web/textfield/outlined-text-field.js"),
+      import("@material/web/slider/slider.js"),
       import("@material/web/switch/switch.js"),
       import("@material/web/progress/circular-progress.js"),
     ]);
@@ -217,6 +250,11 @@ export class SpineWorkspace extends LitElement {
     this.detail = null;
     this.modelError = "";
     this.modelPhase = "loading";
+    this.dragging = false;
+    this.dragEnabled = false;
+    this.skins = [];
+    this.skin = "";
+    this.resetPlacement();
     this.stage?.dispose();
     this.stage = undefined;
     if (updateUrl) {
@@ -240,6 +278,12 @@ export class SpineWorkspace extends LitElement {
       }
       stage.setLoop(this.loop);
       stage.setPaused(this.paused);
+      stage.setPlaybackRate(this.playbackSpeed);
+      stage.setBackgroundColor(this.readBackgroundColor());
+      const skins = stage.skins();
+      this.skins = skins;
+      this.skin = stage.skinName();
+      stage.setTransform(this.placement);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (generation === this.generation && !controller.signal.aborted && this.isConnected) {
         this.modelPhase = "ready";
@@ -259,6 +303,84 @@ export class SpineWorkspace extends LitElement {
   private toggleLoop() {
     this.loop = !this.loop;
     this.stage?.setLoop(this.loop);
+  }
+  private readBackgroundColor(): { r: number; g: number; b: number } | null {
+    const match = /^#?([0-9a-f]{6})$/i.exec(this.backgroundColor.trim());
+    if (this.backgroundTransparent || !match) return null;
+    const hex = match[1];
+    return {
+      r: parseInt(hex.slice(0, 2), 16) / 255,
+      g: parseInt(hex.slice(2, 4), 16) / 255,
+      b: parseInt(hex.slice(4, 6), 16) / 255,
+    };
+  }
+  private applyBackground() {
+    this.stage?.setBackgroundColor(this.readBackgroundColor());
+  }
+  private toggleBackground() {
+    this.backgroundTransparent = !this.backgroundTransparent;
+    this.applyBackground();
+  }
+  private applyPlacement(sync = true) {
+    const applied = this.stage?.setTransform(this.placement) || this.placement;
+    this.placement = { ...applied };
+    if (sync) {
+      this.zoom = applied.scale;
+      this.offsetX = applied.offsetX;
+      this.offsetY = applied.offsetY;
+    }
+  }
+  private resetPlacement() {
+    const applied = this.stage?.resetTransform() || { offsetX: 0, offsetY: 0, scale: 1 };
+    this.placement = { ...applied };
+    this.zoom = applied.scale;
+    this.offsetX = applied.offsetX;
+    this.offsetY = applied.offsetY;
+  }
+  private beginDrag(event: PointerEvent) {
+    if (this.modelPhase !== "ready" || !this.dragEnabled || event.button !== 0) return;
+    this.dragging = true;
+    this.dragLastX = event.clientX;
+    this.dragLastY = event.clientY;
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  }
+  private moveDrag(event: PointerEvent) {
+    if (!this.dragging) return;
+    const host = event.currentTarget as HTMLElement;
+    const rect = host.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      this.placement = {
+        ...this.placement,
+        offsetX: this.placement.offsetX + ((event.clientX - this.dragLastX) / (rect.width * this.placement.scale)) * 2,
+        offsetY: this.placement.offsetY + ((event.clientY - this.dragLastY) / (rect.height * this.placement.scale)) * 2,
+      };
+      this.applyPlacement(false);
+    }
+    this.dragLastX = event.clientX;
+    this.dragLastY = event.clientY;
+  }
+  private endDrag(event?: PointerEvent) {
+    if (!this.dragging) return;
+    this.dragging = false;
+    if (event && (event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId))
+      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+    this.applyPlacement(true);
+  }
+  private toggleDrag() {
+    this.dragEnabled = !this.dragEnabled;
+    if (!this.dragEnabled) {
+      this.dragging = false;
+      this.resetPlacement();
+    }
+  }
+  private setPlaybackSpeed(value: number) {
+    this.playbackSpeed = Math.min(2, Math.max(0.25, Number.isFinite(value) ? value : 1));
+    this.stage?.setPlaybackRate(this.playbackSpeed);
+  }
+  private setSkin(name: string) {
+    if (!this.stage?.setSkin(name)) return;
+    this.skin = name;
   }
   private sync() {
     const params = new URLSearchParams();
@@ -691,9 +813,15 @@ export class SpineWorkspace extends LitElement {
                     <span class="viewer-stage__preview viewer-stage__placeholder" aria-hidden="true"></span>
                   `
             }
-            <div data-spine-stage class="spine-stage"></div>
-            ${detail ? this.modelTitle(detail) : this.selected || uiText(this.locale, "spine")}
-            </p>
+            <div
+              data-spine-stage
+              class="spine-stage"
+              style=${this.dragEnabled ? "touch-action: none" : nothing}
+              @pointerdown=${this.beginDrag}
+              @pointermove=${this.moveDrag}
+              @pointerup=${this.endDrag}
+              @pointercancel=${this.endDrag}
+            ></div>
             ${
               this.modelPhase === "loading"
                 ? html`
@@ -732,6 +860,25 @@ export class SpineWorkspace extends LitElement {
                       >
                         <svg class="material-icon" width="22" height="22">
                           <use href=${this.paused ? "/icons.svg#play_arrow" : "/icons.svg#pause"}></use>
+                        </svg>
+                      </button>
+                      <button
+                        class="icon-button runtime-button"
+                        aria-pressed=${this.dragEnabled}
+                        @click=${this.toggleDrag}
+                        aria-label=${uiText(this.locale, "drag")}
+                        title=${uiText(this.locale, "drag")}
+                      >
+                        <svg class="material-icon" width="22" height="22"><use href="/icons.svg#pan_tool"></use></svg>
+                      </button>
+                      <button
+                        class="icon-button runtime-button"
+                        @click=${this.resetPlacement}
+                        aria-label=${uiText(this.locale, "reset")}
+                        title=${uiText(this.locale, "reset")}
+                      >
+                        <svg class="material-icon" width="22" height="22">
+                          <use href="/icons.svg#restart_alt"></use>
                         </svg>
                       </button>
                       <button
@@ -793,6 +940,79 @@ export class SpineWorkspace extends LitElement {
                   aria-label=${uiText(this.locale, "loop")}
                 ></md-switch>
               </label>
+              <label class="viewer-background-color">
+                <span>${uiText(this.locale, "backgroundColor")}</span>
+                <span class="viewer-background-color__controls">
+                  <input
+                    type="color"
+                    .value=${this.backgroundColor}
+                    ?disabled=${this.backgroundTransparent}
+                    aria-label=${uiText(this.locale, "backgroundColor")}
+                    @input=${(event: Event) => {
+                      this.backgroundColor = String((event.target as HTMLInputElement).value || "#ecf0f1");
+                      this.applyBackground();
+                    }}
+                  />
+                  <md-switch
+                    .selected=${!this.backgroundTransparent}
+                    @change=${this.toggleBackground}
+                    aria-label=${uiText(this.locale, "backgroundColor")}
+                  ></md-switch>
+                </span>
+              </label>
+              <label>
+                <span>${uiText(this.locale, "speed")}</span>
+                <md-slider
+                  aria-label=${uiText(this.locale, "speed")}
+                  min="0.25"
+                  max="2"
+                  step="0.05"
+                  .value=${String(this.playbackSpeed)}
+                  @input=${(event: Event) =>
+                    this.setPlaybackSpeed(Number((event.target as HTMLElement & { value?: number }).value || 1))}
+                ></md-slider>
+              </label>
+            </section>
+            <section ?hidden=${!this.skins.length}>
+              <h3>${uiText(this.locale, "spinePage.skins")}</h3>
+              <md-outlined-select
+                class="viewer-inspector-select"
+                label=${uiText(this.locale, "spinePage.skins")}
+                .value=${this.skin}
+                @change=${(event: Event) =>
+                  this.setSkin(String((event.target as HTMLElement & { value?: string }).value || ""))}
+              >
+                ${this.skins.map(
+                  (name) => html`
+                    <md-select-option value=${name} ?selected=${this.skin === name}>
+                      <div slot="headline">${name}</div>
+                    </md-select-option>
+                  `,
+                )}
+              </md-outlined-select>
+            </section>
+            <section class="viewer-transform-controls">
+              <h3>${uiText(this.locale, "transform")}</h3>
+              <label>
+                <span>${uiText(this.locale, "zoom")}</span>
+                <md-slider
+                  aria-label=${uiText(this.locale, "zoom")}
+                  min="0.5"
+                  max="4"
+                  step="0.01"
+                  .value=${String(this.zoom)}
+                  @input=${(event: Event) => {
+                    this.placement = {
+                      ...this.placement,
+                      scale: Number((event.target as HTMLElement & { value?: number }).value || 1),
+                    };
+                    this.applyPlacement();
+                  }}
+                ></md-slider>
+              </label>
+              <button class="button button--text viewer-panel-button" type="button" @click=${this.resetPlacement}>
+                ${uiText(this.locale, "reset")}
+              </button>
             </section>
             ${
               animations.length

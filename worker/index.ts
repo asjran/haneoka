@@ -19,8 +19,10 @@ import { projectCatalogCharts, SonolusLevelService } from "@haneoka/sonolus-core
 import {
   isReleaseServer,
   legacyEntityRedirectTarget,
+  legacyCollectionRedirectTarget,
   parseResourceRoute,
   resourcePath,
+  storyCollectionPath,
   type ResourceKind,
   type ResourceRoute,
 } from "../src/lib/resource-route";
@@ -350,7 +352,7 @@ function cleanRelativePath(value: string): string | null {
 
 function isServerFirstDocumentPath(pathname: string): boolean {
   const parts = pathname.split("/").filter(Boolean);
-  return parts.length >= 3 && isReleaseServer(parts[0]) && SERVER_FIRST_LOCALES.has(parts[1] || "");
+  return parts.length >= 2 && isReleaseServer(parts[0]) && SERVER_FIRST_LOCALES.has(parts[1] || "");
 }
 
 const DOCUMENT_RESOURCE_NAMES: Readonly<Partial<Record<ResourceKind, string>>> = {
@@ -2539,7 +2541,18 @@ async function documentEntityAvailability(
  * after the immutable release index proves that the requested entity exists.
  */
 async function serveCanonicalResourceDocument(request: Request, env: Env): Promise<Response | null> {
-  const route = parseResourceRoute(new URL(request.url).pathname);
+  const requestedUrl = new URL(request.url);
+  const segments = requestedUrl.pathname.split("/").filter(Boolean);
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    isServerFirstDocumentPath(requestedUrl.pathname) &&
+    segments[2] === "assets" &&
+    segments.length > 3
+  ) {
+    requestedUrl.pathname = `/${segments[0]}/${segments[1]}/assets/`;
+    return env.ASSETS.fetch(new Request(requestedUrl, request));
+  }
+  const route = parseResourceRoute(requestedUrl.pathname);
   if (!route || (request.method !== "GET" && request.method !== "HEAD")) return null;
 
   if (!route.id) {
@@ -2550,10 +2563,7 @@ async function serveCanonicalResourceDocument(request: Request, env: Env): Promi
   // Story sections use a fourth path segment for the collection mode. Keep
   // that namespace separate from numeric/entity story IDs.
   if (route.kind === "stories" && STORY_MODES.has(route.id)) {
-    const shellUrl = new URL(request.url);
-    shellUrl.pathname = resourcePath({ server: route.server, locale: route.locale, kind: "stories" });
-    shellUrl.searchParams.set("mode", route.id);
-    return new Response(null, { status: 308, headers: { Location: shellUrl.toString() } });
+    return env.ASSETS.fetch(request);
   }
 
   const direct = await env.ASSETS.fetch(request);
@@ -2563,15 +2573,10 @@ async function serveCanonicalResourceDocument(request: Request, env: Env): Promi
   if (!availability) return new Response("Not found", { status: 404 });
 
   const url = new URL(request.url);
-  if (route.kind === "stories" && availability.storyMode && !url.searchParams.has("mode")) {
-    url.searchParams.set("mode", availability.storyMode);
-    return new Response(null, {
-      status: 302,
-      headers: { Location: url.toString(), "Cache-Control": "no-store" },
-    });
-  }
-
-  url.pathname = resourcePath({ server: route.server, locale: route.locale, kind: route.kind });
+  url.pathname =
+    route.kind === "stories" && availability.storyMode
+      ? storyCollectionPath({ server: route.server, locale: route.locale, mode: availability.storyMode })
+      : resourcePath({ server: route.server, locale: route.locale, kind: route.kind });
   const shell = await env.ASSETS.fetch(new Request(url, request));
   return shell.status === 404 ? new Response("Not found", { status: 404 }) : shell;
 }
@@ -2617,7 +2622,23 @@ const WORKER_FIRST_PREFIXES = [
 
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
-  const legacyEntityTarget = legacyEntityRedirectTarget(url.pathname, url.search);
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (isReleaseServer(segments[0]) && (request.method === "GET" || request.method === "HEAD")) {
+    if (segments.length === 1) {
+      url.pathname = `/${segments[0]}/${negotiateLocale(request)}/`;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: url.toString(), "Cache-Control": "no-store", Vary: "Cookie, Accept-Language" },
+      });
+    }
+    if (!SERVER_FIRST_LOCALES.has(segments[1] || "")) return new Response("Not found", { status: 404 });
+    if (segments.length === 2 && !url.pathname.endsWith("/")) {
+      url.pathname += "/";
+      return new Response(null, { status: 308, headers: { Location: url.toString() } });
+    }
+  }
+  const legacyEntityTarget =
+    legacyEntityRedirectTarget(url.pathname, url.search) ?? legacyCollectionRedirectTarget(url.pathname, url.search);
   if (legacyEntityTarget && (request.method === "GET" || request.method === "HEAD")) {
     return new Response(null, {
       status: 308,

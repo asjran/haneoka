@@ -25,7 +25,8 @@ const shellTitle = entity?.title ?? title;
 const shellTitleKey = entity ? undefined : titleKey;
 const itemActive = (target: string) => isRouteActive(target, route);
 const navigationHref = (target: string) => {
-  const resource = server ? resourceCollectionHref(target, server, locale) : undefined;
+  if (server && target === "/") return `/${server}/${locale}/`;
+  const resource = resourceCollectionHref(target, server ?? "intl", locale);
   if (resource) return resource;
   const href = localePath(target, locale);
   return server && target.startsWith("/catalog") ? `${href}?server=${server}` : href;
@@ -74,7 +75,7 @@ const inInformation = route === "/about" || informationPages.some((item) => item
       >
         <Icon name="menu" />
       </button>
-      <a class="nav__brand" href={localePath("/", locale)} aria-label="haneoka">
+      <a class="nav__brand" href={navigationHref("/")} aria-label="haneoka">
         <img src="/favicon.svg" width="28" height="28" alt="" />
         <span>haneoka</span>
       </a>
@@ -435,7 +436,7 @@ const inInformation = route === "/about" || informationPages.some((item) => item
       actions.dataset.appBarScrollStart = String(actions.scrollLeft > 1);
       actions.dataset.appBarScrollEnd = String(actions.scrollLeft + actions.clientWidth < actions.scrollWidth - 1);
     };
-    if (actions) {
+    if (actions && bar) {
       releaseActionObservers?.();
       const resizeObserver = new ResizeObserver(syncActionOverflow);
       const mutationObserver = new MutationObserver(syncActionOverflow);
@@ -457,9 +458,9 @@ const inInformation = route === "/about" || informationPages.some((item) => item
   document.addEventListener("astro:page-load", syncEntityNavigation);
   document.addEventListener("astro:page-load", initializeShell);
   persistentQuery.addEventListener("change", () => setModal(false));
-  document.addEventListener("astro:before-swap", () => {
-    setModal(false);
-    releaseActionObservers?.();
-    releaseActionObservers = undefined;
-  });
+      document.addEventListener("astro:before-swap", () => {
+        setModal(false);
+        releaseActionObservers?.();
+        releaseActionObservers = undefined;
+      });
 </script>

@@ -1,3 +1,4 @@
+import { navigationDocumentUrl } from "../lib/document-url";
 import { canvasToPngBlob, downloadBlob } from "../lib/canvas-capture";
 import { facet } from "./ui/facet";
 import { collectionList, collectionTable, collectionView, viewSwitch, type CollectionView } from "./ui/collection-view";
@@ -14,6 +15,9 @@ import { entityHref, parseEntitySelection, returnStateFromLocation } from "../li
 import { readReleaseServer } from "../lib/release-server";
 import { openDetailLocation, updateEntityHeading } from "../lib/detail-navigation";
 import type { Locale } from "@haneoka/i18n";
+import { viewerBufferSize } from "./runtime/viewer-resolution";
+import { segmented } from "./ui/controls";
+import { CUBISM_CORE_URLS, CUBISM_WEB_RUNTIME_URL } from "../lib/cubism-runtime";
 
 type Value = Record<string, unknown>;
 type Parameter = { id: string; value: number; minimum: number; maximum: number; defaultValue: number };
@@ -195,8 +199,7 @@ export class Live2DWorkspace extends LitElement {
     this.selected = "";
     this.detail = null;
     this.paused = false;
-    // A resting model starts perfectly still, like the reference tool: breath
-    // and blink are opt-in so the default state cannot read as jitter.
+    // Procedural breathing, blinking and pointer tracking are opt-in.
     this.breath = false;
     this.blink = false;
     this.sway = false;
@@ -269,7 +272,7 @@ export class Live2DWorkspace extends LitElement {
   }
   connectedCallback() {
     super.connectedCallback();
-    const selection = parseEntitySelection(location.pathname);
+    const selection = parseEntitySelection(navigationDocumentUrl().pathname);
     if (selection?.source === "canonical" && selection.route.kind === "live2d") this.entityId = selection.route.id;
     this.locale = preferredLocale(this.locale);
     this.disposeMedia = watchMedia(EXPANDED, (value) => (this.docked = value));
@@ -338,10 +341,12 @@ export class Live2DWorkspace extends LitElement {
     return modelPreviewSources(model)[0] || "";
   }
   private previewSource(detail?: Value | null): string {
+    const selected = this.models.find((model) => this.key(model) === this.selected);
+    const renderedPreview = [detail, selected]
+      .flatMap((model) => (model ? [readPath(model, "preview.image"), readPath(model, "preview.runtime")] : []))
+      .find((source): source is string => typeof source === "string" && Boolean(source));
     return (
-      this.previewSrc ||
-      (detail && this.preview(detail)) ||
-      (this.selected ? this.preview(this.models.find((model) => this.key(model) === this.selected) || {}) : "")
+      renderedPreview || this.previewSrc || (detail && this.preview(detail)) || (selected ? this.preview(selected) : "")
     );
   }
   private previewRatio(detail?: Value | null): string {
@@ -473,8 +478,7 @@ export class Live2DWorkspace extends LitElement {
     const defaultExpression = String(
       readPath(detail, "profile.defaultExpressionName") || detail.defaultExpressionName || "",
     );
-    const runtimeUrl = "/cubism-runtime/vega-cubism-web-runtime.mjs";
-    const runtime = (await import(/* @vite-ignore */ runtimeUrl)) as unknown as {
+    const runtime = (await import(/* @vite-ignore */ CUBISM_WEB_RUNTIME_URL)) as unknown as {
       CubismModelViewer: new (options: {
         canvas: HTMLCanvasElement;
         onFrame?(): void;
@@ -486,11 +490,7 @@ export class Live2DWorkspace extends LitElement {
     };
     if (!this.isActiveSelection(generation, controller, key)) return;
     const adapter = runtime.createCubismWebRuntimeAdapter({
-      runtime: {
-        cubismCoreUrl: "/Core/live2dcubismcore.js",
-        cubism2CoreUrl: "/Core/live2d.min.js",
-        motionSyncCoreUrl: "/Core/CRI/live2dcubismmotionsynccore.min.js",
-      },
+      runtime: CUBISM_CORE_URLS,
     });
     await adapter.prepare(3, controller.signal);
     if (!this.isActiveSelection(generation, controller, key)) return;
@@ -532,8 +532,10 @@ export class Live2DWorkspace extends LitElement {
       const resize = () => {
         if (!this.isActiveSelection(generation, controller, key) || this.viewer !== viewer) return;
         const rect = canvas.getBoundingClientRect();
-        // Keep the preview's logical render resolution independent of device DPR.
-        viewer!.setSize(Math.max(1, Math.round(rect.width)), Math.max(1, Math.round(rect.height)));
+        const gl = canvas.getContext("webgl2");
+        if (!gl || gl.isContextLost()) return;
+        const size = viewerBufferSize(rect.width, rect.height, gl);
+        viewer!.setSize(size.width, size.height);
       };
       this.resizeObserver?.disconnect();
       this.resizeObserver = new ResizeObserver(resize);
@@ -607,7 +609,7 @@ export class Live2DWorkspace extends LitElement {
     this.cancelPosePreview();
     if (this.parameterMode === "pose") {
       this.viewer?.setPoseFrozen(true);
-      // Yatta-style reset: pose mode writes each authored default value.
+      // Pose mode restores every authored default value.
       this.parameterOverrides = Object.fromEntries(
         (this.viewer?.parameters() || this.parameters).map((parameter) => [parameter.id, parameter.defaultValue]),
       );
@@ -644,8 +646,7 @@ export class Live2DWorkspace extends LitElement {
   private handleViewerFrame(viewer: Viewer, generation: number, controller: AbortController, key: string) {
     if (!this.isActiveSelection(generation, controller, key) || this.viewer !== viewer) return;
     // A motion started from pose mode plays out once, then the final frame is
-    // re-captured as the editable pose ("adjustments apply after the motion
-    // finishes", matching the reference tool).
+    // re-captured as the editable pose after the motion finishes.
     if (this.pendingPoseCapture && !viewer.isMotionBusy) {
       this.pendingPoseCapture = false;
       this.snapshotPoseOverrides();
@@ -782,7 +783,7 @@ export class Live2DWorkspace extends LitElement {
     if (kind === "drag") {
       this.dragEnabled = !this.dragEnabled;
       if (!this.dragEnabled) {
-        // The reference tool restores the fitted placement when dragging stops.
+        // Return to the fitted placement when leaving placement mode.
         this.dragging = false;
         this.offsetX = 0;
         this.offsetY = 0;
@@ -1534,8 +1535,6 @@ export class Live2DWorkspace extends LitElement {
                 if (this.sway && this.parameterMode !== "pose") this.viewer?.setLookPosition(0, 0);
               }}
             ></canvas>
-            ${detail ? this.modelTitle(detail) : this.selected || uiText(this.locale, "live2d")}
-            </p>
             ${
               this.modelPhase === "loading"
                 ? html`
@@ -1817,18 +1816,6 @@ export class Live2DWorkspace extends LitElement {
                       <div>
                         <div class="viewer-parameter-toolbar">
                           <span>${uiText(this.locale, "parameterMode")}</span>
-                          <div class="segmented" aria-label=${uiText(this.locale, "parameterMode")}>
-                            ${(["none", "capture", "pose"] as const).map(
-                              (mode) => html`
-                                <button
-                                  aria-pressed=${this.parameterMode === mode}
-                                  @click=${() => this.setParameterMode(mode)}
-                                >
-                                  ${uiText(this.locale, mode)}
-                                </button>
-                              `,
-                            )}
-                          </div>
                           <span class="viewer-parameter-actions">
                             <label class="button button--tonal">
                               ${uiText(this.locale, "import")}
@@ -1841,6 +1828,15 @@ export class Live2DWorkspace extends LitElement {
                               ${uiText(this.locale, "reset")}
                             </button>
                           </span>
+                          ${segmented({
+                            label: uiText(this.locale, "parameterMode"),
+                            value: this.parameterMode,
+                            options: (["none", "capture", "pose"] as const).map((value) => ({
+                              value,
+                              label: uiText(this.locale, value),
+                            })),
+                            onSelect: (mode) => this.setParameterMode(mode),
+                          })}
                         </div>
                         <div class="viewer-pose-toolbar">
                           <span>${uiText(this.locale, "customPoses")}</span>

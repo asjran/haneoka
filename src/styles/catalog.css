@@ -384,6 +384,38 @@
   }
 
   /* ---------- chart (ported) ---------- */
+  /* Canonical chart child pages use the shell's content pane directly. */
+  .chart-page {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--md-sys-color-surface);
+  }
+  catalog-screen:has(.chart-page) {
+    display: block;
+    height: 100%;
+  }
+  .chart-page > chart-simulator {
+    min-height: 0;
+  }
+  .chart-page--empty {
+    place-items: center;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .chart-page--empty p {
+    margin: 0;
+  }
+  .chart-page-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .chart-page-mode {
+    display: inline-flex;
+  }
   /* Geometry comes from .pane-layer (components/overlay.css); the chart layer
    sits above the detail pane it was opened from. */
   .chart-detail-layer {
@@ -427,7 +459,7 @@
   .chart-runtime {
     position: relative;
     display: grid;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     overflow: hidden;
     background: #16171b;
   }

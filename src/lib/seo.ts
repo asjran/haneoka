@@ -2,7 +2,13 @@ import { localePath, localeTag, type Locale } from "../i18n/locales";
 import { CATALOG_HUB, PRIMARY_DESTINATIONS, isDestinationActive } from "../config/navigation";
 import { t } from "../i18n/messages";
 import { serverText } from "../i18n/server";
-import { parseResourceRoute, resourceKindForCollection, resourcePath } from "./resource-route";
+import {
+  isReleaseServer,
+  parseResourceRoute,
+  resourceCollectionHref,
+  resourceKindForCollection,
+  resourcePath,
+} from "./resource-route";
 
 const PRIVATE_ROUTES = new Set([
   "/account",
@@ -23,7 +29,13 @@ export function canonicalPath(route: string): string {
 
 export function shouldNoindex(route: string): boolean {
   const path = canonicalPath(route).replace(/\/$/, "") || "/";
-  return PRIVATE_ROUTES.has(path) || path === "/admin" || path.startsWith("/admin/");
+  return (
+    PRIVATE_ROUTES.has(path) ||
+    path === "/catalog/assets" ||
+    path.startsWith("/catalog/assets/") ||
+    path === "/admin" ||
+    path.startsWith("/admin/")
+  );
 }
 
 export function pageStructuredData(
@@ -35,8 +47,15 @@ export function pageStructuredData(
   localized = false,
   canonicalRoute = route,
 ) {
+  const serverPrefix = canonicalRoute.split("/")[1];
+  const server = isReleaseServer(serverPrefix) ? serverPrefix : undefined;
   const address = (logicalRoute: string) =>
-    `${origin}${canonicalPath(localized ? localePath(logicalRoute, locale) : logicalRoute)}`;
+    `${origin}${canonicalPath(
+      server && logicalRoute === "/"
+        ? `/${server}/${locale}/`
+        : ((server ? resourceCollectionHref(logicalRoute, server, locale) : undefined) ??
+            (localized ? localePath(logicalRoute, locale) : logicalRoute)),
+    )}`;
   const home = address("/");
   const url = `${origin}${canonicalPath(canonicalRoute)}`;
   const website = {
@@ -59,7 +78,11 @@ export function pageStructuredData(
   const parent = PRIMARY_DESTINATIONS.find((destination) => isDestinationActive(destination, route));
   const canonicalResource = parseResourceRoute(canonicalRoute);
   const collectionUrl = canonicalResource?.id
-    ? `${origin}${resourcePath({ ...canonicalResource, id: undefined })}`
+    ? `${origin}${
+        canonicalResource.kind === "stories" && route.startsWith("/catalog/stories/")
+          ? resourceCollectionHref(route, canonicalResource.server, locale)
+          : resourcePath({ ...canonicalResource, id: undefined })
+      }`
     : undefined;
   const collection = canonicalResource
     ? CATALOG_HUB.find((entry) => resourceKindForCollection(entry.resource || "") === canonicalResource.kind)
@@ -68,7 +91,7 @@ export function pageStructuredData(
     { name: "haneoka", item: home },
     ...(collectionUrl && canonicalResource
       ? [
-          { name: t(locale, "catalog", "Catalog"), item: `${address("/catalog")}?server=${canonicalResource.server}` },
+          { name: t(locale, "catalog", "Catalog"), item: address("/catalog") },
           { name: t(locale, collection?.label || canonicalResource.kind, canonicalResource.kind), item: collectionUrl },
         ]
       : parent && parent.route !== "/" && canonicalPath(parent.route) !== canonicalPath(route)

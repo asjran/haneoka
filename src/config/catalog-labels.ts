@@ -203,6 +203,8 @@ export interface CatalogConfigOptions {
   entityKind?: string;
   entityId?: string;
   entityContext?: boolean;
+  /** Render a canonical song's chart as its own child page. */
+  chartPage?: boolean;
   aspectRatio?: string;
   origin?: "release" | "bestdori";
 }
@@ -216,6 +218,7 @@ export function catalogConfig(options: CatalogConfigOptions): string {
     ...(options.entityKind ? { entityKind: options.entityKind } : {}),
     ...(options.entityId ? { entityId: options.entityId } : {}),
     ...(options.entityContext ? { entityContext: true } : {}),
+    ...(options.chartPage ? { chartPage: true } : {}),
     labelAliases: LABEL_ALIASES,
     aspectRatio: options.aspectRatio ?? "1",
     ...(options.origin ? { origin: options.origin } : {}),

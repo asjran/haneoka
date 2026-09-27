@@ -1,15 +1,37 @@
 .playback-controls {
-  position: absolute;
-  inset: auto 0 env(safe-area-inset-bottom, 0px);
+  position: relative;
+  grid-row: 2;
   z-index: 10;
   min-height: 0;
   pointer-events: none;
   color: var(--md-sys-color-on-surface);
 }
 
+.playback-controls[data-collapsed="true"],
+.playback-controls[data-auto-hidden="true"] {
+  display: none;
+}
+
+:is(vega-story-stage, chart-simulator):fullscreen .playback-controls {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--md-sys-color-surface-container-lowest);
+}
+
+.vega-story-runtime__start {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  z-index: 3;
+  pointer-events: none;
+}
+.vega-story-runtime__start > button {
+  pointer-events: auto;
+  min-height: 48px;
+}
+
 /* iOS/WebKit fallback fullscreen. The pane owns the visual-viewport geometry
  * while both story and chart runtimes keep their canvas in place. */
-:is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] {
+:is(.pane-layer, .story-detail--page, .chart-page)[data-story-fullscreen="true"] {
   position: fixed;
   z-index: var(--md-sys-z-index-overlay-dialog);
   inset: var(--story-visual-viewport-top, 0px) auto auto var(--story-visual-viewport-left, 0px);
@@ -24,13 +46,14 @@
   background: var(--md-sys-color-surface);
   overscroll-behavior: none;
 }
-:is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] > header {
+:is(.pane-layer, .story-detail--page, .chart-page)[data-story-fullscreen="true"] > header {
   display: none;
 }
-:is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] {
+:is(.pane-layer, .story-detail--page, .chart-page)[data-story-fullscreen="true"] {
   grid-template-rows: minmax(0, 1fr);
 }
-:is(.pane-layer, .story-detail--page)[data-story-fullscreen="true"] > :is(vega-story-stage, chart-simulator) {
+:is(.pane-layer, .story-detail--page, .chart-page)[data-story-fullscreen="true"]
+  > :is(vega-story-stage, chart-simulator) {
   grid-row: 1 / -1;
 }
 
@@ -99,4 +122,9 @@
   .chart-runtime__timeline small {
     display: none;
   }
+}
+
+.app-shell:has([data-story-fullscreen="true"]) .top-app-bar {
+  visibility: hidden;
+  pointer-events: none;
 }

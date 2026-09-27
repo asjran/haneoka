@@ -7,7 +7,7 @@ import StoryDocument from "../../../../components/StoryDocument.astro";
 import { findRoute, titleOf } from "../../../../config/routes";
 import { LOCALES, type Locale } from "../../../../i18n/locales";
 import { RELEASE_SERVERS, type ReleaseServer } from "../../../../lib/release-server";
-import { RESOURCE_KINDS, type ResourceKind } from "../../../../lib/resource-route";
+import { isStoryMode, RESOURCE_KINDS, type ResourceKind, type StoryMode } from "../../../../lib/resource-route";
 
 const CATALOG_ROUTES: Readonly<Partial<Record<ResourceKind, string>>> = {
   characters: "/catalog/characters",
@@ -46,12 +46,8 @@ const { server, locale, kind } = Astro.params as {
 };
 const catalogRoute = CATALOG_ROUTES[kind];
 const catalogEntry = catalogRoute ? findRoute(catalogRoute) : undefined;
-const storyMode = (Astro.url.searchParams.get("mode") || "band") as
-  | "band"
-  | "link"
-  | "home"
-  | "afterlive"
-  | "tutorial";
+const requestedStoryMode = Astro.url.searchParams.get("mode");
+const storyMode: StoryMode = isStoryMode(requestedStoryMode) ? requestedStoryMode : "band";
 if (catalogRoute && !catalogEntry) throw new Error(`Missing route definition for ${catalogRoute}`);
 ---
 

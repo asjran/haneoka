@@ -9,7 +9,7 @@ import { catalogConfig } from "../config/catalog-labels";
 import type { RouteDefinition } from "../config/routes";
 import { LOCALES, type Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
-import { resourceKindForCollection, resourcePath } from "../lib/resource-route";
+import { resourceCollectionHref } from "../lib/resource-route";
 import type { ReleaseServer } from "../lib/release-server";
 import "../lit/catalog-screen";
 import "../lit/tgw-card-workspace";
@@ -22,8 +22,10 @@ interface Props {
   entry: RouteDefinition;
   title: string;
   server?: ReleaseServer;
+  /** Explicit canonical for auxiliary server-first pages without a ResourceKind. */
+  canonicalRoute?: string;
 }
-const { locale, entry, title, server } = Astro.props;
+const { locale, entry, title, server, canonicalRoute: explicitCanonicalRoute } = Astro.props;
 const documentDescriptionValues =
   entry.kind === "legal" && entry.page
     ? Object.fromEntries(LOCALES.map((target) => [
@@ -40,8 +42,7 @@ const screenConfig =
         aspectRatio: entry.resource === "cards" ? "224 / 294" : "1",
       })
     : "";
-const entityKind = entry.kind === "catalog" ? resourceKindForCollection(entry.route.split("/").at(-1) || "") : undefined;
-const canonicalRoute = server && entityKind ? resourcePath({ server, locale, kind: entityKind }) : undefined;
+const canonicalRoute = explicitCanonicalRoute ?? (server ? resourceCollectionHref(entry.route, server, locale) : undefined);
 
 ---
 

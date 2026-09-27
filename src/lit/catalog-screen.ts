@@ -1,3 +1,4 @@
+import { navigationDocumentUrl } from "../lib/document-url";
 import { localizedContent, localizedList } from "./ui/localized-content";
 import "../styles/model-tile.css";
 import "../styles/character-voices.css";
@@ -39,6 +40,7 @@ import "../styles/character-profile.css";
 import "../styles/character-pair.css";
 import "../styles/story-media.css";
 import { CHARACTER_ART } from "../config/character-art";
+import { SONOLUS_SERVER_LINK } from "../config/sonolus";
 import { type GridIdentityAdornment } from "./shared/grid-identity";
 import { DENSITY_EVENT, currentDensity, type Density } from "../lib/density";
 import { clearBrowseBar, renderBrowse, filterGroup } from "./ui/browse";
@@ -50,6 +52,7 @@ import { PaneFocus, renderPane } from "./ui/pane";
 import { emptyState, errorState, loadingState } from "./ui/state";
 import { tile } from "./ui/tile";
 import {
+  chartPath,
   entityHref,
   parseEntitySelection,
   resourceKindForCollection,
@@ -104,6 +107,7 @@ interface Config {
   entityKind?: ResourceKind;
   entityId?: string;
   entityContext?: boolean;
+  chartPage?: boolean;
   labelAliases?: Record<string, string>;
   aspectRatio?: string;
   /**
@@ -487,6 +491,7 @@ export class CatalogScreen extends LitElement {
   private gameItems: Item[] = [];
   private songMeta: Item = {};
   private songMetaProvision?: Promise<void>;
+  private chartPlayerProvision?: Promise<void>;
   private lazyImages = new LazyImages({ candidates: (source) => this.localizedImageCandidates(source) });
   private selectedId = "";
   private releaseLocation?: () => void;
@@ -605,14 +610,18 @@ export class CatalogScreen extends LitElement {
   private onLocale = () => {
     this.settings = { ...this.settings, locale: preferredLocale() };
     this.requestUpdate();
-    queueMicrotask(() => this.syncEntityChrome());
+    queueMicrotask(() => {
+      if (this.isConnected) this.syncEntityChrome();
+    });
   };
   connectedCallback() {
     super.connectedCallback();
     this.disposeSongDisplay = observeSongDisplay(() => {
       this.resultCache = undefined;
       this.requestUpdate();
-      queueMicrotask(() => this.syncEntityChrome());
+      queueMicrotask(() => {
+        if (this.isConnected) this.syncEntityChrome();
+      });
     });
     // A swap-persisted element keeps its OLD attributes: the new document's
     // screen (holding the destination collection's config) is discarded, so
@@ -640,7 +649,8 @@ export class CatalogScreen extends LitElement {
     // carries its own imperative listener as the durable path.
     this.addEventListener("click", this.onScreenClick);
     this.settings = JSON.parse(this.config || "{}") as Config;
-    const selection = parseEntitySelection(location.pathname);
+    const documentUrl = navigationDocumentUrl();
+    const selection = parseEntitySelection(documentUrl.pathname);
     if (
       selection?.source === "canonical" &&
       selection.route.kind === resourceKindForCollection(this.settings.resource)
@@ -649,15 +659,16 @@ export class CatalogScreen extends LitElement {
         ...this.settings,
         server: selection.route.server,
         entityKind: selection.route.kind,
-        entityId: selection.route.id,
+        entityId: this.settings.entityId || selection.route.id,
         entityContext: true,
+        chartPage: selection.route.view === "chart" || this.settings.chartPage,
       };
     }
     this.settings.locale = preferredLocale(this.settings.locale);
     this.dataset.entityReady = "false";
     this.detailReady = false;
     this.profile = profiles[this.settings.resource] ?? fallbackProfile;
-    const params = new URLSearchParams(location.search);
+    const params = documentUrl.searchParams;
     this.query = params.get("q") ?? "";
     this.selectedSongDifficulty = params.get("chartDifficulty") || "expert";
     this.sort = this.normalizeSort(params.get("sort") ?? this.profile.defaultSort);
@@ -717,6 +728,11 @@ export class CatalogScreen extends LitElement {
     const target = event.target as Element | null;
     const holder = target?.closest?.("[data-open-item]");
     if (!holder) return;
+    if (holder.tagName === "A") {
+      const mouse = event as MouseEvent;
+      if (mouse.button !== 0 || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey || mouse.altKey) return;
+      event.preventDefault();
+    }
     const id = holder.getAttribute("data-open-item");
     const item = (this.items || []).find((it) => this.itemId(it) === id);
     if (item) this.open(item);
@@ -755,13 +771,14 @@ export class CatalogScreen extends LitElement {
     }
   }
   private syncEntityChrome() {
-    if (!this.settings.entityContext) return;
+    if (!this.isConnected || !this.settings.entityContext) return;
     const item = this.selected;
     if (item) {
       const title = this.itemTitleValue(item);
       const heading = document.querySelector<HTMLElement>("[data-entity-title]");
       if (heading) {
-        heading.textContent = title.text;
+        const headingText = this.settings.chartPage ? this.chartPageTitle(item) : title.text;
+        heading.textContent = headingText;
         if (title.locale) heading.lang = title.locale;
       }
     }
@@ -783,7 +800,7 @@ export class CatalogScreen extends LitElement {
       setAppBarActions(
         this.entityAppBarOwner,
         html`
-          ${this.renderDetailActions(item)}
+          ${this.settings.chartPage ? this.renderChartPageActions(item) : this.renderDetailActions(item)}
         `,
         this,
       );
@@ -2029,6 +2046,13 @@ export class CatalogScreen extends LitElement {
             bandName: detail.bandName || summary.bandName,
           };
           loadedActualDetail = true;
+          if (this.settings.chartPage) {
+            await this.ensureChartPlayer();
+            // Loading the chart player yields to a dynamic import. The route
+            // may have changed while it was loading, so do not let this old
+            // entity continuation reveal stale content on the new selection.
+            if (!this.detailRequests.current(signal) || this.selectedId !== id) return;
+          }
           this.setEntityReady(true);
         }
       }
@@ -2195,7 +2219,8 @@ export class CatalogScreen extends LitElement {
     const { items, source } = this.results();
     const kind = this.profile.presentation;
     if (this.settings.entityContext) {
-      if (this.selected && this.detailReady) return this.renderDetail(this.selected);
+      if (this.selected && this.detailReady)
+        return this.settings.chartPage ? this.renderChartPage(this.selected) : this.renderDetail(this.selected);
       // The server-rendered article remains the readable loading/error
       // fallback. Do not replace it with a second loading pane.
       return nothing;
@@ -2637,6 +2662,8 @@ export class CatalogScreen extends LitElement {
     const kind = this.profile.presentation;
     const image = this.image(item);
     const title = this.itemTitle(item);
+    const href = this.entityLink(this.itemId(item));
+    const onOpen = href ? undefined : () => this.open(item);
     if (kind === "character")
       return tile({
         kind: "character",
@@ -2648,7 +2675,8 @@ export class CatalogScreen extends LitElement {
         label: title,
         image,
         placeholder: icon("person", 32),
-        onOpen: () => this.open(item),
+        href,
+        onOpen,
         itemId: this.itemId(item),
         onImageError: this.imageError,
         style: `--entity-accent:${String(item.colorCode || "var(--md-sys-color-primary)")}`,
@@ -2676,7 +2704,8 @@ export class CatalogScreen extends LitElement {
               : null,
           ],
         ),
-        onOpen: () => this.open(item),
+        href,
+        onOpen,
         itemId: this.itemId(item),
       });
     }
@@ -2692,7 +2721,8 @@ export class CatalogScreen extends LitElement {
       imageFallback: this.imageFallback(item),
       placeholder: kind === "band-item" ? icon("piano", 32) : icon("image", 32),
       fit: ["band", "item", "band-item", "stamp"].includes(kind) ? "contain" : "cover",
-      onOpen: () => this.open(item),
+      href,
+      onOpen,
       itemId: this.itemId(item),
       onImageError: this.imageError,
       style: kind === "band" ? `--entity-accent:${String(item.color || "var(--md-sys-color-primary)")}` : undefined,
@@ -2907,10 +2937,38 @@ export class CatalogScreen extends LitElement {
     if (!row.file || !["easy", "normal", "hard", "expert", "master"].includes(difficulty)) return "";
     const server = currentReleaseServer();
     const song = String(Number(item.musicId || 0));
-    return `https://open.sonolus.com/haneoka.org/levels/release-level-${server.length}-${server}-${song.length}-${song}-${difficulty.length}-${difficulty}`;
+    return `${SONOLUS_SERVER_LINK}/levels/release-level-${server.length}-${server}-${song.length}-${song}-${difficulty.length}-${difficulty}`;
+  }
+  private chartPageTitle(item: Item) {
+    const chart = this.chartRow(item);
+    const difficulty = String(chart.difficultyName || "").trim();
+    const level = chart.displayLevel ?? chart.playLevel ?? chart.sortLevel;
+    const suffix = [difficulty && difficulty.toUpperCase(), level == null ? "" : String(level)]
+      .filter(Boolean)
+      .join(" ");
+    return suffix ? `${this.itemTitle(item)} — ${suffix}` : this.itemTitle(item);
+  }
+  private ensureChartPlayer() {
+    return (this.chartPlayerProvision ??= import("./runtime/chart-simulator").then(() => undefined));
+  }
+  private chartPageHref(item: Item) {
+    const id = this.itemId(item);
+    const server = this.dataServer();
+    const locale = preferredLocale(this.settings.locale) as Locale;
+    const target = new URL(chartPath({ server, locale, id }), location.href);
+    // The child returns to this complete canonical song URL. Its own return
+    // query therefore remains intact and takes the user back to the filtered
+    // catalogue with the captured scroll snapshot.
+    target.searchParams.set("return", `${location.pathname}${location.search}`);
+    target.searchParams.set("difficulty", String(this.detailDifficulty));
+    return `${target.pathname}${target.search}`;
   }
   private async openChart() {
-    await import("./runtime/chart-simulator");
+    if (this.settings.entityContext && this.settings.origin !== "bestdori" && !this.settings.chartPage) {
+      await navigateDetailPage(this.chartPageHref(this.selected || {}), "push");
+      return;
+    }
+    await this.ensureChartPlayer();
     this.chartOpen = true;
   }
   private async downloadChartImage(item: Item) {
@@ -3015,6 +3073,56 @@ export class CatalogScreen extends LitElement {
             : nothing
         }
       </span>
+    `;
+  }
+  private renderChartPageActions(item: Item) {
+    const chart = this.chartRow(item);
+    if (!chart.file) return nothing;
+    return html`
+      <span class="chart-page-actions">
+        <button
+          class="icon-button"
+          @click=${() => void this.downloadChartImage(item)}
+          aria-label=${this.label("downloadChart", "Download chart image")}
+          title=${this.label("downloadChart", "Download chart image")}
+        >
+          <svg class="material-icon" width="20" height="20"><use href="/icons.svg#download"></use></svg>
+        </button>
+        <span class="chart-page-mode">
+          ${segmented({
+            label: this.label("view", "View"),
+            value: this.chartMode,
+            iconOnly: true,
+            options: [
+              { value: "simple" as const, label: this.label("simple", "Simple"), icon: "view_week" },
+              { value: "watch" as const, label: this.label("watch", "Watch"), icon: "play_circle" },
+            ],
+            onSelect: (mode) => (this.chartMode = mode),
+          })}
+        </span>
+      </span>
+    `;
+  }
+  private renderChartPage(item: Item) {
+    const chart = this.chartRow(item);
+    if (!chart.file)
+      return html`
+        <section class="chart-page chart-page--empty" aria-live="polite">
+          <p>${this.label("unavailable", "Unavailable")}</p>
+        </section>
+      `;
+    return html`
+      <section class="chart-page" aria-label=${this.chartPageTitle(item)}>
+        <chart-simulator
+          source=${String(chart.file)}
+          audio-url=${String(item.musicUrl || "")}
+          band-id=${Number(item.bandId || 1)}
+          label=${this.chartPageTitle(item)}
+          locale=${this.settings.locale}
+          server=${this.dataServer()}
+          .mode=${this.chartMode}
+        ></chart-simulator>
+      </section>
     `;
   }
   renderDetailMedia(item: Item) {

@@ -19,10 +19,12 @@ interface Props {
   route: string;
   /** Public canonical path when the logical page route is server-first. */
   canonicalRoute?: string;
+  noindex?: boolean;
   seoTitleValues?: Partial<Record<Locale, string>>;
   seoDescriptionValues?: Partial<Record<Locale, string>>;
 }
 const { locale, title, titleKey, description, route, canonicalRoute, seoTitleValues, seoDescriptionValues } = Astro.props;
+const noindex = Astro.props.noindex || shouldNoindex(route);
 const origin = Astro.site?.origin ?? "https://haneoka.org";
 const formatTitle = (value: string) => (value === "haneoka" ? value : `${value} · haneoka`);
 const isLocalizedRoute = canonicalRoute
@@ -123,13 +125,13 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
     <meta name="twitter:image" content={`${origin}/images/haneoka-social-card.png`} />
     <meta name="theme-color" content="#f0edf1" />
     <meta name="color-scheme" content="light dark" />
-    {shouldNoindex(route) && <meta name="robots" content="noindex,follow" />}
+    {noindex && <meta name="robots" content="noindex,follow" />}
     <link rel="canonical" href={canonicalHref} />
-    {!shouldNoindex(route) &&
+    {!noindex &&
       languageAlternates.map((alternate) => (
         <link rel="alternate" hreflang={localeTag(alternate.locale)} href={alternate.href} />
       ))}
-    {!shouldNoindex(route) && (
+    {!noindex && (
       <link
         rel="alternate"
         hreflang="x-default"
@@ -138,7 +140,7 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
     )}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/site.webmanifest" />
-    {!shouldNoindex(route) && (
+    {!noindex && (
       <script
         type="application/ld+json"
         is:inline
@@ -208,8 +210,10 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
         });
       }
       document.addEventListener("astro:before-swap", (event) => {
-        const next = (event as Event & { newDocument: Document }).newDocument;
+        const transition = event as Event & { newDocument: Document; to?: URL };
+        const next = transition.newDocument;
         if (!next) return;
+        if (transition.to) next.documentElement.dataset.navigationHref = transition.to.href;
         next.documentElement.dataset.theme = document.documentElement.dataset.theme || "light";
         next.documentElement.dataset.themePreference = document.documentElement.dataset.themePreference || "system";
         next.documentElement.dataset.nav = document.documentElement.dataset.nav || "expanded";

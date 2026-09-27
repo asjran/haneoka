@@ -2,6 +2,7 @@
 import RouteDocument from "../../components/RouteDocument.astro";
 import { ROUTES, titleOf, type RouteDefinition } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
+import { resourceCollectionHref } from "../../lib/resource-route";
 
 export function getStaticPaths() {
   return LOCALES.flatMap((locale) =>
@@ -12,21 +13,12 @@ export function getStaticPaths() {
           "/account",
           "/account/reset-password",
           "/settings",
-          "/catalog/assets",
-          "/catalog/help",
-          "/catalog/live2d",
-          "/catalog/spine",
         ].includes(entry.route) &&
         !entry.route.startsWith("/community") &&
-        !entry.route.startsWith("/catalog/anon-tokyo") &&
-        !entry.route.startsWith("/catalog/stories"),
+        !resourceCollectionHref(entry.route, "intl", locale),
     ).map((entry) => {
       const slug = entry.route.replace(/^\/+/, "") || undefined;
-      // ANON TOKYO reuses several catalogue section names (shop, characters);
-      // prefix its titles so the pages stay distinct in search results.
-      const title = entry.route.startsWith("/catalog/anon-tokyo")
-        ? `ANON TOKYO · ${titleOf(entry, locale)}`
-        : titleOf(entry, locale);
+      const title = titleOf(entry, locale);
       return { params: { locale, slug }, props: { locale, entry, title } };
     }),
   );

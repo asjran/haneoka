@@ -1,4 +1,21 @@
 ---
-import Base from "../layouts/Base.astro";import AppShell from "./AppShell.astro";import type{Locale}from"../i18n/locales";import{t}from"../i18n/messages";import"../lit/asset-explorer";import "../styles/catalog.css";import "../styles/tools.css";const{locale}=Astro.props as{locale:Locale};const title=t(locale,"assets","Assets");
+import Base from "../layouts/Base.astro";
+import AppShell from "./AppShell.astro";
+import type { Locale } from "../i18n/locales";
+import { t } from "../i18n/messages";
+import type { ReleaseServer } from "../lib/release-server";
+import "../lit/asset-explorer";
+import "../styles/catalog.css";
+import "../styles/tools.css";
+const { locale, server } = Astro.props as { locale: Locale; server?: ReleaseServer };
+const title = t(locale, "assets", "Assets");
+const canonicalRoute = server ? `/${server}/${locale}/assets/` : undefined;
 ---
-<Base locale={locale} route="/catalog/assets" title={title} titleKey="assets"><AppShell locale={locale} route="/catalog/assets" title={title} titleKey="assets"><asset-explorer></asset-explorer></AppShell></Base><script>import "../lit/asset-explorer";</script>
+<Base noindex locale={locale} route="/catalog/assets" canonicalRoute={canonicalRoute} title={title} titleKey="assets">
+  <AppShell locale={locale} route="/catalog/assets" title={title} titleKey="assets" server={server}>
+    <asset-explorer></asset-explorer>
+  </AppShell>
+</Base>
+<script>
+  import "../lit/asset-explorer";
+</script>

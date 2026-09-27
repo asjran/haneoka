@@ -32,7 +32,7 @@ export class ViewportFullscreenController {
 
   enter() {
     if (this.active) return true;
-    const layer = this.owner.closest<HTMLElement>(".story-detail, .pane-layer");
+    const layer = this.owner.closest<HTMLElement>(".story-detail, .pane-layer, .chart-page");
     if (!layer) return false;
     this.layer = layer;
     this.layerAttribute = layer.getAttribute("data-story-fullscreen");

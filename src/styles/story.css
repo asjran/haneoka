@@ -30,11 +30,9 @@
   .story-detail--page[data-view="play"] {
     display: grid;
     height: 100%;
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  .story-detail--page[data-story-fullscreen="true"] {
     grid-template-rows: minmax(0, 1fr);
   }
+
   .story-detail--page > header {
     display: flex;
     min-width: 0;
@@ -230,11 +228,13 @@
     overflow: hidden;
     background: #111317;
   }
+  .story-detail--page > vega-story-stage {
+    grid-row: 1 / -1;
+  }
   .vega-story-runtime {
     position: relative;
     display: grid;
-    /* The transport is an overlay so collapse/fade never resizes the game. */
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     overflow: hidden;
     --haneoka-font: var(--app-font);
     font-family: var(--app-font);

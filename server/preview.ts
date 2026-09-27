@@ -17,8 +17,10 @@ import { localReleaseFile, releaseWorkspace, type ReleaseWorkspace } from "./rel
 import {
   isReleaseServer,
   legacyEntityRedirectTarget,
+  legacyCollectionRedirectTarget,
   parseResourceRoute,
   resourcePath,
+  storyCollectionPath,
   type ResourceKind,
   type ResourceRoute,
 } from "../src/lib/resource-route.ts";
@@ -1061,11 +1063,11 @@ function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerRespons
   };
   if (route.id) {
     if (route.kind === "stories" && STORY_MODES.has(route.id)) {
-      const target = new URL(url);
-      target.pathname = resourcePath({ server: route.server, locale: route.locale, kind: "stories" });
-      target.searchParams.set("mode", route.id);
-      res.writeHead(308, { Location: `${target.pathname}${target.search}` });
-      res.end();
+      const file = candidates(url.pathname)
+        .map((candidate) => safeFile(DIST, candidate))
+        .find(Boolean);
+      if (file) sendFile(req, res, file, "no-cache");
+      else json(res, 404, { error: { code: "document_not_found", message: "Story collection not found" } });
       return true;
     }
     for (const candidate of candidates(url.pathname)) {
@@ -1080,14 +1082,11 @@ function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerRespons
       json(res, 404, { error: { code: "entity_not_found", message: "Resource entity not found" } });
       return true;
     }
-    if (route.kind === "stories" && availability.storyMode && !url.searchParams.has("mode")) {
-      const target = new URL(url);
-      target.searchParams.set("mode", availability.storyMode);
-      res.writeHead(302, { Location: target.toString(), "Cache-Control": "no-store" });
-      res.end();
-      return true;
-    }
-    const shell = safeFile(DIST, `${route.server}/${route.locale}/${route.kind}/index.html`);
+    const shellPath =
+      route.kind === "stories" && availability.storyMode
+        ? storyCollectionPath({ server: route.server, locale: route.locale, mode: availability.storyMode })
+        : resourcePath({ server: route.server, locale: route.locale, kind: route.kind });
+    const shell = safeFile(DIST, `${shellPath.slice(1)}index.html`);
     if (shell) {
       sendFile(req, res, shell, "no-cache");
       return true;
@@ -1109,7 +1108,8 @@ function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerRespons
 
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://preview.invalid");
-  const legacyEntityTarget = legacyEntityRedirectTarget(url.pathname, url.search);
+  const legacyEntityTarget =
+    legacyEntityRedirectTarget(url.pathname, url.search) ?? legacyCollectionRedirectTarget(url.pathname, url.search);
   if (legacyEntityTarget && ((req.method ?? "GET") === "GET" || (req.method ?? "GET") === "HEAD")) {
     res.writeHead(308, { Location: legacyEntityTarget, "Cache-Control": "public, max-age=86400" });
     res.end();
@@ -1131,10 +1131,21 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const localePattern = /^\/(?:ja|en|zh-TW|zh-CN|ko)(?:\/|$)/u;
   const serverFirstParts = url.pathname.split("/").filter(Boolean);
   const serverFirstDocument =
-    serverFirstParts.length >= 3 &&
+    serverFirstParts.length >= 2 &&
     isReleaseServer(serverFirstParts[0]) &&
     /^(?:ja|en|zh-TW|zh-CN|ko)$/u.test(serverFirstParts[1] ?? "");
   const lastSegment = url.pathname.split("/").pop() ?? "";
+  if (isReleaseServer(serverFirstParts[0]) && serverFirstParts.length >= 2) {
+    if (!serverFirstDocument) {
+      json(res, 404, { error: { code: "document_not_found", message: "Invalid resource locale" } });
+      return;
+    }
+    if (serverFirstParts.length === 2 && !url.pathname.endsWith("/")) {
+      res.writeHead(308, { Location: `${url.pathname}/${url.search}` });
+      res.end();
+      return;
+    }
+  }
   const unprefixedAppPrefixes = [
     "/api/",
     "/artifacts/",
@@ -1173,7 +1184,10 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       }
     const resolved = locale ?? "en";
     res.writeHead(302, {
-      Location: `/${resolved}${url.pathname === "/" ? "/" : `${url.pathname.replace(/\/+$/, "")}/`}${url.search}${url.hash}`,
+      Location:
+        isReleaseServer(serverFirstParts[0]) && serverFirstParts.length === 1
+          ? `/${serverFirstParts[0]}/${resolved}/${url.search}${url.hash}`
+          : `/${resolved}${url.pathname === "/" ? "/" : `${url.pathname.replace(/\/+$/, "")}/`}${url.search}${url.hash}`,
       "Cache-Control": "no-store",
       Vary: "Cookie, Accept-Language",
     });
@@ -1441,7 +1455,11 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
 
-  const relativePath = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+  const documentPath =
+    serverFirstDocument && serverFirstParts[2] === "assets" && serverFirstParts.length > 3
+      ? `/${serverFirstParts[0]}/${serverFirstParts[1]}/assets/`
+      : url.pathname;
+  const relativePath = documentPath === "/" ? "index.html" : documentPath.slice(1);
   // Resolve prerendered pages emitted as either ${path}.html or ${path}/index.html.
   // (directory style) or ${path}.html, then fall back to the generic SPA shell.
   const candidates = [relativePath];

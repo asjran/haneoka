@@ -4,6 +4,7 @@ import { resolveStoryRuntimeAssets, storySourceUrl } from "../../lib/story-asset
 import { resolveLocalizedText } from "../../lib/localized-text";
 import { beginLoading } from "../../lib/loading-progress";
 import { clientText } from "../../i18n/client";
+import { CUBISM_CORE_URLS, CUBISM_WEB_RUNTIME_URL } from "../../lib/cubism-runtime";
 import { uiText } from "../shared/catalog";
 import { PlaybackControlsController } from "../ui/playback-controls";
 import { ViewportFullscreenController } from "./viewport-fullscreen";
@@ -38,23 +39,16 @@ type CubismProvision = {
   createCubismWebRuntimeAdapter(options: RecordValue): CubismRuntimeAdapter;
 };
 
-const runtimeUrls = {
-  cubismCoreUrl: "/Core/live2dcubismcore.js",
-  cubism2CoreUrl: "/Core/live2d.min.js",
-  motionSyncCoreUrl: "/Core/CRI/live2dcubismmotionsynccore.min.js",
-};
-
 let provision: Promise<CubismProvision> | undefined;
-const CUBISM_PROVISION_URL = "/cubism-runtime/vega-cubism-web-runtime.mjs";
 const cubismAdapter = (): CubismRuntimeAdapter => {
   let resolved: CubismRuntimeAdapter | undefined;
   const runtime = async () => {
     provision ??= import(
-      /* @vite-ignore */ new URL(CUBISM_PROVISION_URL, document.baseURI).href
+      /* @vite-ignore */ new URL(CUBISM_WEB_RUNTIME_URL, document.baseURI).href
     ) as Promise<CubismProvision>;
     resolved ??= (await provision).createCubismWebRuntimeAdapter({
       id: "haneoka.web-cubism-runtime",
-      runtime: runtimeUrls,
+      runtime: CUBISM_CORE_URLS,
     });
     return resolved;
   };
@@ -116,6 +110,7 @@ export class VegaStoryStage extends LitElement {
     fullscreenActive: { state: true },
     transportCollapsed: { state: true },
     transportAutoHidden: { state: true },
+    started: { state: true },
   };
   declare story: RecordValue;
   declare server: string;
@@ -133,6 +128,7 @@ export class VegaStoryStage extends LitElement {
   declare fullscreenActive: boolean;
   declare transportCollapsed: boolean;
   declare transportAutoHidden: boolean;
+  declare started: boolean;
   private loadedKey = "";
   private appliedLocale = "";
   private engine?: VegaEngine;
@@ -170,6 +166,7 @@ export class VegaStoryStage extends LitElement {
     this.fullscreenActive = false;
     this.transportCollapsed = false;
     this.transportAutoHidden = false;
+    this.started = false;
     this.viewportFullscreen = new ViewportFullscreenController({
       owner: this,
       onChange: () => this.syncFullscreenState(),
@@ -229,6 +226,8 @@ export class VegaStoryStage extends LitElement {
     return (await response.json()) as RecordValue;
   }
   private async load() {
+    const continuePlayback = this.continuousPlay && this.started && this.handle?.player.state.finished;
+    this.started = false;
     this.loadController?.abort();
     const controller = new AbortController();
     this.loadController = controller;
@@ -355,9 +354,9 @@ export class VegaStoryStage extends LitElement {
       player.shell?.setSetting("uiLanguage", this.locale);
       player.player.setLocale(this.locale, { refresh: true });
       this.appliedLocale = this.locale;
-      player.shell?.resume();
       loadingReporter.finish();
       this.phase = "ready";
+      if (continuePlayback) this.startPlayback();
       this.completionEmitted = false;
       this.startTransportLoop();
       const completion = () => {
@@ -512,7 +511,10 @@ export class VegaStoryStage extends LitElement {
           },
         };
       },
-      toggleAutoAdvance: () => this.handle?.player.toggleAuto(),
+      toggleAutoAdvance: () => {
+        if (!this.started) this.startPlayback();
+        this.handle?.player.toggleAuto();
+      },
       setInstantText: (value) => this.handle?.shell?.setSetting("instantText", value),
       setSubtitlesEnabled: (value) => this.handle?.shell?.setSetting("subtitlesEnabled", value),
       setBgmEnabled: (value) => this.handle?.shell?.setSetting("bgmEnabled", value),
@@ -542,6 +544,7 @@ export class VegaStoryStage extends LitElement {
       const handle = this.handle;
       if (!handle) return;
       const state = handle.player.state;
+      if (state.playing && !this.started) this.started = true;
       const screen = handle.shell?.snapshot().screen ?? "game";
       const timeline = handle.player.currentSeekProgress();
       const visible = this.phase === "ready" && screen === "game" && !state.loading && state.ready;
@@ -555,7 +558,18 @@ export class VegaStoryStage extends LitElement {
     this.transportFrame = requestAnimationFrame(paint);
   }
 
+  private startPlayback = () => {
+    if (!this.handle || this.phase !== "ready") return;
+    this.started = true;
+    this.handle.shell?.resume();
+  };
+
   private toggleAutoMode() {
+    if (!this.started) {
+      this.startPlayback();
+      return;
+    }
+    if (this.handle && !this.handle.player.state.playing) this.handle.shell?.resume();
     this.handle?.player.toggleAuto();
   }
 
@@ -566,9 +580,11 @@ export class VegaStoryStage extends LitElement {
       const target = handle.player.resolveSeekRatio(ratio);
       void handle.player.seekTo(target, { resume: false }).then(
         () => {
+          if (this.handle !== handle || !this.isConnected) return;
           this.transportIssue = "";
         },
         (error) => {
+          if (this.handle !== handle || !this.isConnected) return;
           this.transportIssue = error instanceof Error ? error.message : String(error);
           this.requestUpdate();
         },
@@ -582,6 +598,7 @@ export class VegaStoryStage extends LitElement {
   private previewTransportSeek(ordinal: number) {
     const handle = this.handle;
     if (!handle) return;
+    this.started = true;
     const player = handle.player;
     const maximum = Math.max(1, this.maximum);
     const value = Math.max(0, Math.min(maximum, Math.round(ordinal)));
@@ -600,19 +617,22 @@ export class VegaStoryStage extends LitElement {
   private async commitTransportSeek(ordinal: number) {
     const handle = this.handle;
     if (!handle) return;
+    this.started = true;
     const player = handle.player;
     const maximum = Math.max(1, this.maximum);
     const value = Math.max(0, Math.min(maximum, Math.round(ordinal)));
     try {
       await player.seekTo(player.resolveSeekRatio(value / maximum), { resume: false });
+      if (this.handle !== handle || !this.isConnected) return;
       this.transportIssue = "";
     } catch (error) {
+      if (this.handle !== handle || !this.isConnected) return;
       // Keep the last reachable line, but make malformed/unavailable targets
       // visible in the local runtime instead of turning them into a no-op.
       this.transportIssue = error instanceof Error ? error.message : String(error);
       this.requestUpdate();
     }
-    if (!handle.shell || handle.shell.snapshot().screen === "game") {
+    if (player.state.ready && (!handle.shell || handle.shell.snapshot().screen === "game")) {
       if (!this.pausedBeforeScrub) player.resume();
       if (this.resumeAfterScrub) void player.play().catch(() => undefined);
     }
@@ -741,7 +761,25 @@ export class VegaStoryStage extends LitElement {
         <div
           class="vega-story-runtime__mount"
           aria-busy=${this.phase === "loading" || this.phase === "booting" ? "true" : "false"}
+          @click=${(event: MouseEvent) => {
+            if (!this.started && !(event.target as Element)?.closest("button, input, select, a, [role=button]"))
+              this.startPlayback();
+          }}
         ></div>
+        ${
+          this.phase === "ready" && !this.started
+            ? html`
+                <div class="vega-story-runtime__start">
+                  <button class="button button--tonal" type="button" @click=${this.startPlayback}>
+                    <svg class="material-icon" width="24" height="24" aria-hidden="true">
+                      <use href="/icons.svg#play_arrow"></use>
+                    </svg>
+                    ${uiText(this.locale, "play")}
+                  </button>
+                </div>
+              `
+            : nothing
+        }
         ${this.renderTransport()}
         ${
           this.transportIssue
@@ -779,9 +817,9 @@ export class VegaStoryStage extends LitElement {
           <button
             class="icon-button"
             type="button"
-            aria-pressed=${this.autoMode}
-            aria-label=${this.ui("auto")}
-            .title=${this.ui("auto")}
+            aria-pressed=${this.started ? this.autoMode : nothing}
+            aria-label=${this.started ? this.ui("auto") : uiText(this.locale, "play")}
+            .title=${this.started ? this.ui("auto") : uiText(this.locale, "play")}
             @click=${this.toggleAutoMode}
           >
             <svg class="material-icon" width="24" height="24">

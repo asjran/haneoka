@@ -1,7 +1,8 @@
+import { navigationDocumentUrl } from "./document-url";
 import { clientText } from "../i18n/client";
-import { parseEntitySelection, resourcePath } from "./resource-route";
+import { parseEntitySelection, resourceCollectionHref, resourcePath } from "./resource-route";
 
-type Listener = { path: string; update: () => void };
+type Listener = { path: string; owner?: Element; update: () => void };
 const listeners = new Set<Listener>();
 let listening = false;
 const routePath = (path: string) => path.replace(/\/+$/, "") || "/";
@@ -16,9 +17,9 @@ const routePath = (path: string) => path.replace(/\/+$/, "") || "/";
  */
 const actualPath = (path: string) => routePath(path.split(/[?#]/u, 1)[0] || "/");
 export function observeDetailLocation(update: () => void, owner?: Element): () => void {
-  void owner;
   const listener = {
-    path: actualPath(location.pathname),
+    path: actualPath(navigationDocumentUrl().pathname),
+    owner,
     update,
   };
   listeners.add(listener);
@@ -27,7 +28,13 @@ export function observeDetailLocation(update: () => void, owner?: Element): () =
     window.addEventListener(
       "haneoka:detail-popstate",
       (event) => {
-        const active = [...listeners].filter((entry) => entry.path === actualPath(location.pathname));
+        const active = [...listeners].filter((entry) => {
+          if (entry.owner && !entry.owner.isConnected) {
+            listeners.delete(entry);
+            return false;
+          }
+          return entry.path === actualPath(location.pathname);
+        });
         if (!active.length) return;
         event.preventDefault();
         active.forEach((entry) => entry.update());
@@ -56,7 +63,13 @@ export function closeDetailLocation(url: string): void {
   if (history.state?.haneokaDetail === routePath(location.pathname)) history.back();
   else {
     history.replaceState(history.state, "", url);
-    for (const listener of listeners) if (listener.path === actualPath(location.pathname)) listener.update();
+    for (const listener of listeners) {
+      if (listener.owner && !listener.owner.isConnected) {
+        listeners.delete(listener);
+        continue;
+      }
+      if (listener.path === actualPath(location.pathname)) listener.update();
+    }
   }
 }
 
@@ -92,7 +105,12 @@ export function syncEntityNavigation(): void {
       back = document.createElement("a");
       back.className = "icon-button";
       back.dataset.entityBack = "";
-      back.dataset.entityFallbackHref = resourcePath({ ...selection.route, id: undefined });
+      const collection = document.querySelector<HTMLElement>("[data-shell]")?.dataset.route;
+      back.dataset.entityFallbackHref = collection
+        ? resourceCollectionHref(collection, selection.route.server, selection.route.locale) ||
+          resourcePath({ ...selection.route, id: undefined })
+        : resourcePath({ ...selection.route, id: undefined });
+      back.dataset.astroHistory = "replace";
       back.dataset.i18nAriaLabel = "back";
       back.setAttribute("aria-label", clientText(selection.route.locale, "back", "Back"));
       const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -110,6 +128,7 @@ export function syncEntityNavigation(): void {
     }
   }
   if (!back) return;
+  if (selection?.source === "canonical") back.dataset.astroHistory = "replace";
   const returnTo = entityReturnHref();
   if (!returnTo) return;
   back.href = returnTo;

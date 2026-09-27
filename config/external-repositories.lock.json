@@ -6,7 +6,7 @@
       "name": "vega",
       "url": "https://github.com/haneoka-gakuen/vega.git",
       "branch": "main",
-      "commit": "33a566dd7f35744f643a5341e1da763d7431d625",
+      "commit": "8e747ee25525ae822b2ab8f65052817ea8887849",
       "version": "0.1.0",
       "kind": "node"
     },
@@ -14,7 +14,7 @@
       "name": "vega-renderer-three",
       "url": "https://github.com/haneoka-gakuen/vega-renderer-three.git",
       "branch": "main",
-      "commit": "8d0aadd9e9cd70e13fb1e971fc716320df042045",
+      "commit": "9f28962cfb855f8cb67d8e89c6c9db560df730be",
       "version": "0.1.0",
       "kind": "node"
     },
@@ -22,7 +22,7 @@
       "name": "vega-theme-haneoka",
       "url": "https://github.com/haneoka-gakuen/vega-theme-haneoka.git",
       "branch": "main",
-      "commit": "5348a7d20e9b99cecae95cd1f85b04a7a8db27bd",
+      "commit": "c9d5b2ebe7853174706b5b574dea8ce6b04a6003",
       "version": "0.1.0",
       "kind": "node"
     },
@@ -46,7 +46,7 @@
       "name": "vega-plugin-richtext",
       "url": "https://github.com/haneoka-gakuen/vega-plugin-richtext.git",
       "branch": "main",
-      "commit": "fb2541c50e6cbadd7d37aa04faf66cb7368f9e71",
+      "commit": "a60fb7d8d6e17ec97b3e31359302fac79b2517e3",
       "version": "0.1.0",
       "kind": "node"
     },

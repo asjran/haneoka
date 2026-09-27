@@ -1,3 +1,4 @@
+import { navigationDocumentUrl } from "../lib/document-url";
 import { localizedContent, localizedList } from "./ui/localized-content";
 import { resolveLocalizedText } from "../lib/localized-text";
 import { storySourceUrl } from "../lib/story-assets";
@@ -42,6 +43,7 @@ import { storyCastMedia } from "./ui/story-media";
 import { dialogueRow } from "./ui/dialogue-row";
 import { entityHref, parseEntitySelection, returnStateFromLocation } from "../lib/resource-route";
 import { readReleaseServer } from "../lib/release-server";
+import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
 import type { Locale } from "@haneoka/i18n";
 
 /**
@@ -83,6 +85,8 @@ type BestdoriMode = "event" | "band" | "main" | "afterlive" | "card";
 type StoryMode = ReleaseMode | BestdoriMode;
 type Origin = "release" | "bestdori";
 type ViewMode = CollectionView;
+
+let storyWorkspaceOwnerId = 0;
 
 interface FacetOption {
   language?: string;
@@ -165,6 +169,8 @@ export class StoryWorkspace extends LitElement {
   declare detailMode: "text" | "play";
   declare limit: number;
   private detailRequests = new RequestScope();
+  private readonly appBarOwner = `story-workspace-${++storyWorkspaceOwnerId}`;
+  private appBarRegistered = false;
   private homeStage?: HomeSpotStage;
   private homeStageSpot = "";
   private storyAudio?: HTMLAudioElement;
@@ -253,10 +259,11 @@ export class StoryWorkspace extends LitElement {
   };
   connectedCallback() {
     super.connectedCallback();
-    const selection = parseEntitySelection(location.pathname);
+    const documentUrl = navigationDocumentUrl();
+    const selection = parseEntitySelection(documentUrl.pathname);
     if (this.origin === "release" && selection?.source === "canonical" && selection.route.kind === "stories")
       this.entityId = selection.route.id;
-    const mode = new URLSearchParams(location.search).get("mode");
+    const mode = documentUrl.searchParams.get("mode");
     if (this.origin === "release" && mode && ["band", "link", "home", "afterlive", "tutorial"].includes(mode))
       this.mode = mode as ReleaseMode;
     addEventListener("haneoka:locale-ready", this.onLocale);
@@ -294,6 +301,8 @@ export class StoryWorkspace extends LitElement {
     this.homeStage?.dispose();
     this.storyAudio?.pause();
     this.paneFocus.detach();
+    clearAppBarActions(this.appBarOwner);
+    this.appBarRegistered = false;
     window.removeEventListener("keydown", this.onKeydown);
     super.disconnectedCallback();
   }
@@ -303,6 +312,7 @@ export class StoryWorkspace extends LitElement {
       const title = this.episodeTitleValue(this.detailEpisode);
       updateEntityHeading(this, title.text, title.locale);
     }
+    this.syncAppBarActions();
     // Focus stays inside a detail while it is open.
     this.paneFocus.sync(
       this.entityId ? null : this.querySelector<HTMLElement>("[data-overlay-pane], [data-detail-pane]"),
@@ -1703,6 +1713,36 @@ export class StoryWorkspace extends LitElement {
       );
     return nothing;
   }
+  private renderDetailModes() {
+    return segmented({
+      label: uiText(this.locale, "playback"),
+      value: this.detailMode,
+      iconOnly: true,
+      options: [
+        { value: "text" as const, label: uiText(this.locale, "storyText"), icon: "article" },
+        { value: "play" as const, label: uiText(this.locale, "player"), icon: "play_circle" },
+      ],
+      onSelect: (mode) => {
+        if (mode === "play") void this.openVegaPlayer();
+        else {
+          this.detailMode = "text";
+          this.stopStoryPlayback();
+        }
+      },
+    });
+  }
+  private syncAppBarActions() {
+    const visible = Boolean(this.entityId && this.detailEpisode && !this.detailLoading && !this.detailError);
+    if (!visible) {
+      if (this.appBarRegistered) {
+        clearAppBarActions(this.appBarOwner);
+        this.appBarRegistered = false;
+      }
+      return;
+    }
+    setAppBarActions(this.appBarOwner, this.renderDetailModes(), this);
+    this.appBarRegistered = true;
+  }
   private renderDetail(episode: JsonRecord) {
     const ids = this.characterIds(episode);
     const commands = this.transcript(episode);
@@ -1716,10 +1756,10 @@ export class StoryWorkspace extends LitElement {
         tabindex="-1"
         data-overlay-pane=${this.entityId ? nothing : ""}
       >
-        <header>
-          ${
-            !this.entityId
-              ? html`
+        ${
+          !this.entityId
+            ? html`
+                <header>
                   <button
                     class="icon-button"
                     type="button"
@@ -1734,27 +1774,12 @@ export class StoryWorkspace extends LitElement {
                       ${localizedContent(this.chapterOf(episode)?.chapterName || episode.chapterName, this.locale)}
                     </small>
                   </span>
-                `
-              : nothing
-          }
-          <span class="row__spacer"></span>
-          ${segmented({
-            label: uiText(this.locale, "playback"),
-            value: this.detailMode,
-            iconOnly: true,
-            options: [
-              { value: "text" as const, label: uiText(this.locale, "storyText"), icon: "article" },
-              { value: "play" as const, label: uiText(this.locale, "player"), icon: "play_circle" },
-            ],
-            onSelect: (mode) => {
-              if (mode === "play") void this.openVegaPlayer();
-              else {
-                this.detailMode = "text";
-                this.stopStoryPlayback();
-              }
-            },
-          })}
-        </header>
+                  <span class="row__spacer"></span>
+                  ${this.renderDetailModes()}
+                </header>
+              `
+            : nothing
+        }
         ${
           this.detailMode === "play"
             ? html`

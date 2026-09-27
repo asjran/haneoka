@@ -34,11 +34,32 @@ export const RESOURCE_KINDS = [
 ] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
+/** The archive's five first-party story collections. */
+export const STORY_MODES = ["band", "link", "home", "afterlive", "tutorial"] as const;
+export type StoryMode = (typeof STORY_MODES)[number];
+
+/** First-party ANON TOKYO views. These are auxiliary collections rather than resource kinds. */
+export const ANON_TOKYO_MODES = [
+  "characters",
+  "outfits",
+  "shop",
+  "goods",
+  "decorations",
+  "staff",
+  "customers",
+  "tasks",
+  "guide",
+  "fever",
+] as const;
+export type AnonTokyoMode = (typeof ANON_TOKYO_MODES)[number];
+
 export interface ResourceRoute {
   server: ReleaseServer;
   locale: Locale;
   kind: ResourceKind;
   id?: string;
+  /** A child view rendered below an entity's canonical resource page. */
+  view?: "chart";
 }
 
 export interface EntityLink {
@@ -64,6 +85,12 @@ export interface EntitySelection {
 const isResourceKind = (value: unknown): value is ResourceKind =>
   typeof value === "string" && (RESOURCE_KINDS as readonly string[]).includes(value);
 
+export const isStoryMode = (value: unknown): value is StoryMode =>
+  typeof value === "string" && STORY_MODES.includes(value as StoryMode);
+
+export const isAnonTokyoMode = (value: unknown): value is AnonTokyoMode =>
+  typeof value === "string" && ANON_TOKYO_MODES.includes(value as AnonTokyoMode);
+
 const isResourceId = (value: string): boolean =>
   value.length > 0 && value !== "." && value !== ".." && !/[\\/\u0000-\u001f\u007f]/u.test(value);
 
@@ -75,19 +102,39 @@ export function resourcePath({ server, locale, kind, id }: ResourceRoute): strin
   return `/${server}/${locale}/${kind}/${id === undefined ? "" : `${encodeURIComponent(id)}/`}`;
 }
 
+/** Public chart player address for a canonical song entity. */
+export function chartPath({ server, locale, id }: { server: ReleaseServer; locale: Locale; id: string }): string {
+  return `${resourcePath({ server, locale, kind: "songs", id })}chart/`;
+}
+
+/** Public collection address for one first-party story section. */
+export function storyCollectionPath({
+  server,
+  locale,
+  mode,
+}: {
+  server: ReleaseServer;
+  locale: Locale;
+  mode: StoryMode;
+}): string {
+  if (!isStoryMode(mode)) throw new TypeError("Invalid story collection");
+  return `${resourcePath({ server, locale, kind: "stories" })}${mode}/`;
+}
+
 /** Alias for callers that need to make the canonical-vs-legacy distinction explicit. */
 export const formatResourceRoute = resourcePath;
 
 export function parseResourceRoute(pathname: string): ResourceRoute | undefined {
   if (!pathname.startsWith("/") || pathname.includes("?") || pathname.includes("#")) return undefined;
   const parts = pathname.slice(1).replace(/\/$/u, "").split("/");
-  if (parts.length !== 3 && parts.length !== 4) return undefined;
-  const [server, locale, kind, encodedId] = parts;
+  if (parts.length !== 3 && parts.length !== 4 && parts.length !== 5) return undefined;
+  const [server, locale, kind, encodedId, child] = parts;
   if (!isReleaseServer(server) || !isLocale(locale) || !isResourceKind(kind)) return undefined;
+  if (parts.length === 5 && !(kind === "songs" && child === "chart")) return undefined;
   if (encodedId === undefined) return { server, locale, kind };
   try {
     const id = decodeURIComponent(encodedId);
-    return isResourceId(id) ? { server, locale, kind, id } : undefined;
+    return isResourceId(id) ? { server, locale, kind, id, ...(child ? { view: "chart" as const } : {}) } : undefined;
   } catch {
     return undefined;
   }
@@ -202,13 +249,92 @@ export function legacyEntityRedirectTarget(pathname: string, search = ""): strin
 export function resourceCollectionHref(route: string, server: ReleaseServer, locale: Locale): string | undefined {
   const source = new URL(route, "https://route.invalid");
   const parts = source.pathname.replace(/^\/+|\/+$/gu, "").split("/");
-  if (parts[0] !== "catalog" || !parts[1] || parts[1] === "song-meta") return undefined;
-  const kind = resourceKindForCollection(parts[1]);
+  if (parts[0] !== "catalog") return undefined;
+  if (parts.length === 1) {
+    const target = new URL(`/${server}/${locale}/catalog/`, source);
+    target.search = source.search;
+    return `${target.pathname}${target.search}`;
+  }
+  const collection = parts[1] || "";
+  if (parts.length > 2 && !(collection === "stories" || collection === "anon-tokyo")) return undefined;
+  if (collection === "song-meta") {
+    if (parts.length !== 2) return undefined;
+    const target = new URL(`/${server}/${locale}/song-meta/`, source);
+    target.search = source.search;
+    return `${target.pathname}${target.search}`;
+  }
+  if (collection === "assets") {
+    if (parts.length !== 2) return undefined;
+    const target = new URL(`/${server}/${locale}/assets/`, source);
+    target.search = source.search;
+    return `${target.pathname}${target.search}`;
+  }
+  if (collection === "anon-tokyo") {
+    if (parts.length !== 3 || !isAnonTokyoMode(parts[2])) return undefined;
+    const target = new URL(`/${server}/${locale}/anon-tokyo/${parts[2]}/`, source);
+    target.search = source.search;
+    return `${target.pathname}${target.search}`;
+  }
+  const kind = resourceKindForCollection(collection);
   if (!kind || (parts.length > 2 && kind !== "stories")) return undefined;
+  if (kind === "stories" && parts[2]) {
+    if (!isStoryMode(parts[2])) return undefined;
+    const target = new URL(storyCollectionPath({ server, locale, mode: parts[2] }), source);
+    target.search = source.search;
+    // The section is in the pathname; carrying the old selector query would
+    // make a canonical category link look like a mode override.
+    target.searchParams.delete("mode");
+    return `${target.pathname}${target.search}`;
+  }
   const target = new URL(resourcePath({ server, locale, kind }), source);
   target.search = source.search;
-  if (kind === "stories" && parts[2]) target.searchParams.set("mode", parts[2]);
   return `${target.pathname}${target.search}`;
+}
+
+/**
+ * Resolve an old locale-first collection address to its server-first page.
+ * Entity redirects run before this helper; this intentionally accepts only
+ * exact collection paths so an entity id can never be swallowed as a section.
+ */
+export function legacyCollectionRedirectTarget(pathname: string, search = ""): string | undefined {
+  if (!pathname.startsWith("/") || pathname.includes("#")) return undefined;
+  const parts = pathname.replace(/^\/+|\/+$/gu, "").split("/");
+  const locale = parts[0];
+  if (!isLocale(locale) || parts[1] !== "catalog") return undefined;
+  // Request handlers normally call the entity redirect first. Keep this
+  // helper pure as well when it is used independently by a preview or test.
+  if (legacyEntityRoute(pathname, search)) return undefined;
+
+  const query = new URLSearchParams(search);
+  const serverParam = query.get("server");
+  const server = isReleaseServer(serverParam) ? serverParam : "intl";
+  query.delete("server");
+  const suffix = () => (query.size ? `?${query}` : "");
+  const prefix = `/${server}/${locale}`;
+
+  if (parts.length === 2) return `${prefix}/catalog/${suffix()}`;
+  const collection = parts[2] || "";
+  if (collection === "assets") {
+    const path = parts.slice(3).join("/");
+    return `${prefix}/assets/${path ? `${path}/` : ""}${suffix()}`;
+  }
+  if (parts.length > 4) return undefined;
+  if (collection === "song-meta") return parts.length === 3 ? `${prefix}/song-meta/${suffix()}` : undefined;
+  if (collection === "anon-tokyo") {
+    return parts.length === 4 && isAnonTokyoMode(parts[3]) ? `${prefix}/anon-tokyo/${parts[3]}/${suffix()}` : undefined;
+  }
+  if (collection === "stories") {
+    const mode = parts.length === 4 ? parts[3] : query.get("mode");
+    if (mode !== null && !isStoryMode(mode)) return parts.length === 4 ? undefined : `${prefix}/stories/${suffix()}`;
+    if (mode) {
+      query.delete("mode");
+      return `${prefix}/stories/${mode}/${query.size ? `?${query}` : ""}`;
+    }
+    return parts.length === 3 ? `${prefix}/stories/${suffix()}` : undefined;
+  }
+
+  const kind = resourceKindForCollection(collection);
+  return kind && parts.length === 3 ? `${resourcePath({ server, locale, kind })}${suffix()}` : undefined;
 }
 
 export function entityHref(options: {
@@ -235,8 +361,7 @@ export function entityHref(options: {
 
 export function parseEntitySelection(pathname: string, search = ""): EntitySelection | undefined {
   const canonical = parseResourceRoute(pathname);
-  if (canonical?.kind === "stories" && ["band", "link", "home", "afterlive", "tutorial"].includes(canonical.id || ""))
-    return undefined;
+  if (canonical?.kind === "stories" && isStoryMode(canonical.id)) return undefined;
   if (canonical?.id) return { route: canonical as ResourceRoute & { id: string }, source: "canonical" };
   const legacy = legacyEntityRoute(pathname, search);
   if (!legacy) return undefined;

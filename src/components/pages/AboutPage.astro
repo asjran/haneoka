@@ -3,6 +3,7 @@ import Icon from "../Icon.astro";
 import I18nText from "../I18nText.astro";
 import { group } from "../../i18n/messages";
 import type { Locale } from "../../i18n/locales";
+import { SONOLUS_SERVER_LINK } from "../../config/sonolus";
 
 interface AboutItem {
   title: string;
@@ -199,6 +200,10 @@ const noticesHref = "https://github.com/haneoka-gakuen/haneoka/blob/main/THIRD_P
       <I18nText keyName="aboutPage.footerBody" fallback={copy.footerBody} locale={locale} />
     </p>
     <nav class="about-link-row" aria-labelledby="about-repositories-heading">
+      <a class="text-link" href={SONOLUS_SERVER_LINK} target="_blank" rel="noreferrer">
+        <Icon name="sports_esports" size={20} /> Sonolus
+        <Icon name="open_in_new" size={16} />
+      </a>
       <a class="text-link" href={sourceHref} target="_blank" rel="noreferrer">
         <I18nText keyName="aboutPage.sourceLink" fallback={copy.sourceLink} locale={locale} />
         <Icon name="open_in_new" size={16} />

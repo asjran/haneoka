@@ -1,6 +1,7 @@
+import { navigationDocumentUrl } from "../lib/document-url";
 import { LitElement, html, nothing } from "lit";
 import { errorState, loadingState } from "./ui/state";
-import { catalogUrl, fetchJson, currentReleaseServer, preferredLocale } from "./shared/catalog";
+import { catalogUrl, fetchJson, currentReleaseServer, preferredLocale, uiText } from "./shared/catalog";
 import { localizedFallbacks } from "../lib/localized-text";
 import { localeFromPath } from "../i18n/locales";
 interface Branch {
@@ -112,14 +113,22 @@ export class AssetExplorer extends LitElement {
     super.connectedCallback();
     addEventListener("haneoka:locale-ready", this.onLocale);
     void import("@material/web/progress/circular-progress.js");
-    const params = new URLSearchParams(location.search);
-    const routePath = location.pathname.replace(/^\/(?:ja|en|zh-TW|zh-CN|ko)?\/catalog\/assets\/?/u, "");
+    const documentUrl = navigationDocumentUrl();
+    const params = documentUrl.searchParams;
+    const routePath = documentUrl.pathname.replace(
+      /^\/(?:(?:jp|intl|jp-cbt|intl-cbt)\/(?:ja|en|zh-TW|zh-CN|ko)\/assets|(?:ja|en|zh-TW|zh-CN|ko)\/catalog\/assets)\/?/u,
+      "",
+    );
     this.path = (routePath || params.get("path") || "")
       .split("/")
       .filter(Boolean)
       .map((part) => decodeURIComponent(part));
     this.selected = params.get("file") || "";
     void this.loadTree();
+  }
+  disconnectedCallback() {
+    removeEventListener("haneoka:locale-ready", this.onLocale);
+    super.disconnectedCallback();
   }
   private siblingNames(): string[] {
     const folderNode = this.node(this.path.slice(0, -1));
@@ -160,13 +169,8 @@ export class AssetExplorer extends LitElement {
   private sync() {
     const params = new URLSearchParams();
     if (this.selected) params.set("file", this.selected);
-    // Explorer addresses are locale-prefixed deep links: rewriting the URL
-    // without the prefix would strand the visitor on an unprefixed address
-    // that no built page answers and whose fallback shell ignores their
-    // language.
-    const locale = localeFromPath(location.pathname);
-    const prefix = locale ? `/${locale}` : "";
-    const pathname = `${prefix}/catalog/assets${this.path.length ? `/${this.path.map(encodeURIComponent).join("/")}` : ""}`;
+    const locale = localeFromPath(location.pathname) || preferredLocale();
+    const pathname = `/${this.server()}/${locale}/assets/${this.path.map(encodeURIComponent).join("/")}${this.path.length ? "/" : ""}`;
     history.replaceState(history.state, "", `${pathname}${params.size ? `?${params}` : ""}`);
   }
   private async choose(parts: string[]) {
@@ -219,7 +223,7 @@ export class AssetExplorer extends LitElement {
         const response = await fetch(this.url(file));
         this.textPreview = (await response.text()).slice(0, 200000);
       } catch {
-        this.textPreview = "Preview unavailable";
+        this.textPreview = uiText(preferredLocale(), "unavailable");
       }
     }
     if (this.kind(file) === "model") await import("./runtime/model-preview");
@@ -237,14 +241,19 @@ export class AssetExplorer extends LitElement {
         ${
           this.phase === "loading"
             ? html`
-                ${loadingState("Loading")}
+                ${loadingState(uiText(preferredLocale(), "loading"))}
               `
             : this.phase === "error"
-              ? errorState("Unavailable", "Retry", () => void this.loadTree(), this.error)
+              ? errorState(
+                  uiText(preferredLocale(), "unavailable"),
+                  uiText(preferredLocale(), "retry"),
+                  () => void this.loadTree(),
+                  this.error,
+                )
               : html`
                   <header class="asset-toolbar">
                     <nav>
-                      <button @click=${() => this.choose([])}>Assets</button>
+                      <button @click=${() => this.choose([])}>${uiText(preferredLocale(), "assets")}</button>
                       ${this.path.map(
                         (part, index) => html`
                           <span>/</span>
@@ -319,7 +328,7 @@ export class AssetExplorer extends LitElement {
       <section class="asset-preview">
         <header>
           <strong>${this.selected.split("/").at(-1)}</strong>
-          <a class="button button--text" href=${url} download>Download</a>
+          <a class="button button--text" href=${url} download>${uiText(preferredLocale(), "download")}</a>
         </header>
         <div>
           ${
@@ -346,7 +355,7 @@ export class AssetExplorer extends LitElement {
                       : html`
                           <div class="notice">
                             <svg class="material-icon" width="40" height="40"><use href="/icons.svg#draft"></use></svg>
-                            <p>Binary asset</p>
+                            <p>${uiText(preferredLocale(), "assetOther")}</p>
                           </div>
                         `
           }

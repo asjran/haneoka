@@ -1,0 +1,25 @@
+---
+import StoryDocument from "../../../../components/StoryDocument.astro";
+import { LOCALES, type Locale } from "../../../../i18n/locales";
+import { RELEASE_SERVERS, type ReleaseServer } from "../../../../lib/release-server";
+import { STORY_MODES, type StoryMode } from "../../../../lib/resource-route";
+
+export function getStaticPaths() {
+  return RELEASE_SERVERS.flatMap((server) =>
+    LOCALES.flatMap((locale) =>
+      STORY_MODES.map((mode) => ({
+        params: { server, locale, mode },
+        props: { server, locale, mode },
+      })),
+    ),
+  );
+}
+
+const { server, locale, mode } = Astro.props as {
+  server: ReleaseServer;
+  locale: Locale;
+  mode: StoryMode;
+};
+---
+
+<StoryDocument locale={locale} mode={mode} server={server} />

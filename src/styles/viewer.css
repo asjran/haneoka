@@ -274,7 +274,9 @@
     border-top: 1px solid var(--md-sys-color-outline-variant);
   }
   .viewer-parameter-toolbar {
-    display: grid;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
     padding-bottom: 10px;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
@@ -284,11 +286,12 @@
     font-weight: 500;
   }
   .viewer-parameter-toolbar .segmented {
-    width: 100%;
+    width: max-content;
+    max-width: 100%;
+    margin-inline-start: auto;
   }
   .viewer-parameter-toolbar .segmented button {
-    min-width: 72px;
-    flex: 1;
+    min-width: 64px;
   }
   .viewer-parameter-actions {
     display: flex;
@@ -395,6 +398,11 @@
     background: var(--md-sys-color-surface-container);
     cursor: pointer;
   }
+  .viewer-behavior-controls md-slider {
+    min-width: 0;
+    flex: 1;
+    max-width: 60%;
+  }
   .viewer-detail__runtime canvas {
     cursor: default;
   }
@@ -439,10 +447,16 @@
     .viewer-detail__info {
       padding: 16px 12px 24px;
     }
-    .viewer-transform-controls label,
-    .viewer-parameter-editor label {
-      grid-template-columns: minmax(92px, 1fr) minmax(96px, 1.35fr) 44px 36px;
+    .viewer-transform-controls label {
+      grid-template-columns: minmax(76px, 0.8fr) minmax(0, 1.6fr);
       gap: 4px;
+    }
+    .viewer-parameter-editor > div > label:not(.viewer-part-row) {
+      grid-template-columns: minmax(0, 1fr) 44px 48px;
+      gap: 4px;
+    }
+    .viewer-parameter-editor > div > label:not(.viewer-part-row) > span:first-child {
+      grid-column: 1 / -1;
     }
   }
 }
@@ -620,6 +634,29 @@
     --md-outlined-select-text-field-container-color: var(--md-sys-color-surface-container);
     --md-outlined-field-label-text-color: var(--md-sys-color-on-surface);
     --md-outlined-field-input-text-color: var(--md-sys-color-on-surface);
+  }
+  @media (pointer: coarse) {
+    .viewer-controls {
+      gap: 4px;
+      inset-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));
+    }
+    .viewer-controls .icon-button,
+    .viewer-detail__navigation .icon-button,
+    .viewer-parameter-editor label > .icon-button {
+      width: var(--md-comp-control-height-touch);
+      height: var(--md-comp-control-height-touch);
+      min-width: var(--md-comp-control-height-touch);
+      min-height: var(--md-comp-control-height-touch);
+    }
+    .viewer-panel-button,
+    .viewer-parameter-actions .button,
+    .viewer-part-toolbar .button,
+    .viewer-parameter-toolbar .segmented > button {
+      min-height: var(--md-comp-control-height-touch);
+    }
+    .viewer-parameter-editor label {
+      grid-template-columns: minmax(76px, 0.9fr) minmax(0, 1.4fr) 44px 48px;
+    }
   }
 
   @media (max-width: 959px) {

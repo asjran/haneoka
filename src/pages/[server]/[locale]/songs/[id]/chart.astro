@@ -1,0 +1,47 @@
+---
+import CatalogEntityPage from "../../../../../components/entities/CatalogEntityPage.astro";
+import { LOCALES, type Locale } from "../../../../../i18n/locales";
+import { RELEASE_SERVERS, type ReleaseServer } from "../../../../../lib/release-server";
+import { searchableCatalogPages, type SearchableCatalogPage } from "../../../../../lib/searchable-catalog";
+
+type RouteProps = {
+  server: ReleaseServer;
+  locale: Locale;
+  page: SearchableCatalogPage;
+};
+
+export async function getStaticPaths() {
+  const output: Array<{ params: Record<string, string>; props: RouteProps }> = [];
+  const requestedServers = process.env.STATIC_RESOURCE_SERVERS?.split(",").map((value) => value.trim()).filter(Boolean);
+  const buildServers = [...new Set(requestedServers?.length ? requestedServers : ["intl"])] as string[];
+  for (const requestedServer of buildServers) {
+    if (!RELEASE_SERVERS.includes(requestedServer as ReleaseServer))
+      throw new Error(`Unsupported static resource server: ${requestedServer}`);
+    const server = requestedServer as ReleaseServer;
+    const pages = await searchableCatalogPages(server);
+    for (const page of pages) {
+      if (page.collection !== "songs" || page.kind !== "song") continue;
+      for (const locale of LOCALES) {
+        output.push({
+          params: { server, locale, id: page.id },
+          props: { server, locale, page },
+        });
+      }
+    }
+  }
+  return output;
+}
+
+const { server, locale, page } = Astro.props as RouteProps;
+const rawReturnTo = Astro.url.searchParams.get("return") || "";
+const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : undefined;
+---
+
+<CatalogEntityPage
+  page={page}
+  locale={locale}
+  server={server}
+  canonical
+  chartPage
+  returnTo={returnTo}
+/>

@@ -1,3 +1,4 @@
+import { navigationDocumentUrl } from "./document-url";
 import { isReleaseServer, type ReleaseServer } from "./resource-route";
 export { RELEASE_SERVERS, isReleaseServer, type ReleaseServer } from "./resource-route";
 const KEY = "haneoka.release-server";
@@ -13,10 +14,12 @@ export function normalizeReleaseServer(value: unknown): ReleaseServer {
 }
 
 export function readReleaseServer(): ReleaseServer {
-  const routeServer = typeof location === "undefined" ? undefined : releaseServerFromPath(location.pathname);
+  const routeServer =
+    typeof location === "undefined" ? undefined : releaseServerFromPath(navigationDocumentUrl().pathname);
   if (routeServer) return routeServer;
   try {
-    const queryServer = typeof location === "undefined" ? undefined : new URL(location.href).searchParams.get("server");
+    const queryServer =
+      typeof location === "undefined" ? undefined : navigationDocumentUrl().searchParams.get("server");
     if (isReleaseServer(queryServer)) return queryServer;
   } catch {}
   try {

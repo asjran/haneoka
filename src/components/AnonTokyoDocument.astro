@@ -3,11 +3,17 @@ import Base from "../layouts/Base.astro";
 import AppShell from "./AppShell.astro";
 import { LOCALES, type Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
+import type { ReleaseServer } from "../lib/release-server";
 import "../lit/anon-tokyo-workspace";
 import "../styles/catalog.css";
 import "../styles/anon-tokyo.css";
-const { locale, mode = "characters" } = Astro.props as { locale: Locale; mode?: string };
+const { locale, mode = "characters", server } = Astro.props as {
+  locale: Locale;
+  mode?: string;
+  server?: ReleaseServer;
+};
 const route = `/catalog/anon-tokyo/${mode}`;
+const canonicalRoute = server ? `/${server}/${locale}/anon-tokyo/${mode}/` : undefined;
 const key = mode === "outfits" ? "anonTokyoPage.dressingRoom" : `anonTokyoPage.${mode}`;
 const title = `ANON TOKYO · ${t(locale, key, mode)}`;
 // The <title> prefers explicit values over the titleKey translation, so the
@@ -17,8 +23,8 @@ const seoTitleValues = Object.fromEntries(
 ) as Record<Locale, string>;
 ---
 
-<Base locale={locale} route={route} title={title} titleKey={key} seoTitleValues={seoTitleValues}>
-  <AppShell locale={locale} route={route} title={title} titleKey={key}>
+<Base locale={locale} route={route} canonicalRoute={canonicalRoute} title={title} titleKey={key} seoTitleValues={seoTitleValues}>
+  <AppShell locale={locale} route={route} title={title} titleKey={key} server={server}>
     <anon-tokyo-workspace
       locale={locale}
       mode={mode}

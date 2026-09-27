@@ -1,8 +1,11 @@
 import type * as Spine from "@esotericsoftware/spine-threejs";
 import type * as THREE from "three";
+import { viewerBufferSize } from "./viewer-resolution";
 
 type Value = Record<string, unknown>;
 type Resource = { name?: string; url?: string };
+export type SpineTransform = { offsetX: number; offsetY: number; scale: number };
+export type SpineBackground = { r: number; g: number; b: number } | null;
 interface Entry extends Value {
   animations?: string[];
   atlases?: Array<{ pages?: Resource[] }>;
@@ -64,6 +67,11 @@ export class SpineStage {
   private paused = false;
   private loop = true;
   private animation = "";
+  private playbackRate = 1;
+  private background: SpineBackground = null;
+  private transform: SpineTransform = { offsetX: 0, offsetY: 0, scale: 1 };
+  private fit?: { centerX: number; centerY: number; width: number; height: number };
+  private skin = "";
 
   constructor(private readonly host: HTMLElement) {}
 
@@ -134,8 +142,11 @@ export class SpineStage {
       partial.mesh = mesh;
       installPainterOrder(mesh, spine);
       const skins = entry.skins || [];
-      const skin = skins.includes("skin") ? "skin" : skins.includes("default") ? "default" : skins[0];
-      if (skin) mesh.skeleton.setSkinByName(skin);
+      const availableSkins = skeletonData.skins.map((value) => value.name).filter(Boolean);
+      const initialSkin =
+        ["skin", "default", ...skins, ...availableSkins].find((value) => availableSkins.includes(value)) || "";
+      if (initialSkin) mesh.skeleton.setSkinByName(initialSkin);
+      this.skin = initialSkin;
       mesh.skeleton.setToSetupPose();
       this.animation =
         (entry.animations || []).find((name) => name === "f_idle") ||
@@ -146,7 +157,7 @@ export class SpineStage {
       mesh.update(0);
       const renderer = new three.WebGLRenderer({ alpha: true, antialias: true });
       partial.renderer = renderer;
-      renderer.setClearColor(0x000000, 0);
+      this.applyBackground(renderer, three);
       renderer.sortObjects = false;
       const scene = new three.Scene();
       scene.add(mesh);
@@ -175,16 +186,61 @@ export class SpineStage {
     stage.renderer.render(stage.scene, stage.camera);
     return true;
   }
+  skins(): string[] {
+    const skins = this.active?.mesh.skeleton.data.skins;
+    return Array.isArray(skins) ? skins.map((value) => String(value.name || "")).filter(Boolean) : [];
+  }
+  skinName(): string {
+    return this.skin;
+  }
+  setSkin(name: string): boolean {
+    const stage = this.active;
+    const value = String(name || "");
+    if (!stage || !value || !this.skins().includes(value)) return false;
+    stage.mesh.skeleton.setSkinByName(value);
+    stage.mesh.skeleton.setToSetupPose();
+    if (this.animation) stage.mesh.state.setAnimation(0, this.animation, this.loop);
+    this.applyPlaybackRate(stage.mesh.state);
+    stage.mesh.update(0);
+    this.skin = value;
+    this.resize();
+    return true;
+  }
+  setPlaybackRate(value: number) {
+    this.playbackRate = Math.min(2, Math.max(0.25, Number.isFinite(value) ? value : 1));
+    if (this.active) this.applyPlaybackRate(this.active.mesh.state);
+  }
+  setBackgroundColor(color: SpineBackground) {
+    this.background = color;
+    const stage = this.active;
+    if (stage) this.applyBackground(stage.renderer, stage.three);
+  }
+  setTransform(transform: SpineTransform): SpineTransform {
+    this.transform = {
+      offsetX: Math.min(1.25, Math.max(-1.25, Number.isFinite(transform.offsetX) ? transform.offsetX : 0)),
+      offsetY: Math.min(1.25, Math.max(-1.25, Number.isFinite(transform.offsetY) ? transform.offsetY : 0)),
+      scale: Math.min(4, Math.max(0.5, Number.isFinite(transform.scale) ? transform.scale : 1)),
+    };
+    this.applyCameraTransform();
+    return { ...this.transform };
+  }
+  resetTransform(): SpineTransform {
+    return this.setTransform({ offsetX: 0, offsetY: 0, scale: 1 });
+  }
   setPaused(value: boolean) {
     this.paused = value;
   }
   setLoop(value: boolean) {
     this.loop = value;
-    if (this.active && this.animation) this.active.mesh.state.setAnimation(0, this.animation, value);
+    if (this.active && this.animation) {
+      this.active.mesh.state.setAnimation(0, this.animation, value);
+      this.applyPlaybackRate(this.active.mesh.state);
+    }
   }
   replay() {
     if (this.active && this.animation) {
       this.active.mesh.state.setAnimation(0, this.animation, this.loop);
+      this.applyPlaybackRate(this.active.mesh.state);
       this.paused = false;
     }
   }
@@ -192,6 +248,7 @@ export class SpineStage {
     if (!this.active || !name) return false;
     this.animation = name;
     this.active.mesh.state.setAnimation(0, name, this.loop);
+    this.applyPlaybackRate(this.active.mesh.state);
     this.paused = false;
     return true;
   }
@@ -200,10 +257,11 @@ export class SpineStage {
     if (!stage) return;
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
-    const maximum = stage.renderer.capabilities.maxTextureSize;
-    const scale = Math.min(1, Math.sqrt(2_000_000 / (width * height)), maximum / width, maximum / height);
+    const gl = stage.renderer.getContext();
+    if (gl.isContextLost()) return;
+    const size = viewerBufferSize(width, height, gl);
     stage.renderer.setPixelRatio(1);
-    stage.renderer.setSize(Math.max(1, Math.floor(width * scale)), Math.max(1, Math.floor(height * scale)), false);
+    stage.renderer.setSize(size.width, size.height, false);
     const bounds = stage.mesh.skeleton.getBoundsRect();
     if (
       !(bounds.width > 0 && bounds.height > 0) ||
@@ -216,10 +274,8 @@ export class SpineStage {
     let h = bounds.height * 1.12;
     if (w / h < aspect) w = h * aspect;
     else h = w / aspect;
-    Object.assign(stage.camera, { left: -w / 2, right: w / 2, top: h / 2, bottom: -h / 2 });
-    stage.camera.position.set(center.x, center.y, 10);
-    stage.camera.lookAt(center.x, center.y, 0);
-    stage.camera.updateProjectionMatrix();
+    this.fit = { centerX: center.x, centerY: center.y, width: w, height: h };
+    this.applyCameraTransform();
   }
   private render = (now: number) => {
     const stage = this.active;
@@ -227,6 +283,10 @@ export class SpineStage {
     const delta = this.lastFrame ? Math.min((now - this.lastFrame) / 1000, 0.1) : 0;
     this.lastFrame = now;
     if (!this.paused) stage.mesh.update(delta);
+    if (stage.renderer.getContext().isContextLost()) {
+      this.frame = requestAnimationFrame(this.render);
+      return;
+    }
     stage.renderer.render(stage.scene, stage.camera);
     this.frame = requestAnimationFrame(this.render);
   };
@@ -237,6 +297,8 @@ export class SpineStage {
     this.frame = 0;
     this.lastFrame = 0;
     this.observer?.disconnect();
+    this.fit = undefined;
+    this.skin = "";
     const stage = this.active;
     this.active = undefined;
     if (stage) this.releaseResources(stage);
@@ -255,5 +317,36 @@ export class SpineStage {
     stage.renderer?.dispose();
     stage.renderer?.forceContextLoss();
     stage.renderer?.domElement.remove();
+  }
+
+  private applyPlaybackRate(state: { timeScale: number }) {
+    state.timeScale = this.playbackRate;
+  }
+
+  private applyBackground(renderer: THREE.WebGLRenderer, three: typeof THREE) {
+    if (!this.background) {
+      renderer.setClearColor(0x000000, 0);
+      return;
+    }
+    renderer.setClearColor(new three.Color(this.background.r, this.background.g, this.background.b), 1);
+  }
+
+  private applyCameraTransform() {
+    const stage = this.active;
+    const fit = this.fit;
+    if (!stage || !fit) return;
+    const width = fit.width / this.transform.scale;
+    const height = fit.height / this.transform.scale;
+    const centerX = fit.centerX - (this.transform.offsetX * fit.width) / 2;
+    const centerY = fit.centerY + (this.transform.offsetY * fit.height) / 2;
+    Object.assign(stage.camera, {
+      left: -width / 2,
+      right: width / 2,
+      top: height / 2,
+      bottom: -height / 2,
+    });
+    stage.camera.position.set(centerX, centerY, 10);
+    stage.camera.lookAt(centerX, centerY, 0);
+    stage.camera.updateProjectionMatrix();
   }
 }
