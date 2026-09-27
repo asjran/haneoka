@@ -10,6 +10,7 @@
   "authorizationRequired": true,
   "skipPublicResolutionCheck": true,
   "remoteRoot": "https://l14-prod-hk-patch-sirius.gamerfusiontech.com/prod/hk_27f3c91e8b62d6056c7a19f2e83b6d10/asset/Android",
+  "masterRemoteRoot": "https://l14-prod-hk-patch-sirius.gamerfusiontech.com/prod/hk_27f3c91e8b62d6056c7a19f2e83b6d10/master",
   "criHcaKey": "8594927479",
   "masterCrypto": {
     "salt": "b50b23a5fd628c3dc386f7488f81d6b0450b8c89671574f55a3ad815f10b8e30",

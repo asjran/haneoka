@@ -44,7 +44,7 @@ from core.storage import (
     release_index_prefix,
     release_index_shard,
 )
-from verify.source import validate_source_manifest
+from verify.source import validate_master_source, validate_source_manifest
 from verify.release import verify_release
 
 
@@ -158,7 +158,12 @@ class R2Store:
             raise ValueError(f"CAS file hash differs from its key: {file}")
         self.upload_path(file, cas_key(digest), content_type, metadata={"sha256": digest})
 
-    def put_json(self, key: str, value: Any, cache_control: str) -> None:
+    def put_json(
+        self, key: str, value: Any, cache_control: str,
+        *, expected_etag: str | None = None, if_absent: bool = False,
+    ) -> None:
+        if expected_etag is not None and if_absent:
+            raise ValueError("conflicting object write preconditions")
         body = stable_json(value).encode()
         digest = hashlib.sha256(body).hexdigest()
         self.client.put_object(
@@ -169,6 +174,8 @@ class R2Store:
             ContentType="application/json; charset=utf-8",
             CacheControl=cache_control,
             Metadata={"sha256": digest},
+            **({"IfMatch": expected_etag} if expected_etag is not None else {}),
+            **({"IfNoneMatch": "*"} if if_absent else {}),
         )
 
     def get_bytes(self, key: str) -> bytes | None:
@@ -718,6 +725,8 @@ def publish_source(
 ) -> dict[str, Any]:
     layout = source_layout(config.id, source_id)
     local_manifest = read_json(layout.manifest)
+    validate_source_manifest(local_manifest, config.id, source_id)
+    validate_master_source(local_manifest, layout.root)
     manifest = {
         **local_manifest,
         "storage": {"schema": "haneoka-r2-cas-v1", "prefix": CAS_PREFIX},
@@ -895,6 +904,9 @@ def fetch_source(
 
     with ThreadPoolExecutor(max_workers=store.concurrency) as executor:
         list(executor.map(download, selected))
+    selected_roles = {record["role"] for record in selected}
+    if "master-manifest" in selected_roles and "master-data" in selected_roles:
+        validate_master_source(manifest, layout.root)
     return {
         "schema": "haneoka-source-fetch-v1",
         "server": config.id,
@@ -932,6 +944,10 @@ def publish_release(
     manifest_key = prefix + "release.json"
     identity_key = prefix + RELEASE_IDENTITY_FILENAME
     identity = release_identity_descriptor(config.id, release_id, manifest)
+    pointer_head = store.head(pointer_key)
+    pointer_etag = pointer_head.get("ETag") if pointer_head is not None else None
+    if pointer_head is not None and (not isinstance(pointer_etag, str) or not pointer_etag):
+        raise ValueError("current release pointer has no object version")
     current, previous_manifest = _current_release_manifest(store, config)
     if isinstance(current, dict) and current.get("releaseId") == release_id:
         remote_manifest = store.get_json(manifest_key)
@@ -1023,7 +1039,12 @@ def publish_release(
             "prefix": release_index_prefix(config.id, release_id),
         },
     }
-    store.put_json(pointer_key, pointer, POINTER_CACHE)
+    if store.get_json(pointer_key) != current:
+        raise ValueError("current release changed during publication; refusing stale promotion")
+    store.put_json(
+        pointer_key, pointer, POINTER_CACHE,
+        expected_etag=pointer_etag, if_absent=pointer_head is None,
+    )
     return {
         **pointer,
         "releasePromoted": True,

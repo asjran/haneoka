@@ -17,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -31,6 +31,8 @@ from core.zip_io import open_validated_zip
 from ingest.addressables import downloadable_locations
 from ingest.reuse import ReuseEntry, restore_reusable
 from ingest.unity import index_unity_dependencies
+from ingest.master import discover_master_version
+from extract.master import validate_master_manifest
 from ingest.version_api import (
     AssetVersionInfo,
     cdn_authorization,
@@ -55,7 +57,7 @@ def _normalization_revision() -> str:
     """Give changed ingest logic a new immutable source key automatically."""
     directory = Path(__file__).resolve().parent
     digest = hashlib.sha256()
-    for name in ("apks.py", "addressables.py", "catalog.py", "unity.py"):
+    for name in ("apks.py", "addressables.py", "catalog.py", "unity.py", "master.py", "version_api.py"):
         digest.update(name.encode("ascii"))
         digest.update(bytes.fromhex(sha256_file(directory / name)))
     return "n" + digest.hexdigest()[:8]
@@ -811,6 +813,7 @@ def _resolve_catalogs(
         catalog_version = _resolve_catalog_version(
             config, config.catalog_version, scratch, unity_version=unity_version
         )
+        server_version = {"version": catalog_version}
         if not config.remote_root:
             raise ValueError(f"remoteRoot is not configured for {config.id}")
         remote_hash_file = scratch / "catalog_main.hash"
@@ -911,8 +914,88 @@ def _catalog_identity(catalog_sha: str, extra_files: list[tuple[str, Path]]) -> 
     ).hexdigest()
 
 
-def _source_id(version_code: str, package_sha: str, catalog_identity_sha: str) -> str:
-    return f"v{version_code}-{package_sha[:12]}-{catalog_identity_sha[:12]}-{_normalization_revision()}"
+@dataclass(frozen=True)
+class MasterResolution:
+    manifest: dict[str, Any]
+    manifest_file: Path
+    resource_version: str
+    remote_root: str
+
+    @property
+    def identity(self) -> str:
+        return hashlib.sha256(stable_json({
+            "manifest": self.manifest,
+            "manifestSha256": sha256_file(self.manifest_file),
+            "resourceVersion": self.resource_version,
+            "remoteRoot": self.remote_root,
+        }).encode("utf-8")).hexdigest()
+
+    def source_metadata(self) -> dict[str, str]:
+        return {
+            "version": self.manifest["version"],
+            "resourceVersion": self.resource_version,
+            "manifest": "master/MasterManifest.json",
+            "manifestSha256": sha256_file(self.manifest_file),
+        }
+
+
+def _resolve_master(config: ServerConfig, scratch: Path, authorization: str = "") -> MasterResolution | None:
+    if not config.master_remote_root or config.offline:
+        return None
+    version, resource_version = discover_master_version(
+        skip_resolution_check=config.skip_public_resolution_check
+    )
+    if (
+        len(version) > 128
+        or not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", version)
+        or any(part in {".", ".."} for part in version.split("/"))
+        or not re.fullmatch(r"\d+(?:\.\d+)*", resource_version)
+    ):
+        raise ValueError("invalid live Master version")
+    root = f"{config.master_remote_root}/{version}"
+    master_config = replace(config, remote_root=config.master_remote_root, authorization_required=False)
+    manifest_file = scratch / "MasterManifest.json"
+    _download(f"{root}/MasterManifest.json", manifest_file, master_config, authorization=authorization)
+    manifest = validate_master_manifest(read_json(manifest_file), expected_version=version)
+    return MasterResolution(manifest, manifest_file, resource_version, root)
+
+
+def _materialize_master(
+    resolution: MasterResolution,
+    root: Path,
+    config: ServerConfig,
+    authorization: str,
+    reuse_store: Any,
+    concurrency: int,
+) -> list[dict[str, Any]]:
+    directory = root / "master"
+    directory.mkdir(parents=True, exist_ok=True)
+    _copy_file(resolution.manifest_file, directory / "MasterManifest.json", "Master manifest")
+    master_config = replace(config, remote_root=config.master_remote_root, authorization_required=False)
+
+    def materialize(entry: dict[str, Any]) -> dict[str, Any]:
+        target = directory / entry["name"]
+        valid = target.is_file() and target.stat().st_size == entry["size"] and sha256_file(target) == entry["hash"]
+        if not valid and not (
+            reuse_store is not None
+            and restore_reusable(reuse_store, ReuseEntry(entry["hash"], entry["size"]), target)
+        ):
+            _download(
+                f"{resolution.remote_root}/{entry['name']}", target, master_config,
+                expected_bytes=entry["size"], authorization=authorization,
+            )
+        if target.stat().st_size != entry["size"] or sha256_file(target) != entry["hash"]:
+            raise ValueError(f"Master table integrity mismatch: {entry['name']}")
+        return _file_record(root, target, "master-data")
+
+    with ThreadPoolExecutor(max_workers=max(1, min(concurrency, 8))) as executor:
+        records = list(executor.map(materialize, resolution.manifest["files"]))
+    return [_file_record(root, directory / "MasterManifest.json", "master-manifest"), *records]
+
+
+def _source_id(version_code: str, package_sha: str, catalog_identity_sha: str, master_identity: str = "") -> str:
+    master = f"-m{master_identity[:12]}" if master_identity else ""
+    return f"v{version_code}-{package_sha[:12]}-{catalog_identity_sha[:12]}{master}-{_normalization_revision()}"
 
 
 def probe_source_identity(
@@ -930,8 +1013,11 @@ def probe_source_identity(
     with tempfile.TemporaryDirectory(prefix="haneoka-identity-") as temporary:
         scratch = Path(temporary)
         resolution = _resolve_catalogs(config, scratch, config.unity_version, None)
+        master = _resolve_master(config, scratch, resolution.authorization)
+        if master and resolution.server_version and master.resource_version != resolution.server_version["version"]:
+            raise ValueError("Master and resource catalog versions changed during discovery; retry ingestion")
         identity = _catalog_identity(resolution.catalog_sha, list(resolution.extra_files))
-        source_id = _source_id(version_code, package_sha, identity)
+        source_id = _source_id(version_code, package_sha, identity, master.identity if master else "")
         return {
             "server": config.id,
             "sourceId": source_id,
@@ -940,6 +1026,7 @@ def probe_source_identity(
             "sourceCatalogSha256": identity,
             "catalogHash": resolution.catalog_hash,
             "versionCode": version_code,
+            **({"master": master.source_metadata()} if master else {}),
             **({"serverVersion": resolution.server_version} if resolution.server_version else {}),
         }
 
@@ -998,10 +1085,13 @@ def ingest_package(
         asset_dir = resolution.asset_dir
         server_version = resolution.server_version
         discovered_authorization = resolution.authorization
+        master = _resolve_master(config, scratch, discovered_authorization)
+        if master and server_version and master.resource_version != server_version["version"]:
+            raise ValueError("Master and resource catalog versions changed during discovery; retry ingestion")
 
         version = package_metadata["versionCode"] or "unknown"
         catalog_identity_sha = _catalog_identity(catalog_sha, extra_catalog_files)
-        source_id = _source_id(version, package_sha, catalog_identity_sha)
+        source_id = _source_id(version, package_sha, catalog_identity_sha, master.identity if master else "")
         if probe_only:
             return {
                 "server": config.id,
@@ -1011,6 +1101,7 @@ def ingest_package(
                 "sourceCatalogSha256": catalog_identity_sha,
                 "catalogHash": catalog_hash,
                 "versionCode": version,
+                **({"master": master.source_metadata()} if master else {}),
                 **({"serverVersion": server_version} if server_version else {}),
             }
         layout = source_layout(config.id, source_id)
@@ -1208,6 +1299,10 @@ def ingest_package(
             *_role_records(layout.bundles, "unity-bundle"),
             *_role_records(layout.cri, "cri-payload"),
         ]
+        master_files = (
+            _materialize_master(master, layout.root, config, discovered_authorization, reuse_store, concurrency)
+            if master else []
+        )
         source_files = [
             _file_record(layout.root, package_target, "package"),
             _file_record(layout.root, layout.catalogs / remote_hash_file.name, "catalog-hash"),
@@ -1218,6 +1313,7 @@ def ingest_package(
             ),
             _file_record(layout.root, layout.catalogs / "embedded_catalog_main.bin", "embedded-catalog"),
             *downloaded,
+            *master_files,
         ]
         source_files.sort(key=lambda item: item["path"])
         unity_index = index_unity_dependencies(layout.root, source_files)
@@ -1246,6 +1342,7 @@ def ingest_package(
                 **({"server": server_version} if server_version else {}),
             },
             "unityIndex": unity_index,
+            **({"master": master.source_metadata()} if master else {}),
             "files": source_files,
             "fileCount": len(source_files),
             "fileBytes": sum(item["bytes"] for item in source_files),

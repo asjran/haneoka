@@ -17,9 +17,7 @@
   ],
   "anyOf": [
     {
-      "required": [
-        "remoteRoot"
-      ]
+      "required": ["remoteRoot"]
     },
     {
       "properties": {
@@ -27,9 +25,7 @@
           "const": true
         }
       },
-      "required": [
-        "offline"
-      ]
+      "required": ["offline"]
     }
   ],
   "properties": {
@@ -45,9 +41,7 @@
       "minLength": 1
     },
     "platform": {
-      "enum": [
-        "Android"
-      ]
+      "enum": ["Android"]
     },
     "unityVersion": {
       "type": "string",
@@ -80,13 +74,14 @@
       "type": "string",
       "format": "uri"
     },
+    "masterRemoteRoot": {
+      "type": "string",
+      "format": "uri"
+    },
     "assetVersion": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "catalogPath",
-        "basicUser"
-      ],
+      "required": ["catalogPath", "basicUser"],
       "description": "Live version discovery against the game service. The endpoint is supplied via the HANEOKA_VERSION_ENDPOINT variable when omitted here.",
       "properties": {
         "endpoint": {
@@ -112,11 +107,7 @@
     "masterCrypto": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "salt",
-        "key",
-        "iv"
-      ],
+      "required": ["salt", "key", "iv"],
       "properties": {
         "salt": {
           "type": "string",
@@ -136,9 +127,7 @@
       "type": "object",
       "additionalProperties": false,
       "description": "Versioned, per-locale Addressables catalog scheme (e.g. intl-cbt). The CDN publishes catalog_{version}[_{locale}].{hash,bin} with no discoverable version pointer, so the resource version is supplied here.",
-      "required": [
-        "version"
-      ],
+      "required": ["version"],
       "properties": {
         "version": {
           "type": "string",

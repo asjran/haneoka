@@ -23,7 +23,8 @@ from core.fingerprints import build_fingerprint
 from core.manifests import read_json, stable_json, write_json
 from core.paths import build_layout, source_layout
 from core.storage import cas_key
-from extract.master import extract_master
+from extract.master import extract_master, validate_master_manifest
+from core.hashes import sha256_file
 from extract.unity_reuse import (
     extractor_identity,
     load_reuse_manifest,
@@ -109,6 +110,23 @@ def _source_package(server: str, source_id: str) -> Path:
     layout = source_layout(server, source_id)
     value = json.loads(layout.manifest.read_text("utf-8"))
     return layout.root / value["package"]["file"]
+
+
+def _source_master_root(server: str, source_id: str) -> Path | None:
+    layout = source_layout(server, source_id)
+    master = read_json(layout.manifest).get("master")
+    if master is None:
+        return None
+    file = layout.root / "master" / "MasterManifest.json"
+    if (
+        not isinstance(master, dict)
+        or master.get("manifest") != "master/MasterManifest.json"
+        or not file.is_file()
+        or sha256_file(file) != master.get("manifestSha256")
+    ):
+        raise ValueError("source Master manifest integrity mismatch")
+    validate_master_manifest(read_json(file), expected_version=master.get("version"))
+    return layout.root
 
 
 def _require_local_offline_source(config: ServerConfig, source_id: str) -> dict:
@@ -308,7 +326,10 @@ def command_extract_master(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
     layout = build_layout(config.id, identity)
-    manifest = extract_master(_source_package(config.id, args.source), layout.master, config)
+    manifest = extract_master(
+        _source_package(config.id, args.source), layout.master, config,
+        snapshot_root=_source_master_root(config.id, args.source),
+    )
     _print(
         {
             "buildId": identity,
@@ -528,7 +549,10 @@ def command_build_release(args: argparse.Namespace) -> None:
 
 
 def _run_build(config: ServerConfig, source_id: str, identity: str, include_ktx2: bool) -> dict:
-    extract_master(_source_package(config.id, source_id), build_layout(config.id, identity).master, config)
+    extract_master(
+        _source_package(config.id, source_id), build_layout(config.id, identity).master, config,
+        snapshot_root=_source_master_root(config.id, source_id),
+    )
     # UnityPy decoding is CPU-heavy Python work. Use separate processes locally;
     # GitHub Actions already distributes these shards across independent jobs.
     workers = min(config.extraction_shards, os.cpu_count() or 1, 4)

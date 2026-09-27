@@ -36,6 +36,7 @@ class ServerConfig:
     catalog_version: str
     catalog_locales: tuple[str, ...]
     file: Path
+    master_remote_root: str = ""
 
 
 def validate_server_id(value: str) -> str:
@@ -68,6 +69,7 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         "criHcaKey",
         "masterCrypto",
         "catalog",
+        "masterRemoteRoot",
     }
     unknown = sorted(set(value) - allowed)
     if unknown:
@@ -205,6 +207,25 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     )
     if any(not re.fullmatch(r"[A-Za-z0-9-]+", locale) for locale in catalog_locales):
         raise ValueError(f"invalid catalog.locales entry: {file}")
+    master_remote_root = value.get("masterRemoteRoot", "")
+    if not isinstance(master_remote_root, str):
+        raise ValueError(f"invalid masterRemoteRoot: {file}")
+    if master_remote_root:
+        master_url = urlsplit(master_remote_root)
+        asset_url = urlsplit(value.get("remoteRoot", ""))
+        if (
+            master_url.scheme != "https"
+            or not master_url.hostname
+            or master_url.netloc != asset_url.netloc
+            or master_url.username is not None
+            or master_url.password is not None
+            or master_url.query
+            or master_url.fragment
+            or "\\" in master_url.path
+            or unquote(master_url.path) != master_url.path
+            or any(part in {".", ".."} for part in master_url.path.split("/"))
+        ):
+            raise ValueError(f"masterRemoteRoot must use the configured CDN origin: {file}")
     return ServerConfig(
         id=server,
         package_name=value["packageName"],
@@ -226,4 +247,5 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         catalog_version=catalog_version,
         catalog_locales=catalog_locales,
         file=file,
+        master_remote_root=master_remote_root.rstrip("/"),
     )

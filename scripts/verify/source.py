@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import re
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from core.contracts import PACKAGE_MAX_BYTES, SOURCE_SCHEMA
 from core.hashes import sha256_file
 from core.manifests import read_json
 from core.paths import source_layout, validate_release_path
+from extract.master import validate_master_manifest
 
 
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -21,6 +22,8 @@ SOURCE_ROLE_PREFIXES = {
     "embedded-catalog": "android/catalogs/",
     "unity-bundle": "android/bundles/",
     "cri-payload": "android/cri/",
+    "master-manifest": "master/",
+    "master-data": "master/",
 }
 REQUIRED_SOURCE_ROLES = {"package", "catalog", "catalog-hash", "embedded-catalog"}
 REMOTE_STORAGE = {"schema": "haneoka-r2-cas-v1", "prefix": "cas/v1/sha256"}
@@ -108,6 +111,10 @@ def validate_source_manifest(
             errors.append(f"invalid package path: {relative}")
         if role == "unity-bundle" and not relative.endswith(".bundle"):
             errors.append(f"invalid Unity bundle path: {relative}")
+        if role == "master-data" and not re.fullmatch(r"master/Master[A-Za-z0-9_]+\.bin", relative):
+            errors.append(f"invalid Master table path: {relative}")
+        if role == "master-manifest" and relative != "master/MasterManifest.json":
+            errors.append(f"invalid Master manifest path: {relative}")
         records.append(raw_record)
         by_path[relative] = raw_record
 
@@ -137,6 +144,20 @@ def validate_source_manifest(
         errors.append("fileCount mismatch")
     if manifest.get("fileBytes") != total_bytes:
         errors.append("fileBytes mismatch")
+    master = manifest.get("master")
+    if master is not None or roles.intersection({"master-data", "master-manifest"}):
+        if (
+            not isinstance(master, dict)
+            or master.get("manifest") != "master/MasterManifest.json"
+            or by_path.get("master/MasterManifest.json", {}).get("role") != "master-manifest"
+            or master.get("manifestSha256") != by_path.get("master/MasterManifest.json", {}).get("sha256")
+            or "master-data" not in roles
+            or not isinstance(master.get("version"), str)
+            or not master.get("version")
+            or not isinstance(master.get("resourceVersion"), str)
+            or not master.get("resourceVersion")
+        ):
+            errors.append("Master snapshot reference is invalid")
     for relative, record in by_path.items():
         if record.get("role") != "unity-bundle":
             continue
@@ -167,12 +188,30 @@ def validate_source_manifest(
     return records
 
 
+def validate_master_source(manifest: dict[str, Any], root: Path) -> None:
+    master = manifest.get("master")
+    if master is None:
+        return
+    file = root / "master" / "MasterManifest.json"
+    if not file.is_file() or sha256_file(file) != master.get("manifestSha256"):
+        raise ValueError("source Master manifest integrity mismatch")
+    native = validate_master_manifest(read_json(file), expected_version=master.get("version"))
+    declared = {f"master/{entry['name']}": (entry["size"], entry["hash"]) for entry in native["files"]}
+    actual = {
+        record["path"]: (record["bytes"], record["sha256"])
+        for record in manifest["files"] if record["role"] == "master-data"
+    }
+    if declared != actual:
+        raise ValueError("source Master records do not match the complete native manifest")
+
+
 def verify_source(
     server: str, source_id: str, check_hashes: bool = True
 ) -> dict[str, Any]:
     layout = source_layout(server, source_id)
     manifest = read_json(layout.manifest)
     records = validate_source_manifest(manifest, server, source_id)
+    validate_master_source(manifest, layout.root)
     errors: list[str] = []
     paths: set[str] = set()
     roles: set[str] = set()

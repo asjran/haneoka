@@ -1,5 +1,9 @@
 name: Resource pipeline implementation
 
+concurrency:
+  group: resource-build-server-${{ inputs.server }}
+  cancel-in-progress: false
+
 on:
   workflow_call:
     inputs:
@@ -76,6 +80,7 @@ jobs:
       SOURCE_ID_INPUT: ${{ inputs.source_id }}
       RESOURCE_CDN_AUTHORIZATION: ${{ secrets.RESOURCE_CDN_AUTHORIZATION || secrets.resource_cdn_authorization }}
       HANEOKA_VERSION_ENDPOINT: ${{ secrets.HANEOKA_VERSION_ENDPOINT || secrets.haneoka_version_endpoint }}
+      HANEOKA_MASTER_ENDPOINT: ${{ secrets.HANEOKA_MASTER_ENDPOINT }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-resource-pipeline
@@ -84,7 +89,7 @@ jobs:
         run: |
           if [[ -n "$SOURCE_ID_INPUT" ]]; then
             python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source \
-              --source "$SOURCE_ID_INPUT" --role package > "$RUNNER_TEMP/source.json"
+              --source "$SOURCE_ID_INPUT" --role package --role master-manifest --role master-data > "$RUNNER_TEMP/source.json"
           else
             if [[ -z "$PACKAGE_R2_KEY" && "${{ inputs.no_reuse }}" != "true" ]]; then
               # Reuse the stored package when the publisher fingerprint is
@@ -114,8 +119,8 @@ jobs:
               if [[ -n "$reuse_key" ]]; then
                 echo "Publisher package unchanged; reusing R2 package $reuse_key"
                 PACKAGE_R2_KEY="$reuse_key"
-                # With the package known unchanged, the fresh catalogs alone
-                # decide the source identity; skip without any package bytes.
+                # With the package unchanged, fresh catalogs and Master data
+                # decide the source identity without transferring the package.
                 identity_json=""
                 if [[ "${{ inputs.force }}" != "true" ]]; then
                   identity_json="$(python scripts/pipeline.py --server "$RESOURCE_SERVER" probe-identity || true)"
@@ -191,6 +196,10 @@ jobs:
             if [[ "${{ inputs.no_reuse }}" == "true" ]]; then ingest_extra=(); fi
             if ! python scripts/pipeline.py --server "$RESOURCE_SERVER" ingest \
               --input "$RUNNER_TEMP/package-input" --concurrency 32 "${ingest_extra[@]}" > "$RUNNER_TEMP/source.json"; then
+              if jq -e '.masterRemoteRoot // empty' "scripts/config/servers/$RESOURCE_SERVER.json" > /dev/null; then
+                echo "Live Master ingestion failed; retaining the published release" >&2
+                exit 1
+              fi
               if unzip -l "$RUNNER_TEMP/package-input" "assets/aa/catalog.bin" > /dev/null 2>&1; then
                 echo "remote catalog ingest failed; retrying with the embedded catalog" >&2
                 unzip -p "$RUNNER_TEMP/package-input" "assets/aa/catalog.bin" \
