@@ -45,6 +45,50 @@ present in a prior published source from the R2 CAS (verified by size and
 SHA-256, CDN download as fallback), so hot updates only fetch what actually
 changed.
 
+### Delta builds
+
+When only a fraction of the corpus changes — the common hot-update case — the
+pipeline runs a *delta build* end to end. It is driven by one plan file that
+`prepare-unity-reuse` publishes next to the per-shard reuse manifests:
+
+- `unity-delta-plan.json` pins the base release id and, for every Unity bundle
+  in the new source, either validated reuse references into the base release
+  (report, object archive, media outputs) or marks it *pending* for fresh
+  extraction. The plan records the extractor identity; every consumer rejects
+  a plan produced by a different extractor.
+
+Each stage then handles only what changed:
+
+- `ingest --base-source <id>` adopts unchanged bundle records from the base
+  source manifest without transferring any bytes (content, size, and catalog
+  addressables must match exactly); only new or changed bundles are
+  downloaded, and Unity CAB indexing parses only the local files.
+- Unity shard jobs fetch just their pending originals and run
+  `extract-unity --delta-plan`, skipping reusable bundles entirely; shards
+  with nothing pending do not run at all.
+- `merge-unity --delta-plan` fetches the reusable bundles' reports from the
+  base release, skips materialization and runtime projections for them, and
+  adopts their descriptors after cross-checking the recomputed source
+  identity.
+- The CRI, Live2D, Spine, and Home Spot stages declare reusable sources,
+  models, and scenes from the pinned base release documents instead of
+  restoring their bytes; anything that cannot be declared is decoded,
+  rendered, or rebuilt locally, restoring its inputs from CAS on demand.
+- `build-release --delta-plan` composes the release manifest from the local
+  delta plus the base release entries, so unchanged bytes never reach the
+  runner. The composed manifest stays flat and explicit (path, sha256, bytes,
+  mediaType, role per entry), which keeps the CDN, prune, and GC contracts
+  unchanged.
+- `publish-release` verifies the delta files locally and cross-checks every
+  composed entry against the previous release manifest before uploading only
+  the CAS delta and switching the pointer.
+
+Every transfer remains hash-verified and every fallback degrades to the
+full build path: if the plan is unavailable, the run proceeds exactly as
+before. Because per-run verification now covers the delta plus the base
+manifest identity rather than every byte, the weekly storage maintenance runs
+`verify-remote` over the current release's objects in the store.
+
 ### Live server version discovery (jp)
 
 Japanese production catalogs live behind a per-platform directory that only
@@ -154,7 +198,8 @@ PYTHONPATH=scripts python scripts/pipeline.py --server jp-cbt <command> --help
 | `run`                                                 | Run the complete local pipeline; `--offline --source` rebuilds a verified local source without the game CDN |
 | `verify-release` / `verify-remote`                    | Verify local or published releases                                                                          |
 | `publish-source` / `publish-release`                  | Publish verified data to R2                                                                                 |
-| `fetch-package` / `fetch-source` / `fetch-home-spots` | Restore stored inputs                                                                                       |
+| `fetch-package` / `fetch-source` / `fetch-home-spots` | Restore stored inputs (`fetch-source` supports shard and digest filtering)                                     |
+| `fetch-release-document`                              | Fetch one verified JSON document from a published release                                                        |
 | `prune-sources` / `prune-releases` / `prune-uploads`  | Apply retention policies                                                                                    |
 | `gc-r2`                                               | Remove unreferenced R2 objects                                                                              |
 

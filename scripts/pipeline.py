@@ -9,6 +9,7 @@ import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 from build.api import build_api
 from build.assets import merge_unity_shards
@@ -24,12 +25,12 @@ from core.manifests import read_json, stable_json, write_json
 from core.paths import build_layout, source_layout
 from core.storage import cas_key
 from extract.master import extract_master, validate_master_manifest
-from core.hashes import sha256_file
+from core.hashes import sha256_bytes, sha256_file
 from extract.unity_reuse import (
     extractor_identity,
     load_reuse_manifest,
     make_restore,
-    prepare_unity_reuse,
+    prepare_unity_delta_plan,
 )
 from extract.cri import extract_cri
 from extract.unity import extract_shard
@@ -175,6 +176,18 @@ def command_ingest(args: argparse.Namespace) -> None:
             )
         except Exception as error:  # noqa: BLE001 - reuse is best effort
             sys.stderr.write(f"warning: artifact reuse unavailable: {error}\n")
+    base_source_manifest = None
+    if args.base_source:
+        try:
+            store = store or R2Store(config, args.concurrency)
+            base_source_manifest = store.get_json(
+                f"servers/{config.id}/sources/{args.base_source}/source.json"
+            )
+            if not isinstance(base_source_manifest, dict):
+                raise ValueError("base source manifest is missing or invalid")
+        except Exception as error:  # noqa: BLE001 - adoption is best effort
+            sys.stderr.write(f"warning: delta record adoption unavailable: {error}\n")
+            base_source_manifest = None
     manifest = ingest_package(
         Path(args.input),
         config,
@@ -182,6 +195,7 @@ def command_ingest(args: argparse.Namespace) -> None:
         args.concurrency,
         reuse_index=reuse_index,
         reuse_store=store,
+        base_source_manifest=base_source_manifest,
     )
     _print(_source_summary(manifest))
 
@@ -281,6 +295,40 @@ def command_cdn_credential(args: argparse.Namespace) -> None:
     _print({"server": config.id, "origin": origin, "authorization": value, **discovered})
 
 
+def command_fetch_release_document(args: argparse.Namespace) -> None:
+    """Fetch and verify one JSON document from a published release."""
+
+    config = load_server_config(args.server)
+    store = R2Store(config, args.concurrency)
+    release_id = args.release
+    if not release_id:
+        pointer = store.get_json(f"servers/{config.id}/current.json") or {}
+        release_id = str(pointer.get("releaseId") or "")
+    if not release_id:
+        raise ValueError(f"no release selected for {config.id}")
+    manifest = store.get_json(f"servers/{config.id}/releases/{release_id}/release.json")
+    if not isinstance(manifest, dict) or manifest.get("releaseId") != release_id:
+        raise ValueError(f"release manifest is missing or invalid: {release_id}")
+    entry = next(
+        (
+            item
+            for item in manifest.get("entries", [])
+            if isinstance(item, dict) and item.get("path") == args.path
+        ),
+        None,
+    )
+    if entry is None:
+        raise ValueError(f"release does not declare the document: {args.path}")
+    digest = str(entry["sha256"])
+    body = store.get_bytes(cas_key(digest))
+    if body is None or len(body) != int(entry["bytes"]) or sha256_bytes(body).hexdigest() != digest:
+        raise ValueError(f"release document CAS object is invalid: {args.path}")
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(body)
+    _print({"server": config.id, "releaseId": release_id, "path": args.path, "bytes": len(body)})
+
+
 def command_verify_source(args: argparse.Namespace) -> None:
     _print(_source_summary(verify_source(args.server, args.source, not args.fast)))
 
@@ -294,18 +342,43 @@ def command_index_source(args: argparse.Namespace) -> None:
     _print(_source_summary(verify_source(args.server, args.source, not args.fast)))
 
 
+def _delta_context(config: ServerConfig, plan_path: str) -> Any:
+    """Build a pinned DeltaContext from a plan file (delta builds only)."""
+
+    from core.delta import DeltaContext, load_plan
+
+    plan = load_plan(Path(plan_path))
+    if plan["extractor"] != extractor_identity():
+        raise ValueError(
+            "delta plan was prepared by a different Unity extractor; "
+            "reusable outputs must not be composed across extractor changes"
+        )
+    store = R2Store(config, 32)
+    return DeltaContext(store, config.id, plan)
+
+
 def command_prepare_unity_reuse(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     layout = source_layout(config.id, args.source)
-    shards, stats = prepare_unity_reuse(
+    plan, stats = prepare_unity_delta_plan(
         R2Store(config, args.concurrency),
         config.id,
         read_json(layout.manifest),
+        args.source,
         args.shard_count,
         args.concurrency,
     )
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    write_json(
+        output / "unity-delta-plan.json",
+        plan,
+        pretty=True,
+    )
+    # Per-shard restore manifests stay available for the non-delta path.
+    shards: list[dict[str, dict[str, Any]]] = [{} for _ in range(args.shard_count)]
+    for digest, entry in plan["bundles"].items():
+        shards[entry["shardIndex"]][digest] = entry
     for index, bundles in enumerate(shards):
         write_json(
             output / f"unity-reuse-{index:03d}.json",
@@ -319,7 +392,19 @@ def command_prepare_unity_reuse(args: argparse.Namespace) -> None:
                 "bundles": bundles,
             },
         )
-    _print({"server": config.id, "sourceId": args.source, **stats})
+    pending_by_shard: dict[str, int] = {}
+    for digest, shard in plan["pending"].items():
+        pending_by_shard[str(shard)] = pending_by_shard.get(str(shard), 0) + 1
+    _print(
+        {
+            "server": config.id,
+            "sourceId": args.source,
+            "baseReleaseId": plan["baseReleaseId"],
+            **stats,
+            "pending": len(plan["pending"]),
+            "pendingByShard": pending_by_shard,
+        }
+    )
 
 
 def command_extract_master(args: argparse.Namespace) -> None:
@@ -343,14 +428,42 @@ def command_extract_unity(args: argparse.Namespace) -> None:
     identity = args.build or build_id(config, args.source)
     count = args.shard_count or config.extraction_shards
     reuse_restore = None
-    if args.reuse_manifest:
+    delta = None
+    if args.delta_plan:
+        context = _delta_context(config, args.delta_plan)
+        reusable = set(context.shard_reusable(args.shard_index))
+        bundles = {digest: context.plan_entry(digest) for digest in reusable}
+        delta = (reusable, bundles)
+        sys.stderr.write(
+            f"unity: delta shard {args.shard_index} skips {len(reusable)} reusable bundles\n"
+        )
+    elif args.reuse_manifest:
         try:
             entries = load_reuse_manifest(Path(args.reuse_manifest))
             reuse_restore = make_restore(R2Store(config, 8), entries)
             sys.stderr.write(f"unity: reuse manifest covers {len(entries)} bundles\n")
         except Exception as error:  # noqa: BLE001 - extraction must proceed without reuse
             sys.stderr.write(f"warning: Unity reuse unavailable: {error}\n")
-    result = extract_shard(config.id, args.source, identity, args.shard_index, count, reuse_restore)
+    fetch_store: list[R2Store] = []
+
+    def fetch_original(digest: str, target: Path) -> None:
+        # Self-heal a delta-adopted record that still needs a fresh
+        # extraction: restore its original bundle from the source CAS.
+        # The store is created lazily so offline local runs never touch R2.
+        if not fetch_store:
+            fetch_store.append(R2Store(config, 8))
+        fetch_store[0].download_file(cas_key(digest), target, expected_sha256=digest)
+
+    result = extract_shard(
+        config.id,
+        args.source,
+        identity,
+        args.shard_index,
+        count,
+        reuse_restore,
+        delta,
+        fetch_original,
+    )
     _print(
         _fields(
             result,
@@ -363,6 +476,7 @@ def command_extract_unity(args: argparse.Namespace) -> None:
             "bundleCount",
             "sourceCount",
             "objectCount",
+            "deltaReusableBundleCount",
         )
     )
 
@@ -371,7 +485,8 @@ def command_merge_unity(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
     count = args.shard_count or config.extraction_shards
-    _print(merge_unity_shards(config.id, args.source, identity, count))
+    delta = _delta_context(config, args.delta_plan) if args.delta_plan else None
+    _print(merge_unity_shards(config.id, args.source, identity, count, delta))
 
 
 def command_extract_cri(args: argparse.Namespace) -> None:
@@ -379,17 +494,35 @@ def command_extract_cri(args: argparse.Namespace) -> None:
     identity = args.build or build_id(config, args.source)
     snapshot = None
     store = None
-    if args.reuse_current:
+    delta = None
+    if args.delta_plan:
+        delta = _delta_context(config, args.delta_plan)
+        try:
+            document = delta.base_document("metadata/cri.json")
+            snapshot = {
+                "releaseId": delta.base_release_id,
+                "document": document,
+                "entries": delta.entries(),
+            }
+        except Exception as error:  # noqa: BLE001 - declare falls back to decode
+            sys.stderr.write(f"warning: base CRI document unavailable: {error}\n")
+            snapshot = None
+    elif args.reuse_current:
         try:
             store = R2Store(config, args.reuse_concurrency)
             snapshot = current_release_document(store, config, "metadata/cri.json")
         except Exception as error:
             sys.stderr.write(f"CRI current-release reuse is unavailable; decoding all sources: {error}\n")
-    restore_output = (
-        (lambda output, target: restore_release_object(store, snapshot, output, target))
-        if store is not None and isinstance(snapshot, dict)
-        else None
-    )
+    restore_output = None
+    if delta is not None:
+        # Pinned restore used only by the music-video re-mux fallback.
+        restore_output = (
+            lambda output, target: delta.fetch_release_path(str(output["path"]), target)
+        )
+    elif store is not None and isinstance(snapshot, dict):
+        restore_output = (
+            lambda output, target: restore_release_object(store, snapshot, output, target)
+        )
     result = extract_cri(
         config,
         args.source,
@@ -398,6 +531,7 @@ def command_extract_cri(args: argparse.Namespace) -> None:
         reuse_manifest=snapshot.get("document") if isinstance(snapshot, dict) else None,
         restore_output=restore_output,
         reuse_concurrency=args.reuse_concurrency,
+        delta=delta,
     )
     _print(
         _fields(
@@ -413,31 +547,25 @@ def command_extract_cri(args: argparse.Namespace) -> None:
     )
 
 
-def _preview_restore(store: R2Store, snapshot: dict) -> object:
-    """Build the preview-restore callable shared by the Live2D and Spine stages."""
-
-    entries = snapshot.get("entries")
-
-    def restore(path: str, sha256: str, target: Path) -> None:
-        if not isinstance(entries, dict):
-            raise ValueError("current release snapshot has no path entries")
-        entry = entries.get(path)
-        if not isinstance(entry, dict) or str(entry.get("sha256") or "") != sha256:
-            raise ValueError(f"current release does not declare the reusable preview: {path}")
-        restore_release_object(
-            store,
-            snapshot,
-            {"path": path, "sha256": sha256, "bytes": int(entry.get("bytes") or -1)},
-            target,
-        )
-
-    return restore
-
-
 def _preview_reuse_inputs(
-    config: ServerConfig, document_path: str, reuse_concurrency: int
+    config: ServerConfig, document_path: str, reuse_concurrency: int,
+    delta: Any = None,
 ) -> tuple[dict | None, object | None]:
-    """Load the current release's stage document for preview reuse, best effort."""
+    """Load the pinned base release's stage document for preview reuse."""
+
+    if delta is not None:
+        try:
+            snapshot = {
+                "releaseId": delta.base_release_id,
+                "document": delta.base_document(document_path),
+                "entries": delta.entries(),
+            }
+        except Exception as error:
+            sys.stderr.write(
+                f"{document_path} base-release reuse is unavailable; rendering all previews: {error}\n"
+            )
+            return None, None
+        return snapshot.get("document"), _preview_restore(delta, snapshot)
 
     try:
         store = R2Store(config, reuse_concurrency)
@@ -452,11 +580,47 @@ def _preview_reuse_inputs(
     return snapshot.get("document"), _preview_restore(store, snapshot)
 
 
+def _preview_restore(store: Any, snapshot: dict) -> object:
+    """Build the preview-restore callable shared by the Live2D and Spine stages."""
+
+    entries = snapshot.get("entries")
+
+    def restore(path: str, sha256: str, target: Path) -> None:
+        if not isinstance(entries, dict):
+            raise ValueError("current release snapshot has no path entries")
+        entry = entries.get(path)
+        if not isinstance(entry, dict) or str(entry.get("sha256") or "") != sha256:
+            raise ValueError(f"current release does not declare the reusable preview: {path}")
+        if isinstance(store, R2Store):
+            restore_release_object(
+                store,
+                snapshot,
+                {"path": path, "sha256": sha256, "bytes": int(entry.get("bytes") or -1)},
+                target,
+            )
+        else:
+            # DeltaContext: restore from the pinned base release entries.
+            store.fetch_release_path(path, target)
+
+    return restore
+
+
 def command_build_live2d(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
     reuse_manifest, restore_output = (None, None)
-    if args.reuse_current:
+    delta = None
+    base_document = None
+    if args.delta_plan:
+        delta = _delta_context(config, args.delta_plan)
+        reuse_manifest, restore_output = _preview_reuse_inputs(
+            config, "metadata/live2d.json", args.reuse_concurrency, delta=delta
+        )
+        try:
+            base_document = delta.base_document("metadata/live2d.json")
+        except Exception as error:  # noqa: BLE001 - adoption is best effort
+            sys.stderr.write(f"warning: base Live2D document unavailable: {error}\n")
+    elif args.reuse_current:
         reuse_manifest, restore_output = _preview_reuse_inputs(
             config, "metadata/live2d.json", args.reuse_concurrency
         )
@@ -467,6 +631,8 @@ def command_build_live2d(args: argparse.Namespace) -> None:
         reuse_manifest=reuse_manifest,
         restore_output=restore_output,
         reuse_concurrency=args.reuse_concurrency,
+        delta=delta,
+        base_document=base_document,
     )
     _print(
         _fields(
@@ -487,7 +653,18 @@ def command_build_spine(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
     reuse_manifest, restore_output = (None, None)
-    if args.reuse_current:
+    delta = None
+    base_document = None
+    if args.delta_plan:
+        delta = _delta_context(config, args.delta_plan)
+        reuse_manifest, restore_output = _preview_reuse_inputs(
+            config, "metadata/spine.json", args.reuse_concurrency, delta=delta
+        )
+        try:
+            base_document = delta.base_document("metadata/spine.json")
+        except Exception as error:  # noqa: BLE001 - adoption is best effort
+            sys.stderr.write(f"warning: base Spine document unavailable: {error}\n")
+    elif args.reuse_current:
         reuse_manifest, restore_output = _preview_reuse_inputs(
             config, "metadata/spine.json", args.reuse_concurrency
         )
@@ -498,6 +675,8 @@ def command_build_spine(args: argparse.Namespace) -> None:
         reuse_manifest=reuse_manifest,
         restore_output=restore_output,
         reuse_concurrency=args.reuse_concurrency,
+        delta=delta,
+        base_document=base_document,
     )
     _print(
         _fields(
@@ -521,11 +700,25 @@ def command_build_spine(args: argparse.Namespace) -> None:
 def command_build_home_spots(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
-    result = build_home_spots(config, args.source, identity)
+    delta = None
+    base_document = None
+    if args.delta_plan:
+        delta = _delta_context(config, args.delta_plan)
+        try:
+            base_document = delta.base_document("metadata/home-spots.json")
+        except Exception as error:  # noqa: BLE001 - adoption is best effort
+            sys.stderr.write(f"warning: base Home Spot document unavailable: {error}\n")
+    result = build_home_spots(
+        config,
+        args.source,
+        identity,
+        delta=delta,
+        base_document=base_document,
+    )
     _print(
         {
             "buildId": identity,
-            **_fields(result, "schema", "server", "sourceId", "sceneCount"),
+            **_fields(result, "schema", "server", "sourceId", "sceneCount", "adoptedSceneCount"),
         }
     )
 
@@ -545,7 +738,10 @@ def command_build_ktx2(args: argparse.Namespace) -> None:
 def command_build_release(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
-    _print(_release_summary(assemble_release(config.id, args.source, identity)))
+    base_manifest = None
+    if args.delta_plan:
+        base_manifest = _delta_context(config, args.delta_plan).base_manifest()
+    _print(_release_summary(assemble_release(config.id, args.source, identity, base_manifest)))
 
 
 def _run_build(config: ServerConfig, source_id: str, identity: str, include_ktx2: bool) -> dict:
@@ -655,6 +851,12 @@ def command_publish_source(args: argparse.Namespace) -> None:
 
 def command_fetch_source(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
+    exclude_sha256 = None
+    if args.exclude_sha256_file:
+        values = json.loads(Path(args.exclude_sha256_file).read_text("utf-8"))
+        if not isinstance(values, list):
+            raise ValueError("exclude-sha256 file must contain a JSON array")
+        exclude_sha256 = {str(value) for value in values}
     _print(
         fetch_source(
             R2Store(config, args.concurrency),
@@ -663,6 +865,7 @@ def command_fetch_source(args: argparse.Namespace) -> None:
             roles=set(args.role or []),
             shard_index=args.shard_index,
             shard_count=args.shard_count,
+            exclude_sha256=exclude_sha256,
         )
     )
 
@@ -791,6 +994,10 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="restore unchanged bundle names from prior sources in R2 instead of downloading",
     )
+    ingest.add_argument(
+        "--base-source",
+        help="adopt unchanged bundle records from this published source without transferring bytes",
+    )
     ingest.set_defaults(run=command_ingest)
 
     probe_identity = commands.add_parser(
@@ -820,6 +1027,16 @@ def parser() -> argparse.ArgumentParser:
     identity.add_argument("--source", required=True)
     identity.set_defaults(run=command_build_id)
 
+    document_fetch = commands.add_parser(
+        "fetch-release-document",
+        help="fetch one verified JSON document from a published release",
+    )
+    document_fetch.add_argument("--release", help="release id; defaults to the current pointer")
+    document_fetch.add_argument("--path", required=True)
+    document_fetch.add_argument("--output", required=True)
+    document_fetch.add_argument("--concurrency", type=int, default=8)
+    document_fetch.set_defaults(run=command_fetch_release_document)
+
     source_verify = commands.add_parser("verify-source", help="verify a local immutable source")
     source_verify.add_argument("--source", required=True)
     source_verify.add_argument("--fast", action="store_true", help="skip content rehashing")
@@ -846,6 +1063,10 @@ def parser() -> argparse.ArgumentParser:
         "--reuse-manifest",
         help="reuse manifest from prepare-unity-reuse; restores unchanged bundles from the current release",
     )
+    unity.add_argument(
+        "--delta-plan",
+        help="delta plan from prepare-unity-reuse; extract only pending bundles, compose the rest from the base release",
+    )
     unity.set_defaults(run=command_extract_unity)
 
     reuse_parser = commands.add_parser(
@@ -862,6 +1083,10 @@ def parser() -> argparse.ArgumentParser:
     merge.add_argument("--source", required=True)
     merge.add_argument("--build")
     merge.add_argument("--shard-count", type=int)
+    merge.add_argument(
+        "--delta-plan",
+        help="delta plan from prepare-unity-reuse; compose reusable outputs from the base release",
+    )
     merge.set_defaults(run=command_merge_unity)
 
     cri = commands.add_parser("extract-cri", help="decode original and embedded CRI payloads")
@@ -873,6 +1098,10 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="reuse matching CRI outputs from the selected R2 release CAS",
     )
+    cri.add_argument(
+        "--delta-plan",
+        help="delta plan from prepare-unity-reuse; declare reusable sources from the pinned base release",
+    )
     cri.add_argument("--reuse-concurrency", type=int, default=32)
     cri.set_defaults(run=command_extract_cri)
 
@@ -883,6 +1112,10 @@ def parser() -> argparse.ArgumentParser:
         "--reuse-current",
         action="store_true",
         help="restore unchanged models' previews from the selected R2 release CAS",
+    )
+    live2d.add_argument(
+        "--delta-plan",
+        help="delta plan from prepare-unity-reuse; adopt unchanged models from the pinned base release",
     )
     live2d.add_argument("--reuse-concurrency", type=int, default=32)
     live2d.set_defaults(run=command_build_live2d)
@@ -898,6 +1131,10 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="restore unchanged models' previews from the selected R2 release CAS",
     )
+    spine.add_argument(
+        "--delta-plan",
+        help="delta plan from prepare-unity-reuse; adopt unchanged models from the pinned base release",
+    )
     spine.add_argument("--reuse-concurrency", type=int, default=32)
     spine.set_defaults(run=command_build_spine)
 
@@ -906,6 +1143,10 @@ def parser() -> argparse.ArgumentParser:
     )
     home_spots.add_argument("--source", required=True)
     home_spots.add_argument("--build")
+    home_spots.add_argument(
+        "--delta-plan",
+        help="delta plan from prepare-unity-reuse; adopt unchanged scenes from the pinned base release",
+    )
     home_spots.set_defaults(run=command_build_home_spots)
 
     api = commands.add_parser("build-api", help="build canonical catalog documents")
@@ -921,6 +1162,10 @@ def parser() -> argparse.ArgumentParser:
     release = commands.add_parser("build-release", help="assemble an immutable release")
     release.add_argument("--source", required=True)
     release.add_argument("--build")
+    release.add_argument(
+        "--delta-plan",
+        help="delta plan from prepare-unity-reuse; compose the release against the pinned base release",
+    )
     release.set_defaults(run=command_build_release)
 
     run = commands.add_parser(
@@ -970,6 +1215,10 @@ def parser() -> argparse.ArgumentParser:
     source_fetch.add_argument("--role", action="append", help="source file role to fetch; may be repeated")
     source_fetch.add_argument("--shard-index", type=int)
     source_fetch.add_argument("--shard-count", type=int)
+    source_fetch.add_argument(
+        "--exclude-sha256-file",
+        help="JSON array of content digests to skip (delta fetches only what changed)",
+    )
     source_fetch.add_argument("--concurrency", type=int, default=12)
     source_fetch.set_defaults(run=command_fetch_source)
 

@@ -29,7 +29,7 @@ from core.manifests import read_json, stable_json, write_json
 from core.paths import source_layout
 from core.zip_io import open_validated_zip
 from ingest.addressables import downloadable_locations
-from ingest.reuse import ReuseEntry, restore_reusable
+from ingest.reuse import REUSABLE_ROLES, ReuseEntry, restore_reusable
 from ingest.unity import index_unity_dependencies
 from ingest.master import discover_master_version
 from extract.master import validate_master_manifest
@@ -1057,6 +1057,7 @@ def ingest_package(
     probe_only: bool = False,
     reuse_index: dict[str, ReuseEntry] | None = None,
     reuse_store: Any = None,
+    base_source_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if config.closed:
         raise ValueError(
@@ -1234,10 +1235,46 @@ def ingest_package(
 
         reuse_counters = {"restored": 0, "restored_bytes": 0, "downloaded": 0, "downloaded_bytes": 0}
         reuse_lock = threading.Lock()
+        # Delta ingestion: a bundle name already present with identical content
+        # in the base source manifest is adopted as a manifest record without
+        # transferring any bytes.  The base record was hash-verified when that
+        # source was published, and the CAS object remains addressable by the
+        # same digest.  Adopted records always receive the *current* catalog's
+        # addressables metadata, never the base copy.
+        base_records_by_name: dict[str, dict[str, Any]] = {}
+        if base_source_manifest is not None:
+            for item in base_source_manifest.get("files", []):
+                if not isinstance(item, dict) or item.get("role") not in REUSABLE_ROLES:
+                    continue
+                name = str(item.get("originalFilename") or "")
+                digest = str(item.get("sha256") or "")
+                if name and len(digest) == 64 and isinstance(item.get("bytes"), int):
+                    base_records_by_name.setdefault(name, item)
+        adopted_records: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
 
         def materialize(plan: tuple[dict[str, Any], Path, dict[str, Any], int]) -> tuple[Path, dict[str, Any]] | None:
             location, target, addressables, expected = plan
             filename = target.name
+            base_record = base_records_by_name.get(filename) if base_records_by_name else None
+            if base_record is not None:
+                entry = reuse_index.get(filename) if reuse_index else None
+                agrees = entry is None or entry.sha256 == str(base_record["sha256"])
+                # The reuse context must match too: changed locale tagging or
+                # catalog metadata makes the bundle's extraction context differ
+                # even when its bytes are identical, and the extraction stages
+                # would then need bytes the delta source never materialized.
+                same_addressables = (addressables or None) == (
+                    base_record.get("addressables") or None
+                )
+                if (
+                    agrees
+                    and same_addressables
+                    and (not expected or expected == int(base_record["bytes"]))
+                    and filename not in adopted_records
+                ):
+                    with reuse_lock:
+                        adopted_records[filename] = (base_record, addressables)
+                    return None
             if target.is_file() and (not expected or target.stat().st_size == expected):
                 actual = _required_file_size(target, f"artifact {filename}")
             elif target.exists():
@@ -1288,10 +1325,13 @@ def ingest_package(
                 target, addressables = result
                 addressables_by_file[target] = addressables
 
-        if reuse_index:
+        if reuse_index or adopted_records:
             sys.stderr.write(
                 "catalog: reused {restored} CAS objects ({restored_bytes} bytes), "
-                "downloaded {downloaded} from CDN ({downloaded_bytes} bytes)\n".format(**reuse_counters)
+                "downloaded {downloaded} from CDN ({downloaded_bytes} bytes), "
+                "adopted {adopted} records without transfer\n".format(
+                    adopted=len(adopted_records), **reuse_counters
+                )
             )
 
         # Embedded and remote catalogs may point to the same filename. Rebuild a
@@ -1316,6 +1356,16 @@ def ingest_package(
             *_role_records(layout.bundles, "unity-bundle"),
             *_role_records(layout.cri, "cri-payload"),
         ]
+        # Merge adopted delta records after the disk walk: every adopted file is
+        # absent from disk by construction, so the two sets are disjoint.
+        local_paths = {str(record["path"]) for record in downloaded}
+        adopted = []
+        for filename, (base_record, _addressables) in sorted(adopted_records.items()):
+            if str(base_record["path"]) in local_paths:
+                continue
+            adopted.append(dict(base_record))
+            local_paths.add(str(base_record["path"]))
+        downloaded.extend(adopted)
         master_files = (
             _materialize_master(master, layout.root, config, discovered_authorization, reuse_store, concurrency)
             if master else []
@@ -1333,7 +1383,11 @@ def ingest_package(
             *master_files,
         ]
         source_files.sort(key=lambda item: item["path"])
-        unity_index = index_unity_dependencies(layout.root, source_files)
+        unity_index = index_unity_dependencies(
+            layout.root,
+            source_files,
+            adopt_stored_metadata=bool(adopted_records),
+        )
         manifest = {
             "schema": SOURCE_SCHEMA,
             "server": config.id,

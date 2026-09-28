@@ -649,7 +649,21 @@ def extract_shard(
     shard_index: int,
     shard_count: int,
     reuse_restore: Callable[[str, Path], dict[str, Any] | None] | None = None,
+    delta: tuple[set[str], dict[str, Any]] | None = None,
+    fetch_original: Callable[[str, Path], None] | None = None,
 ) -> dict[str, Any]:
+    """Process one deterministic shard.
+
+    ``reuse_restore`` restores unchanged bundles' outputs from the current
+    release (restore mode).  ``delta`` — a ``(reusable_digests, plan_bundles)``
+    pair from the run's delta plan — instead skips reusable bundles entirely:
+    their outputs are composed from the base release manifest later, so no
+    bytes are restored into the build workspace.  ``fetch_original`` restores
+    an original bundle from the source CAS on demand, covering the rare case
+    where a delta-adopted record still needs a fresh extraction (changed
+    extraction context).
+    """
+
     source = source_layout(server, source_id)
     build = build_layout(server, build_id)
     manifest = read_json(source.manifest)
@@ -659,17 +673,35 @@ def extract_shard(
         raise FileExistsError(f"shard output already exists: {shard_root}")
     shard_root.mkdir(parents=True)
     selected = shard_artifacts(manifest, shard_index, shard_count)
+    if delta is not None:
+        reusable_digests, _plan_bundles = delta
+        selected = [item for item in selected if str(item["sha256"]) not in reusable_digests]
     artifacts_by_path = {str(item["path"]): item for item in records}
     reports = []
     reused = 0
     for artifact in selected:
         report = reuse_restore(str(artifact["sha256"]), shard_root) if reuse_restore else None
         if report is None:
+            bundle_file = source.root / str(artifact["path"])
+            if not bundle_file.is_file():
+                if fetch_original is None:
+                    raise FileNotFoundError(
+                        f"Unity bundle is missing from the source and cannot be restored: {bundle_file}"
+                    )
+                fetch_original(str(artifact["sha256"]), bundle_file)
             dependencies = [
                 source.root / relative
                 for relative in _dependency_paths(artifact, artifacts_by_path)
             ]
-            report = extract_bundle(source.root / artifact["path"], artifact, shard_root, dependencies)
+            for dependency in dependencies:
+                if not dependency.is_file() and fetch_original is not None:
+                    dependency_artifact = next(
+                        (item for item in records if str(item["path"]) == dependency.relative_to(source.root).as_posix()),
+                        None,
+                    )
+                    if dependency_artifact is not None:
+                        fetch_original(str(dependency_artifact["sha256"]), dependency)
+            report = extract_bundle(bundle_file, artifact, shard_root, dependencies)
         else:
             reused += 1
         reports.append(report)
@@ -687,5 +719,8 @@ def extract_shard(
         "objectCount": sum(report["objectArchive"]["objectCount"] for report in reports),
         "bundles": [report["bundle"]["sha256"] for report in reports],
     }
+    if delta is not None:
+        reusable_digests, _plan_bundles = delta
+        result["deltaReusableBundleCount"] = len(reusable_digests)
     write_json(shard_root / "shard.json", result, pretty=True)
     return result

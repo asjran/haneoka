@@ -636,6 +636,7 @@ def extract_live2d_astc(
     on_texture: Callable[[ExtractedAstcTexture], Any] | None = None,
     bundle_records: dict[str, dict[str, Any]] | None = None,
     source_root: Path | None = None,
+    fetch_original: Callable[[str, Path], None] | None = None,
 ) -> tuple[list[ExtractedAstcTexture], list[TextureVariantIssue]]:
     """Extract selected Live2D Texture2D blocks, one source bundle at a time.
 
@@ -703,12 +704,29 @@ def extract_live2d_astc(
         try:
             bundle_file, dependencies = _bundle_paths(source_root, artifact)
             if not bundle_file.is_file():
-                raise FileNotFoundError(bundle_file)
+                if fetch_original is None:
+                    raise FileNotFoundError(bundle_file)
+                fetch_original(bundle_sha, bundle_file)
             missing_dependencies = [path for path in dependencies if not path.is_file()]
             if missing_dependencies:
-                raise FileNotFoundError(
-                    ", ".join(str(path) for path in missing_dependencies)
-                )
+                if fetch_original is None:
+                    raise FileNotFoundError(
+                        ", ".join(str(path) for path in missing_dependencies)
+                    )
+                for path in missing_dependencies:
+                    dependency_sha = next(
+                        (
+                            str(record.get("sha256"))
+                            for record in bundle_records.values()
+                            if (source_root / str(record.get("path"))) == path
+                        ),
+                        None,
+                    )
+                    if dependency_sha is None:
+                        raise FileNotFoundError(
+                            f"Unity dependency is absent from the source manifest: {path}"
+                        )
+                    fetch_original(dependency_sha, path)
             wanted = [
                 (str(reference.output.get("serializedFile") or ""), str(reference.output.get("objectId") or ""))
                 for reference in bundle_references

@@ -7,8 +7,10 @@ import os
 import sqlite3
 import sys
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from core.contracts import UNITY_INDEX_SCHEMA
 from core.hashes import sha256_file
@@ -16,6 +18,9 @@ from core.manifests import read_json, stable_json, write_json
 from core.paths import build_layout, validate_unity_path
 from core.process import hardlink_or_copy, walk_files
 from core.unity_objects import iter_unity_object_archive
+
+if TYPE_CHECKING:
+    from core.delta import DeltaContext
 
 
 MERGE_TREES = ("objects", "metadata/bundles")
@@ -134,30 +139,64 @@ def _canonical_source(candidates: list[dict[str, Any]], reports: dict[str, dict[
     }
 
 
-def _materialize_outputs(layout, sources: list[dict[str, Any]], shard_count: int) -> int:
+def _materialize_outputs(
+    layout,
+    sources: list[dict[str, Any]],
+    shard_count: int,
+    delta: "DeltaContext | None" = None,
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    """Materialize Unity media into the build tree.
+
+    In delta mode, outputs of reusable bundles are not materialized: their
+    bytes stay in the base release and the release composer references them.
+    Each skipped output is validated against the base release manifest entry
+    (path, sha256, bytes) before it may be composed, and it still participates
+    in collision detection through the ``materialized`` map.
+    """
+
     materialized: dict[str, str] = {}
+    declared: dict[str, dict[str, Any]] = {}
     for source in sources:
         for output in source["outputs"]:
             relative = str(output["path"])
             if not relative.startswith(("assets/", "runtime/")):
                 raise ValueError(f"invalid Unity media output path: {relative}")
             digest = str(output["bundleSha256"])
-            shard_index = int(digest[:16], 16) % shard_count
-            candidate = layout.shards / f"{shard_index:03d}" / "candidates" / digest / relative
-            if (
-                not candidate.is_file()
-                or candidate.stat().st_size != output["bytes"]
-                or sha256_file(candidate) != output["sha256"]
-            ):
-                raise ValueError(f"Unity media candidate does not match its report: {candidate}")
-            existing = materialized.get(relative)
-            if existing and existing != output["sha256"]:
-                raise ValueError(f"canonical Unity media output collision: {relative}")
-            if existing:
-                continue
-            hardlink_or_copy(candidate, layout.root / Path(*PurePosixPath(relative).parts))
+            reusable = delta is not None and delta.reusable(digest)
+            if reusable:
+                existing = materialized.get(relative)
+                if existing and existing != output["sha256"]:
+                    raise ValueError(f"canonical Unity media output collision: {relative}")
+                entry = delta.require_entry(relative)
+                if (
+                    str(entry.get("sha256")) != str(output["sha256"])
+                    or int(entry.get("bytes") or -1) != int(output["bytes"])
+                ):
+                    raise ValueError(
+                        f"reusable Unity media output does not match the base release: {relative}"
+                    )
+                declared[relative] = {
+                    "path": relative,
+                    "sha256": str(output["sha256"]),
+                    "bytes": int(output["bytes"]),
+                }
+            else:
+                shard_index = int(digest[:16], 16) % shard_count
+                candidate = layout.shards / f"{shard_index:03d}" / "candidates" / digest / relative
+                if (
+                    not candidate.is_file()
+                    or candidate.stat().st_size != output["bytes"]
+                    or sha256_file(candidate) != output["sha256"]
+                ):
+                    raise ValueError(f"Unity media candidate does not match its report: {candidate}")
+                existing = materialized.get(relative)
+                if existing and existing != output["sha256"]:
+                    raise ValueError(f"canonical Unity media output collision: {relative}")
+                if existing:
+                    continue
+                hardlink_or_copy(candidate, layout.root / Path(*PurePosixPath(relative).parts))
             materialized[relative] = output["sha256"]
-    return len(materialized)
+    return len(materialized), declared
 
 
 def _archive_records(file: Path) -> dict[str, dict[str, dict[str, Any]]]:
@@ -175,12 +214,21 @@ def _archive_records(file: Path) -> dict[str, dict[str, dict[str, Any]]]:
     return dict(records)
 
 
-def _runtime_projections(layout, sources: list[dict[str, Any]]) -> int:
+def _runtime_projections(
+    layout,
+    sources: list[dict[str, Any]],
+    delta: "DeltaContext | None" = None,
+) -> tuple[int, int]:
     """Materialize the small Unity JSON surface consumed by the web runtime.
 
     Full object fidelity remains in the bundle JSONL archives.  These files are
     deterministic projections, named by real Unity source path and type ordinal;
     they do not recreate a processor-specific directory tree.
+
+    In delta mode, projections of reusable bundles are adopted from the base
+    release's descriptor documents instead of re-reading local archives; the
+    base descriptor is cross-checked against the locally recomputed source
+    identity before any of its fields are trusted.
     """
 
     by_bundle: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -192,7 +240,49 @@ def _runtime_projections(layout, sources: list[dict[str, Any]]) -> int:
         ):
             by_bundle[source["selectedBundle"]].append(source)
     output_count = 0
+    adopted_count = 0
+    base_descriptors: dict[str, dict[str, Any] | None] = {}
+
+    def base_descriptor(descriptor_path: str, label: str) -> dict[str, Any] | None:
+        if descriptor_path not in base_descriptors:
+            try:
+                document = delta.base_document(descriptor_path)
+            except Exception as error:
+                sys.stderr.write(
+                    f"warning: base descriptor unavailable for {label}: {error}\n"
+                )
+                document = None
+            base_descriptors[descriptor_path] = document if isinstance(document, dict) else None
+        return base_descriptors[descriptor_path]
+
+    def adopt(source: dict[str, Any]) -> list[dict[str, Any]] | None:
+        descriptor_path = str(source["descriptor"])
+        document = base_descriptor(descriptor_path, source["sourcePath"])
+        if document is None:
+            return None
+        for field in ("sourcePath", "contentSha256", "serializedFile", "selectedBundle"):
+            if document.get(field) != source.get(field):
+                raise ValueError(
+                    f"base descriptor does not match the recomputed source identity: "
+                    f"{source['sourcePath']} ({field})"
+                )
+        projections = document.get("runtimeObjects")
+        if not isinstance(projections, list):
+            return None
+        return deepcopy(projections)
+
     for digest, bundle_sources in sorted(by_bundle.items()):
+        if delta is not None and delta.reusable(digest):
+            for source in bundle_sources:
+                projections = adopt(source)
+                if projections is None:
+                    raise ValueError(
+                        f"base descriptor could not provide runtime projections: "
+                        f"{source['sourcePath']}"
+                    )
+                source["runtimeObjects"] = projections
+                adopted_count += len(projections)
+            continue
         records_by_file = _archive_records(
             layout.objects / "unity" / f"{digest}.jsonl.gz"
         )
@@ -234,7 +324,7 @@ def _runtime_projections(layout, sources: list[dict[str, Any]]) -> int:
                 )
                 output_count += 1
             source["runtimeObjects"] = projected
-    return output_count
+    return output_count, adopted_count
 
 
 def _write_database(file: Path, bundle_reports: list[dict[str, Any]], sources: list[dict[str, Any]]) -> None:
@@ -335,7 +425,13 @@ def _write_database(file: Path, bundle_reports: list[dict[str, Any]], sources: l
     os.replace(temporary, file)
 
 
-def merge_unity_shards(server: str, source_id: str, build_id: str, shard_count: int) -> dict[str, Any]:
+def merge_unity_shards(
+    server: str,
+    source_id: str,
+    build_id: str,
+    shard_count: int,
+    delta: "DeltaContext | None" = None,
+) -> dict[str, Any]:
     layout = build_layout(server, build_id)
     reports_by_sha: dict[str, dict[str, Any]] = {}
     candidates: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -344,6 +440,10 @@ def merge_unity_shards(server: str, source_id: str, build_id: str, shard_count: 
         shard = layout.shards / f"{index:03d}"
         descriptor_file = shard / "shard.json"
         if not descriptor_file.is_file():
+            # Delta runs only materialize shards that had pending bundles; a
+            # missing shard means every one of its bundles is reusable.
+            if delta is not None:
+                continue
             raise FileNotFoundError(f"missing Unity shard: {descriptor_file}")
         descriptor = read_json(descriptor_file)
         if (
@@ -373,6 +473,32 @@ def merge_unity_shards(server: str, source_id: str, build_id: str, shard_count: 
                         "source": source,
                     }
                 )
+    if delta is not None:
+        missing = [
+            digest for digest in delta.plan["bundles"] if digest not in reports_by_sha
+        ]
+
+        def fetch_report(digest: str) -> tuple[str, dict[str, Any]]:
+            target = layout.metadata / "bundles" / f"{digest}.json"
+            delta.fetch_report(digest, target)
+            report = read_json(target)
+            if str((report.get("bundle") or {}).get("sha256")) != digest:
+                raise ValueError(f"fetched delta report does not match its bundle: {digest}")
+            return digest, report
+
+        with ThreadPoolExecutor(max_workers=max(1, min(32, len(missing) or 1))) as executor:
+            for digest, report in executor.map(fetch_report, missing):
+                reports_by_sha[digest] = report
+        absent = sorted(
+            digest for digest in delta.plan["pending"] if digest not in reports_by_sha
+        )
+        if absent:
+            raise ValueError(f"delta shards did not produce pending bundle reports: {absent[:5]}")
+        total = len(delta.plan["bundles"]) + len(delta.plan["pending"])
+        if len(reports_by_sha) != total:
+            raise ValueError(
+                f"delta merge covered {len(reports_by_sha)} bundles, expected {total}"
+            )
 
     sources = [_canonical_source(candidates[path], reports_by_sha) for path in sorted(candidates)]
     # Locale variants (`sourcePath != basePath`) are materialized as files so the
@@ -383,8 +509,14 @@ def merge_unity_shards(server: str, source_id: str, build_id: str, shard_count: 
     # canonical (locale-less ja base) source is the single indexed entry; variant
     # files ride along to the release via the assets tree walk.
     canonical_sources = [source for source in sources if source["sourcePath"] == source["basePath"]]
-    media_output_count = _materialize_outputs(layout, sources, shard_count)
-    runtime_object_count = _runtime_projections(layout, canonical_sources)
+    media_output_count, declared_media = _materialize_outputs(layout, sources, shard_count, delta)
+    runtime_object_count, adopted_projection_count = _runtime_projections(layout, canonical_sources, delta)
+    declared_projections = {
+        projection["path"]
+        for source in canonical_sources
+        for projection in source.get("runtimeObjects", [])
+        if delta is not None and delta.reusable(str(source["selectedBundle"]))
+    }
     for source in canonical_sources:
         write_json(layout.root / source["descriptor"], source)
     serialized_files: dict[str, dict[str, Any]] = {}
@@ -423,8 +555,10 @@ def merge_unity_shards(server: str, source_id: str, build_id: str, shard_count: 
         "bundleCount": len(reports_by_sha),
         "sourceCount": len(canonical_sources),
         "objectCount": sum(report["objectArchive"]["objectCount"] for report in reports_by_sha.values()),
-        "runtimeObjectCount": runtime_object_count,
-        "mediaOutputCount": media_output_count,
+        # Counts include delta-adopted entries so a delta build's index is
+        # byte-identical to a full rebuild of the same source.
+        "runtimeObjectCount": runtime_object_count + adopted_projection_count,
+        "mediaOutputCount": media_output_count + len(declared_media),
         "serializedFiles": serialized_files,
         "tree": _tree(source["sourcePath"] for source in canonical_sources),
         "sources": {
@@ -440,6 +574,25 @@ def merge_unity_shards(server: str, source_id: str, build_id: str, shard_count: 
     }
     write_json(layout.metadata / "source-index.json", source_index)
     _write_database(layout.database, list(reports_by_sha.values()), canonical_sources)
+    if delta is not None:
+        # Persist what the release composer must take from the base release:
+        # validated media outputs and adopted runtime projections.
+        write_json(
+            layout.reports / "delta-declared.json",
+            {
+                "schema": "haneoka-delta-declared-v1",
+                "server": server,
+                "sourceId": source_id,
+                "buildId": build_id,
+                "baseReleaseId": delta.base_release_id,
+                "media": [declared_media[key] for key in sorted(declared_media)],
+                "projectionPaths": sorted(declared_projections),
+                "declaredMediaCount": len(declared_media),
+                "declaredProjectionCount": len(declared_projections),
+                "adoptedProjectionCount": adopted_projection_count,
+            },
+            pretty=True,
+        )
     summary = {
         "schema": "haneoka-unity-merge-v1",
         "server": server,
@@ -449,8 +602,17 @@ def merge_unity_shards(server: str, source_id: str, build_id: str, shard_count: 
         "bundleCount": len(reports_by_sha),
         "sourceCount": len(canonical_sources),
         "objectCount": source_index["objectCount"],
-        "runtimeObjectCount": runtime_object_count,
-        "mediaOutputCount": media_output_count,
+        "runtimeObjectCount": runtime_object_count + adopted_projection_count,
+        "mediaOutputCount": media_output_count + len(declared_media),
+        **(
+            {
+                "deltaBaseReleaseId": delta.base_release_id,
+                "deltaReusableBundleCount": len(delta.plan["bundles"]),
+                "deltaPendingBundleCount": len(delta.plan["pending"]),
+            }
+            if delta is not None
+            else {}
+        ),
     }
     write_json(layout.reports / "unity.json", summary, pretty=True)
     return summary

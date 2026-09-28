@@ -113,6 +113,28 @@ def write_release_manifest(root: Path, server: str, source_id: str) -> dict[str,
     return manifest
 
 
+def write_release_identity_files(
+    root: Path, server: str, source_id: str, entries: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Write a release manifest from precomputed entries (delta composition)."""
+
+    identity = {
+        "schema": RELEASE_SCHEMA,
+        "server": server,
+        "sourceId": source_id,
+        "entries": entries,
+    }
+    manifest = {
+        **identity,
+        "releaseId": f"r-{sha256_bytes(stable_json(identity))[:20]}",
+        "entryCount": len(entries),
+        "totalBytes": sum(item["bytes"] for item in entries),
+    }
+    write_json(root / "release.json", manifest, pretty=True)
+    write_json(root / RELEASE_IDENTITY_FILENAME, release_identity_descriptor(server, manifest["releaseId"], manifest))
+    return manifest
+
+
 def _forbidden_path(value: str) -> bool:
     parts = value.split("/")
     return any(
@@ -287,12 +309,17 @@ def _native_variant_file_errors(
     server: str,
     declared: set[str],
     manifest_entries: dict[str, dict[str, Any]],
+    verified_absent: set[str] | None = None,
 ) -> list[str]:
     """Check the authoritative Live2D metadata and KTX2 manifest closure.
 
     Only ``metadata/live2d.json`` owns this optional table.  Catalog JSON is
     already checked by the normal resource closure, and scanning it again made
     every large KTX2 payload eligible for duplicate validation.
+
+    ``verified_absent`` lists delta-composed entries whose bytes stay in the
+    base release; a variant source covered by one is trusted for container
+    validation because its sha256 and byte length match the base manifest.
     """
 
     metadata_file = root / "metadata" / "live2d.json"
@@ -325,6 +352,11 @@ def _native_variant_file_errors(
             return
         source_file = root / Path(*PurePosixPath(source_path).parts)
         if not source_file.is_file():
+            if verified_absent and source_path in verified_absent:
+                # Delta-composed from the base release: the container bytes
+                # matched the base manifest entry, which passed full
+                # verification when the base release was promoted.
+                return
             errors.append(f"{location}.source is absent from release: {source_path}")
             return
         byte_length = variant.get("byteLength")
@@ -1298,8 +1330,20 @@ def _source_index_storage_errors(
 
 
 def verify_release(
-    server: str, release_id: str, check_hashes: bool = True
+    server: str,
+    release_id: str,
+    check_hashes: bool = True,
+    base_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Verify one release directory.
+
+    ``base_manifest`` enables delta verification: entries whose files were
+    composed from the base release (absent locally) must match that base
+    manifest entry exactly — path, sha256, bytes, mediaType, role.  The base
+    release passed its own full verification when it was promoted, and deep
+    remote verification re-checks the bytes on a schedule.
+    """
+
     layout = release_layout(server, release_id)
     if not layout.manifest.is_file():
         raise FileNotFoundError(f"release manifest not found: {layout.manifest}")
@@ -1324,7 +1368,16 @@ def verify_release(
     elif manifest.get("releaseId") != _expected_release_id(manifest):
         errors.append("releaseId does not match content-addressed manifest identity")
 
+    base_entries: dict[str, dict[str, Any]] = {}
+    if base_manifest is not None:
+        base_entries = {
+            str(entry.get("path")): entry
+            for entry in base_manifest.get("entries", [])
+            if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+        }
+
     declared: set[str] = set()
+    verified_absent: set[str] = set()
     for entry in entries:
         if not isinstance(entry, dict):
             errors.append("manifest entry must be an object")
@@ -1372,6 +1425,16 @@ def verify_release(
                 errors.append(str(error))
         file = layout.root.joinpath(*relative.split("/"))
         if not file.is_file():
+            base_entry = base_entries.get(relative)
+            if base_entry is not None and expected_hash is not None and expected_bytes is not None:
+                if (
+                    str(base_entry.get("sha256")) == expected_hash
+                    and int(base_entry.get("bytes") or -1) == expected_bytes
+                    and str(base_entry.get("mediaType") or "") == (expected_media_type or "")
+                    and str(base_entry.get("role") or "") == str(role or "")
+                ):
+                    verified_absent.add(relative)
+                    continue
             errors.append(f"missing release file: {relative}")
             continue
         if expected_bytes is not None and file.stat().st_size != expected_bytes:
@@ -1396,6 +1459,7 @@ def verify_release(
             server,
             declared,
             manifest_entries,
+            verified_absent=verified_absent,
         )
     )
 
@@ -1406,7 +1470,7 @@ def verify_release(
     }
     for relative in sorted(actual - declared):
         errors.append(f"undeclared release file: {relative}")
-    for relative in sorted(declared - actual):
+    for relative in sorted(declared - actual - verified_absent):
         errors.append(f"declared release file is absent: {relative}")
     errors.extend(
         _catalog_storage_errors(
@@ -1488,6 +1552,23 @@ def write_current_pointer(server: str, manifest: dict[str, Any]) -> dict[str, An
 
 def promote_directory(staging: Path, server: str, source_id: str) -> dict[str, Any]:
     manifest = write_release_manifest(staging, server, source_id)
+    return _promote_prepared(staging, manifest)
+
+
+def promote_prepared_directory(
+    staging: Path,
+    server: str,
+    source_id: str,
+    entries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Promote a delta build whose manifest entries were composed externally."""
+
+    manifest = write_release_identity_files(staging, server, source_id, entries)
+    return _promote_prepared(staging, manifest)
+
+
+def _promote_prepared(staging: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    server = str(manifest["server"])
     target = release_layout(server, manifest["releaseId"]).root
     if target.exists():
         existing = read_json(target / "release.json")

@@ -73,6 +73,10 @@ jobs:
       shard_matrix: ${{ steps.identity.outputs.shard_matrix }}
       shard_archives: ${{ steps.stage_shards.outputs.available }}
       skip: ${{ steps.source_input.outputs.skip }}
+      delta: ${{ steps.unity_reuse.outputs.delta }}
+      base_release_id: ${{ steps.unity_reuse.outputs.base_release_id }}
+      pending_by_shard: ${{ steps.unity_reuse.outputs.pending_by_shard }}
+      unity_matrix: ${{ steps.unity_reuse.outputs.unity_matrix }}
     env:
       PACKAGE_R2_KEY: ${{ inputs.package_r2_key }}
       SOURCE_ID_INPUT: ${{ inputs.source_id }}
@@ -190,6 +194,17 @@ jobs:
             # assets/aa/catalog.bin only when the remote ingest cannot resolve one.
             ingest_extra=(--reuse)
             if [[ "${{ inputs.no_reuse }}" == "true" ]]; then ingest_extra=(); fi
+            endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
+            current_source_id=""
+            if aws s3 cp "s3://$PIPELINE_STAGE_BUCKET/servers/$RESOURCE_SERVER/current.json" \
+                "$RUNNER_TEMP/current-pointer.json" --endpoint-url "$endpoint" --region auto --no-progress 2>/dev/null; then
+              current_source_id="$(jq -r '.sourceId // empty' "$RUNNER_TEMP/current-pointer.json")"
+              if [[ -n "$current_source_id" && "${{ inputs.no_reuse }}" != "true" ]]; then
+                # Delta ingestion: adopt unchanged bundle records from the
+                # current source without transferring any bytes.
+                ingest_extra+=(--base-source "$current_source_id")
+              fi
+            fi
             if ! python scripts/pipeline.py --server "$RESOURCE_SERVER" ingest \
               --input "$RUNNER_TEMP/package-input" --concurrency 32 "${ingest_extra[@]}" > "$RUNNER_TEMP/source.json"; then
               if jq -e '.masterRemoteRoot // empty' "scripts/config/servers/$RESOURCE_SERVER.json" > /dev/null; then
@@ -250,6 +265,8 @@ jobs:
           echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
           echo "shard_count=$SHARD_COUNT" >> "$GITHUB_OUTPUT"
           echo "shard_matrix=$(python -c 'import json,sys; print(json.dumps(list(range(int(sys.argv[1])))))' "$SHARD_COUNT")" >> "$GITHUB_OUTPUT"
+          # Delta runs override this with the shards that hold pending bundles.
+          echo "unity_matrix=$(python -c 'import json,sys; print(json.dumps(list(range(int(sys.argv[1])))))' "$SHARD_COUNT")" >> "$GITHUB_OUTPUT"
       - name: Publish source CAS
         if: steps.source_input.outputs.skip != 'true'
         run: |
@@ -257,9 +274,42 @@ jobs:
             python scripts/pipeline.py --server "$RESOURCE_SERVER" publish-source \
               --source "${{ steps.identity.outputs.source_id }}"
           fi
+      - name: Prepare Unity bundle reuse
+        id: unity_reuse
+        if: steps.source_input.outputs.skip != 'true' && inputs.source_id == '' && inputs.no_reuse != true
+        continue-on-error: true
+        run: |
+          SOURCE_ID="${{ steps.identity.outputs.source_id }}"
+          SHARDS="${{ steps.identity.outputs.shard_count }}"
+          echo "delta=false" >> "$GITHUB_OUTPUT"
+          echo "unity_matrix=${{ steps.identity.outputs.shard_matrix }}" >> "$GITHUB_OUTPUT"
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" prepare-unity-reuse \
+            --source "$SOURCE_ID" --shard-count "$SHARDS" \
+            --output-dir "$RUNNER_TEMP/unity-reuse" > "$RUNNER_TEMP/unity-reuse.json"
+          endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
+          for ((shard=0; shard<SHARDS; shard++)); do
+            aws s3 cp "$RUNNER_TEMP/unity-reuse/unity-reuse-$(printf '%03d' "$shard").json" \
+              "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-reuse-$(printf '%03d' "$shard").json" \
+              --endpoint-url "$endpoint" --region auto --no-progress
+          done
+          aws s3 cp "$RUNNER_TEMP/unity-reuse/unity-delta-plan.json" \
+            "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
+            --endpoint-url "$endpoint" --region auto --no-progress
+          base_release="$(jq -r .baseReleaseId "$RUNNER_TEMP/unity-reuse.json")"
+          pending_by_shard="$(jq -c '.pendingByShard // {}' "$RUNNER_TEMP/unity-reuse.json")"
+          matrix="$(jq -cn --argjson shards "$SHARDS" --argjson pending "$pending_by_shard" '
+            [ $shards[] | tostring | select(($pending[.] // 0) > 0) | tonumber ]')"
+          if [[ "$base_release" != "null" && "$base_release" != "" ]]; then
+            echo "delta=true" >> "$GITHUB_OUTPUT"
+            echo "base_release_id=$base_release" >> "$GITHUB_OUTPUT"
+            echo "pending_by_shard=$pending_by_shard" >> "$GITHUB_OUTPUT"
+            echo "unity_matrix=$matrix" >> "$GITHUB_OUTPUT"
+          fi
       - name: Stage Unity input archives
         id: stage_shards
-        if: steps.source_input.outputs.skip != 'true' && inputs.source_id == ''
+        # Delta runs fetch originals directly from CAS in the Unity jobs; the
+        # tar staging path is only for full builds (no reusable base).
+        if: steps.source_input.outputs.skip != 'true' && inputs.source_id == '' && steps.unity_reuse.outputs.delta != 'true'
         run: |
           SOURCE_ID="${{ steps.identity.outputs.source_id }}"
           SHARDS="${{ steps.identity.outputs.shard_count }}"
@@ -303,22 +353,6 @@ jobs:
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Prepare Unity bundle reuse
-        id: unity_reuse
-        if: steps.source_input.outputs.skip != 'true' && inputs.source_id == '' && inputs.no_reuse != true
-        continue-on-error: true
-        run: |
-          SOURCE_ID="${{ steps.identity.outputs.source_id }}"
-          SHARDS="${{ steps.identity.outputs.shard_count }}"
-          python scripts/pipeline.py --server "$RESOURCE_SERVER" prepare-unity-reuse \
-            --source "$SOURCE_ID" --shard-count "$SHARDS" \
-            --output-dir "$RUNNER_TEMP/unity-reuse"
-          endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
-          for ((shard=0; shard<SHARDS; shard++)); do
-            aws s3 cp "$RUNNER_TEMP/unity-reuse/unity-reuse-$(printf '%03d' "$shard").json" \
-              "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-reuse-$(printf '%03d' "$shard").json" \
-              --endpoint-url "$endpoint" --region auto --no-progress
-          done
       - name: Extract Master
         if: steps.source_input.outputs.skip != 'true'
         run: >-
@@ -346,13 +380,15 @@ jobs:
     permissions:
       contents: read
     strategy:
+      # Delta runs only materialize shards that hold pending bundles; every
+      # other shard's outputs are composed from the base release.
       matrix:
-        shard: ${{ fromJSON(needs.prepare.outputs.shard_matrix) }}
+        shard: ${{ fromJSON(needs.prepare.outputs.unity_matrix) }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-resource-pipeline
       - name: Restore this shard's input archive
-        if: needs.prepare.outputs.shard_archives == 'true'
+        if: needs.prepare.outputs.delta != 'true' && needs.prepare.outputs.shard_archives == 'true'
         run: |
           shard="${{ matrix.shard }}"
           archive="$RUNNER_TEMP/unity-input-$shard.tar"
@@ -369,16 +405,36 @@ jobs:
           tar --extract --file "$archive" --directory "$source_root"
           rm -f "$archive" "$archive.sha256"
       - name: Fetch this shard's original bundles
-        if: needs.prepare.outputs.shard_archives != 'true'
+        if: needs.prepare.outputs.delta != 'true' && needs.prepare.outputs.shard_archives != 'true'
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source
           --source "${{ needs.prepare.outputs.source_id }}"
           --role unity-bundle
           --shard-index "${{ matrix.shard }}"
           --shard-count "${{ needs.prepare.outputs.shard_count }}"
+      - name: Fetch delta plan and this shard's pending originals
+        if: needs.prepare.outputs.delta == 'true'
+        run: |
+          endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
+          aws s3 cp \
+            "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
+            "$RUNNER_TEMP/unity-delta-plan.json" \
+            --endpoint-url "$endpoint" --region auto --no-progress
+          jq -c --argjson shard "${{ matrix.shard }}" '
+            [.bundles | to_entries[] | select(.value.shardIndex == $shard) | .key]' \
+            "$RUNNER_TEMP/unity-delta-plan.json" > "$RUNNER_TEMP/unity-reusable.json"
+          # Fetch only the pending originals; unchanged bundles are composed
+          # from the base release. Dependency expansion still pulls any
+          # reusable bundles a pending bundle needs for extraction.
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source \
+            --source "${{ needs.prepare.outputs.source_id }}" \
+            --role unity-bundle \
+            --shard-index "${{ matrix.shard }}" \
+            --shard-count "${{ needs.prepare.outputs.shard_count }}" \
+            --exclude-sha256-file "$RUNNER_TEMP/unity-reusable.json"
       - name: Fetch Unity reuse manifest
         id: unity_reuse
-        if: inputs.no_reuse != true
+        if: needs.prepare.outputs.delta != 'true' && inputs.no_reuse != true
         continue-on-error: true
         run: |
           shard="$(printf '%03d' "${{ matrix.shard }}")"
@@ -394,7 +450,9 @@ jobs:
       - name: Extract Unity shard
         run: |
           extra=()
-          if [[ -n "${{ steps.unity_reuse.outputs.path }}" ]]; then
+          if [[ "${{ needs.prepare.outputs.delta }}" == "true" ]]; then
+            extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
+          elif [[ -n "${{ steps.unity_reuse.outputs.path }}" ]]; then
             extra+=(--reuse-manifest "${{ steps.unity_reuse.outputs.path }}")
           fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" extract-unity \
@@ -535,7 +593,21 @@ jobs:
             --no-progress
           tar --extract --gzip --file "$archive" --directory "$build_root"
           rm -f "$archive"
+      - name: Fetch delta plan
+        id: delta_plan
+        run: |
+          endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
+          echo "delta=false" >> "$GITHUB_OUTPUT"
+          if aws s3 cp \
+              "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
+              "$RUNNER_TEMP/unity-delta-plan.json" \
+              --endpoint-url "$endpoint" --region auto --no-progress; then
+            echo "delta=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No delta plan staged; running the full build path" >&2
+          fi
       - name: Restore all Unity shards from private R2
+        if: steps.delta_plan.outputs.delta != 'true'
         run: |
           build_root="data/servers/$RESOURCE_SERVER/builds/${{ needs.prepare.outputs.build_id }}"
           archive_root="$RUNNER_TEMP/unity-shards"
@@ -563,18 +635,68 @@ jobs:
           # decode across cores too instead of one archive at a time.
           printf '%s\n' "${archives[@]}" | xargs -P "$(nproc)" -I '{}' \
             sh -c 'tar --extract --gzip --file "$1" --directory "$2" && rm -f "$1"' _ '{}' "$build_root"
+      - name: Restore pending Unity shards from private R2
+        if: steps.delta_plan.outputs.delta == 'true'
+        run: |
+          build_root="data/servers/$RESOURCE_SERVER/builds/${{ needs.prepare.outputs.build_id }}"
+          archive_root="$RUNNER_TEMP/unity-shards"
+          mkdir -p "$archive_root" "$build_root"
+          for attempt in 1 2 3 4 5; do
+            aws s3 cp \
+              "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/" \
+              "$archive_root/" \
+              --recursive \
+              --exclude "*" \
+              --include "unity-shard-*.tar.gz" \
+              --endpoint-url "https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com" \
+              --region auto \
+              --no-progress && break
+            echo "restore attempt $attempt failed; retrying in 30s" >&2
+            sleep 30
+          done
+          mapfile -t archives < <(find "$archive_root" -maxdepth 1 -type f -name 'unity-shard-*.tar.gz' -print | sort)
+          # Only shards with pending bundles ran; everything else is composed.
+          expected="$(jq '[.pending | values] | unique | length' "$RUNNER_TEMP/unity-delta-plan.json")"
+          if [[ "${#archives[@]}" -ne "$expected" ]]; then
+            echo "Expected $expected pending Unity shard archives, found ${#archives[@]}" >&2
+            exit 1
+          fi
+          printf '%s\n' "${archives[@]}" | xargs -P "$(nproc)" -I '{}' \
+            sh -c 'tar --extract --gzip --file "$1" --directory "$2" && rm -f "$1"' _ '{}' "$build_root"
       - name: Fetch original CRI payloads
+        if: steps.delta_plan.outputs.delta != 'true'
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source
           --source "${{ needs.prepare.outputs.source_id }}"
           --role cri-payload
+      - name: Fetch changed CRI payloads
+        if: steps.delta_plan.outputs.delta == 'true'
+        run: |
+          endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
+          base_release="$(jq -r .baseReleaseId "$RUNNER_TEMP/unity-delta-plan.json")"
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-release-document \
+            --release "$base_release" --path metadata/cri.json \
+            --output "$RUNNER_TEMP/base-cri.json" > /dev/null
+          jq '[.entries[].source.artifactSha256? // empty] | unique' \
+            "$RUNNER_TEMP/base-cri.json" > "$RUNNER_TEMP/cri-reusable.json"
+          # Originals declared by the base CRI document stay in CAS; the
+          # declare-mode stage restores any stragglers it actually needs.
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source \
+            --source "${{ needs.prepare.outputs.source_id }}" \
+            --role cri-payload \
+            --exclude-sha256-file "$RUNNER_TEMP/cri-reusable.json"
       - name: Merge Unity shards
         run: |
           SOURCE_ID="${{ needs.prepare.outputs.source_id }}"
           BUILD_ID="${{ needs.prepare.outputs.build_id }}"
           SHARDS="${{ needs.prepare.outputs.shard_count }}"
-          python scripts/pipeline.py --server "$RESOURCE_SERVER" merge-unity --source "$SOURCE_ID" --build "$BUILD_ID" --shard-count "$SHARDS"
+          extra=()
+          if [[ "${{ steps.delta_plan.outputs.delta }}" == "true" ]]; then
+            extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
+          fi
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" merge-unity --source "$SOURCE_ID" --build "$BUILD_ID" --shard-count "$SHARDS" "${extra[@]}"
       - name: Fetch original Home Spot bundles
+        if: steps.delta_plan.outputs.delta != 'true'
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-home-spots
           --source "${{ needs.prepare.outputs.source_id }}"
@@ -584,6 +706,7 @@ jobs:
         run: |
           SOURCE_ID="${{ needs.prepare.outputs.source_id }}"
           BUILD_ID="${{ needs.prepare.outputs.build_id }}"
+          DELTA="${{ steps.delta_plan.outputs.delta }}"
           names=()
           pids=()
           run_stage() {
@@ -591,22 +714,32 @@ jobs:
             shift
             "$@" > "$RUNNER_TEMP/$name.log" 2>&1
           }
-          run_stage cri python scripts/pipeline.py --server "$RESOURCE_SERVER" extract-cri --source "$SOURCE_ID" --build "$BUILD_ID" --concurrency 2 --reuse-current --reuse-concurrency 64 &
-          names+=(cri)
-          pids+=("$!")
-          run_stage live2d python scripts/pipeline.py --server "$RESOURCE_SERVER" build-live2d --source "$SOURCE_ID" --build "$BUILD_ID" --reuse-current --reuse-concurrency 64 &
-          names+=(live2d)
-          pids+=("$!")
-          run_stage spine python scripts/pipeline.py --server "$RESOURCE_SERVER" build-spine --source "$SOURCE_ID" --build "$BUILD_ID" --reuse-current --reuse-concurrency 64 &
-          names+=(spine)
-          pids+=("$!")
-          run_stage home-spots python scripts/pipeline.py --server "$RESOURCE_SERVER" build-home-spots --source "$SOURCE_ID" --build "$BUILD_ID" &
-          names+=(home-spots)
-          pids+=("$!")
+          if [[ "$DELTA" == "true" ]]; then
+            # Declare mode: reusable sources and models are composed from the
+            # pinned base release; only changed inputs are processed.
+            run_stage cri python scripts/pipeline.py --server "$RESOURCE_SERVER" extract-cri --source "$SOURCE_ID" --build "$BUILD_ID" --concurrency 2 --delta-plan "$RUNNER_TEMP/unity-delta-plan.json" --reuse-concurrency 64 &
+            pids+=("$!")
+            run_stage live2d python scripts/pipeline.py --server "$RESOURCE_SERVER" build-live2d --source "$SOURCE_ID" --build "$BUILD_ID" --delta-plan "$RUNNER_TEMP/unity-delta-plan.json" --reuse-concurrency 64 &
+            pids+=("$!")
+            run_stage spine python scripts/pipeline.py --server "$RESOURCE_SERVER" build-spine --source "$SOURCE_ID" --build "$BUILD_ID" --delta-plan "$RUNNER_TEMP/unity-delta-plan.json" --reuse-concurrency 64 &
+            pids+=("$!")
+            run_stage home-spots python scripts/pipeline.py --server "$RESOURCE_SERVER" build-home-spots --source "$SOURCE_ID" --build "$BUILD_ID" --delta-plan "$RUNNER_TEMP/unity-delta-plan.json" &
+            pids+=("$!")
+          else
+            run_stage cri python scripts/pipeline.py --server "$RESOURCE_SERVER" extract-cri --source "$SOURCE_ID" --build "$BUILD_ID" --concurrency 2 --reuse-current --reuse-concurrency 64 &
+            pids+=("$!")
+            run_stage live2d python scripts/pipeline.py --server "$RESOURCE_SERVER" build-live2d --source "$SOURCE_ID" --build "$BUILD_ID" --reuse-current --reuse-concurrency 64 &
+            pids+=("$!")
+            run_stage spine python scripts/pipeline.py --server "$RESOURCE_SERVER" build-spine --source "$SOURCE_ID" --build "$BUILD_ID" --reuse-current --reuse-concurrency 64 &
+            pids+=("$!")
+            run_stage home-spots python scripts/pipeline.py --server "$RESOURCE_SERVER" build-home-spots --source "$SOURCE_ID" --build "$BUILD_ID" &
+            pids+=("$!")
+          fi
+          names+=(cri live2d spine home-spots)
           if [[ "${{ inputs.ktx2 }}" == "true" ]]; then
             run_stage ktx2 python scripts/pipeline.py --server "$RESOURCE_SERVER" build-ktx2 --source "$SOURCE_ID" --build "$BUILD_ID" &
-            names+=(ktx2)
             pids+=("$!")
+            names+=(ktx2)
           fi
           failed=0
           for index in "${!pids[@]}"; do
@@ -625,8 +758,12 @@ jobs:
         run: |
           SOURCE_ID="${{ needs.prepare.outputs.source_id }}"
           BUILD_ID="${{ needs.prepare.outputs.build_id }}"
+          extra=()
+          if [[ "${{ steps.delta_plan.outputs.delta }}" == "true" ]]; then
+            extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
+          fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" build-api --source "$SOURCE_ID" --build "$BUILD_ID"
-          python scripts/pipeline.py --server "$RESOURCE_SERVER" build-release --source "$SOURCE_ID" --build "$BUILD_ID" > "$RUNNER_TEMP/release.json"
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" build-release --source "$SOURCE_ID" --build "$BUILD_ID" "${extra[@]}" > "$RUNNER_TEMP/release.json"
       - name: Publish CAS delta and switch current release
         id: publish_release
         run: |
@@ -635,6 +772,11 @@ jobs:
             --release "$RELEASE_ID" --concurrency 64 > "$RUNNER_TEMP/publication.json"
           promoted="$(jq -er '.releasePromoted | if type == "boolean" then tostring else error("Invalid publication result") end' "$RUNNER_TEMP/publication.json")"
           echo "release_promoted=$promoted" >> "$GITHUB_OUTPUT"
+      - name: Verify promoted release pointer
+        if: steps.publish_release.outputs.release_promoted == 'true'
+        run: >-
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" verify-remote
+          --release "$(jq -r .releaseId "$RUNNER_TEMP/release.json")" --fast
 
   cleanup:
     name: Remove private R2 build stages

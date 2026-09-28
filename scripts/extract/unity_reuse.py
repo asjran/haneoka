@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from core.hashes import sha256_file
+from core.delta import PLAN_SCHEMA
 from core.storage import cas_key
 
 REUSE_SCHEMA = "haneoka-unity-reuse-v1"
@@ -60,42 +60,72 @@ def _release_paths(release: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
-def prepare_unity_reuse(
+def load_reuse_manifest(path: Path) -> dict[str, dict[str, Any]]:
+    import json
+
+    document = json.loads(path.read_text("utf-8"))
+    bundles = document.get("bundles") if isinstance(document, dict) else None
+    if document.get("schema") != REUSE_SCHEMA or not isinstance(bundles, dict):
+        raise ValueError(f"invalid Unity reuse manifest: {path}")
+    if str(document.get("extractor") or "") != extractor_identity():
+        raise ValueError(f"Unity reuse manifest was prepared by a different extractor: {path}")
+    return bundles
+
+
+def prepare_unity_delta_plan(
     store: Any,
     server: str,
     manifest: dict[str, Any],
+    source_id: str,
     shard_count: int,
     concurrency: int = 32,
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """Build one complete delta plan: per-digest reuse refs plus pending digests.
+
+    The plan pins the base release once so every later stage (extraction,
+    merge, media stages, release composition) resolves reuse against exactly
+    the same base.  Reusable digests carry validated report/archive/media
+    references; pending digests must be extracted fresh.
+    """
+
     pointer = store.get_json(f"servers/{server}/current.json")
     release_id = str((pointer or {}).get("releaseId") or "")
     stats = {"candidates": 0, "reused": 0, "reports": 0}
-    shards: list[dict[str, Any]] = [{} for _ in range(shard_count)]
     if not release_id:
-        return shards, stats
+        raise ValueError("no current release is published; a delta plan has no base")
     release = store.get_json(f"servers/{server}/releases/{release_id}/release.json")
     if not isinstance(release, dict) or release.get("server") != server:
-        return shards, stats
+        raise ValueError("current release manifest is missing or invalid")
     release_paths = _release_paths(release)
     old_source_id = str(release.get("sourceId") or "")
     old_manifest = store.get_json(f"servers/{server}/sources/{old_source_id}/source.json")
     if not isinstance(old_manifest, dict):
-        return shards, stats
+        raise ValueError("base release source manifest is missing")
     old_contexts = {
         str(item["sha256"]): bundle_context(item)
         for item in old_manifest.get("files", [])
         if isinstance(item, dict) and item.get("role") == "unity-bundle"
     }
     digests: list[tuple[str, dict[str, Any]]] = []
+    pending: dict[str, int] = {}
+    items_by_digest: dict[str, dict[str, Any]] = {}
     for item in manifest.get("files", []):
         if not isinstance(item, dict) or item.get("role") != "unity-bundle":
             continue
         digest = str(item["sha256"])
         stats["candidates"] += 1
+        shard_index = int(digest[:16], 16) % shard_count
+        items_by_digest[digest] = item
         if old_contexts.get(digest) == bundle_context(item):
             digests.append((digest, item))
+        else:
+            pending[digest] = shard_index
+
+    bundles: dict[str, dict[str, Any]] = {}
 
     def build_entry(digest: str) -> tuple[str, dict[str, Any]] | None:
+        item = items_by_digest[digest]
+        shard_index = int(digest[:16], 16) % shard_count
         report_entry = release_paths.get(f"metadata/bundles/{digest}.json")
         archive_entry = release_paths.get(f"objects/unity/{digest}.jsonl.gz")
         if not report_entry or not archive_entry:
@@ -118,6 +148,8 @@ def prepare_unity_reuse(
                     {"rel": relative, "sha256": str(entry["sha256"]), "bytes": int(entry["bytes"])}
                 )
         return digest, {
+            "shardIndex": shard_index,
+            "originalFilename": str(item[1].get("originalFilename") or ""),
             "report": {
                 "path": report_entry["path"],
                 "sha256": str(report_entry["sha256"]),
@@ -136,23 +168,25 @@ def prepare_unity_reuse(
             if result is None:
                 continue
             digest, entry = result
-            shard_index = int(digest[:16], 16) % shard_count
-            shards[shard_index][digest] = entry
+            bundles[digest] = entry
             stats["reused"] += 1
             stats["reports"] += 1 + len(entry["media"])
-    return shards, stats
-
-
-def load_reuse_manifest(path: Path) -> dict[str, dict[str, Any]]:
-    import json
-
-    document = json.loads(path.read_text("utf-8"))
-    bundles = document.get("bundles") if isinstance(document, dict) else None
-    if document.get("schema") != REUSE_SCHEMA or not isinstance(bundles, dict):
-        raise ValueError(f"invalid Unity reuse manifest: {path}")
-    if str(document.get("extractor") or "") != extractor_identity():
-        raise ValueError(f"Unity reuse manifest was prepared by a different extractor: {path}")
-    return bundles
+    # Context-matched digests whose base outputs failed validation must be
+    # extracted fresh: move them to the pending set.
+    for digest, _ in digests:
+        if digest not in bundles:
+            pending[digest] = int(digest[:16], 16) % shard_count
+    plan = {
+        "schema": PLAN_SCHEMA,
+        "server": server,
+        "sourceId": source_id,
+        "baseReleaseId": release_id,
+        "extractor": extractor_identity(),
+        "shardCount": shard_count,
+        "bundles": bundles,
+        "pending": pending,
+    }
+    return plan, stats
 
 
 def make_restore(

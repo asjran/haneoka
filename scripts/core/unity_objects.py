@@ -32,7 +32,12 @@ def iter_unity_object_archive(file: Path) -> Iterator[tuple[int, dict[str, Any]]
 
 
 class UnityObjectStore:
-    def __init__(self, layout: Any, index: dict[str, Any]):
+    def __init__(
+        self,
+        layout: Any,
+        index: dict[str, Any],
+        ensure_archive: Any = None,
+    ):
         self.layout = layout
         self.index = index.get("sources", {})
         self.serialized_files = index.get("serializedFiles", {})
@@ -40,6 +45,10 @@ class UnityObjectStore:
         self.current_digest = ""
         self.current_serialized_file = ""
         self.current_records: dict[str, dict[str, Any]] = {}
+        # Delta builds: ``ensure_archive(digest, archive_path)`` materializes a
+        # missing object archive of a reusable bundle on demand.  When absent,
+        # a missing archive is a hard error, exactly as before.
+        self.ensure_archive = ensure_archive
 
     def descriptor(self, source_path: str) -> dict[str, Any]:
         if source_path not in self.descriptors:
@@ -58,6 +67,8 @@ class UnityObjectStore:
         ):
             return self.current_records
         archive = self.layout.objects / "unity" / f"{digest}.jsonl.gz"
+        if not archive.is_file() and self.ensure_archive is not None:
+            self.ensure_archive(digest, archive)
         serialized_file_entry = self.serialized_files.get(serialized_file)
         if (
             not isinstance(serialized_file_entry, dict)

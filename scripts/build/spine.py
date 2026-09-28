@@ -36,6 +36,7 @@ import urllib.parse
 import urllib.request
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
@@ -45,6 +46,7 @@ from core.contracts import UNITY_INDEX_SCHEMA
 from core.hashes import sha256_bytes, sha256_file
 from core.manifests import atomic_write, read_json, stable_json, write_json
 from core.paths import build_layout, normalize_release_path, validate_unity_path
+from core.process import walk_files
 from core.unity_objects import UnityObjectStore
 from build.preview_image import count_visible_png_pixels, supersample_png
 
@@ -985,10 +987,10 @@ class _UnityResolver:
     in memory.
     """
 
-    def __init__(self, layout: Any, index: dict[str, Any]):
+    def __init__(self, layout: Any, index: dict[str, Any], ensure_archive: Any = None):
         self.layout = layout
         self.index = index
-        self.store = UnityObjectStore(layout, index)
+        self.store = UnityObjectStore(layout, index, ensure_archive=ensure_archive)
         self.serialized_files = index.get("serializedFiles", {})
         self.records_cache: OrderedDict[str, dict[str, dict[str, Any]]] = OrderedDict()
         self.outputs_by_object: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -2653,12 +2655,19 @@ def build_spine(
     reuse_manifest: dict[str, Any] | None = None,
     restore_output: Any = None,
     reuse_concurrency: int = 32,
+    delta: Any = None,
+    base_document: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build ``metadata/spine.json`` from one merged Unity build.
 
     This stage deliberately succeeds when a build contains no Spine assets;
     the empty manifest is still useful to a generic catalogue and keeps server
     behavior deterministic.
+
+    Delta mode adopts a candidate source's model documents wholesale from the
+    base release when its selected bundle is reusable and no local media under
+    the source directory changed; the resolver otherwise fetches a reusable
+    bundle's archive on demand.
     """
 
     layout = build_layout(config.id, build_id)
@@ -2671,10 +2680,54 @@ def build_spine(
         or index.get("sourceId") != source_id
     ):
         raise ValueError("canonical Unity source index identity does not match this Spine build")
-    resolver = _UnityResolver(layout, index)
+    resolver = _UnityResolver(
+        layout,
+        index,
+        ensure_archive=(
+            (lambda digest, archive: delta.fetch_archive(digest, archive))
+            if delta is not None
+            else None
+        ),
+    )
+    base_models_by_source: dict[str, list[dict[str, Any]]] = {}
+    if delta is not None and isinstance(base_document, dict):
+        for model in base_document.get("models", {}).values() if isinstance(base_document.get("models"), dict) else []:
+            if isinstance(model, dict) and isinstance(model.get("sourcePath"), str):
+                base_models_by_source.setdefault(model["sourcePath"], []).append(model)
+    local_asset_relatives: set[str] = (
+        {
+            file.relative_to(layout.assets).as_posix()
+            for file in walk_files(layout.assets)
+        }
+        if delta is not None and layout.assets.is_dir()
+        else set()
+    )
+
+    def adoptable(source_path: str) -> bool:
+        if not base_models_by_source.get(source_path):
+            return False
+        source = (index.get("sources") or {}).get(source_path)
+        if not isinstance(source, dict):
+            return False
+        try:
+            descriptor = read_json(layout.metadata / str(source.get("descriptor") or ""))
+        except (OSError, ValueError):
+            return False
+        digest = str(descriptor.get("selectedBundle") or "")
+        if not digest or not delta.reusable(digest):
+            return False
+        directory = str(PurePosixPath(source_path).parent)
+        return not any(relative.startswith(f"{directory}/") for relative in local_asset_relatives)
+
     models: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    adopted_model_count = 0
     for source_path in _candidate_paths(index):
+        if delta is not None and adoptable(source_path):
+            adopted = [deepcopy(model) for model in base_models_by_source[source_path]]
+            models.extend(adopted)
+            adopted_model_count += len(adopted)
+            continue
         source = index["sources"].get(source_path)
         if not isinstance(source, dict):
             continue
@@ -2771,6 +2824,11 @@ def build_spine(
         "previewReusedCount": preview_reuse.get("restoredModels", 0)
         + preview_reuse.get("restoredRecipes", 0),
         "previewReuseRestoreFailureCount": preview_reuse.get("failed", 0),
+        **(
+            {"adoptedModelCount": adopted_model_count}
+            if delta is not None
+            else {}
+        ),
         "skippedSourceCount": len(skipped),
         "renderRecipeCount": len(recipes),
         "renderRecipePreviewRenderedCount": rendered_recipe_previews,

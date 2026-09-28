@@ -17,6 +17,7 @@ from core.config import ServerConfig
 from core.hashes import sha256_bytes, sha256_file
 from core.manifests import atomic_write, read_json, stable_json, write_json
 from core.paths import PROJECT_ROOT, build_layout
+from core.process import walk_files
 from core.unity_objects import UnityObjectStore
 from build.live2d_preview import PREVIEW_SCHEMA, build_live2d_previews
 from build.live2d_textures import (
@@ -660,11 +661,21 @@ def build_live2d(
     reuse_manifest: dict[str, Any] | None = None,
     restore_output: Any = None,
     reuse_concurrency: int = 32,
+    delta: Any = None,
+    base_document: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     layout = build_layout(config.id, build_id)
     index = read_json(layout.metadata / "source-index.json")
     paths = sorted(index.get("sources", {}))
-    store = UnityObjectStore(layout, index)
+    store = UnityObjectStore(
+        layout,
+        index,
+        ensure_archive=(
+            (lambda digest, archive: delta.fetch_archive(digest, archive))
+            if delta is not None
+            else None
+        ),
+    )
     models: dict[str, dict[str, Any]] = {}
     skipped_models: list[dict[str, Any]] = []
     native_texture_variant_issues: list[dict[str, Any]] = []
@@ -699,11 +710,63 @@ def build_live2d(
         if match := LIVE2D_ROOT.match(path):
             roots.setdefault(match.group(1), match)
 
+    base_models: dict[str, dict[str, Any]] = {}
+    if delta is not None and isinstance(base_document, dict):
+        candidates = base_document.get("models")
+        if isinstance(candidates, dict):
+            base_models = candidates
+    adopted_model_keys: set[str] = set()
+    local_asset_relatives: set[str] | None = None
+    if delta is not None:
+        local_asset_relatives = {
+            file.relative_to(layout.assets).as_posix() for file in walk_files(layout.assets)
+        } if layout.assets.is_dir() else set()
+
+    def adoptable(model_root: str, key: str) -> dict[str, Any] | None:
+        """Adopt one model wholesale from the base release document.
+
+        A model document is a deterministic function of its sources' content.
+        Adoption is safe when the base release carries the same model and
+        nothing under the model root changed: every indexed source's selected
+        bundle is reusable and no local media file exists under the root (a
+        local file can only come from a changed or new bundle).
+        """
+
+        base = base_models.get(key)
+        if not isinstance(base, dict):
+            return None
+        covered = False
+        for value in paths:
+            if not value.startswith(f"{model_root}/"):
+                continue
+            entry = (index.get("sources") or {}).get(value)
+            if not isinstance(entry, dict):
+                continue
+            covered = True
+            try:
+                descriptor = read_json(layout.metadata / str(entry["descriptor"]))
+            except (OSError, ValueError):
+                return None
+            digest = str(descriptor.get("selectedBundle") or "")
+            if not digest or not delta.reusable(digest):
+                return None
+        if covered and local_asset_relatives is not None and not any(
+            relative.startswith(f"{model_root}/") for relative in local_asset_relatives
+        ):
+            return copy.deepcopy(base)
+        return None
+
     for model_root, match in sorted(roots.items()):
         key, live2d_name, raw_mode, character_key, character_id, sub_character = _model_identity(match)
         if key in seen_keys:
             raise ValueError(f"duplicate Live2D key: {key}")
         seen_keys.add(key)
+        if delta is not None:
+            adopted_model = adoptable(model_root, key)
+            if adopted_model is not None:
+                adopted_model_keys.add(key)
+                models[key] = adopted_model
+                continue
         model_name = PurePosixPath(model_root).name
         source_path = f"{model_root}/model/{model_name}.prefab"
         descriptor = store.descriptor(source_path) if source_path in index.get("sources", {}) else None
@@ -729,6 +792,31 @@ def build_live2d(
                     moc_source = ""
                     missing.append("moc3")
         texture_prefix = f"{model_root}/model/"
+        if delta is not None:
+            # Textures of reusable bundles are not materialized locally in a
+            # delta build; restore the canonical PNGs this model references.
+            for value in paths:
+                if not (
+                    value.startswith(texture_prefix)
+                    and f"/{model_name}.2048/" in value
+                    and value.casefold().endswith(".png")
+                ):
+                    continue
+                asset_file = layout.assets / Path(*PurePosixPath(value).parts)
+                if asset_file.is_file():
+                    continue
+                source_entry = (index.get("sources") or {}).get(value)
+                if not isinstance(source_entry, dict):
+                    continue
+                try:
+                    source_descriptor = read_json(layout.metadata / str(source_entry["descriptor"]))
+                except (OSError, ValueError):
+                    continue
+                digest = str(source_descriptor.get("selectedBundle") or "")
+                if not digest or not delta.reusable(digest):
+                    continue
+                if delta.entry(f"assets/{value}") is not None:
+                    delta.fetch_release_path(f"assets/{value}", asset_file)
         texture_paths = [
             value
             for value in paths
@@ -891,6 +979,11 @@ def build_live2d(
                 on_texture=package_texture,
                 bundle_records=texture_bundle_records,
                 source_root=texture_source_root,
+                fetch_original=(
+                    (lambda digest, target: delta.fetch_original_bundle(digest, target))
+                    if delta is not None
+                    else None
+                ),
             )
             texture_variant_issues.extend(extraction_issues)
         elif texture_references and ktx_executable and texture_source_root is None:
@@ -1093,14 +1186,33 @@ def build_live2d(
         normal_motion_sync = normal.get("runtime", {}).get("motionSync") if normal else None
         if normal_motion_sync is not None:
             runtime["motionSync"] = copy.deepcopy(normal_motion_sync)
+    # Adopted low models keep the base pair's motionSync; if their normal
+    # sibling was rebuilt in this run with a different profile, follow it.
+    for key in adopted_model_keys:
+        model = models.get(key)
+        if model is None or not key.casefold().endswith("_low"):
+            continue
+        normal = models.get(key[:-4])
+        if normal is None:
+            continue
+        sibling_sync = normal.get("runtime", {}).get("motionSync")
+        if sibling_sync is None:
+            # The rebuilt sibling has no motionSync; drop the stale adopted one.
+            model["runtime"]["motionSync"] = None
+        elif model.get("runtime", {}).get("motionSync") != sibling_sync:
+            model["runtime"]["motionSync"] = copy.deepcopy(sibling_sync)
 
     provision_file = PROJECT_ROOT / "public" / "cubism-runtime" / "vega-cubism-web-runtime.mjs"
     provision_sha = (
         sha256_file(provision_file) if provision_file.is_file() else ""
     )
     identities = {
-        key: _preview_input_identity(
-            index.get("sources", {}), layout, config.id, model, provision_sha
+        key: (
+            str(base_models[key].get("previewInputSha256") or "")
+            if key in adopted_model_keys
+            else _preview_input_identity(
+                index.get("sources", {}), layout, config.id, model, provision_sha
+            )
         )
         for key, model in models.items()
     }

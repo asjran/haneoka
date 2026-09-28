@@ -72,8 +72,20 @@ def _gather_bundle_metadata(
         return dict(executor.map(_bundle_metadata_task, tasks))
 
 
-def index_unity_dependencies(source_root: Path, records: list[dict[str, Any]]) -> dict[str, int]:
-    """Attach deterministic CAB ownership and dependency paths to bundle records."""
+def index_unity_dependencies(
+    source_root: Path,
+    records: list[dict[str, Any]],
+    *,
+    adopt_stored_metadata: bool = False,
+) -> dict[str, int]:
+    """Attach deterministic CAB ownership and dependency paths to bundle records.
+
+    With ``adopt_stored_metadata`` (delta ingests), a record that already
+    carries a ``unity`` block and has no local file keeps its stored metadata:
+    the block is a deterministic function of the bundle bytes, and those bytes
+    were hash-verified when the base source was published.  Records whose file
+    exists locally are always re-parsed.
+    """
 
     bundles = sorted(
         (record for record in records if record.get("role") == "unity-bundle"),
@@ -89,18 +101,40 @@ def index_unity_dependencies(source_root: Path, records: list[dict[str, Any]]) -
             raise ValueError(
                 f"Unity bundle declares an invalid size: {record.get('path', '')} ({declared_bytes})"
             )
-    metadata = _gather_bundle_metadata(source_root, bundles)
+    local: list[dict[str, Any]] = []
+    adopted_ids: set[int] = set()
+    for record in bundles:
+        stored = record.get("unity")
+        file = source_root / str(record["path"])
+        if (
+            adopt_stored_metadata
+            and isinstance(stored, dict)
+            and isinstance(stored.get("cabFiles"), list)
+            and stored.get("cabFiles")
+            and not file.is_file()
+        ):
+            adopted_ids.add(id(record))
+        else:
+            local.append(record)
+    metadata = _gather_bundle_metadata(source_root, local)
     owners: dict[str, dict[str, Any]] = {}
     for record in bundles:
         relative = str(record["path"])
-        file = source_root / relative
-        actual_bytes = file.stat().st_size
-        if actual_bytes != record["bytes"]:
-            raise ValueError(
-                f"Unity bundle size mismatch: expected {record['bytes']}, "
-                f"got {actual_bytes}: {relative}"
-            )
-        value = metadata[relative]
+        value = (
+            record["unity"]
+            if id(record) in adopted_ids
+            else metadata.get(relative)
+        )
+        if value is None:
+            file = source_root / relative
+            raise FileNotFoundError(f"Unity bundle is missing from the source: {file}")
+        if id(record) not in adopted_ids:
+            actual_bytes = file.stat().st_size
+            if actual_bytes != record["bytes"]:
+                raise ValueError(
+                    f"Unity bundle size mismatch: expected {record['bytes']}, "
+                    f"got {actual_bytes}: {relative}"
+                )
         for cab in value["cabFiles"]:
             existing = owners.get(cab)
             if existing and existing["sha256"] != record["sha256"]:

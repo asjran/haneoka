@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import unquote
 from uuid import uuid4
 
 from build.catalog_storage import compile_catalog_storage, compile_source_index_storage
@@ -13,7 +15,11 @@ from core.manifests import read_json, write_json
 from core.paths import build_layout, server_layout
 from core.process import hardlink_or_copy, walk_files
 from extract.master import ENCRYPTED_DIRECTORY
-from verify.release import promote_directory
+from verify.release import (
+    promote_directory,
+    promote_prepared_directory,
+    release_entries,
+)
 
 
 def _link_files(source: Path, target: Path, files: list[Path]) -> None:
@@ -102,7 +108,147 @@ def _copy_decoded_master(source: Path, target: Path) -> None:
     )
 
 
-def assemble_release(server: str, source_id: str, build_id: str) -> dict:
+def _expected_delta_paths(build, server: str) -> tuple[set[str], set[str]]:
+    """Derive the release paths this build must contain, from its local documents.
+
+    Returns ``(expected, assets_pngs)``.  Everything the stages declared —
+    bundle reports, archives, media, projections, CRI outputs, model previews,
+    Home Spot scenes — is reachable from the local build documents, so the
+    composer can distinguish "produced locally" from "must come from the base
+    release" without trusting either side blindly.
+    """
+
+    expected: set[str] = set()
+    unity_json_roots: set[str] = set()
+
+    reports_dir = build.metadata / "bundles"
+    for file in sorted(reports_dir.glob("*.json")):
+        digest = file.stem
+        expected.add(f"metadata/bundles/{digest}.json")
+        report = read_json(file)
+        archive = (report.get("objectArchive") or {}) if isinstance(report, dict) else {}
+        archive_path = str(archive.get("path") or "")
+        if archive_path:
+            expected.add(archive_path)
+        for source in (report.get("sources") or []) if isinstance(report, dict) else []:
+            for output in (source.get("outputs") or []):
+                relative = str(output.get("path") or "")
+                if relative:
+                    expected.add(relative)
+                    if relative.startswith("runtime/unity-json/"):
+                        unity_json_roots.add(relative)
+
+    sources_dir = build.metadata / "sources"
+    for file in sorted(sources_dir.rglob("*.json")):
+        relative = f"metadata/{file.relative_to(build.metadata).as_posix()}"
+        expected.add(relative)
+        descriptor = read_json(file)
+        for projection in (descriptor.get("runtimeObjects") or []) if isinstance(descriptor, dict) else []:
+            projection_path = str(projection.get("path") or "")
+            if projection_path:
+                expected.add(projection_path)
+
+    cri_file = build.metadata / "cri.json"
+    if cri_file.is_file():
+        expected.add("metadata/cri.json")
+        cri = read_json(cri_file)
+        for entry in (cri.get("entries") or []) if isinstance(cri, dict) else []:
+            for output in (entry.get("outputs") or []):
+                output_path = str(output.get("path") or "")
+                if output_path:
+                    expected.add(output_path)
+
+    assets_pngs: set[str] = set()
+    for document_name in ("live2d.json", "spine.json", "home-spots.json"):
+        document_file = build.metadata / document_name
+        if not document_file.is_file():
+            continue
+        expected.add(f"metadata/{document_name}")
+        _collect_document_paths(
+            read_json(document_file),
+            server,
+            expected,
+            assets_pngs,
+        )
+    return expected, assets_pngs
+
+
+def _collect_document_paths(value: object, server: str, expected: set[str], assets_pngs: set[str]) -> None:
+    """Recursively collect release paths referenced by a stage document."""
+
+    if isinstance(value, dict):
+        for child in value.values():
+            _collect_document_paths(child, server, expected, assets_pngs)
+    elif isinstance(value, list):
+        for child in value:
+            _collect_document_paths(child, server, expected, assets_pngs)
+    elif isinstance(value, str):
+        for prefix, tree in (
+            (f"/runtime/{server}/", "runtime"),
+            (f"/assets/{server}/", "assets"),
+        ):
+            if value.startswith(prefix):
+                relative = f"{tree}/{unquote(value[len(prefix):])}"
+                expected.add(relative)
+                if relative.startswith("assets/") and relative.casefold().endswith(".png"):
+                    assets_pngs.add(relative)
+                return
+
+
+def _base_fill_entries(
+    staging: Path,
+    build,
+    server: str,
+    base_manifest: dict,
+) -> list[dict]:
+    """Compose the manifest entries for a delta build.
+
+    Local files win; base release entries fill every expected path that was
+    not produced locally.  An expected path missing from both is a hard error,
+    and so is a base entry whose role disagrees with its tree.
+    """
+
+    from verify.release import RELEASE_TREES  # noqa: PLC0415 - avoid an import cycle at module load
+
+    local_entries = release_entries(staging)
+    local_paths = {str(entry["path"]) for entry in local_entries}
+    expected, _assets_pngs = _expected_delta_paths(build, server)
+    # Optional KTX2 derivatives mirror the assets tree one-to-one; the base
+    # release's encoders exist for exactly those PNGs that are still expected.
+    for png in [path for path in expected if path.startswith("assets/") and path.casefold().endswith(".png")]:
+        expected.add(f"runtime/ktx2/{png.removeprefix('assets/')[:-4]}.ktx2")
+
+    base_entries = {
+        str(entry.get("path")): entry
+        for entry in base_manifest.get("entries", [])
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    }
+    entries = list(local_entries)
+    missing = sorted(expected - local_paths)
+    filled = 0
+
+    def check(entry_path: str) -> dict:
+        entry = base_entries.get(entry_path)
+        if entry is None:
+            raise ValueError(
+                f"delta build is missing a locally produced file and the base release "
+                f"does not declare it: {entry_path}"
+            )
+        role = str(entry.get("role") or "")
+        if role not in RELEASE_TREES or entry_path.split("/", 1)[0] != role:
+            raise ValueError(f"base entry has an invalid role: {entry_path}")
+        return entry
+
+    for entry_path in missing:
+        entries.append(check(entry_path))
+        filled += 1
+    entries.sort(key=lambda item: item["path"])
+    if filled:
+        sys.stderr.write(f"release: composed {filled} entries from base release {base_manifest.get('releaseId')}\n")
+    return entries
+
+
+def assemble_release(server: str, source_id: str, build_id: str, base_manifest: dict | None = None) -> dict:
     build = build_layout(server, build_id)
     staging_parent = server_layout(server).releases / ".staging"
     staging: Path | None = staging_parent / f"{build_id}-{uuid4().hex}"
@@ -128,7 +274,15 @@ def assemble_release(server: str, source_id: str, build_id: str) -> dict:
             source_id,
         )
         hardlink_or_copy(build.database, staging / "metadata" / "unity.sqlite")
-        manifest = promote_directory(staging, server, source_id)
+        if base_manifest is None:
+            manifest = promote_directory(staging, server, source_id)
+        else:
+            manifest = promote_prepared_directory(
+                staging,
+                server,
+                source_id,
+                _base_fill_entries(staging, build, server, base_manifest),
+            )
         if staging.exists():
             shutil.rmtree(staging)
         staging = None

@@ -502,7 +502,11 @@ def _serialized_cri_payload(data: dict[str, Any] | None) -> bytes | None:
     return None
 
 
-def _embedded_payloads(build: Any, source_index: dict[str, Any]) -> list[tuple[str, bytes, PurePosixPath]]:
+def _embedded_payloads(
+    build: Any,
+    source_index: dict[str, Any],
+    delta: Any = None,
+) -> list[tuple[str, bytes, PurePosixPath]]:
     values = []
     prefix = PurePosixPath("Assets/AddressableResources/Cri")
     store = UnityObjectStore(build, source_index)
@@ -512,16 +516,45 @@ def _embedded_payloads(build: Any, source_index: dict[str, Any]) -> list[tuple[s
             tail = source.relative_to(prefix)
         except ValueError:
             continue
-        raw = _serialized_cri_payload(store.source_data(source_path))
+        raw = None
+        try:
+            raw = _serialized_cri_payload(store.source_data(source_path))
+        except FileNotFoundError:
+            if delta is None:
+                raise
+            # Delta build: the source's object archive belongs to a reusable
+            # bundle; materialize it once from the base release and retry.
+            descriptor = store.descriptor(source_path)
+            digest = str(descriptor["selectedBundle"])
+            if not delta.reusable(digest):
+                raise
+            delta.fetch_archive(
+                digest,
+                build.objects / "unity" / f"{digest}.jsonl.gz",
+            )
+            raw = _serialized_cri_payload(store.source_data(source_path))
         if raw is None:
             chunks = []
             for output in record.get("outputs", []):
                 match = CHUNK_SUFFIX.search(output["path"])
                 if match:
-                    chunks.append((int(match.group(1)), build.root / output["path"]))
+                    chunks.append((int(match.group(1)), str(output["path"]), build.root / output["path"]))
             if not chunks:
                 continue
-            raw = b"".join(bytes(value ^ 0x5A for value in file.read_bytes()) for _, file in sorted(chunks))
+            for _, relative, file in sorted(chunks):
+                if file.is_file() or delta is None:
+                    continue
+                declared = next(
+                    (output for output in record.get("outputs", []) if str(output.get("path")) == relative),
+                    None,
+                )
+                digest = str((declared or {}).get("bundleSha256") or "")
+                if not digest or not delta.reusable(digest):
+                    raise FileNotFoundError(
+                        f"embedded CRI chunk is missing locally and cannot be restored: {relative}"
+                    )
+                delta.fetch_release_path(relative, file)
+            raw = b"".join(bytes(value ^ 0x5A for value in file.read_bytes()) for _, _, file in sorted(chunks))
         if raw[:4] != b"@UTF":
             continue
         if len(raw) >= 8:
@@ -747,14 +780,61 @@ def _cached_records(manifest: dict[str, Any] | None, transform_id: str) -> dict[
     return records
 
 
+def _cached_by_source(
+    manifest: dict[str, Any] | None,
+    transform_id: str,
+    key_field: str,
+) -> dict[str, dict[str, Any]]:
+    """Index cached CRI records by a source-identity field for declare lookups.
+
+    Applies the same compatibility gate as :func:`_cached_records`; the taskId
+    remap for compatible transforms happens later against concrete tasks.
+    """
+
+    try:
+        records = _cached_records(manifest, transform_id)
+    except ValueError:
+        return {}
+    by_source: dict[str, dict[str, Any]] = {}
+    for record in records.values():
+        key = str((record.get("source") or {}).get(key_field) or "")
+        if key:
+            by_source.setdefault(key, record)
+    return by_source
+
+
+def _declare_cached_record(
+    cached_by_source: dict[str, dict[str, Any]],
+    source: dict[str, Any],
+    runtime_path: PurePosixPath,
+) -> dict[str, Any] | None:
+    """Return the base record adoptable for one source identity, if any.
+
+    Adoption requires the recomputed runtime path to match the base record: a
+    changed addressables context changes the task identity and must not adopt.
+    """
+
+    key = str(source.get("artifactSha256") or "")
+    record = cached_by_source.get(key) if key else None
+    if record is None:
+        return None
+    if str(record.get("runtimePath") or "") != runtime_path.as_posix():
+        return None
+    if not isinstance(record.get("outputs"), list) or not record["outputs"]:
+        return None
+    return record
+
+
 def _restore_cached_records(
     tasks: list[dict[str, Any]],
     records: dict[str, dict[str, Any]],
     build_root: Path,
     restore_output: RestoreOutput | None,
     concurrency: int,
+    declare: bool = False,
+    delta: Any = None,
 ) -> tuple[dict[int, dict[str, Any]], dict[str, int]]:
-    if not records or restore_output is None:
+    if not records or (restore_output is None and not declare):
         return {}, {
             "candidateSourceCount": 0,
             "reusedSourceCount": 0,
@@ -764,7 +844,6 @@ def _restore_cached_records(
         }
 
     candidates: dict[int, dict[str, Any]] = {}
-    jobs: list[tuple[int, dict[str, Any], Path]] = []
     for index, task in enumerate(tasks):
         record = records.get(task["taskId"])
         if not isinstance(record, dict):
@@ -777,7 +856,46 @@ def _restore_cached_records(
             continue
         cached = deepcopy(record)
         candidates[index] = cached
-        for output in cached["outputs"]:
+
+    if declare:
+        # Declare mode: adopted records keep their base manifest entries; no
+        # output bytes are restored into the build workspace.  Every adopted
+        # output must be declared exactly by the base release manifest.
+        reused: dict[int, dict[str, Any]] = {}
+        failed: set[int] = set()
+        for index, record in candidates.items():
+            valid = True
+            for output in record["outputs"]:
+                try:
+                    relative = _cached_output_relative(output).as_posix()
+                    entry = delta.require_entry(relative)
+                    if (
+                        str(entry.get("sha256")) != str(output.get("sha256"))
+                        or int(entry.get("bytes") or -1) != int(output.get("bytes"))
+                    ):
+                        raise ValueError("base entry mismatch")
+                except Exception:
+                    valid = False
+                    break
+            if valid:
+                reused[index] = record
+            else:
+                failed.add(index)
+        return reused, {
+            "candidateSourceCount": len(candidates),
+            "reusedSourceCount": len(reused),
+            "reusedOutputCount": sum(len(record["outputs"]) for record in reused.values()),
+            "reusedBytes": sum(
+                int(output["bytes"])
+                for record in reused.values()
+                for output in record["outputs"]
+            ),
+            "restoreFailureCount": len(failed),
+        }
+
+    jobs: list[tuple[int, dict[str, Any], Path]] = []
+    for index, record in candidates.items():
+        for output in record["outputs"]:
             relative = _cached_output_relative(output)
             jobs.append((index, output, build_root.joinpath(*relative.parts)))
 
@@ -972,7 +1090,7 @@ def _mux_exact_music_audio(video: Path, audio: Path) -> dict[str, Any]:
         temporary.unlink(missing_ok=True)
 
 
-def _annotate_video_outputs(build_root: Path, entries: list[dict[str, Any]]) -> None:
+def _annotate_video_outputs(build_root: Path, entries: list[dict[str, Any]], delta: Any = None) -> None:
     """Record actual output streams; never copy MasterVideo._hasAudio into the manifest."""
     for entry in entries:
         if entry.get("kind") != "usm":
@@ -981,6 +1099,15 @@ def _annotate_video_outputs(build_root: Path, entries: list[dict[str, Any]]) -> 
             if PurePosixPath(str(output.get("path") or "")).suffix.casefold() not in {".webm", ".mp4"}:
                 continue
             path = _runtime_file(build_root, output)
+            if not path.is_file():
+                if delta is not None and "hasAudio" in output and "videoCodec" in output:
+                    # Declared output adopted from the base release: the base
+                    # build probed these streams when it produced the file.
+                    continue
+                if delta is not None:
+                    delta.fetch_release_path(str(output["path"]), path)
+                else:
+                    raise FileNotFoundError(f"CRI video output is missing: {path}")
             probe = _probe_streams(path)
             if probe["videoCount"] != 1:
                 raise RuntimeError(f"CRI video output has unexpected video stream count: {path}: {probe}")
@@ -993,7 +1120,14 @@ def _annotate_video_outputs(build_root: Path, entries: list[dict[str, Any]]) -> 
                 output.pop("audioCodec", None)
 
 
-def _apply_music_video_audio(build_root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+def _apply_music_video_audio(
+    build_root: Path,
+    manifest: dict[str, Any],
+    declare: bool = False,
+    delta: Any = None,
+    restore_output: RestoreOutput | None = None,
+    base_bindings: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     entries = manifest.get("entries")
     if not isinstance(entries, list):
         raise ValueError("invalid CRI manifest: entries must be a list")
@@ -1003,6 +1137,11 @@ def _apply_music_video_audio(build_root: Path, manifest: dict[str, Any]) -> dict
         if not runtime_path:
             raise ValueError("CRI runtimePath must be non-empty")
         entries_by_runtime.setdefault(runtime_path, []).append(entry)
+    base_bindings_by_video = {
+        str(binding.get("videoOutputPath") or ""): binding
+        for binding in (base_bindings or [])
+        if isinstance(binding, dict)
+    }
 
     live_music = _master_rows(build_root, "MasterLiveMusic")
     videos = {int(row.get("_id") or 0): row for row in _master_rows(build_root, "MasterVideo")}
@@ -1038,9 +1177,16 @@ def _apply_music_video_audio(build_root: Path, manifest: dict[str, Any]) -> dict
             continue
         audio_output = _single_output(audio_entry, {".mp3"}, f"music ACB {cue_sheet_name}")
         audio_path = _runtime_file(build_root, audio_output)
-        audio_sha256 = sha256_file(audio_path)
-        if audio_output.get("sha256") != audio_sha256:
-            raise ValueError(f"music runtime hash does not match CRI manifest: {audio_path}")
+        if audio_path.is_file():
+            audio_sha256 = sha256_file(audio_path)
+            if audio_output.get("sha256") != audio_sha256:
+                raise ValueError(f"music runtime hash does not match CRI manifest: {audio_path}")
+        elif declare:
+            # Declared audio output: its sha256 was validated against the base
+            # release manifest when the record was adopted.
+            audio_sha256 = str(audio_output.get("sha256"))
+        else:
+            raise FileNotFoundError(f"music runtime output is missing: {audio_path}")
 
         for video_id in sorted(video_ids):
             video = videos.get(video_id)
@@ -1081,12 +1227,46 @@ def _apply_music_video_audio(build_root: Path, manifest: dict[str, Any]) -> dict
                 "audioBitrate": 256000,
             }
             prior_binding = video_output.get("musicVideoAudioBinding")
-            current_sha256 = sha256_file(video_path)
+            current_sha256 = sha256_file(video_path) if video_path.is_file() else None
             already_current = (
-                prior_binding == binding_core
+                current_sha256 is not None
+                and prior_binding == binding_core
                 and video_output.get("sha256") == current_sha256
                 and _probe_streams(video_path).get("audioCount") == 1
             )
+            if not already_current and current_sha256 is None and declare:
+                # Declared video output: adopt the base binding when the
+                # recomputed binding core and the output digest both match.
+                base_binding = base_bindings_by_video.get(output_key)
+                if (
+                    prior_binding == binding_core
+                    and isinstance(base_binding, dict)
+                    and str(base_binding.get("outputSha256") or "") == str(video_output.get("sha256"))
+                    and isinstance(base_binding.get("hasAudio"), bool)
+                ):
+                    probe = {
+                        "audioCodec": base_binding.get("audioCodec"),
+                        "audioCount": 1 if base_binding["hasAudio"] else 0,
+                    }
+                    bindings.append(
+                        {
+                            **binding_core,
+                            "videoOutputPath": output_key,
+                            "outputSha256": video_output.get("sha256"),
+                            "audioCodec": probe.get("audioCodec"),
+                            "hasAudio": probe.get("audioCount") == 1,
+                        }
+                    )
+                    continue
+                # The binding changed without new media (e.g. a Master update):
+                # restore the declared outputs and run the exact mux below.
+                if restore_output is None or delta is None:
+                    raise FileNotFoundError(
+                        f"declared CRI video output needs re-muxing but cannot be restored: {output_key}"
+                    )
+                delta.fetch_release_path(output_key, video_path)
+                delta.fetch_release_path(str(audio_output["path"]), audio_path)
+                current_sha256 = sha256_file(video_path)
             if already_current:
                 probe = _probe_streams(video_path)
             else:
@@ -1109,7 +1289,7 @@ def _apply_music_video_audio(build_root: Path, manifest: dict[str, Any]) -> dict
                 }
             )
 
-    _annotate_video_outputs(build_root, entries)
+    _annotate_video_outputs(build_root, entries, delta=delta)
     if any(not binding["hasAudio"] for binding in bindings):
         raise RuntimeError("one or more exact Master music-video bindings lack an audio stream")
     manifest["schema"] = CRI_SCHEMA
@@ -1152,7 +1332,17 @@ def extract_cri(
     reuse_manifest: dict[str, Any] | None = None,
     restore_output: RestoreOutput | None = None,
     reuse_concurrency: int = 32,
+    delta: Any = None,
 ) -> dict[str, Any]:
+    """Decode original and embedded CRI payloads into runtime media.
+
+    Delta mode (``delta`` provided) declares reusable sources from the base
+    release's CRI document without restoring their output bytes: task
+    identities are recomputed from source metadata and matched against the
+    base document, and adopted outputs must already be declared by the base
+    release manifest.  Fresh decodes write real files as always.
+    """
+
     source = source_layout(config.id, source_id)
     build = build_layout(config.id, build_id)
     source_manifest = read_json(source.manifest)
@@ -1162,42 +1352,85 @@ def extract_cri(
     staging = build.root / ".cri-staging"
     shutil.rmtree(staging, ignore_errors=True)
     transform_id = _cri_transform_id(config)
+    declare = delta is not None
+
     tasks: list[dict[str, Any]] = []
     for artifact in sorted(source_manifest.get("files", []), key=lambda item: item["path"]):
         if artifact.get("role") != "cri-payload":
             continue
         payload = source.root / artifact["path"]
-        kind = _kind(payload)
-        if not kind:
-            raise ValueError(f"unknown CRI payload format: {artifact['originalFilename']}")
-        relative = _remote_runtime_path(artifact)
+        source_identity = {
+            "artifactSha256": artifact["sha256"],
+            "originalFilename": artifact["originalFilename"],
+        }
+        metadata_encodings = _usm_metadata_encodings(
+            (artifact.get("addressables") or {}).get("locales")
+        )
+        if payload.is_file():
+            kind = _kind(payload)
+            if not kind:
+                raise ValueError(f"unknown CRI payload format: {artifact['originalFilename']}")
+            tasks.append(
+                {
+                    "label": artifact["originalFilename"],
+                    "source": source_identity,
+                    "kind": kind,
+                    "relative": _remote_runtime_path(artifact),
+                    "payload": payload,
+                    "metadataEncodings": metadata_encodings,
+                }
+            )
+            continue
+        if not declare:
+            raise FileNotFoundError(f"required CRI payload is not available locally: {payload}")
+        record = _declare_cached_record(
+            cached_by_source=_cached_by_source(reuse_manifest, transform_id, "artifactSha256"),
+            source=source_identity,
+            runtime_path=_remote_runtime_path(artifact),
+        )
+        if record is None:
+            # Adoptable in principle but rejected by validation: restore the
+            # payload from the source CAS and decode it fresh.
+            delta.fetch_original_bundle(artifact["sha256"], payload)
+            kind = _kind(payload)
+            if not kind:
+                raise ValueError(f"unknown CRI payload format: {artifact['originalFilename']}")
+            tasks.append(
+                {
+                    "label": artifact["originalFilename"],
+                    "source": source_identity,
+                    "kind": kind,
+                    "relative": _remote_runtime_path(artifact),
+                    "payload": payload,
+                    "metadataEncodings": metadata_encodings,
+                }
+            )
+            continue
         tasks.append(
             {
                 "label": artifact["originalFilename"],
-                "source": {"artifactSha256": artifact["sha256"], "originalFilename": artifact["originalFilename"]},
-                "kind": kind,
-                "relative": relative,
-                "payload": payload,
-                "metadataEncodings": _usm_metadata_encodings(
-                    (artifact.get("addressables") or {}).get("locales")
-                ),
+                "source": source_identity,
+                "kind": str(record["kind"]),
+                "relative": PurePosixPath(str(record["runtimePath"])),
+                "payload": None,
+                "metadataEncodings": metadata_encodings,
+                "artifactPath": str(artifact["path"]),
             }
         )
 
-    for source_path, payload, relative in _embedded_payloads(build, source_index):
-        tasks.append(
-            {
-                "label": source_path,
-                "source": {
-                    "unitySourcePath": source_path,
-                    "payloadSha256": sha256_bytes(payload),
-                },
-                "kind": "acb",
-                "relative": relative,
-                "bytes": payload,
-                "preferred": PurePosixPath(source_path).stem if relative == PurePosixPath("note-se") else "",
-            }
-        )
+    for source_path, payload, relative in _embedded_payloads(build, source_index, delta):
+        task = {
+            "label": source_path,
+            "source": {
+                "unitySourcePath": source_path,
+                "payloadSha256": sha256_bytes(payload),
+            },
+            "kind": "acb",
+            "relative": relative,
+            "bytes": payload,
+            "preferred": PurePosixPath(source_path).stem if relative == PurePosixPath("note-se") else "",
+        }
+        tasks.append(task)
     for task in tasks:
         task["taskId"] = _cri_task_id(task, transform_id)
 
@@ -1230,11 +1463,26 @@ def extract_cri(
             build.root,
             restore_output,
             reuse_concurrency,
+            declare=declare,
+            delta=delta,
         )
         records: list[dict[str, Any] | None] = [None] * len(tasks)
         for index, record in reused.items():
             records[index] = record
         pending = [(index, task) for index, task in enumerate(tasks) if records[index] is None]
+        # Declare tasks whose adoption was rejected still need their original
+        # payload to decode; restore it from the source CAS on demand.
+        for index, task in pending:
+            if task.get("payload") is None and "bytes" not in task:
+                digest = str(task["source"]["artifactSha256"])
+                target = source.root / str(task["artifactPath"])
+                delta.fetch_original_bundle(digest, target)
+                kind = _kind(target)
+                if kind != task["kind"]:
+                    raise ValueError(
+                        f"restored CRI payload kind differs from its base record: {task['label']}"
+                    )
+                task["payload"] = target
         workers = max(1, min(int(concurrency), len(pending) or 1))
 
         def decode(indexed: tuple[int, dict[str, Any]]) -> dict[str, Any] | None:
@@ -1273,7 +1521,19 @@ def extract_cri(
             "outputCount": sum(len(record["outputs"]) for record in complete),
             "entries": complete,
         }
-        manifest = _apply_music_video_audio(build.root, manifest)
+        base_bindings = (
+            (reuse_manifest or {}).get("musicVideoMux", {}).get("bindings")
+            if isinstance((reuse_manifest or {}).get("musicVideoMux"), dict)
+            else None
+        )
+        manifest = _apply_music_video_audio(
+            build.root,
+            manifest,
+            declare=declare,
+            delta=delta,
+            restore_output=restore_output,
+            base_bindings=base_bindings,
+        )
         write_json(build.metadata / "cri.json", manifest, pretty=True)
         return {
             **manifest,

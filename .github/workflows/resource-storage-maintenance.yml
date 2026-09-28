@@ -57,6 +57,13 @@ jobs:
             --recursive \
             --endpoint-url "https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com" \
             --region auto
+      - name: Verify the current release remotely
+        # Delta builds compose unchanged entries from the base release without
+        # re-verifying their bytes per run; this weekly deep pass re-checks
+        # every object the current release declares, in the store.
+        run: >-
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" verify-remote
+          --concurrency 32
       - name: Prune unreferenced manifests
         if: env.APPLY_CHANGES == 'true'
         run: |

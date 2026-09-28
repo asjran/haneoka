@@ -848,6 +848,7 @@ def fetch_source(
     paths: set[str] | None = None,
     shard_index: int | None = None,
     shard_count: int | None = None,
+    exclude_sha256: set[str] | None = None,
 ) -> dict[str, Any]:
     key = f"servers/{config.id}/sources/{source_id}/source.json"
     manifest = store.get_json(key)
@@ -867,6 +868,8 @@ def fetch_source(
         if roles and record.get("role") not in roles:
             continue
         if paths is not None and record.get("path") not in paths:
+            continue
+        if exclude_sha256 and str(record.get("sha256")) in exclude_sha256:
             continue
         if shard_index is not None:
             if (
@@ -938,17 +941,24 @@ def publish_release(
     check_hashes: bool = True,
 ) -> dict[str, Any]:
     layout = release_layout(config.id, release_id)
-    manifest = verify_release(config.id, release_id, check_hashes=check_hashes)
     prefix = f"servers/{config.id}/releases/{release_id}/"
     pointer_key = f"servers/{config.id}/current.json"
-    manifest_key = prefix + "release.json"
-    identity_key = prefix + RELEASE_IDENTITY_FILENAME
-    identity = release_identity_descriptor(config.id, release_id, manifest)
     pointer_head = store.head(pointer_key)
     pointer_etag = pointer_head.get("ETag") if pointer_head is not None else None
     if pointer_head is not None and (not isinstance(pointer_etag, str) or not pointer_etag):
         raise ValueError("current release pointer has no object version")
     current, previous_manifest = _current_release_manifest(store, config)
+    # A delta release keeps composed entries whose bytes stay in the previous
+    # release; verification cross-checks those entries against that manifest.
+    manifest = verify_release(
+        config.id,
+        release_id,
+        check_hashes=check_hashes,
+        base_manifest=previous_manifest,
+    )
+    manifest_key = prefix + "release.json"
+    identity_key = prefix + RELEASE_IDENTITY_FILENAME
+    identity = release_identity_descriptor(config.id, release_id, manifest)
     if isinstance(current, dict) and current.get("releaseId") == release_id:
         remote_manifest = store.get_json(manifest_key)
         if remote_manifest != manifest:

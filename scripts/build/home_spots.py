@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import math
+import copy
 import re
 import struct
 import sys
@@ -678,6 +679,7 @@ def _load_environment(
     descriptor: dict[str, Any],
     artifacts_by_sha: dict[str, dict[str, Any]],
     artifacts_by_path: dict[str, dict[str, Any]],
+    ensure: Any = None,
 ) -> tuple[Any, dict[str, Any]]:
     digest = str(descriptor.get("selectedBundle") or "")
     artifact = artifacts_by_sha.get(digest)
@@ -698,6 +700,8 @@ def _load_environment(
         dependencies.append(path)
         pending.extend((dependency.get("unity") or {}).get("dependencies", []))
 
+    if ensure is not None:
+        ensure({root_path, *dependencies})
     environment = load_unity_bundle(
         source.root / root_path,
         (source.root / path for path in sorted(dependencies)),
@@ -949,7 +953,14 @@ def _remove_stale_outputs(layout: Any, previous: Any, current: set[str]) -> None
             (layout.root / Path(*PurePosixPath(relative).parts)).unlink(missing_ok=True)
 
 
-def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dict[str, Any]:
+def build_home_spots(
+    config: ServerConfig,
+    source_id: str,
+    build_id: str,
+    *,
+    delta: Any = None,
+    base_document: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     source = source_layout(config.id, source_id)
     layout = build_layout(config.id, build_id)
     index = read_json(layout.metadata / "source-index.json")
@@ -971,9 +982,94 @@ def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dic
     rows = table.get("_allData") if isinstance(table, dict) else None
     if not isinstance(rows, list) or not rows:
         raise ValueError("MasterHomeSpot is empty or invalid")
-    store = UnityObjectStore(layout, index)
+    store = UnityObjectStore(
+        layout,
+        index,
+        ensure_archive=(
+            (lambda digest, archive: delta.fetch_archive(digest, archive))
+            if delta is not None
+            else None
+        ),
+    )
     artifacts_by_sha, artifacts_by_path = _bundle_artifacts(manifest)
+
+    def ensure_paths(paths: set[str]) -> None:
+        """Restore original bundle bytes a rebuild scene needs on demand."""
+
+        if delta is None:
+            return
+        for path in paths:
+            artifact = artifacts_by_path.get(path)
+            if artifact is None:
+                continue
+            digest = str(artifact["sha256"])
+            if not delta.reusable(digest):
+                continue
+            file = source.root / path
+            if not file.is_file():
+                delta.fetch_original_bundle(digest, file)
+
+    base_scenes_by_id: dict[str, dict[str, Any]] = {}
+    base_master_rows: dict[str, dict[str, Any]] = {}
+    if delta is not None and isinstance(base_document, dict):
+        base_scenes = base_document.get("scenes")
+        if isinstance(base_scenes, list):
+            for scene in base_scenes:
+                if isinstance(scene, dict) and isinstance(scene.get("spotId"), (str, int)):
+                    base_scenes_by_id[str(scene["spotId"])] = scene
+        try:
+            base_master = delta.base_document("objects/master/MasterHomeSpot.json")
+            base_rows = base_master.get("_allData") if isinstance(base_master, dict) else None
+            if isinstance(base_rows, list):
+                base_master_rows = {
+                    str(row.get("_id") or ""): row
+                    for row in base_rows
+                    if isinstance(row, dict)
+                }
+        except Exception as error:
+            sys.stderr.write(f"warning: base MasterHomeSpot unavailable for adoption: {error}\n")
+            base_master_rows = {}
+
+    def adoptable(row: dict[str, Any], identity: int) -> dict[str, Any] | None:
+        """Adopt one scene when its master row and both bundles are unchanged.
+
+        The scene document is a deterministic function of the master row and
+        the background/situation bundle content.  Adopting requires the exact
+        row to be unchanged and both bundles reusable, plus a matching base
+        scene record.
+        """
+
+        base_scene = base_scenes_by_id.get(str(identity))
+        if not isinstance(base_scene, dict):
+            return None
+        base_row = base_master_rows.get(str(identity))
+        if base_row is None or base_row != row:
+            return None
+        try:
+            background_source = _source_path(row, "_backgroundAssetPath", identity)
+            situation_source = _source_path(row, "_situationAssetPath", identity)
+        except (KeyError, ValueError):
+            return None
+        if (
+            str(base_scene.get("sourcePath") or "") != background_source
+            or str(base_scene.get("situationSourcePath") or "") != situation_source
+        ):
+            return None
+        for value in (background_source, situation_source):
+            entry = (index.get("sources") or {}).get(value)
+            if not isinstance(entry, dict):
+                return None
+            try:
+                descriptor = read_json(layout.metadata / str(entry["descriptor"]))
+            except (OSError, ValueError):
+                return None
+            digest = str(descriptor.get("selectedBundle") or "")
+            if not digest or not delta.reusable(digest):
+                return None
+        return copy.deepcopy(base_scene)
+
     scenes = []
+    adopted_scene_count = 0
     identities: set[int] = set()
     mappings: set[tuple[str, str]] = set()
     outputs: set[str] = set()
@@ -986,6 +1082,17 @@ def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dic
         if not identity or identity in identities:
             raise ValueError(f"MasterHomeSpot has an empty or repeated id: {identity}")
         identities.add(identity)
+        if delta is not None:
+            adopted_scene = adoptable(row, identity)
+            if adopted_scene is not None:
+                adopted_scene_count += 1
+                scenes.append(adopted_scene)
+                mappings.add(
+                    (str(adopted_scene.get("sourcePath") or ""), str(adopted_scene.get("situationName") or ""))
+                )
+                outputs.add(str((adopted_scene.get("output") or {}).get("path") or ""))
+                outputs.add(str((adopted_scene.get("preview") or {}).get("path") or ""))
+                continue
         background_source = _source_path(row, "_backgroundAssetPath", identity)
         situation_source = _source_path(row, "_situationAssetPath", identity)
         if background_source not in index.get("sources", {}) or situation_source not in index.get("sources", {}):
@@ -1006,7 +1113,7 @@ def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dic
 
             descriptor = store.descriptor(background_source)
             environment, artifact = _load_environment(
-                source, descriptor, artifacts_by_sha, artifacts_by_path
+                source, descriptor, artifacts_by_sha, artifacts_by_path, ensure=ensure_paths
             )
             root = _background_root(environment, descriptor, background_source)
             root_id = str(int(root.object_reader.path_id))
@@ -1126,6 +1233,7 @@ def build_home_spots(config: ServerConfig, source_id: str, build_id: str) -> dic
         "sceneCount": len(scenes),
         "skippedSceneCount": len(skipped_spots),
         "skippedSpots": skipped_spots,
+        **({"adoptedSceneCount": adopted_scene_count} if delta is not None else {}),
         "scenes": scenes,
     }
     write_json(metadata_file, result, pretty=True)
