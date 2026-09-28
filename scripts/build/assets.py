@@ -170,7 +170,7 @@ def _materialize_outputs(
                 entry = delta.require_entry(relative)
                 if (
                     str(entry.get("sha256")) != str(output["sha256"])
-                    or int(entry.get("bytes") or -1) != int(output["bytes"])
+                    or int(entry.get("bytes", -1)) != int(output["bytes"])
                 ):
                     raise ValueError(
                         f"reusable Unity media output does not match the base release: {relative}"

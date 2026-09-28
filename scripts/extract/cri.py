@@ -871,7 +871,7 @@ def _restore_cached_records(
                     entry = delta.require_entry(relative)
                     if (
                         str(entry.get("sha256")) != str(output.get("sha256"))
-                        or int(entry.get("bytes") or -1) != int(output.get("bytes"))
+                        or int(entry.get("bytes", -1)) != int(output.get("bytes"))
                     ):
                         raise ValueError("base entry mismatch")
                 except Exception:
