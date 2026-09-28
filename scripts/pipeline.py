@@ -321,7 +321,7 @@ def command_fetch_release_document(args: argparse.Namespace) -> None:
         raise ValueError(f"release does not declare the document: {args.path}")
     digest = str(entry["sha256"])
     body = store.get_bytes(cas_key(digest))
-    if body is None or len(body) != int(entry["bytes"]) or sha256_bytes(body).hexdigest() != digest:
+    if body is None or len(body) != int(entry["bytes"]) or sha256_bytes(body) != digest:
         raise ValueError(f"release document CAS object is invalid: {args.path}")
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
