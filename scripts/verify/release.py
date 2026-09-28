@@ -1429,7 +1429,7 @@ def verify_release(
             if base_entry is not None and expected_hash is not None and expected_bytes is not None:
                 if (
                     str(base_entry.get("sha256")) == expected_hash
-                    and int(base_entry.get("bytes") or -1) == expected_bytes
+                    and int(base_entry.get("bytes", -1)) == expected_bytes
                     and str(base_entry.get("mediaType") or "") == (expected_media_type or "")
                     and str(base_entry.get("role") or "") == str(role or "")
                 ):

@@ -432,7 +432,7 @@ def current_release_document(
             f"current release document CAS object is missing: {path}"
         )
     if (
-        len(body) != int(entry.get("bytes") or -1)
+        len(body) != declared_bytes
         or hashlib.sha256(body).hexdigest() != digest
     ):
         raise ValueError(f"current release document CAS object is invalid: {path}")
@@ -598,11 +598,11 @@ def restore_release_object(
     entries = snapshot.get("entries")
     entry = entries.get(path) if isinstance(entries, dict) else None
     digest = str(record.get("sha256") or "")
-    size = int(record.get("bytes") or -1)
+    size = int(record.get("bytes", -1))
     if (
         not isinstance(entry, dict)
         or entry.get("sha256") != digest
-        or int(entry.get("bytes") or -1) != size
+        or int(entry.get("bytes", -1)) != size
     ):
         raise ValueError(
             f"current release does not declare the reusable object exactly: {path}"
