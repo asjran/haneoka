@@ -225,10 +225,12 @@ const CANONICAL_HOST = "haneoka.org";
 const POINTER_TTL_MS = 30_000;
 const POINTER_CACHE_LIMIT = 128;
 // Structured catalogue documents are snapshot-oriented and shared by the
-// Garupa playlist and catalog APIs. One policy keeps their browser and edge
-// behaviour aligned while still allowing a background refresh each day.
+// Garupa playlist and catalog APIs. The edge caches them under a
+// release-scoped key (a promoted release invalidates them immediately), but
+// the URLs themselves are stable, so the browser policy must stay short:
+// five minutes bounds how long a newly promoted catalog can go unseen.
 const API_CACHE_TTL = 86_400;
-const CATALOG_API_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800";
+const CATALOG_API_CACHE_CONTROL = "public, max-age=300, must-revalidate";
 // The release registry changes only when staff activate, retire, or rename an
 // Our Notes resource server. Treat it like other directory data: fresh daily,
 // while a background refresh absorbs an administrative change without making
@@ -758,7 +760,10 @@ function parseRange(value: string | null, size: number): RangeResult {
 
 const cacheControlFor = (contentType: string): string =>
   contentType.includes("json")
-    ? "public, max-age=86400, stale-while-revalidate=604800"
+    ? // JSON documents resolve through the current release pointer at stable
+      // URLs; keep the browser window short for the same reason as
+      // CATALOG_API_CACHE_CONTROL above.
+      "public, max-age=300, must-revalidate"
     : "public, max-age=604800, stale-while-revalidate=2592000";
 
 const isModelPreviewMedia = (tree: string, relative: string): boolean =>
