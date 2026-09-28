@@ -120,13 +120,13 @@ def index_unity_dependencies(
     owners: dict[str, dict[str, Any]] = {}
     for record in bundles:
         relative = str(record["path"])
+        file = source_root / relative
         value = (
             record["unity"]
             if id(record) in adopted_ids
             else metadata.get(relative)
         )
         if value is None:
-            file = source_root / relative
             raise FileNotFoundError(f"Unity bundle is missing from the source: {file}")
         if id(record) not in adopted_ids:
             actual_bytes = file.stat().st_size
@@ -152,7 +152,14 @@ def index_unity_dependencies(
     dependency_edges = 0
     unresolved: set[str] = set()
     for record in bundles:
-        value = metadata[str(record["path"])]
+        # Adopted records resolve their external CABs from the stored metadata
+        # block; local records from the fresh parse. Either way the dependency
+        # graph is recomputed against the full current corpus below.
+        value = (
+            record["unity"]
+            if id(record) in adopted_ids
+            else metadata[str(record["path"])]
+        )
         dependencies = sorted(
             {
                 str(owner["path"])

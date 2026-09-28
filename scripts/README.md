@@ -62,7 +62,10 @@ Each stage then handles only what changed:
 - `ingest --base-source <id>` adopts unchanged bundle records from the base
   source manifest without transferring any bytes (content, size, and catalog
   addressables must match exactly); only new or changed bundles are
-  downloaded, and Unity CAB indexing parses only the local files.
+  downloaded, and Unity CAB indexing parses only the local files. Local
+  package-embedded copies whose size disagrees with the live catalog are
+  refreshed from the CDN first, so a hot-updated bundle is never shadowed by
+  the stale copy inside the package.
 - Unity shard jobs fetch just their pending originals and run
   `extract-unity --delta-plan`, skipping reusable bundles entirely; shards
   with nothing pending do not run at all.

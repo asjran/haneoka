@@ -1255,6 +1255,30 @@ def ingest_package(
         def materialize(plan: tuple[dict[str, Any], Path, dict[str, Any], int]) -> tuple[Path, dict[str, Any]] | None:
             location, target, addressables, expected = plan
             filename = target.name
+            # The package's embedded copies are extracted before the plans run
+            # and can lag a hot-updated CDN bundle. The live catalog is
+            # authoritative: refresh any local copy whose size disagrees
+            # before reuse, adoption, or the disk-accept path can read it.
+            if target.is_file() and expected and target.stat().st_size != expected:
+                if not _download(
+                    location["remoteUrl"],
+                    target,
+                    config,
+                    expected_bytes=expected,
+                    unity_version=unity_version,
+                    missing_ok=True,
+                    authorization=discovered_authorization,
+                ):
+                    raise FileNotFoundError(
+                        f"required Addressables artifact is absent from the CDN while the "
+                        f"package-embedded copy has {target.stat().st_size} bytes "
+                        f"(catalog expects {expected}): {filename}"
+                    )
+                with reuse_lock:
+                    reuse_counters["downloaded"] += 1
+                    reuse_counters["downloaded_bytes"] += _required_file_size(
+                        target, f"artifact {filename}"
+                    )
             base_record = base_records_by_name.get(filename) if base_records_by_name else None
             if base_record is not None:
                 entry = reuse_index.get(filename) if reuse_index else None
