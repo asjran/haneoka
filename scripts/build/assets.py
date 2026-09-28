@@ -499,6 +499,22 @@ def merge_unity_shards(
             raise ValueError(
                 f"delta merge covered {len(reports_by_sha)} bundles, expected {total}"
             )
+        # Reusable bundles never ran a shard locally, so their report sources
+        # must feed the same candidate pool the shard loop fills; otherwise
+        # source-index.json, the descriptors, and the api derivation would only
+        # cover the pending shards' corpus.
+        for digest in sorted(delta.plan["bundles"]):
+            report = reports_by_sha[digest]
+            for source in report.get("sources", []):
+                validate_unity_path(source["sourcePath"])
+                candidates[source["sourcePath"]].append(
+                    {
+                        "bundleSha256": digest,
+                        "bundleFilename": report["bundle"]["originalFilename"],
+                        "bundleOrigin": report["bundle"]["origin"],
+                        "source": source,
+                    }
+                )
 
     sources = [_canonical_source(candidates[path], reports_by_sha) for path in sorted(candidates)]
     # Locale variants (`sourcePath != basePath`) are materialized as files so the

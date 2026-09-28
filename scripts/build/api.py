@@ -89,6 +89,7 @@ COMMAND_NAMES = {
     58: "rimLight", 59: "cancelDelay", 60: "moveToUp", 61: "moveToDown",
     62: "moveDepth", 63: "moveDepth", 64: "moveToDirection",
     65: "chatTyping", 66: "lookTarget", 67: "fieldPan",
+    68: "motionLoop", 69: "eyeBlink",
 }
 
 # These enum names mirror the reference value labels. The integer is
@@ -238,9 +239,20 @@ def _timestamp(value: Any) -> list[int | None]:
 
 
 class BuildData:
-    def __init__(self, server: str, root: Path):
+    def __init__(
+        self,
+        server: str,
+        root: Path,
+        base_release_paths: "frozenset[str] | None" = None,
+        restore_archive: "callable | None" = None,
+    ):
         self.server = server
         self.root = root
+        # Delta builds: paths the pinned base release declares and the release
+        # composer will fill, plus an on-demand fetcher for reusable bundles'
+        # object archives, keep derivation byte-identical to a full rebuild.
+        self.base_release_paths: "frozenset[str]" = base_release_paths or frozenset()
+        self.restore_archive = restore_archive
         self.assets = root / "assets"
         self.runtime = root / "runtime"
         self.master = root / "master"
@@ -402,19 +414,21 @@ class BuildData:
 
     def asset(self, value: str) -> str | None:
         path = PurePosixPath(value)
-        if (
-            not value.startswith(("Assets/", "Packages/"))
-            or value not in self.source_path_set
-            or not (self.assets / Path(*path.parts)).is_file()
+        if not value.startswith(("Assets/", "Packages/")) or value not in self.source_path_set:
+            return None
+        if not (self.assets / Path(*path.parts)).is_file() and (
+            f"assets/{value}" not in self.base_release_paths
         ):
             return None
         return f"/assets/{self.server}/" + "/".join(path.parts)
 
     def runtime_url(self, value: str) -> str | None:
         path = PurePosixPath(value)
-        if value not in self.runtime_path_set or not (
-            self.runtime / Path(*path.parts)
-        ).is_file():
+        if value not in self.runtime_path_set:
+            if f"runtime/{value}" not in self.base_release_paths:
+                return None
+            return f"/runtime/{self.server}/" + "/".join(path.parts)
+        if not (self.runtime / Path(*path.parts)).is_file():
             return None
         return f"/runtime/{self.server}/" + "/".join(path.parts)
 
@@ -437,6 +451,10 @@ class BuildData:
         if cached is not None:
             return cached
         archive_file = self.root / Path(*archive_relative.parts)
+        if not archive_file.is_file() and self.restore_archive is not None:
+            # Delta build: the archive belongs to a reusable bundle; restore the
+            # byte-exact base object once and read it like a local shard's.
+            self.restore_archive(selected_bundle, archive_file)
         if not archive_file.is_file():
             raise ValueError(f"Unity object archive is missing: {archive_file}")
         objects: dict[str, dict[str, Any]] = {}
@@ -7059,9 +7077,15 @@ def _resource_count(name: str, document: Any) -> int:
     return len(document) if isinstance(document, dict) else 0
 
 
-def build_api(config: ServerConfig, source_id: str, build_id: str) -> dict[str, Any]:
+def build_api(
+    config: ServerConfig,
+    source_id: str,
+    build_id: str,
+    base_release_paths: "frozenset[str] | None" = None,
+    restore_archive: "callable | None" = None,
+) -> dict[str, Any]:
     layout = build_layout(config.id, build_id)
-    data = BuildData(config.id, layout.root)
+    data = BuildData(config.id, layout.root, base_release_paths, restore_archive)
     live2d_raw = _live2d_models(data, source_id)
     live2d = _enrich_live2d(data, live2d_raw)
     songs, song_metadata = _songs(data)

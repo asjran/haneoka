@@ -726,7 +726,13 @@ def command_build_home_spots(args: argparse.Namespace) -> None:
 def command_build_api(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
-    _print(build_api(config, args.source, identity))
+    base_release_paths = None
+    restore_archive = None
+    if args.delta_plan:
+        delta = _delta_context(config, args.delta_plan)
+        base_release_paths = frozenset(delta.entries())
+        restore_archive = lambda digest, target: delta.fetch_archive(digest, target)  # noqa: E731
+    _print(build_api(config, args.source, identity, base_release_paths, restore_archive))
 
 
 def command_build_ktx2(args: argparse.Namespace) -> None:
@@ -1152,6 +1158,10 @@ def parser() -> argparse.ArgumentParser:
     api = commands.add_parser("build-api", help="build canonical catalog documents")
     api.add_argument("--source", required=True)
     api.add_argument("--build")
+    api.add_argument(
+        "--delta-plan",
+        help="compose reusable outputs against the plan's pinned base release",
+    )
     api.set_defaults(run=command_build_api)
 
     ktx2 = commands.add_parser("build-ktx2", help="build optional KTX2 runtime derivatives")

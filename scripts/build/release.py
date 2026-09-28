@@ -213,16 +213,19 @@ def _base_fill_entries(
     local_entries = release_entries(staging)
     local_paths = {str(entry["path"]) for entry in local_entries}
     expected, _assets_pngs = _expected_delta_paths(build, server)
-    # Optional KTX2 derivatives mirror the assets tree one-to-one; the base
-    # release's encoders exist for exactly those PNGs that are still expected.
-    for png in [path for path in expected if path.startswith("assets/") and path.casefold().endswith(".png")]:
-        expected.add(f"runtime/ktx2/{png.removeprefix('assets/')[:-4]}.ktx2")
-
     base_entries = {
         str(entry.get("path")): entry
         for entry in base_manifest.get("entries", [])
         if isinstance(entry, dict) and isinstance(entry.get("path"), str)
     }
+    # Optional KTX2 derivatives mirror the assets tree one-to-one, but only
+    # when the base release actually carries encoders: a base built without
+    # KTX2 declares none, and expecting them would fail composition.
+    for png in [path for path in expected if path.startswith("assets/") and path.casefold().endswith(".png")]:
+        ktx2_path = f"runtime/ktx2/{png.removeprefix('assets/')[:-4]}.ktx2"
+        if ktx2_path in base_entries:
+            expected.add(ktx2_path)
+
     entries = list(local_entries)
     missing = sorted(expected - local_paths)
     filled = 0

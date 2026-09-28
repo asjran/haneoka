@@ -762,7 +762,7 @@ jobs:
           if [[ "${{ needs.prepare.outputs.delta }}" == "true" ]]; then
             extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
           fi
-          python scripts/pipeline.py --server "$RESOURCE_SERVER" build-api --source "$SOURCE_ID" --build "$BUILD_ID"
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" build-api --source "$SOURCE_ID" --build "$BUILD_ID" "${extra[@]}"
           python scripts/pipeline.py --server "$RESOURCE_SERVER" build-release --source "$SOURCE_ID" --build "$BUILD_ID" "${extra[@]}" > "$RUNNER_TEMP/release.json"
       - name: Publish CAS delta and switch current release
         id: publish_release
