@@ -297,8 +297,9 @@ jobs:
             --endpoint-url "$endpoint" --region auto --no-progress
           base_release="$(jq -r .baseReleaseId "$RUNNER_TEMP/unity-reuse.json")"
           pending_by_shard="$(jq -c '.pendingByShard // {}' "$RUNNER_TEMP/unity-reuse.json")"
+          # $shards is the shard count, not an array; range() expands it.
           matrix="$(jq -cn --argjson shards "$SHARDS" --argjson pending "$pending_by_shard" '
-            [ $shards[] | tostring | select(($pending[.] // 0) > 0) | tonumber ]')"
+            [ range($shards) | tostring | select(($pending[.] // 0) > 0) | tonumber ]')"
           if [[ "$base_release" != "null" && "$base_release" != "" ]]; then
             echo "delta=true" >> "$GITHUB_OUTPUT"
             echo "base_release_id=$base_release" >> "$GITHUB_OUTPUT"
@@ -594,20 +595,17 @@ jobs:
           tar --extract --gzip --file "$archive" --directory "$build_root"
           rm -f "$archive"
       - name: Fetch delta plan
-        id: delta_plan
+        # Use the same signal the Unity jobs used. Sniffing the staged S3 key
+        # desynchronized the two paths whenever the prepare step fell back.
+        if: needs.prepare.outputs.delta == 'true'
         run: |
           endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
-          echo "delta=false" >> "$GITHUB_OUTPUT"
-          if aws s3 cp \
-              "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
-              "$RUNNER_TEMP/unity-delta-plan.json" \
-              --endpoint-url "$endpoint" --region auto --no-progress; then
-            echo "delta=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No delta plan staged; running the full build path" >&2
-          fi
+          aws s3 cp \
+            "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
+            "$RUNNER_TEMP/unity-delta-plan.json" \
+            --endpoint-url "$endpoint" --region auto --no-progress
       - name: Restore all Unity shards from private R2
-        if: steps.delta_plan.outputs.delta != 'true'
+        if: needs.prepare.outputs.delta != 'true'
         run: |
           build_root="data/servers/$RESOURCE_SERVER/builds/${{ needs.prepare.outputs.build_id }}"
           archive_root="$RUNNER_TEMP/unity-shards"
@@ -636,7 +634,7 @@ jobs:
           printf '%s\n' "${archives[@]}" | xargs -P "$(nproc)" -I '{}' \
             sh -c 'tar --extract --gzip --file "$1" --directory "$2" && rm -f "$1"' _ '{}' "$build_root"
       - name: Restore pending Unity shards from private R2
-        if: steps.delta_plan.outputs.delta == 'true'
+        if: needs.prepare.outputs.delta == 'true'
         run: |
           build_root="data/servers/$RESOURCE_SERVER/builds/${{ needs.prepare.outputs.build_id }}"
           archive_root="$RUNNER_TEMP/unity-shards"
@@ -664,13 +662,13 @@ jobs:
           printf '%s\n' "${archives[@]}" | xargs -P "$(nproc)" -I '{}' \
             sh -c 'tar --extract --gzip --file "$1" --directory "$2" && rm -f "$1"' _ '{}' "$build_root"
       - name: Fetch original CRI payloads
-        if: steps.delta_plan.outputs.delta != 'true'
+        if: needs.prepare.outputs.delta != 'true'
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source
           --source "${{ needs.prepare.outputs.source_id }}"
           --role cri-payload
       - name: Fetch changed CRI payloads
-        if: steps.delta_plan.outputs.delta == 'true'
+        if: needs.prepare.outputs.delta == 'true'
         run: |
           endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
           base_release="$(jq -r .baseReleaseId "$RUNNER_TEMP/unity-delta-plan.json")"
@@ -691,12 +689,12 @@ jobs:
           BUILD_ID="${{ needs.prepare.outputs.build_id }}"
           SHARDS="${{ needs.prepare.outputs.shard_count }}"
           extra=()
-          if [[ "${{ steps.delta_plan.outputs.delta }}" == "true" ]]; then
+          if [[ "${{ needs.prepare.outputs.delta }}" == "true" ]]; then
             extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
           fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" merge-unity --source "$SOURCE_ID" --build "$BUILD_ID" --shard-count "$SHARDS" "${extra[@]}"
       - name: Fetch original Home Spot bundles
-        if: steps.delta_plan.outputs.delta != 'true'
+        if: needs.prepare.outputs.delta != 'true'
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-home-spots
           --source "${{ needs.prepare.outputs.source_id }}"
@@ -706,7 +704,7 @@ jobs:
         run: |
           SOURCE_ID="${{ needs.prepare.outputs.source_id }}"
           BUILD_ID="${{ needs.prepare.outputs.build_id }}"
-          DELTA="${{ steps.delta_plan.outputs.delta }}"
+          DELTA="${{ needs.prepare.outputs.delta }}"
           names=()
           pids=()
           run_stage() {
@@ -759,7 +757,7 @@ jobs:
           SOURCE_ID="${{ needs.prepare.outputs.source_id }}"
           BUILD_ID="${{ needs.prepare.outputs.build_id }}"
           extra=()
-          if [[ "${{ steps.delta_plan.outputs.delta }}" == "true" ]]; then
+          if [[ "${{ needs.prepare.outputs.delta }}" == "true" ]]; then
             extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
           fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" build-api --source "$SOURCE_ID" --build "$BUILD_ID"
