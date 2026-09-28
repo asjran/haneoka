@@ -149,7 +149,7 @@ def prepare_unity_delta_plan(
                 )
         return digest, {
             "shardIndex": shard_index,
-            "originalFilename": str(item[1].get("originalFilename") or ""),
+            "originalFilename": str(item.get("originalFilename") or ""),
             "report": {
                 "path": report_entry["path"],
                 "sha256": str(report_entry["sha256"]),
