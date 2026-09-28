@@ -24,7 +24,7 @@ import {
 } from "./shared/catalog";
 import { resolveLocalizedText } from "../lib/localized-text";
 import { openDetailLocation, closeDetailLocation, observeDetailLocation } from "../lib/detail-navigation";
-import { writeReleaseServer } from "../lib/release-server";
+import { releaseServerPath, writeReleaseServer } from "../lib/release-server";
 import { OutfitStage } from "./runtime/outfit-stage";
 type Value = Record<string, unknown>;
 const read = readPath;
@@ -422,17 +422,27 @@ export class AnonTokyoWorkspace extends LitElement {
             title: this.label("availabilityTitle"),
             body: this.label("unavailable"),
             icon: "inventory_2",
-            action: html`
-              <button
-                class="button button--tonal"
-                @click=${() => {
-                  writeReleaseServer("intl-cbt");
-                  void this.load();
-                }}
-              >
-                ${uiText(this.locale, "settingsGlobalCbt") === "settingsGlobalCbt" ? this.label("viewCbt") : uiText(this.locale, "settingsGlobalCbt")}
-              </button>
-            `,
+            ...(currentReleaseServer() === "intl-cbt"
+              ? {}
+              : {
+                  action: html`
+                    <button
+                      class="button button--tonal"
+                      @click=${() => {
+                        // The addressed server lives in the URL prefix; view
+                        // the collection's CBT copy by navigating to it.
+                        writeReleaseServer("intl-cbt");
+                        location.assign(
+                          releaseServerPath(`${location.pathname}${location.search}${location.hash}`, "intl-cbt"),
+                        );
+                      }}
+                    >
+                      ${uiText(this.locale, "settingsGlobalCbt") === "settingsGlobalCbt"
+                        ? this.label("viewCbt")
+                        : uiText(this.locale, "settingsGlobalCbt")}
+                    </button>
+                  `,
+                }),
           })}
         </section>
       `;

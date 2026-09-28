@@ -176,7 +176,7 @@ const japaneseLabel = "forceJapaneseTitles";
   import { applySeed, currentSeed, isSeed } from "../lib/tuning";
   import { applyDensity, currentDensity, isDensity } from "../lib/density";
   import { japaneseSongTitles, setJapaneseSongTitles } from "../lib/song-display";
-  import { readReleaseServer, writeReleaseServer } from "../lib/release-server";
+  import { isReleaseServer, readReleaseServer, releaseServerPath, writeReleaseServer } from "../lib/release-server";
   import { isLocale, localePath } from "../i18n/locales";
 
   type SettingsWindow = Window & { __haneokaApplyLocale?: (locale: string) => void; __haneokaApplyTheme?: () => void };
@@ -233,8 +233,15 @@ const japaneseLabel = "forceJapaneseTitles";
         } else if (name === "locale" && isLocale(value)) {
           location.assign(`${localePath(location.pathname, value)}${location.search}${location.hash}`);
           return;
-        } else if (name === "release") {
+        } else if (name === "release" && isReleaseServer(value)) {
+          // The URL prefix is the release server's address: a change of server
+          // is a change of page, not an in-place data swap.
+          const current = readReleaseServer();
           writeReleaseServer(value);
+          if (value !== current) {
+            location.assign(releaseServerPath(`${location.pathname}${location.search}${location.hash}`, value));
+            return;
+          }
         }
         updateSummary(name);
       },
