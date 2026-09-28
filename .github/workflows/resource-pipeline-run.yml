@@ -654,7 +654,9 @@ jobs:
           done
           mapfile -t archives < <(find "$archive_root" -maxdepth 1 -type f -name 'unity-shard-*.tar.gz' -print | sort)
           # Only shards with pending bundles ran; everything else is composed.
-          expected="$(jq '[.pending | values] | unique | length' "$RUNNER_TEMP/unity-delta-plan.json")"
+          # jq's `values` builtin selects non-null inputs; [.pending[]] actually
+          # iterates the digest->shard map's shard indices for the count.
+          expected="$(jq '[.pending[]] | unique | length' "$RUNNER_TEMP/unity-delta-plan.json")"
           if [[ "${#archives[@]}" -ne "$expected" ]]; then
             echo "Expected $expected pending Unity shard archives, found ${#archives[@]}" >&2
             exit 1
