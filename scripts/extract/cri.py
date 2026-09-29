@@ -45,9 +45,11 @@ COMPATIBLE_TRANSFORM_IDS = {
     "ec14e1a80a83abd5ed9cadcf5fb59e107544c69dc6e09496165a0110f44001ad",
     # Missing-file tolerance for declared outputs does not change any decoded
     # or muxed byte; records still adopt only when their outputs match the
-    # base release manifest exactly. This is the composite id (not the bare
-    # extractor hash) of releases built by 2f66c39-era cri.py.
+    # base release manifest exactly. Composite ids (stable_json over schema,
+    # extractorSha256, hcaKeySha256) of releases built by 2f66c39-era and
+    # b29b8b5-era cri.py.
     "864e5e7ad6deee535ea37870ce4d74c546546311341b531638d78e1cbdabad28",
+    "060164f03d19e145f12c0d64765ce294567ac1cfff2fa4e2e85247b5e22f9046",
 }
 COMPATIBLE_HCA_KEY_SHA256 = "cd0b2ad6de5baa070f1c00baa33658b493a138919f00a4ed8418a7ff6af6ba2f"
 RestoreOutput = Callable[[dict[str, Any], Path], None]
