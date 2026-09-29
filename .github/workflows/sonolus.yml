@@ -14,7 +14,11 @@ on:
   push:
     branches: [main]
     paths:
-      - config/external-repositories.lock.json
+      - .gitmodules
+      - .dependencies/cassiopeia-plugin-sonolus
+      - .dependencies/cassiopeia-plugin-our-notes
+      - .dependencies/cassiopeia-renderer-three
+      - .dependencies/cassiopeia
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
@@ -58,7 +62,7 @@ jobs:
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
-            config/external-repositories.lock.json
+            .gitmodules
 
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
@@ -72,7 +76,7 @@ jobs:
         with:
           path: .dependencies/cassiopeia-plugin-sonolus/engine/.build-matrix/${{ matrix.facet }}/dist
           # Exact-key match only (no restore-keys): a stale output must never ship.
-          key: sonolus-engine-${{ matrix.facet }}-v3-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('config/external-repositories.lock.json', format('.dependencies/cassiopeia-plugin-sonolus/engine/{0}/**', matrix.facet), '.dependencies/cassiopeia-plugin-sonolus/engine/shared/**', '.dependencies/cassiopeia-plugin-sonolus/engine/scripts/build.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/esbuild.config.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/tsconfig.base.json', '.dependencies/cassiopeia-plugin-sonolus/engine/package.json', 'pnpm-lock.yaml') }}
+          key: sonolus-engine-${{ matrix.facet }}-v3-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('.gitmodules', format('.dependencies/cassiopeia-plugin-sonolus/engine/{0}/**', matrix.facet), '.dependencies/cassiopeia-plugin-sonolus/engine/shared/**', '.dependencies/cassiopeia-plugin-sonolus/engine/scripts/build.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/esbuild.config.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/tsconfig.base.json', '.dependencies/cassiopeia-plugin-sonolus/engine/package.json', 'pnpm-lock.yaml') }}
 
       - name: Compile ${{ matrix.facet }} facet
         if: steps.engine-cache.outputs.cache-hit != 'true'
@@ -83,7 +87,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .dependencies/cassiopeia-plugin-sonolus/engine/.build-matrix/${{ matrix.facet }}/dist
-          key: sonolus-engine-${{ matrix.facet }}-v3-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('config/external-repositories.lock.json', format('.dependencies/cassiopeia-plugin-sonolus/engine/{0}/**', matrix.facet), '.dependencies/cassiopeia-plugin-sonolus/engine/shared/**', '.dependencies/cassiopeia-plugin-sonolus/engine/scripts/build.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/esbuild.config.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/tsconfig.base.json', '.dependencies/cassiopeia-plugin-sonolus/engine/package.json', 'pnpm-lock.yaml') }}
+          key: sonolus-engine-${{ matrix.facet }}-v3-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('.gitmodules', format('.dependencies/cassiopeia-plugin-sonolus/engine/{0}/**', matrix.facet), '.dependencies/cassiopeia-plugin-sonolus/engine/shared/**', '.dependencies/cassiopeia-plugin-sonolus/engine/scripts/build.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/esbuild.config.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/tsconfig.base.json', '.dependencies/cassiopeia-plugin-sonolus/engine/package.json', 'pnpm-lock.yaml') }}
 
       - name: Upload ${{ matrix.facet }} facet artifact
         # Always uploaded, even on a cache hit (re-uploaded from the restored
@@ -124,7 +128,7 @@ jobs:
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
-            config/external-repositories.lock.json
+            .gitmodules
 
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout

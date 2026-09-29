@@ -47,7 +47,7 @@ jobs:
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
-            config/external-repositories.lock.json
+            .gitmodules
 
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
@@ -90,20 +90,9 @@ jobs:
           git push origin main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Refresh the external repository lock
+      - name: Pin the updated engine submodule
         if: steps.updates.outputs.engine-changed == 'true'
-        run: |
-          node - "${{ steps.engine-push.outputs.sha }}" <<'EOF'
-          import { readFileSync, writeFileSync } from "node:fs";
-          const sha = process.argv[2];
-          const path = "config/external-repositories.lock.json";
-          const lock = JSON.parse(readFileSync(path, "utf8"));
-          const entry = lock.repositories.find((r) => r.name === "cassiopeia-plugin-sonolus");
-          if (!entry) throw new Error("cassiopeia-plugin-sonolus missing from the lock");
-          entry.commit = sha;
-          writeFileSync(path, `${JSON.stringify(lock, null, 2)}\n`);
-          console.log(`lock now pins cassiopeia-plugin-sonolus at ${sha}`);
-          EOF
+        run: git add .dependencies/cassiopeia-plugin-sonolus
 
       - name: Install refreshed workspace dependencies
         run: pnpm install --no-frozen-lockfile
@@ -133,4 +122,4 @@ jobs:
             pnpm-workspace.yaml
             packages/sonolus/package.json
             pnpm-lock.yaml
-            config/external-repositories.lock.json
+            .dependencies/cassiopeia-plugin-sonolus

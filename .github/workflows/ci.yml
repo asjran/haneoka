@@ -33,7 +33,7 @@ jobs:
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
-            config/external-repositories.lock.json
+            .gitmodules
 
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout

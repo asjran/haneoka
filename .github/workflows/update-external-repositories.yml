@@ -35,7 +35,7 @@ jobs:
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
-            config/external-repositories.lock.json
+            .gitmodules
 
       - name: Check out locked repositories
         run: node scripts/external-repositories.mjs checkout
@@ -62,7 +62,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          if git diff --quiet -- config/external-repositories.lock.json pnpm-lock.yaml; then
+          if git diff --quiet -- .dependencies .gitmodules pnpm-lock.yaml; then
             exit 0
           fi
 
@@ -70,7 +70,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add config/external-repositories.lock.json pnpm-lock.yaml
+          git add .dependencies .gitmodules pnpm-lock.yaml
           git commit -m "chore: update external repositories"
           git push --set-upstream origin "$branch"
           gh pr create \

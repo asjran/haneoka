@@ -9,7 +9,7 @@
 //
 // The engine's package.json lives in the externally locked
 // cassiopeia-plugin-sonolus repository; committing, pushing, and updating
-// config/external-repositories.lock.json is the caller's job (the scheduled
+// the Git submodule pin is the caller's job (the scheduled
 // sonolus-toolchain-update workflow does exactly that).
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -70,7 +70,7 @@ async function main() {
   console.log(
     `Updated ${[...catalogUpdates.keys()].join(", ") || "nothing"} in pnpm-workspace.yaml and ` +
       `${[...engineUpdates.keys()].join(", ") || "nothing"} in the engine manifest; ` +
-      `run pnpm install and refresh the external repository lock.`,
+      `run pnpm install and update the engine submodule pin.`,
   );
 }
 

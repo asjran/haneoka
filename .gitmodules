@@ -1,0 +1,69 @@
+[submodule "vega"]
+	path = .dependencies/vega
+	url = https://github.com/haneoka-gakuen/vega.git
+	branch = main
+
+[submodule "vega-renderer-three"]
+	path = .dependencies/vega-renderer-three
+	url = https://github.com/haneoka-gakuen/vega-renderer-three.git
+	branch = main
+
+[submodule "vega-theme-haneoka"]
+	path = .dependencies/vega-theme-haneoka
+	url = https://github.com/haneoka-gakuen/vega-theme-haneoka.git
+	branch = main
+
+[submodule "vega-shell-default"]
+	path = .dependencies/vega-shell-default
+	url = https://github.com/haneoka-gakuen/vega-shell-default.git
+	branch = main
+
+[submodule "vega-ui-portable"]
+	path = .dependencies/vega-ui-portable
+	url = https://github.com/haneoka-gakuen/vega-ui-portable.git
+	branch = codex/judgment-and-native-effects
+
+[submodule "vega-plugin-richtext"]
+	path = .dependencies/vega-plugin-richtext
+	url = https://github.com/haneoka-gakuen/vega-plugin-richtext.git
+	branch = main
+
+[submodule "vega-plugin-cubism"]
+	path = .dependencies/vega-plugin-cubism
+	url = https://github.com/haneoka-gakuen/vega-plugin-cubism.git
+	branch = main
+
+[submodule "vega-plugin-haneoka"]
+	path = .dependencies/vega-plugin-haneoka
+	url = https://github.com/haneoka-gakuen/vega-plugin-haneoka.git
+	branch = codex/judgment-and-native-effects
+
+[submodule "cassiopeia"]
+	path = .dependencies/cassiopeia
+	url = https://github.com/haneoka-gakuen/cassiopeia.git
+	branch = main
+
+[submodule "cassiopeia-plugin-our-notes"]
+	path = .dependencies/cassiopeia-plugin-our-notes
+	url = https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git
+	branch = main
+
+[submodule "cassiopeia-renderer-three"]
+	path = .dependencies/cassiopeia-renderer-three
+	url = https://github.com/haneoka-gakuen/cassiopeia-renderer-three.git
+	branch = main
+
+[submodule "cassiopeia-host-web"]
+	path = .dependencies/cassiopeia-host-web
+	url = https://github.com/haneoka-gakuen/cassiopeia-host-web.git
+	branch = codex/judgment-and-native-effects
+
+[submodule "cassiopeia-ui-vue"]
+	path = .dependencies/cassiopeia-ui-vue
+	url = https://github.com/haneoka-gakuen/cassiopeia-ui-vue.git
+	branch = codex/judgment-and-native-effects
+
+[submodule "cassiopeia-plugin-sonolus"]
+	path = .dependencies/cassiopeia-plugin-sonolus
+	url = https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git
+	branch = main

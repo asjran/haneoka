@@ -34,7 +34,7 @@ jobs:
             package.json
             pnpm-lock.yaml
             pnpm-workspace.yaml
-            config/external-repositories.lock.json
+            .gitmodules
 
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
@@ -55,6 +55,9 @@ jobs:
 
       - name: Build production assets before database changes
         run: pnpm build
+        env:
+          STATIC_RESOURCE_SERVERS: intl,jp
+          STATIC_CATALOG_SOURCE: http
 
       - name: Check resource pipeline
         run: python3 -m unittest discover -s scripts/garupa_master/tests -t .
