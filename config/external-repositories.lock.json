@@ -5,7 +5,7 @@
   {
    "name": "vega",
    "url": "https://github.com/haneoka-gakuen/vega.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "a4af6e1d9576aa531c48784dfe15c6f506ec6e10",
    "version": "0.1.0",
    "kind": "node"
@@ -13,7 +13,7 @@
   {
    "name": "vega-renderer-three",
    "url": "https://github.com/haneoka-gakuen/vega-renderer-three.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "22333a424a18a38c43144971a0bf9a3703c473d8",
    "version": "0.1.0",
    "kind": "node"
@@ -21,7 +21,7 @@
   {
    "name": "vega-theme-haneoka",
    "url": "https://github.com/haneoka-gakuen/vega-theme-haneoka.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "eb5b7c5db3f321ecef55b694508ebc206373264f",
    "version": "0.1.0",
    "kind": "node"
@@ -29,7 +29,7 @@
   {
    "name": "vega-shell-default",
    "url": "https://github.com/haneoka-gakuen/vega-shell-default.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "2b406e54293e414a417b3734a749b9bc2a03482b",
    "version": "0.1.0",
    "kind": "node"
@@ -45,7 +45,7 @@
   {
    "name": "vega-plugin-richtext",
    "url": "https://github.com/haneoka-gakuen/vega-plugin-richtext.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "c6a364730ef24aba7b15bc51926918608d9cb0d1",
    "version": "0.1.0",
    "kind": "node"
@@ -77,7 +77,7 @@
   {
    "name": "cassiopeia-plugin-our-notes",
    "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "80b4a0edde29846d3c9ea9b6f4896b3a72dd11bb",
    "version": "0.1.0",
    "kind": "node"
@@ -85,7 +85,7 @@
   {
    "name": "cassiopeia-renderer-three",
    "url": "https://github.com/haneoka-gakuen/cassiopeia-renderer-three.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "42b223098005315b6f530ccc6f91beae05136baa",
    "version": "0.1.0",
    "kind": "node"
@@ -109,7 +109,7 @@
   {
    "name": "cassiopeia-plugin-sonolus",
    "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "2b120656fa28a06538ae922bd485ddf38393a0a2",
    "version": "0.1.0",
    "kind": "node"
