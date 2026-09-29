@@ -133,7 +133,15 @@ def discover_asset_version(
         name, value = raw_line.split(":", 1)
         headers.setdefault(name.strip().lower(), value.strip())
     if VERSION_HEADER not in headers:
-        raise RuntimeError("version endpoint response carries no version header")
+        status = next(
+            (line.strip() for line in result.stdout.decode("utf-8", "replace").splitlines() if line.startswith("HTTP/")),
+            "unknown status",
+        )
+        # Header NAMES only: values may carry credentials.
+        raise RuntimeError(
+            "version endpoint response carries no version header "
+            f"({status}; received headers: {', '.join(sorted(headers)) or 'none'})"
+        )
     raw_version = headers[VERSION_HEADER]
     if raw_version.strip().lower() == "unknown":
         raise RuntimeError("server reported no asset version for this endpoint state")
