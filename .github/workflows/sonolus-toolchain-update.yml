@@ -1,0 +1,136 @@
+name: Sonolus toolchain update
+
+# Keeps the Sonolus server stack on the @sonolus/* release generation that
+# matches the current Sonolus app (the Sonolus-Version header is baked into
+# @sonolus/core). The engine toolchain pins live in the externally locked
+# cassiopeia-plugin-sonolus repository, which Renovate cannot see, so this
+# workflow bumps them, pushes the engine repository, refreshes the external
+# lock, and opens one review PR. Merging it triggers the existing
+# "Sonolus engine payload" workflow, which rebuilds and publishes everything.
+#
+# Requires a fine-grained PAT with contents:write on
+# haneoka-gakuen/cassiopeia-plugin-sonolus stored as HANEOKA_PUSH_TOKEN.
+# Main-repo @sonolus/* pins are excluded from Renovate (see renovate.json)
+# so this workflow is their single owner.
+
+on:
+  schedule:
+    # Daily, offset from Renovate's schedule so PRs never race.
+    - cron: "37 9 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sonolus-toolchain-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Bump @sonolus toolchain
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            config/external-repositories.lock.json
+
+      - name: Check out locked external repositories
+        run: node scripts/external-repositories.mjs checkout
+
+      - name: Track the engine repository's main branch
+        # The lock checks out a detached commit; the bump must land on main so
+        # the refreshed lock stays on the locked branch.
+        run: |
+          cd .dependencies/cassiopeia-plugin-sonolus
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+
+      - name: Apply toolchain updates
+        id: updates
+        run: |
+          node scripts/sonolus-toolchain-update.mjs apply
+          if git -C .dependencies/cassiopeia-plugin-sonolus diff --quiet; then
+            echo "engine-changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "engine-changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push engine toolchain bump
+        if: steps.updates.outputs.engine-changed == 'true'
+        id: engine-push
+        env:
+          HANEOKA_PUSH_TOKEN: ${{ secrets.HANEOKA_PUSH_TOKEN }}
+        run: |
+          if [ -z "$HANEOKA_PUSH_TOKEN" ]; then
+            echo "::error::HANEOKA_PUSH_TOKEN is not set; cannot push the engine toolchain bump."
+            exit 1
+          fi
+          cd .dependencies/cassiopeia-plugin-sonolus
+          git config user.name "haneoka-bot"
+          git config user.email "bot@haneoka.org"
+          git remote set-url origin "https://x-access-token:${HANEOKA_PUSH_TOKEN}@github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git"
+          git add engine/package.json
+          git commit -m "chore(engine): bump @sonolus toolchain"
+          git push origin main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh the external repository lock
+        if: steps.updates.outputs.engine-changed == 'true'
+        run: |
+          node - "${{ steps.engine-push.outputs.sha }}" <<'EOF'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const sha = process.argv[2];
+          const path = "config/external-repositories.lock.json";
+          const lock = JSON.parse(readFileSync(path, "utf8"));
+          const entry = lock.repositories.find((r) => r.name === "cassiopeia-plugin-sonolus");
+          if (!entry) throw new Error("cassiopeia-plugin-sonolus missing from the lock");
+          entry.commit = sha;
+          writeFileSync(path, `${JSON.stringify(lock, null, 2)}\n`);
+          console.log(`lock now pins cassiopeia-plugin-sonolus at ${sha}`);
+          EOF
+
+      - name: Install refreshed workspace dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Report the declared Sonolus app version
+        run: |
+          node --input-type=module -e "console.log('Sonolus-Version will advertise:', (await import('@sonolus/core')).version.sonolus)"
+
+      - name: Open or update the toolchain PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.HANEOKA_PUSH_TOKEN }}
+          branch: chore/sonolus-toolchain
+          delete-branch: true
+          title: "chore(sonolus): bump @sonolus toolchain"
+          body: |
+            Automated @sonolus/* toolchain bump from the scheduled
+            sonolus-toolchain-update workflow. Merging rebuilds and republishes
+            the Sonolus engine payload (engine + server + particle data).
+
+            The engine repository bump was pushed to
+            haneoka-gakuen/cassiopeia-plugin-sonolus main and the external
+            repository lock now pins that commit.
+          commit-message: "chore(sonolus): bump @sonolus toolchain"
+          labels: dependencies
+          add-paths: |
+            pnpm-workspace.yaml
+            packages/sonolus/package.json
+            pnpm-lock.yaml
+            config/external-repositories.lock.json

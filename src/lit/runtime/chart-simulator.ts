@@ -11,6 +11,8 @@ import {
 } from "@haneoka/cassiopeia/plugin";
 import {
   OUR_NOTES_RULES,
+  OUR_NOTES_LIVE_QUALITIES,
+  OUR_NOTES_LIVE_QUALITY_NAMES,
   OUR_NOTES_NOTE_EFFECT_SKINS,
   OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
   OUR_NOTES_NOTE_SKINS,
@@ -22,6 +24,7 @@ import {
   type RenderSettings,
   type OurNotesAssetManifest,
   type OurNotesRuntimeMediaManifest,
+  type OurNotesLiveQuality,
   type OurNotesNoteEffectSkin,
   type OurNotesNoteSkin,
 } from "@haneoka/cassiopeia-plugin-our-notes";
@@ -61,6 +64,7 @@ type ChartUiKey =
   | "noteSize"
   | "noteSkin"
   | "noteEffectSkin"
+  | "liveQuality"
   | "longOpacity"
   | "guideOpacity"
   | "mirror"
@@ -112,6 +116,7 @@ export class ChartSimulator extends LitElement {
     playerSettings: { state: true },
     noteSkin: { state: true },
     noteEffectSkin: { state: true },
+    liveQuality: { state: true },
     stageBackground: { state: true },
     playbackRate: { state: true },
     volume: { state: true },
@@ -135,6 +140,7 @@ export class ChartSimulator extends LitElement {
   declare playerSettings: RenderSettings;
   declare noteSkin: OurNotesNoteSkin;
   declare noteEffectSkin: OurNotesNoteEffectSkin;
+  declare liveQuality: OurNotesLiveQuality;
   declare stageBackground: StageBackground;
   declare playbackRate: number;
   declare volume: number;
@@ -191,6 +197,8 @@ export class ChartSimulator extends LitElement {
     this.playerSettings = { ...DEFAULT_RENDER_SETTINGS };
     this.noteSkin = "skin001";
     this.noteEffectSkin = "effect001";
+    // Native High quality: full effect001 prefabs and a 1.0 effect-camera scale.
+    this.liveQuality = 0;
     this.stageBackground = "auto";
     this.playbackRate = 1;
     this.volume = 0.8;
@@ -349,11 +357,13 @@ export class ChartSimulator extends LitElement {
     const media: OurNotesRuntimeMediaManifest = {
       noteSkin: selectedSkin,
       noteEffectSkin: selectedEffectSkin,
-      currentQuality: files.has(
-        "Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/LiveNoteEffectAssetSettings.asset",
-      )
-        ? 2
-        : 0,
+      // Low quality loads effect001Light only when the release ships it; the
+      // native loader falls back to the base skin otherwise.
+      currentQuality:
+        this.liveQuality !== 2 ||
+        files.has("Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/LiveNoteEffectAssetSettings.asset")
+          ? this.liveQuality
+          : 1,
       ...(font ? { fontAtlasTextureUrl: this.output(font, "Texture2D") } : {}),
       hud: {
         judgementImages: {
@@ -438,6 +448,7 @@ export class ChartSimulator extends LitElement {
         volume?: number;
         noteSkin?: OurNotesNoteSkin;
         noteEffectSkin?: OurNotesNoteEffectSkin;
+        liveQuality?: OurNotesLiveQuality;
       } | null;
       if (!saved) return;
       const number = (value: unknown, minimum: number, maximum: number, fallback: number) => {
@@ -473,6 +484,8 @@ export class ChartSimulator extends LitElement {
       if (OUR_NOTES_NOTE_SKINS.includes(saved.noteSkin as OurNotesNoteSkin)) this.noteSkin = saved.noteSkin!;
       if (OUR_NOTES_NOTE_EFFECT_SKINS.includes(saved.noteEffectSkin as OurNotesNoteEffectSkin))
         this.noteEffectSkin = saved.noteEffectSkin!;
+      if (OUR_NOTES_LIVE_QUALITIES.includes(saved.liveQuality as OurNotesLiveQuality))
+        this.liveQuality = saved.liveQuality!;
     } catch {
       localStorage.removeItem(SETTINGS_KEY);
     }
@@ -488,6 +501,7 @@ export class ChartSimulator extends LitElement {
           volume: this.volume,
           noteSkin: this.noteSkin,
           noteEffectSkin: this.noteEffectSkin,
+          liveQuality: this.liveQuality,
         }),
       );
     } catch {
@@ -805,6 +819,7 @@ export class ChartSimulator extends LitElement {
       noteSize: ["ノーツ幅", "Note width", "音符寬度", "音符宽度", "노트 너비"],
       noteSkin: ["ノーツデザイン", "Note design", "音符樣式", "音符样式", "노트 디자인"],
       noteEffectSkin: ["判定エフェクト", "Judgement effect", "判定特效", "判定特效", "판정 이펙트"],
+      liveQuality: ["ライブ画質", "Live quality", "演出畫質", "演出画质", "라이브 화질"],
       longOpacity: ["ロング透明度", "Long-note opacity", "長條透明度", "长条透明度", "롱 노트 투명도"],
       guideOpacity: ["ガイド透明度", "Guide-note opacity", "引導音符透明度", "引导音符透明度", "가이드 노트 투명도"],
       mirror: ["ミラー", "Mirror", "鏡像", "镜像", "미러"],
@@ -969,6 +984,30 @@ export class ChartSimulator extends LitElement {
                       ${
                         OUR_NOTES_NOTE_EFFECT_SKIN_NAMES[skin][this.locale] || OUR_NOTES_NOTE_EFFECT_SKIN_NAMES[skin].en
                       }
+                    </option>
+                  `,
+                )}
+              </select>
+            </label>
+            <label class="chart-runtime__setting chart-runtime__setting--select">
+              <span>${this.ui("liveQuality")}</span>
+              <select
+                @change=${(event: Event) => {
+                  const position = this.currentTime;
+                  const resume = this.playing;
+                  this.liveQuality = Number((event.currentTarget as HTMLSelectElement).value) as OurNotesLiveQuality;
+                  this.persistSettings();
+                  void this.load().then(async () => {
+                    if (this.phase !== "ready") return;
+                    this.seek(position);
+                    if (resume) await this.toggle();
+                  });
+                }}
+              >
+                ${OUR_NOTES_LIVE_QUALITIES.map(
+                  (quality) => html`
+                    <option value=${quality} ?selected=${this.liveQuality === quality}>
+                      ${OUR_NOTES_LIVE_QUALITY_NAMES[quality][this.locale] || OUR_NOTES_LIVE_QUALITY_NAMES[quality].en}
                     </option>
                   `,
                 )}

@@ -1,7 +1,9 @@
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { buildNativeNoteSkinPacks, decodeRgba8Png, encodeRgba8Png } from "./pack-original-note-skins.ts";
+import { NATIVE_EFFECT_WIDTHS, compileNativeParticles } from "./native-particles/compile.ts";
 import { resolveSonolusReleaseWorkspace } from "../src/server/releaseWorkspace.ts";
 import { validateSonolusInputProvenance } from "../src/server/sonolusProvenance.ts";
 
@@ -129,104 +131,72 @@ const commonTexture = decodeRgba8Png(
 const nativeSkinPacks = buildNativeNoteSkinPacks(resolve(out, "skins"), commonTexture);
 for (const retired of ["skin.data", "skin.texture.png"]) rmSync(resolve(out, retired), { force: true });
 
-// Composite the reconstructed 3D wall, billboards and HDR/Bloom offline.
-// Never expand every Unity particle into thousands of runtime segments.
-const bakedRoot = resolve(process.env.SONOLUS_BAKED_EFFECTS_DIR || resolve(root, "packages/sonolus/assets/baked"));
-const capture = requireJsonObject(
-  parseJson(readFileSync(resolve(bakedRoot, "capture.json"), "utf8"), "effect capture provenance"),
-  "effect capture provenance",
-);
-// This unpublished resource is usable without claiming that a capture of our
-// own renderer proves Unity parity. Preserve that distinction in build output.
-if (capture.referenceValidated !== true) {
-  const message = "Baked effects have partial original-video review; full visual parity is not established.";
-  if (process.env.SONOLUS_REQUIRE_REFERENCE_PARITY === "1") throw new Error(message);
-  console.warn(message);
-}
-const baked = requireJsonObject(
-  parseJson(readFileSync(resolve(bakedRoot, "particle.json"), "utf8"), "baked particles"),
-  "baked particles",
-);
-if (baked.width !== 8192 || baked.height !== 8192 || !Array.isArray(baked.sprites) || !Array.isArray(baked.effects)) {
-  throw new Error("Invalid baked particle atlas; run Cassiopeia's effect capture first");
-}
-const bakedTexture = decodeRgba8Png(readFileSync(resolve(bakedRoot, "particle.texture.png")), "baked atlas");
-if (bakedTexture.width !== 8192 || bakedTexture.height !== 8192) throw new Error("Baked texture dimensions disagree");
-const baseNoteNames = [
-  ...["Normal", "Slide", "Flick", "Flick Left", "Flick Right", "Connect"].flatMap((name) =>
-    ["", " Great", " Good", " Bad"].map((judgement) => `Our Notes Native ${name}${judgement}`),
-  ),
-  "Our Notes Native Slide Loop",
-];
-const expectedNames = [
-  ...baseNoteNames.flatMap((name) => [name, `${name} Width 4`, `${name} Width 10`]),
-  ...["In Vain", "Normal", "Slide", "Flick", "Flick Left", "Flick Right"].map((name) => `Our Notes Lane ${name}`),
-];
-const actualNames = baked.effects.map((e) => requireJsonObject(e, "baked effect").name);
-if (
-  new Set(actualNames).size !== actualNames.length ||
-  expectedNames.length !== actualNames.length ||
-  expectedNames.some((n) => !actualNames.includes(n))
-) {
-  throw new Error("Baked effect names do not cover every native judgement state");
-}
-const bakedSpriteCount = baked.sprites.length;
-for (const value of baked.sprites) {
-  const sprite = requireJsonObject(value, "baked sprite");
-  const x = requireFiniteNumber(sprite.x, "sprite.x"),
-    y = requireFiniteNumber(sprite.y, "sprite.y");
-  const w = requireFiniteNumber(sprite.w, "sprite.w"),
-    h = requireFiniteNumber(sprite.h, "sprite.h");
-  if (![x, y, w, h].every(Number.isInteger) || x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 8192 || y + h > 8192)
-    throw new Error("Baked sprite is outside the atlas");
-}
-const budget = baked.effects.map((value) => {
-  const effect = requireJsonObject(value, "baked effect");
-  if (!Array.isArray(effect.groups) || effect.groups.length > 32 || !effect.groups.length)
-    throw new Error("Effect exceeds the 32-frame budget");
-  let end = 0;
-  for (const value of effect.groups) {
-    const group = requireJsonObject(value, "baked group");
-    if (group.count !== 1 || !Array.isArray(group.particles) || group.particles.length !== 1)
-      throw new Error("Only one quad per animation frame is permitted");
-    const p = requireJsonObject(group.particles[0], "baked frame");
-    const alpha = requireJsonObject(p.a, "frame.a");
-    if (
-      alpha.ease !== "none" ||
-      requireJsonObject(alpha.from, "alpha.from").c !== 1 ||
-      requireJsonObject(alpha.to, "alpha.to").c !== 0
-    )
-      throw new Error("Frames must step alpha to zero at their inclusive end boundary");
-    const start = requireFiniteNumber(p.start, "frame.start"),
-      duration = requireFiniteNumber(p.duration, "frame.duration");
-    if (duration <= 0 || Math.abs(start - end) > 1e-9)
-      throw new Error("Baked frames must be contiguous and non-overlapping");
-    if (!Number.isInteger(p.sprite) || typeof p.sprite !== "number" || p.sprite < 0 || p.sprite >= bakedSpriteCount)
-      throw new Error("Invalid frame sprite");
-    end = start + duration;
+// Engine-facing sprite coverage: every "Our Notes ..." sprite the vendored
+// engine references must exist in the default skin pack, or Sonolus would
+// silently fall back to stock sprites (the classic "wrong notes" symptom).
+{
+  const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/cassiopeia-sonolus-engine/package.json")));
+  const referencedNames = new Set<string>();
+  for (const [facet, dataDir] of [
+    ["play", "playData"],
+    ["watch", "watchData"],
+    ["preview", "previewData"],
+    ["tutorial", "tutorialData"],
+  ] as const) {
+    const skinFile = resolve(engineRoot, facet, "src", "engine", dataDir, "skin.ts");
+    if (!existsSync(skinFile)) continue;
+    const source = readFileSync(skinFile, "utf8");
+    for (const match of source.matchAll(/'([^']*)'/g)) {
+      if (match[1]!.startsWith("Our Notes ")) referencedNames.add(match[1]!);
+    }
   }
-  if (Math.abs(end - 1) > 1e-9) throw new Error("Baked animation must cover the complete native duration");
-  return { name: effect.name, allocatedQuads: effect.groups.length, peakVisibleQuads: 1 };
-});
-const particleData = baked;
+  const defaultSkin = JSON.parse(gunzipSync(readFileSync(resolve(out, "skins", "skin001", "skin.data"))).toString("utf8")) as {
+    sprites: Array<{ name?: unknown }>;
+  };
+  const available = new Set(defaultSkin.sprites.map((sprite) => String(sprite.name)));
+  // Slot sprites belong to the retired PJS slot archetypes (no-ops here), and
+  // getArrowSpriteIndex only reaches the first four Up tiers, so packs whose
+  // authored atlas ships four Up arrows are complete for every reachable draw.
+  const optional = (name: string): boolean =>
+    name.startsWith("Our Notes Slot ") || /Our Notes Flick Arrow (Red|Yellow) Up [5-8]$/.test(name);
+  const missing = [...referencedNames].filter((name) => !available.has(name) && !optional(name));
+  if (missing.length) {
+    throw new Error(`Skin pack skin001 is missing engine-referenced sprites: ${missing.join(", ")}`);
+  }
+  console.log(`skin001 covers all ${referencedNames.size} engine-referenced sprite names`);
+}
+
+// Native effect001 particles: the web renderer's own evaluator is traced
+// headlessly and compiled into native Sonolus particle effects (per-instance
+// randomness, baked HDR colour and bloom). See native-particles/compile.ts.
+const compiled = await compileNativeParticles({ releaseRoot: workspace.releaseRoot });
+const particleData = {
+  width: compiled.atlas.width,
+  height: compiled.atlas.height,
+  interpolation: true,
+  sprites: compiled.atlas.sprites,
+  effects: compiled.effects,
+};
 writeFileSync(resolve(out, "particle.data"), gzipSync(JSON.stringify(particleData), { level: 9 }));
-writeFileSync(resolve(out, "particle.texture.png"), encodeRgba8Png(bakedTexture));
+writeFileSync(resolve(out, "particle.texture.png"), compiled.atlas.png);
 writeFileSync(
-  resolve(out, "particle-budget.json"),
+  resolve(out, "native-particle-report.json"),
   JSON.stringify(
     {
-      profile: "baked-3d-30fps",
+      schema: "our-notes-native-particles-v2",
+      source: "effect001",
+      widths: NATIVE_EFFECT_WIDTHS,
       releaseInputsValidated: inputProvenance.sourceProvenanceValidated,
-      sourceProvenanceValidated: false,
-      visualReferenceValidated: capture.referenceValidated === true,
-      referenceValidated: capture.referenceValidated === true,
-      maxFrames: 32,
-      textureBytes: 8192 * 8192 * 4,
-      effects: budget,
+      atlas: { width: compiled.atlas.width, height: compiled.atlas.height, bytes: compiled.atlas.png.length },
+      effects: compiled.report,
     },
     null,
     2,
   ),
+);
+console.log(
+  `compiled native Sonolus particles: ${compiled.effects.length} effects, ` +
+    `${compiled.atlas.sprites.length} sprites (${compiled.atlas.width}x${compiled.atlas.height})`,
 );
 
 const effectSourceFile = resolve(source, "effect.data");
@@ -246,6 +216,6 @@ copyFileSync(resolve(source, "effect.audio"), resolve(out, "effect.audio"));
 
 console.log(
   `built Our Notes Sonolus resources: ${nativeSkinPacks.map((pack) => `${pack.skinName}=${pack.sprites} sprites/${pack.nativeArea} native px`).join(", ")}, ` +
-    `${baked.effects.length} native particle effects ` +
+    `${compiled.effects.length} native particle effects ` +
     `-> ${out} (validated release inputs: ${inputProvenance.sourceId}/${inputProvenance.releaseId})`,
 );

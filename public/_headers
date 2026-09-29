@@ -30,3 +30,7 @@
 
 /*.html
   Cache-Control: public, max-age=0, must-revalidate
+
+# Build-time entity payloads are content-addressed by their hash.
+/entity-data/v1/*
+  Cache-Control: public, max-age=31536000, immutable

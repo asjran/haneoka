@@ -1,118 +1,118 @@
 {
-  "format": "haneoka-external-repositories-lock",
-  "formatVersion": 1,
-  "repositories": [
-    {
-      "name": "vega",
-      "url": "https://github.com/haneoka-gakuen/vega.git",
-      "branch": "main",
-      "commit": "8e747ee25525ae822b2ab8f65052817ea8887849",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "vega-renderer-three",
-      "url": "https://github.com/haneoka-gakuen/vega-renderer-three.git",
-      "branch": "main",
-      "commit": "9f28962cfb855f8cb67d8e89c6c9db560df730be",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "vega-theme-haneoka",
-      "url": "https://github.com/haneoka-gakuen/vega-theme-haneoka.git",
-      "branch": "main",
-      "commit": "c9d5b2ebe7853174706b5b574dea8ce6b04a6003",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "vega-shell-default",
-      "url": "https://github.com/haneoka-gakuen/vega-shell-default.git",
-      "branch": "main",
-      "commit": "b800b24cae2512d060e218c421ea95f11299c449",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "vega-ui-portable",
-      "url": "https://github.com/haneoka-gakuen/vega-ui-portable.git",
-      "branch": "main",
-      "commit": "fd78a95b55ca158cfced841b204ab0c520a53e49",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "vega-plugin-richtext",
-      "url": "https://github.com/haneoka-gakuen/vega-plugin-richtext.git",
-      "branch": "main",
-      "commit": "a60fb7d8d6e17ec97b3e31359302fac79b2517e3",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "vega-plugin-cubism",
-      "url": "https://github.com/haneoka-gakuen/vega-plugin-cubism.git",
-      "branch": "main",
-      "commit": "ac62ae661981686ee68f9781e7012394e2ee23f0",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "vega-plugin-haneoka",
-      "url": "https://github.com/haneoka-gakuen/vega-plugin-haneoka.git",
-      "branch": "main",
-      "commit": "dd0daf50c34a079ac343c0c033f2653b5dbfa782",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "cassiopeia",
-      "url": "https://github.com/haneoka-gakuen/cassiopeia.git",
-      "branch": "main",
-      "commit": "be437ccc666aaa9a682f0b477c1ef24d2bfbb55d",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "cassiopeia-plugin-our-notes",
-      "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git",
-      "branch": "main",
-      "commit": "1b82bb6cede3d6a0d7fc9539d6a3b4eccfc5a4ba",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "cassiopeia-renderer-three",
-      "url": "https://github.com/haneoka-gakuen/cassiopeia-renderer-three.git",
-      "branch": "main",
-      "commit": "b6acdc54b2867f8ec0ccad4b6e1b0f09fb592a1e",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "cassiopeia-host-web",
-      "url": "https://github.com/haneoka-gakuen/cassiopeia-host-web.git",
-      "branch": "main",
-      "commit": "27fca120dec695df9c15f01db2a76e76b5a8b5e4",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "cassiopeia-ui-vue",
-      "url": "https://github.com/haneoka-gakuen/cassiopeia-ui-vue.git",
-      "branch": "main",
-      "commit": "618a4580175d5e2510d4fc0aa64d71a34db42e1a",
-      "version": "0.1.0",
-      "kind": "node"
-    },
-    {
-      "name": "cassiopeia-plugin-sonolus",
-      "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git",
-      "branch": "main",
-      "commit": "fd47b220fde069de2733cc458ac07a072ff127b9",
-      "version": "0.1.0",
-      "kind": "node"
-    }
-  ]
+ "format": "haneoka-external-repositories-lock",
+ "formatVersion": 1,
+ "repositories": [
+  {
+   "name": "vega",
+   "url": "https://github.com/haneoka-gakuen/vega.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "a4af6e1d9576aa531c48784dfe15c6f506ec6e10",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "vega-renderer-three",
+   "url": "https://github.com/haneoka-gakuen/vega-renderer-three.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "22333a424a18a38c43144971a0bf9a3703c473d8",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "vega-theme-haneoka",
+   "url": "https://github.com/haneoka-gakuen/vega-theme-haneoka.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "eb5b7c5db3f321ecef55b694508ebc206373264f",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "vega-shell-default",
+   "url": "https://github.com/haneoka-gakuen/vega-shell-default.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "2b406e54293e414a417b3734a749b9bc2a03482b",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "vega-ui-portable",
+   "url": "https://github.com/haneoka-gakuen/vega-ui-portable.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "fd78a95b55ca158cfced841b204ab0c520a53e49",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "vega-plugin-richtext",
+   "url": "https://github.com/haneoka-gakuen/vega-plugin-richtext.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "c6a364730ef24aba7b15bc51926918608d9cb0d1",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "vega-plugin-cubism",
+   "url": "https://github.com/haneoka-gakuen/vega-plugin-cubism.git",
+   "branch": "codex/cassiopeia-live2d-runtime",
+   "commit": "4e07095510df8e7e4941fa95dd52a38661f431da",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "vega-plugin-haneoka",
+   "url": "https://github.com/haneoka-gakuen/vega-plugin-haneoka.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "dd0daf50c34a079ac343c0c033f2653b5dbfa782",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "cassiopeia",
+   "url": "https://github.com/haneoka-gakuen/cassiopeia.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "40d70b3901dc0f9a84686c97f17bc410936f02f4",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "cassiopeia-plugin-our-notes",
+   "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "80b4a0edde29846d3c9ea9b6f4896b3a72dd11bb",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "cassiopeia-renderer-three",
+   "url": "https://github.com/haneoka-gakuen/cassiopeia-renderer-three.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "42b223098005315b6f530ccc6f91beae05136baa",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "cassiopeia-host-web",
+   "url": "https://github.com/haneoka-gakuen/cassiopeia-host-web.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "27fca120dec695df9c15f01db2a76e76b5a8b5e4",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "cassiopeia-ui-vue",
+   "url": "https://github.com/haneoka-gakuen/cassiopeia-ui-vue.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "618a4580175d5e2510d4fc0aa64d71a34db42e1a",
+   "version": "0.1.0",
+   "kind": "node"
+  },
+  {
+   "name": "cassiopeia-plugin-sonolus",
+   "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git",
+   "branch": "codex/judgment-and-native-effects",
+   "commit": "2b120656fa28a06538ae922bd485ddf38393a0a2",
+   "version": "0.1.0",
+   "kind": "node"
+  }
+ ]
 }

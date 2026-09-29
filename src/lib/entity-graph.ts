@@ -1,0 +1,805 @@
+/**
+ * Build-time Master relationship graph for catalog entity pages.
+ *
+ * The interactive detail used to fetch the whole collection plus every
+ * related collection (characters, bands, items, progression, skill
+ * references, stories, missions…) and join them in the browser — up to 15
+ * documents and several megabytes for one card or character. This module
+ * performs those joins once per build against the release-pinned catalog and
+ * emits, per entity, only the rows that entity's detail reads.
+ *
+ * Payloads are locale-independent (localized fields stay as the release's
+ * per-locale tuples) so one file serves all five locale pages, and they are
+ * content-addressed so an entity whose data did not change keeps its URL and
+ * its pages stay byte-identical across releases.
+ */
+import { createHash } from "node:crypto";
+import {
+  asRecord,
+  fetchOptionalStaticCatalog,
+  fetchStaticCatalog,
+  fetchStaticCatalogBatch,
+  staticCatalogRelease,
+  type RecordValue,
+  type StaticCatalogRelease,
+} from "./static-catalog-source";
+import { searchableCatalogPages } from "./searchable-catalog";
+import { searchableStoryPages } from "./searchable-stories";
+import { RELEASE_SERVERS, type ReleaseServer } from "./release-server";
+
+export const ENTITY_PAYLOAD_SCHEMA = "haneoka-entity-payload-v1";
+
+/** Catalog resources whose entity pages are served from a build-time payload. */
+export const ENTITY_PAYLOAD_RESOURCES = [
+  "cards",
+  "support-cards",
+  "characters",
+  "songs",
+  "band-items",
+  "items",
+  "stamps",
+  "stickers",
+  "comics",
+  "backgrounds",
+  "events",
+  "real-lives",
+  "gacha",
+  "login-campaigns",
+  "shop",
+  "exchange",
+  "circle",
+  "challenge",
+  "passes",
+] as const;
+export type EntityPayloadResource = (typeof ENTITY_PAYLOAD_RESOURCES)[number];
+
+export const isEntityPayloadResource = (value: string): value is EntityPayloadResource =>
+  (ENTITY_PAYLOAD_RESOURCES as readonly string[]).includes(value);
+
+/**
+ * The document shape `<catalog-screen>` consumes. Every field mirrors a value
+ * the screen previously assembled from its own requests, restricted to what
+ * this entity needs.
+ */
+export interface EntityPayload {
+  schema: typeof ENTITY_PAYLOAD_SCHEMA;
+  server: ReleaseServer;
+  releaseId: string;
+  resource: EntityPayloadResource;
+  id: string;
+  /** The complete entity detail record (the `/{resource}/{id}` document). */
+  item: RecordValue;
+  /** Referenced characters and bands, compact. */
+  characters: RecordValue[];
+  bands: RecordValue[];
+  /** Logical game-sprite name → runtime path, as `/ui-marks` returns it. */
+  marks: Record<string, string>;
+  /** Game items this entity names (rank-up piece, item detail). */
+  gameItems: RecordValue[];
+  /** Collection-level document fields a detail reads (item reward sources). */
+  document?: RecordValue;
+  /** Per-difficulty chart metrics for songs (`/song-meta/{id}`). */
+  songMeta?: RecordValue;
+  /** The `detailAux` sections, pre-filtered to this entity. */
+  aux: RecordValue;
+  /** Lists deliberately left out of the payload, and where to load them. */
+  deferred?: Record<string, { url: string; count: number }>;
+}
+
+type Rows = RecordValue[];
+
+const rows = (value: unknown, key?: string): Rows => {
+  const source = key ? asRecord(value)?.[key] : value;
+  if (Array.isArray(source)) return source.flatMap((row) => (asRecord(row) ? [row as RecordValue] : []));
+  const record = asRecord(source);
+  return record ? Object.values(record).flatMap((row) => (asRecord(row) ? [row as RecordValue] : [])) : [];
+};
+
+const entries = (value: unknown, key?: string): Array<[string, RecordValue]> => {
+  const source = asRecord(key ? asRecord(value)?.[key] : value);
+  return source ? Object.entries(source).flatMap(([id, row]) => (asRecord(row) ? [[id, row as RecordValue]] : [])) : [];
+};
+
+const numbers = (value: unknown): number[] =>
+  (Array.isArray(value) ? value : value == null ? [] : [value])
+    .map(Number)
+    .filter((entry) => Number.isFinite(entry) && entry > 0);
+
+const unique = <T>(values: Iterable<T>): T[] => [...new Set(values)];
+
+const pick = (source: RecordValue, keys: readonly string[]): RecordValue => {
+  const output: RecordValue = {};
+  for (const key of keys) if (source[key] !== undefined) output[key] = source[key];
+  return output;
+};
+
+const rawOf = (row: RecordValue): RecordValue => asRecord(row.raw) || row;
+const field = (row: RecordValue, ...keys: string[]): unknown => {
+  const raw = rawOf(row);
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null) return row[key];
+    if (raw[key] !== undefined && raw[key] !== null) return raw[key];
+  }
+  return undefined;
+};
+const numberField = (row: RecordValue, ...keys: string[]): number => Number(field(row, ...keys) ?? Number.NaN);
+
+/** Fields of a character record that detail views and tiles read. */
+const CHARACTER_FIELDS = [
+  "characterId",
+  "characterName",
+  "englishName",
+  "bandId",
+  "colorCode",
+  "faceImage",
+  "thumbnailImage",
+] as const;
+const BAND_FIELDS = ["bandId", "bandName", "shortName", "englishName", "logo", "icon", "color", "colorCode"] as const;
+const ITEM_FIELDS = ["itemId", "name", "image", "description", "itemTypeName", "max"] as const;
+
+// Tile projections of related entities on a character page.
+const CARD_TILE_FIELDS = ["cardId", "characterId", "prefix", "rarity", "cardType", "images"] as const;
+const SUPPORT_TILE_FIELDS = [
+  "supportCardId",
+  "characterId",
+  "characterIds",
+  "prefix",
+  "cardName",
+  "rarity",
+  "cardType",
+  "images",
+] as const;
+const STAMP_TILE_FIELDS = ["stampId", "name", "image", "characterIds"] as const;
+const SONG_TILE_FIELDS = [
+  "musicId",
+  "musicTitle",
+  "bandId",
+  "bandIds",
+  "musicType",
+  "musicCategories",
+  "jacketThumbUrl",
+  "jacketUrl",
+] as const;
+const LIVE2D_TILE_FIELDS = [
+  "live2dKey",
+  "assetId",
+  "id",
+  "live2dName",
+  "name",
+  "assetName",
+  "characterId",
+  "characterKey",
+  "characterName",
+  "title",
+  "faceImage",
+  "thumbnailImage",
+  "preview",
+  "live",
+] as const;
+const STORY_TILE_FIELDS = [
+  "storyId",
+  "storyKey",
+  "title",
+  "chapterId",
+  "chapterKey",
+  "chapterName",
+  "storySort",
+  "characterIds",
+  "bandId",
+  "banner",
+  "image",
+  "unlockCharacterFriendshipLevel",
+] as const;
+const CHAPTER_FIELDS = ["chapterId", "chapterName", "bandId", "banner", "image", "episodes"] as const;
+
+interface Graph {
+  server: ReleaseServer;
+  release: StaticCatalogRelease;
+  characters: Map<number, RecordValue>;
+  bands: Map<number, RecordValue>;
+  marks: Record<string, string>;
+  items: Map<number, RecordValue>;
+  itemRewards: RecordValue;
+  progression: RecordValue;
+  views: Record<string, Rows>;
+  skillReference: RecordValue;
+  songMeta: Map<string, RecordValue>;
+  collections: Map<string, Array<[string, RecordValue]>>;
+  stories: RecordValue;
+  live2d: Array<[string, RecordValue]>;
+  friendships: Array<[string, RecordValue]>;
+  missionCount: number;
+}
+
+const graphs = new Map<ReleaseServer, Promise<Graph>>();
+
+async function loadGraph(server: ReleaseServer): Promise<Graph> {
+  const release = await staticCatalogRelease(server);
+  const required = (path: string) => fetchStaticCatalog(path, server, release);
+  const [
+    characters,
+    bands,
+    marks,
+    items,
+    progression,
+    memberLevels,
+    awakeResources,
+    skillResources,
+    supportLevels,
+    skillReference,
+    songMeta,
+    cards,
+    supportCards,
+    stamps,
+    songs,
+    stories,
+    live2d,
+    friendships,
+    missions,
+  ] = await Promise.all([
+    required("characters"),
+    required("bands"),
+    required("ui-marks"),
+    required("items"),
+    required("progression"),
+    required("progression/views/member-card-levels"),
+    required("progression/views/member-card-awake-resources"),
+    required("progression/views/skill-level-resources"),
+    required("progression/views/support-card-levels"),
+    required("skill-reference"),
+    required("song-meta"),
+    required("cards"),
+    required("support-cards"),
+    required("stamps"),
+    required("songs?projection=4"),
+    required("stories?projection=4"),
+    required("live2d"),
+    required("friendships"),
+    fetchOptionalStaticCatalog("character-missions", server, release),
+  ]);
+  return {
+    server,
+    release,
+    characters: new Map(entries(characters).map(([key, row]) => [Number(row.characterId ?? key), row])),
+    bands: new Map(entries(bands).map(([key, row]) => [Number(row.bandId ?? key), row])),
+    marks: Object.fromEntries(
+      Object.entries(asRecord(marks) || {}).flatMap(([name, path]) => (typeof path === "string" ? [[name, path]] : [])),
+    ),
+    items: new Map(entries(items, "items").map(([key, row]) => [Number(row.itemId ?? key), row])),
+    itemRewards: asRecord(asRecord(items)?.rewards) || {},
+    progression: asRecord(progression) || {},
+    views: {
+      "member-card-levels": rows(memberLevels),
+      "member-card-awake-resources": rows(awakeResources),
+      "skill-level-resources": rows(skillResources),
+      "support-card-levels": rows(supportLevels),
+    },
+    skillReference: asRecord(skillReference) || {},
+    songMeta: new Map(entries(songMeta)),
+    collections: new Map([
+      ["cards", entries(cards)],
+      ["support-cards", entries(supportCards)],
+      ["stamps", entries(stamps)],
+      ["songs", entries(songs)],
+    ]),
+    stories: asRecord(stories) || {},
+    live2d: entries(live2d),
+    friendships: entries(friendships, "friendships"),
+    missionCount: rows(missions.value, "missions").length,
+  };
+}
+
+export function entityGraph(server: ReleaseServer): Promise<Graph> {
+  let pending = graphs.get(server);
+  if (!pending) {
+    pending = loadGraph(server);
+    graphs.set(server, pending);
+    pending.catch(() => graphs.delete(server));
+  }
+  return pending;
+}
+
+const characterIdsOf = (item: RecordValue): number[] =>
+  unique([...numbers(item.characterIds), ...numbers(item.characters), ...numbers(item.characterId)]);
+
+function compactCharacters(graph: Graph, ids: Iterable<number>): Rows {
+  return unique(ids).flatMap((id) => {
+    const row = graph.characters.get(id);
+    return row ? [pick(row, CHARACTER_FIELDS)] : [];
+  });
+}
+
+function compactBands(graph: Graph, ids: Iterable<number>): Rows {
+  return unique(ids).flatMap((id) => {
+    const row = graph.bands.get(id);
+    return row ? [pick(row, BAND_FIELDS)] : [];
+  });
+}
+
+const allCharacterIds = (graph: Graph) => [...graph.characters.keys()];
+const allBandIds = (graph: Graph) => [...graph.bands.keys()];
+
+function progressionSubset(graph: Graph, key: string, keep: (row: RecordValue) => boolean): Rows {
+  return rows(graph.progression[key]).filter((row) => keep(rawOf(row)));
+}
+
+/**
+ * The closure of skill-reference rows a card's resolved skills can reach:
+ * condition sets by group, the conditions they name, cumulative conditions,
+ * and every target any of those or the effects reference.
+ */
+function skillReferenceSubset(graph: Graph, item: RecordValue): RecordValue {
+  const reference = graph.skillReference;
+  const effects: Rows = [];
+  const collect = (value: unknown) => {
+    if (Array.isArray(value)) value.forEach(collect);
+    else if (asRecord(value)) {
+      const record = value as RecordValue;
+      if (Array.isArray(record.effects)) effects.push(...rows(record.effects));
+      for (const [key, child] of Object.entries(record)) if (key !== "effects" && key !== "raw") collect(child);
+    }
+  };
+  collect(item.resolvedSkills);
+  const groups = new Set<number>();
+  const cumulative = new Set<number>();
+  const targets = new Set<number>();
+  for (const effect of effects) {
+    for (const key of [
+      ["conditionGroup", "_skillConditionGroup"],
+      ["releaseConditionGroup", "_skillReleaseConditionGroup"],
+      ["triggerConditionGroup", "_skillTriggerConditionGroup"],
+    ]) {
+      const group = numberField(effect, ...key);
+      if (group > 0) groups.add(group);
+    }
+    const cumulativeId = numberField(effect, "cumulativeConditionId", "_skillCumulativeConditionID");
+    if (cumulativeId > 0) cumulative.add(cumulativeId);
+    numbers(field(effect, "targetIds", "_skillTargetIDs")).forEach((id) => targets.add(id));
+  }
+  const conditionSets = rows(reference.conditionSets).filter((row) => groups.has(numberField(row, "group", "_group")));
+  const conditionIds = new Set(conditionSets.flatMap((row) => numbers(field(row, "conditionIds", "_conditionIds"))));
+  const conditions = rows(reference.conditions).filter((row) => conditionIds.has(numberField(row, "id", "_id")));
+  const cumulativeConditions = rows(reference.cumulativeConditions).filter((row) =>
+    cumulative.has(numberField(row, "id", "_id")),
+  );
+  for (const row of [...conditions, ...cumulativeConditions])
+    numbers(field(row, "targetIds", "conditionTargetIds", "_conditionTargetIDs")).forEach((id) => targets.add(id));
+  return {
+    conditionSets,
+    conditions,
+    cumulativeConditions,
+    targets: rows(reference.targets).filter((row) => targets.has(numberField(row, "id", "_id"))),
+  };
+}
+
+function cardAux(graph: Graph, item: RecordValue, support: boolean): RecordValue {
+  const levelView = support ? "support-card-levels" : "member-card-levels";
+  const levelGroup = Number(support ? item.supportCardLevelGroup : item.memberCardLevelGroup);
+  const skillGroups = new Set(
+    numbers([item.liveSkillLevelResourceGroup, item.gekisouSkillLevelResourceGroup, item.linkSkillLevelResourceGroup]),
+  );
+  const aux: RecordValue = {
+    [levelView]: (graph.views[levelView] || []).filter((row) => Number(row.group) === levelGroup),
+    "skill-level-resources": (graph.views["skill-level-resources"] || []).filter((row) =>
+      skillGroups.has(Number(row.group)),
+    ),
+    "skill-reference": skillReferenceSubset(graph, item),
+  };
+  if (support) {
+    const rankGroup = Number(item.supportCardRankGroup || item.supportCardLevelGroup);
+    aux.progression = {
+      supportCardRanks: progressionSubset(graph, "supportCardRanks", (raw) => Number(raw._group) === rankGroup),
+    };
+  } else {
+    const awakeGroup = Number(item.memberCardAwakeGroup || 1);
+    const rankGroup = Number(item.memberCardRankGroup || 1);
+    const resourceGroup = Number(item.memberCardAwakeResourceGroup);
+    aux["member-card-awake-resources"] = (graph.views["member-card-awake-resources"] || []).filter(
+      (row) => Number(row.group) === resourceGroup,
+    );
+    aux.progression = {
+      memberCardAwake: progressionSubset(graph, "memberCardAwake", (raw) => Number(raw._group) === awakeGroup),
+      memberCardRanks: progressionSubset(graph, "memberCardRanks", (raw) => Number(raw._group) === rankGroup),
+      memberCardLevelLimits: progressionSubset(
+        graph,
+        "memberCardLevelLimits",
+        (raw) => Number(raw._rarity) === Number(item.rarity),
+      ),
+    };
+  }
+  return aux;
+}
+
+/** Everything the character archive's tabs list, filtered to one character. */
+function characterAux(graph: Graph, item: RecordValue): { aux: RecordValue; bandIds: number[] } {
+  const id = Number(item.characterId || 0);
+  const bandId = Number(item.bandId || 0);
+  const has = (row: RecordValue) => characterIdsOf(row).includes(id);
+  const collection = (name: string) => graph.collections.get(name) || [];
+  const byKey = (list: Array<[string, RecordValue]>, fields: readonly string[], keep: (row: RecordValue) => boolean) =>
+    Object.fromEntries(list.filter(([, row]) => keep(row)).map(([key, row]) => [key, pick(row, fields)]));
+
+  const episodes = entries(graph.stories.episodes).filter(([, row]) => has(row));
+  const storyKeys = new Set(episodes.map(([key, row]) => String(row.storyId || row.storyKey || key)));
+  const chapterIds = new Set(episodes.map(([, row]) => Number(row.chapterId)));
+  const chapters = rows(graph.stories.chapters)
+    .filter(
+      (chapter) =>
+        chapterIds.has(Number(chapter.chapterId)) ||
+        (Array.isArray(chapter.episodes) ? chapter.episodes : []).some((story) => storyKeys.has(String(story))),
+    )
+    .map((chapter) => pick(chapter, CHAPTER_FIELDS));
+  const homeSpots = rows(graph.stories.homeSpots)
+    .filter((spot) => rows(spot.talks).some((talk) => storyKeys.has(String(talk.storyKey || ""))))
+    .map((spot) => ({
+      bandId: spot.bandId,
+      spine: { backgroundPreview: asRecord(spot.spine)?.backgroundPreview },
+      talks: rows(spot.talks)
+        .filter((talk) => storyKeys.has(String(talk.storyKey || "")))
+        .map((talk) => ({ storyKey: talk.storyKey })),
+    }));
+  const songs = byKey(collection("songs"), SONG_TILE_FIELDS, (row) => {
+    const ids = Array.isArray(row.bandIds) ? numbers(row.bandIds) : numbers(row.bandId);
+    return ids.includes(bandId);
+  });
+  const friendships = byKey(graph.friendships, ["friendshipId", "characterIds", "storyBanner", "rewards"], has);
+  const aux: RecordValue = {
+    characters: Object.fromEntries(
+      [...graph.characters].map(([key, row]) => [String(key), pick(row, CHARACTER_FIELDS)]),
+    ),
+    cards: byKey(collection("cards"), CARD_TILE_FIELDS, (row) => Number(row.characterId) === id),
+    "support-cards": byKey(collection("support-cards"), SUPPORT_TILE_FIELDS, has),
+    stamps: byKey(collection("stamps"), STAMP_TILE_FIELDS, has),
+    songs,
+    live2d: byKey(graph.live2d, LIVE2D_TILE_FIELDS, (row) => Number(row.characterId) === id),
+    stories: {
+      episodes: Object.fromEntries(episodes.map(([key, row]) => [key, pick(row, STORY_TILE_FIELDS)])),
+      chapters,
+      homeSpots,
+    },
+    friendships: { friendships },
+  };
+  const bandIds = [
+    ...allBandIds(graph),
+    ...Object.values(songs).flatMap((song) => numbers(asRecord(song)?.bandIds ?? asRecord(song)?.bandId)),
+  ];
+  return { aux, bandIds };
+}
+
+async function friendshipRewards(graph: Graph, aux: RecordValue): Promise<void> {
+  const container = asRecord(aux.friendships);
+  const friendships = asRecord(container?.friendships);
+  if (!friendships) return;
+  const ids = Object.keys(friendships);
+  if (!ids.length) return;
+  // The index projection omits rank rewards; the entity records carry them.
+  const details = await fetchStaticCatalogBatch("friendships", ids, graph.server, graph.release);
+  for (const id of ids) {
+    const detail = details.get(id);
+    const current = asRecord(friendships[id]);
+    if (!detail || !current) continue;
+    friendships[id] = {
+      ...current,
+      rewards: rows(detail.rewards).map((row) => {
+        const reward = asRecord(row.reward) || row;
+        const resolved = asRecord(reward.resolved) || {};
+        return {
+          rank: row.rank,
+          reward: {
+            resourceCount: reward.resourceCount,
+            resourceTypeName: reward.resourceTypeName,
+            resolved: pick(resolved, ["image", "name"]),
+          },
+        };
+      }),
+    };
+  }
+}
+
+export function entityPayloadPath(server: ReleaseServer, resource: string, id: string, hash: string): string {
+  return `/entity-data/v1/${server}/entities/${resource}/${encodeURIComponent(id)}.${hash}.json`;
+}
+
+/** Where each collection keeps its entity map, and which field is the entity id (as catalog-screen reads them). */
+const COLLECTION_SHAPE: Record<EntityPayloadResource, { document?: string; id: string; path?: string }> = {
+  cards: { id: "cardId" },
+  "support-cards": { id: "supportCardId" },
+  characters: { id: "characterId" },
+  songs: { id: "musicId", path: "songs?projection=4" },
+  "band-items": { id: "bandItemId", document: "items" },
+  items: { id: "itemId", document: "items" },
+  stamps: { id: "stampId" },
+  stickers: { id: "stickerId", document: "entries" },
+  comics: { id: "comicId" },
+  backgrounds: { id: "backgroundId", document: "entries" },
+  events: { id: "id", document: "entries" },
+  "real-lives": { id: "id", document: "entries" },
+  gacha: { id: "id", document: "entries" },
+  "login-campaigns": { id: "id", document: "entries" },
+  shop: { id: "id", document: "entries" },
+  exchange: { id: "id", document: "entries" },
+  circle: { id: "id", document: "entries" },
+  challenge: { id: "id", document: "entries" },
+  passes: { id: "id", document: "entries" },
+};
+
+/**
+ * The browse row for each id, keyed the way the screen keys it. The screen
+ * used to open a detail as `{ _key, ...summary, ...detail }`; the summary
+ * carries projections (song credits) the entity record does not.
+ */
+async function collectionSummaries(graph: Graph, resource: EntityPayloadResource): Promise<Map<string, RecordValue>> {
+  const shape = COLLECTION_SHAPE[resource];
+  const document = await fetchStaticCatalog(shape.path || resource, graph.server, graph.release);
+  return new Map(
+    entries(document, shape.document).map(([key, row]) => [String(row[shape.id] ?? key), { _key: key, ...row }]),
+  );
+}
+
+/** Builds the payloads for one resource in a single batch against the pinned release. */
+export async function buildEntityPayloads(
+  server: ReleaseServer,
+  resource: EntityPayloadResource,
+  ids: readonly string[],
+): Promise<Map<string, EntityPayload>> {
+  const graph = await entityGraph(server);
+  const [details, summaries] = await Promise.all([
+    fetchStaticCatalogBatch(resource, ids, server, graph.release),
+    collectionSummaries(graph, resource),
+  ]);
+  const output = new Map<string, EntityPayload>();
+  for (const id of ids) {
+    const detail = details.get(id);
+    if (!detail) throw new Error(`Entity payload source missing: ${server}/${resource}/${id}`);
+    const summary = summaries.get(id) || { _key: id };
+    const item: RecordValue = {
+      ...summary,
+      ...detail,
+      artistName: detail.artistName || summary.artistName,
+      bandName: detail.bandName || summary.bandName,
+    };
+    if (item.artistName === undefined) delete item.artistName;
+    if (item.bandName === undefined) delete item.bandName;
+    const characterIds = new Set(characterIdsOf(item));
+    for (const vocal of numbers(item.vocalCharacterIds)) characterIds.add(vocal);
+    const bandIds = new Set([...numbers(item.bandId), ...numbers(item.bandIds)]);
+    for (const characterId of characterIds) {
+      const band = Number(graph.characters.get(characterId)?.bandId || 0);
+      if (band) bandIds.add(band);
+    }
+    const gameItemIds = new Set(numbers(item.rankUpItemId));
+    let aux: RecordValue = {};
+    let document: RecordValue | undefined;
+    let songMeta: RecordValue | undefined;
+    let deferred: EntityPayload["deferred"];
+    let characterRows: Rows | undefined;
+
+    if (resource === "cards" || resource === "support-cards") {
+      aux = cardAux(graph, item, resource === "support-cards");
+    } else if (resource === "band-items") {
+      const group = Number(item.resourceGroupId || 0);
+      aux = {
+        "skill-level-resources": (graph.views["skill-level-resources"] || []).filter(
+          (row) => Number(row.group) === group,
+        ),
+      };
+    } else if (resource === "items") {
+      gameItemIds.add(Number(item.itemId || id));
+      document = {
+        rewards: Object.fromEntries(
+          Object.entries(graph.itemRewards).map(([source, value]) => [
+            source,
+            rows(value).filter(
+              (reward) =>
+                (reward.resourceTypeName === "Item" || Number(reward.resourceType) === 1) &&
+                Number(reward.resourceId) === Number(item.itemId || id),
+            ),
+          ]),
+        ),
+      };
+    } else if (resource === "songs") {
+      const meta = graph.songMeta.get(id);
+      songMeta = meta ? { [id]: meta } : {};
+    } else if (resource === "characters") {
+      const related = characterAux(graph, item);
+      aux = related.aux;
+      await friendshipRewards(graph, aux);
+      related.bandIds.forEach((band) => bandIds.add(band));
+      characterRows = compactCharacters(graph, allCharacterIds(graph));
+      const voiceCount = Object.keys(
+        asRecord(
+          await fetchStaticCatalog(`voices/relations/character/${encodeURIComponent(id)}`, server, graph.release),
+        ) || {},
+      ).length;
+      deferred = {
+        voices: {
+          url: `/api/v1/servers/${encodeURIComponent(server)}/voices/relations/character/${encodeURIComponent(id)}`,
+          count: voiceCount,
+        },
+        "character-missions": {
+          url: `/api/v1/servers/${encodeURIComponent(server)}/character-missions`,
+          count: graph.missionCount,
+        },
+      };
+    }
+
+    output.set(id, {
+      schema: ENTITY_PAYLOAD_SCHEMA,
+      server,
+      releaseId: graph.release.releaseId,
+      resource,
+      id,
+      item,
+      characters: characterRows ?? compactCharacters(graph, characterIds),
+      bands: compactBands(graph, bandIds),
+      marks: graph.marks,
+      gameItems: [...gameItemIds].flatMap((itemId) => {
+        const row = graph.items.get(itemId);
+        return row ? [pick(row, ITEM_FIELDS)] : [];
+      }),
+      ...(document ? { document } : {}),
+      ...(songMeta ? { songMeta } : {}),
+      aux,
+      ...(deferred ? { deferred } : {}),
+    });
+  }
+  return output;
+}
+
+/**
+ * A story page's payload: the episode summary plus the collection context its
+ * detail reads — its chapter and the chapter's episodes (for "continue to
+ * the next story"), the home spot it is told at, and the cast — instead of
+ * the whole story index. The transcript itself stays in `/stories/{id}`.
+ */
+export interface StoryPayload {
+  schema: typeof STORY_PAYLOAD_SCHEMA;
+  server: ReleaseServer;
+  releaseId: string;
+  id: string;
+  mode: string;
+  episodes: Record<string, RecordValue>;
+  chapters: Record<string, RecordValue>;
+  homeSpots: RecordValue[];
+  characters: Rows;
+  bands: Rows;
+}
+
+export const STORY_PAYLOAD_SCHEMA = "haneoka-story-payload-v1";
+
+/** Story payloads for every episode in `modes`, keyed by story id. */
+async function buildStoryPayloads(server: ReleaseServer, modes: ReadonlyMap<string, string>) {
+  const graph = await entityGraph(server);
+  const episodes = asRecord(graph.stories.episodes) || {};
+  const chapters = entries(graph.stories.chapters);
+  const spots = rows(graph.stories.homeSpots);
+  const spotOf = new Map<string, RecordValue>();
+  for (const spot of spots)
+    for (const talk of rows(spot.talks)) if (talk.storyKey) spotOf.set(String(talk.storyKey), spot);
+  const output = new Map<string, StoryPayload>();
+  for (const [id, mode] of modes) {
+    const episode = asRecord(episodes[id]);
+    if (!episode) continue;
+    const chapter = chapters.find(([, row]) => String(row.chapterId) === String(episode.chapterId));
+    // "Continue" plays the next episode of the same group in chapter order;
+    // that successor is the only sibling a story page reads.
+    const group = (row: RecordValue) =>
+      row.isAnotherEpisode === true ? "another" : row.isExtraEpisode === true ? "extra" : "main";
+    const order = chapter
+      ? (Array.isArray(chapter[1].episodes) ? chapter[1].episodes : [])
+          .map(String)
+          .filter((key) => asRecord(episodes[key]))
+      : [];
+    const sequence = order.filter((key) => group(episodes[key] as RecordValue) === group(episode));
+    const successor = sequence[sequence.indexOf(id) + 1];
+    const kept = order.filter((key) => key === id || key === successor);
+    const spot = spotOf.get(id);
+    const included: Record<string, RecordValue> = { [id]: episode };
+    if (successor) included[successor] = episodes[successor] as RecordValue;
+    const characterIds = new Set([
+      ...Object.values(included).flatMap((row) => characterIdsOf(row)),
+      ...numbers(spot?.characterIds),
+    ]);
+    const bandIds = new Set([
+      ...numbers(episode.bandId),
+      ...numbers(chapter?.[1].bandId),
+      ...numbers(spot?.bandId),
+      ...[...characterIds].map((character) => Number(graph.characters.get(character)?.bandId || 0)).filter(Boolean),
+    ]);
+    output.set(id, {
+      schema: STORY_PAYLOAD_SCHEMA,
+      server,
+      releaseId: graph.release.releaseId,
+      id,
+      mode,
+      episodes: included,
+      chapters: chapter ? { [chapter[0]]: { ...chapter[1], episodes: kept.length ? kept : [id] } } : {},
+      homeSpots: spot ? [spot] : [],
+      characters: compactCharacters(graph, characterIds),
+      bands: compactBands(graph, bandIds),
+    });
+  }
+  return output;
+}
+
+export interface EmittedEntityPayload {
+  resource: EntityPayloadResource | "stories";
+  id: string;
+  href: string;
+  /** Path parameter of the endpoint: `{id}.{hash}`. */
+  file: string;
+  body: string;
+}
+
+const emitted = new Map<ReleaseServer, Promise<Map<string, EmittedEntityPayload>>>();
+
+const payloadKey = (resource: string, id: string) => `${resource}\u0000${id}`;
+
+/**
+ * Every catalog entity payload of a server, serialized and content-addressed.
+ * Memoized per build so the page route (which needs the URL) and the
+ * endpoint (which writes the body) share one computation.
+ */
+export function catalogEntityPayloads(server: ReleaseServer): Promise<Map<string, EmittedEntityPayload>> {
+  let pending = emitted.get(server);
+  if (!pending) {
+    pending = (async () => {
+      const pages = await searchableCatalogPages(server);
+      const output = new Map<string, EmittedEntityPayload>();
+      for (const resource of ENTITY_PAYLOAD_RESOURCES) {
+        const ids = unique(pages.filter((page) => page.resource === resource).map((page) => page.id));
+        if (!ids.length) continue;
+        const payloads = await buildEntityPayloads(server, resource, ids);
+        for (const [id, payload] of payloads) {
+          const body = JSON.stringify(payload);
+          const hash = createHash("sha256").update(body).digest("hex").slice(0, 16);
+          output.set(payloadKey(resource, id), {
+            resource,
+            id,
+            href: entityPayloadPath(server, resource, id, hash),
+            file: `${id}.${hash}`,
+            body,
+          });
+        }
+      }
+      const stories = await searchableStoryPages(server);
+      const storyPayloads = await buildStoryPayloads(server, new Map(stories.map((page) => [page.storyId, page.mode])));
+      for (const [id, payload] of storyPayloads) {
+        const body = JSON.stringify(payload);
+        const hash = createHash("sha256").update(body).digest("hex").slice(0, 16);
+        output.set(payloadKey("stories", id), {
+          resource: "stories",
+          id,
+          href: entityPayloadPath(server, "stories", id, hash),
+          file: `${id}.${hash}`,
+          body,
+        });
+      }
+      return output;
+    })();
+    emitted.set(server, pending);
+    pending.catch(() => emitted.delete(server));
+  }
+  return pending;
+}
+
+export async function catalogEntityPayloadHref(
+  server: ReleaseServer,
+  resource: string,
+  id: string,
+): Promise<string | undefined> {
+  if (!isEntityPayloadResource(resource) && resource !== "stories") return undefined;
+  return (await catalogEntityPayloads(server)).get(payloadKey(resource, id))?.href;
+}
+
+/** Servers whose entity pages this build renders (`STATIC_RESOURCE_SERVERS`, default intl). */
+export function staticResourceServers(): ReleaseServer[] {
+  const requested = process.env.STATIC_RESOURCE_SERVERS?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const servers = [...new Set(requested?.length ? requested : ["intl"])];
+  for (const server of servers)
+    if (!RELEASE_SERVERS.includes(server as ReleaseServer))
+      throw new Error(`Unsupported static resource server: ${server}`);
+  return servers as ReleaseServer[];
+}

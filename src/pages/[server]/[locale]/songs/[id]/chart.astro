@@ -1,30 +1,28 @@
 ---
 import CatalogEntityPage from "../../../../../components/entities/CatalogEntityPage.astro";
 import { LOCALES, type Locale } from "../../../../../i18n/locales";
-import { RELEASE_SERVERS, type ReleaseServer } from "../../../../../lib/release-server";
+import { catalogEntityPayloadHref, staticResourceServers } from "../../../../../lib/entity-graph";
+import type { ReleaseServer } from "../../../../../lib/release-server";
 import { searchableCatalogPages, type SearchableCatalogPage } from "../../../../../lib/searchable-catalog";
 
 type RouteProps = {
   server: ReleaseServer;
   locale: Locale;
   page: SearchableCatalogPage;
+  payloadHref?: string;
 };
 
 export async function getStaticPaths() {
   const output: Array<{ params: Record<string, string>; props: RouteProps }> = [];
-  const requestedServers = process.env.STATIC_RESOURCE_SERVERS?.split(",").map((value) => value.trim()).filter(Boolean);
-  const buildServers = [...new Set(requestedServers?.length ? requestedServers : ["intl"])] as string[];
-  for (const requestedServer of buildServers) {
-    if (!RELEASE_SERVERS.includes(requestedServer as ReleaseServer))
-      throw new Error(`Unsupported static resource server: ${requestedServer}`);
-    const server = requestedServer as ReleaseServer;
+  for (const server of staticResourceServers()) {
     const pages = await searchableCatalogPages(server);
     for (const page of pages) {
       if (page.collection !== "songs" || page.kind !== "song") continue;
+      const payloadHref = await catalogEntityPayloadHref(server, page.resource, page.id);
       for (const locale of LOCALES) {
         output.push({
           params: { server, locale, id: page.id },
-          props: { server, locale, page },
+          props: { server, locale, page, payloadHref },
         });
       }
     }
@@ -32,7 +30,7 @@ export async function getStaticPaths() {
   return output;
 }
 
-const { server, locale, page } = Astro.props as RouteProps;
+const { server, locale, page, payloadHref } = Astro.props as RouteProps;
 const rawReturnTo = Astro.url.searchParams.get("return") || "";
 const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : undefined;
 ---
@@ -44,4 +42,5 @@ const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? 
   canonical
   chartPage
   returnTo={returnTo}
+  payloadHref={payloadHref}
 />

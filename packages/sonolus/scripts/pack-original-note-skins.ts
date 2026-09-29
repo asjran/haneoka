@@ -61,7 +61,12 @@ interface NumberPair {
 
 const NATIVE_TEXTURE_SIZE = 2048;
 const COMMON_TEXTURE_HEIGHT = 4096;
-const PACK_GAP = 1;
+// Shelf spacing must cover the 2px edge-extension gutter that copySprite
+// bakes around every sprite: bilinear sampling at a sprite-rect edge reaches
+// 1px outside the content area, and an unpacked transparent-black neighbour
+// renders as a dark fringe (the "black seams" on composed note bodies).
+const PACK_GAP = 5;
+const SKIN_PACK_PAD = 2;
 
 const identity = {
   x1: { x1: 1 },
@@ -743,6 +748,44 @@ function copySprite(texture: DecodedRgbaPng, sprite: PackedNativeSprite): void {
     const sourceOffset = row * sprite.w * 4;
     const targetOffset = (sprite.y + row) * stride + sprite.x * 4;
     sprite.pixels.copy(texture.pixels, targetOffset, sourceOffset, sourceOffset + sprite.w * 4);
+  }
+  // Edge-extension gutter: replicate the border pixels outward so bilinear
+  // sampling just outside the sprite rect stays on same-colored texels
+  // instead of fringing into transparent black. Clamped to the upper native
+  // region — the lower half holds the shared lane art.
+  const at = (x: number, y: number): number => (y * texture.width + x) * 4;
+  const sample = (x: number, y: number): Uint8Array => {
+    const offset = at(x, y);
+    return texture.pixels.subarray(offset, offset + 4);
+  };
+  const write = (x: number, y: number, source: Uint8Array): void => {
+    if (x < 0 || y < 0 || x >= texture.width || y >= NATIVE_TEXTURE_SIZE) return;
+    const offset = at(x, y);
+    for (let channel = 0; channel < 4; channel++) texture.pixels[offset + channel] = source[channel]!;
+  };
+  const right = sprite.x + sprite.w - 1;
+  const bottom = sprite.y + sprite.h - 1;
+  for (let pad = 1; pad <= SKIN_PACK_PAD; pad++) {
+    for (let row = 0; row < sprite.h; row++) {
+      const y = sprite.y + row;
+      write(sprite.x - pad, y, sample(sprite.x, y));
+      write(right + pad, y, sample(right, y));
+    }
+    for (let col = 0; col < sprite.w; col++) {
+      const x = sprite.x + col;
+      write(x, sprite.y - pad, sample(x, sprite.y));
+      write(x, bottom + pad, sample(x, bottom));
+    }
+    for (const [cx, cy] of [
+      [sprite.x, sprite.y],
+      [right, sprite.y],
+      [sprite.x, bottom],
+      [right, bottom],
+    ] as const) {
+      const directionX = cx === sprite.x ? -pad : pad;
+      const directionY = cy === sprite.y ? -pad : pad;
+      write(cx + directionX, cy + directionY, sample(cx, cy));
+    }
   }
 }
 

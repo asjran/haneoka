@@ -93,6 +93,7 @@ export class StoryWorkspace extends LitElement {
   static properties = {
     locale: { type: String },
     entityId: { type: String, attribute: "entity-id" },
+    payload: { type: String },
     mode: { type: String },
     origin: { type: String },
     phase: { state: true },
@@ -117,6 +118,8 @@ export class StoryWorkspace extends LitElement {
   };
   declare locale: string;
   declare entityId: string;
+  /** Build-time story payload URL (lib/entity-graph.ts) for canonical story pages. */
+  declare payload: string;
   declare mode: StoryMode;
   declare origin: Origin;
   declare phase: "loading" | "ready" | "error";
@@ -197,6 +200,7 @@ export class StoryWorkspace extends LitElement {
     super();
     this.locale = "ja";
     this.entityId = "";
+    this.payload = "";
     this.mode = "band";
     this.origin = "release";
     this.phase = "loading";
@@ -367,6 +371,10 @@ export class StoryWorkspace extends LitElement {
     }
   }
   private async loadRelease(signal: AbortSignal) {
+    // A canonical story page needs only its own chapter, spot and cast, which
+    // the build prepared; the full story index is for the collection.
+    if (this.entityId && this.payload && (await this.loadPayload(this.payload, signal))) return;
+    if (!this.isConnected || !this.catalogRequests.current(signal)) return;
     const [stories, characters, bands] = await Promise.all([
       fetchJson<JsonRecord>(catalogUrl("stories"), { signal }),
       fetchJson<Record<string, JsonRecord>>(catalogUrl("characters"), { signal }),
@@ -378,6 +386,21 @@ export class StoryWorkspace extends LitElement {
     this.spots = recordValues(stories.homeSpots);
     this.characters = recordValues(characters);
     this.bands = recordValues(bands);
+  }
+  private async loadPayload(href: string, signal: AbortSignal): Promise<boolean> {
+    try {
+      const payload = await fetchJson<JsonRecord>(href, { signal });
+      if (payload.schema !== "haneoka-story-payload-v1" || String(payload.id) !== this.entityId) return false;
+      if (!this.isConnected || !this.catalogRequests.current(signal)) return false;
+      this.chapters = recordValues(payload.chapters);
+      this.episodes = (payload.episodes as Record<string, JsonRecord>) || {};
+      this.spots = recordValues(payload.homeSpots);
+      this.characters = recordValues(payload.characters);
+      this.bands = recordValues(payload.bands);
+      return true;
+    } catch {
+      return false;
+    }
   }
   /**
    * The Bestdori worker serves a bare record of episodes, each carrying its

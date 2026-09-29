@@ -42,14 +42,19 @@
   },
   "dependencies": {
     "@haneoka/sonolus-core": "^0.1.0",
-    "@sonolus/core": "^7.15.3",
+    "@sonolus/core": "^7.15.4",
     "@haneoka/cassiopeia-plugin-sonolus": "workspace:*"
   },
   "devDependencies": {
+    "@haneoka/cassiopeia": "workspace:*",
+    "@haneoka/cassiopeia-plugin-our-notes": "workspace:*",
+    "@haneoka/cassiopeia-renderer-three": "workspace:*",
+    "@haneoka/cassiopeia-sonolus-engine": "workspace:*",
     "@types/node": "^26.1.0",
+    "@types/three": "catalog:",
     "esbuild": "^0.21.5",
-    "typescript": "^6.0.3",
-    "@haneoka/cassiopeia-sonolus-engine": "workspace:*"
+    "three": "catalog:",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public",

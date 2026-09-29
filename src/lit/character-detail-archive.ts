@@ -11,7 +11,13 @@ import { tile } from "./ui/tile";
 import { storyCastMedia } from "./ui/story-media";
 import { LazyImages, nextImageCandidate } from "./ui/lazy-images";
 import { rovingKeydown } from "./ui/controls";
-import { entityHref, parseResourceRoute, returnStateFromLocation, type ResourceKind } from "../lib/resource-route";
+import {
+  entityHref,
+  parseResourceRoute,
+  returnStateFromLocation,
+  storyCollectionPath,
+  type ResourceKind,
+} from "../lib/resource-route";
 import { readReleaseServer } from "../lib/release-server";
 import type { Locale } from "../i18n/locales";
 import "../styles/character-detail.css";
@@ -40,12 +46,36 @@ interface Controller {
   formatList(values: unknown[], type?: Intl.ListFormatOptions["type"]): string;
   attributeMark(value: unknown, live?: boolean): string;
   rarityMark(value: unknown): string;
+  /** Loads a list the entity payload deferred until its tab opens. */
+  requestDeferred(key: string): void;
+  /** Build-time size of a deferred list, so its tab count shows before it loads. */
+  deferredCount(key: string): number | undefined;
 }
 
 const values = (value: unknown, key?: string): Item[] => {
   const source = key && value && typeof value === "object" ? (value as Item)[key] : value;
   if (!source || typeof source !== "object") return [];
   return Object.values(source as Item).filter((entry): entry is Item => !!entry && typeof entry === "object");
+};
+
+/**
+ * Mission templates name their values (`{CharacterId}`, `{AchievementCount}`,
+ * `{Value}`); older data used positional `{0}`–`{2}`. Unknown tokens stay.
+ */
+const missionDescription = (template: string, values: Record<string, string>): string => {
+  const positional = [values.CharacterId, values.AchievementCount, values.Value];
+  return template.replace(/\{(\w+)\}/gu, (token, name: string) =>
+    /^\d$/u.test(name) ? (positional[Number(name)] ?? token) : (values[name] ?? token),
+  );
+};
+
+/** The link-story collection opened on one pair; the screen reads `lead` and `second`. */
+const linkStoriesHref = (lead: number, second: number): string => {
+  const current = parseResourceRoute(location.pathname);
+  const locale = (current?.locale || document.documentElement.dataset.locale || "ja") as Locale;
+  const server = current?.server || readReleaseServer();
+  const query = new URLSearchParams({ lead: String(lead), ...(second ? { second: String(second) } : {}) });
+  return `${storyCollectionPath({ server, locale, mode: "link" })}?${query}`;
 };
 
 const resourceHrefForCurrent = (kind: ResourceKind, id: string, query?: Record<string, string>): string => {
@@ -351,18 +381,30 @@ export class CharacterDetailArchive extends LitElement {
     const item = this.item;
     const id = Number(item.characterId || 0);
     const data = this.collections();
+    const count = (key: string, loaded: number) =>
+      Object.hasOwn(c.detailAux, key) ? loaded : (c.deferredCount(key) ?? loaded);
     const tabs = [
       ["profile", "contact_page", c.label("profile", "Profile"), 0],
       ["cards", "photo_library", c.label("cards", "Cards"), data.cards.length + data.supports.length],
       ["stamps", "sticky_note_2", c.label("stamps", "Stamps"), data.stamps.length],
-      ["voices", "mic", c.label("voices", "Voices"), data.voices.length],
+      ["voices", "mic", c.label("voices", "Voices"), count("voices", data.voices.length)],
       ["story", "chat", c.label("story", "Story"), data.stories.length],
       ["friendships", "handshake", c.label("characterBonds", "Character Bonds"), data.friendships.length],
-      ["missions", "checklist", c.label("missions", "Missions"), data.missions.length],
+      ["missions", "checklist", c.label("missions", "Missions"), count("character-missions", data.missions.length)],
       ["live2d", "accessibility_new", "Live2D", data.live2d.length],
       ["songs", "music_note", c.label("songs", "Songs"), data.songs.length],
     ] as const;
     const active = tabs.some(([section]) => section === this.section) ? this.section : "profile";
+    const deferred = active === "voices" ? "voices" : active === "missions" ? "character-missions" : "";
+    if (deferred && !Object.hasOwn(c.detailAux, deferred) && c.deferredCount(deferred) !== undefined) {
+      c.requestDeferred(deferred);
+      return html`
+        ${this.renderTabs(tabs, active)}
+        <section class="character-detail-panel" role="tabpanel">
+          <div class="state state--inline" role="status"><span>${c.label("loading", "Loading")}</span></div>
+        </section>
+      `;
+    }
     const panel = (() => {
       if (active === "profile")
         return characterProfile({
@@ -452,10 +494,7 @@ export class CharacterDetailArchive extends LitElement {
               ${
                 friendship
                   ? html`
-                      <a
-                        class="character-friendship-banner"
-                        href=${`/catalog/stories/link?first=${id}&second=${partnerId}`}
-                      >
+                      <a class="character-friendship-banner" href=${linkStoriesHref(id, partnerId)}>
                         ${
                           friendship.storyBanner
                             ? html`
@@ -562,11 +601,11 @@ export class CharacterDetailArchive extends LitElement {
                     <span>
                       <strong>${c.localized(entry.title) || String(entry.missionTypeName || "")}</strong>
                       <small>
-                        ${c
-                          .localized(entry.description)
-                          .replaceAll("{0}", c.itemTitle(item))
-                          .replaceAll("{1}", String(entry.achievementCount || ""))
-                          .replaceAll("{2}", String(entry.value || ""))}
+                        ${missionDescription(c.localized(entry.description), {
+                          CharacterId: c.itemTitle(item),
+                          AchievementCount: String(entry.achievementCount ?? ""),
+                          Value: String(entry.value ?? ""),
+                        })}
                       </small>
                     </span>
                     <div class="character-mission-rewards">
@@ -598,6 +637,13 @@ export class CharacterDetailArchive extends LitElement {
         </section>
       `;
     })();
+    return html`
+      ${this.renderTabs(tabs, active)}
+      <section class="character-detail-panel" role="tabpanel">${panel}</section>
+    `;
+  }
+  private renderTabs(tabs: ReadonlyArray<readonly [string, string, string, number]>, active: string) {
+    const c = this.controller;
     return html`
       <nav
         class="tabs tabs--pills tabs--sticky character-detail-tabs"
@@ -634,7 +680,6 @@ export class CharacterDetailArchive extends LitElement {
           `,
         )}
       </nav>
-      <section class="character-detail-panel" role="tabpanel">${panel}</section>
     `;
   }
 }

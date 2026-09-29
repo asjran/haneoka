@@ -102,7 +102,6 @@ export class VegaStoryStage extends LitElement {
     providerBase: { type: String, attribute: "provider-base" },
     phase: { state: true },
     issue: { state: true },
-    transportIssue: { state: true },
     autoMode: { state: true },
     ordinal: { state: true },
     maximum: { state: true },
@@ -118,7 +117,6 @@ export class VegaStoryStage extends LitElement {
   declare providerBase: string;
   declare phase: "loading" | "booting" | "ready" | "error";
   declare issue: string;
-  declare transportIssue: string;
   /** AUTO advance, mirrored from the player for the transport button. */
   declare autoMode: boolean;
   /** Current and last reachable story line, the slider's whole range. */
@@ -158,7 +156,6 @@ export class VegaStoryStage extends LitElement {
     this.providerBase = "";
     this.phase = "loading";
     this.issue = "";
-    this.transportIssue = "";
     this.autoMode = false;
     this.ordinal = 0;
     this.maximum = 0;
@@ -465,7 +462,8 @@ export class VegaStoryStage extends LitElement {
   private themeHostAdapter(): HaneokaThemeHost {
     const snapshot = (): HaneokaThemeHostSnapshot => {
       const player = this.handle?.player;
-      const settings = this.handle?.shell?.snapshot().settings;
+      const shell = this.handle?.shell;
+      const settings = shell?.currentSettings ?? shell?.snapshot().settings;
       const timeline = player?.currentSeekProgress() ?? { ratio: 0, label: "", ordinal: 0, maximum: 0 };
       return {
         autoAdvance: player?.state.autoPlay ?? false,
@@ -540,7 +538,8 @@ export class VegaStoryStage extends LitElement {
       if (!handle) return;
       const state = handle.player.state;
       if (state.playing && !this.started) this.started = true;
-      const screen = handle.shell?.snapshot().screen ?? "game";
+      const shell = handle.shell;
+      const screen = shell?.currentScreen ?? shell?.snapshot().screen ?? "game";
       const timeline = handle.player.currentSeekProgress();
       const visible = this.phase === "ready" && screen === "game" && !state.loading && state.ready;
       this.transportVisibility.setPlaying(Boolean(state.playing && !state.paused));
@@ -573,20 +572,13 @@ export class VegaStoryStage extends LitElement {
     if (!handle) return;
     try {
       const target = handle.player.resolveSeekRatio(ratio);
-      void handle.player.seekTo(target, { resume: false }).then(
-        () => {
-          if (this.handle !== handle || !this.isConnected) return;
-          this.transportIssue = "";
-        },
-        (error) => {
-          if (this.handle !== handle || !this.isConnected) return;
-          this.transportIssue = error instanceof Error ? error.message : String(error);
-          this.requestUpdate();
-        },
-      );
+      // A rejected seek degrades to a no-op: playback never surfaces an error
+      // panel mid-episode, the transport simply keeps its previous position.
+      void handle.player.seekTo(target, { resume: false }).catch((error) => {
+        console.warn("[vega-story] seek failed; keeping the current position", error);
+      });
     } catch (error) {
-      this.transportIssue = error instanceof Error ? error.message : String(error);
-      this.requestUpdate();
+      console.warn("[vega-story] seek rejected; keeping the current position", error);
     }
   }
 
@@ -619,13 +611,11 @@ export class VegaStoryStage extends LitElement {
     try {
       await player.seekTo(player.resolveSeekRatio(value / maximum), { resume: false });
       if (this.handle !== handle || !this.isConnected) return;
-      this.transportIssue = "";
     } catch (error) {
+      // Malformed/unavailable targets are a no-op: keep the last reachable
+      // line instead of surfacing an error panel during playback.
       if (this.handle !== handle || !this.isConnected) return;
-      // Keep the last reachable line, but make malformed/unavailable targets
-      // visible in the local runtime instead of turning them into a no-op.
-      this.transportIssue = error instanceof Error ? error.message : String(error);
-      this.requestUpdate();
+      console.warn("[vega-story] transport seek failed; keeping the current line", error);
     }
     if (player.state.ready && (!handle.shell || handle.shell.snapshot().screen === "game")) {
       if (!this.pausedBeforeScrub) player.resume();
@@ -716,7 +706,6 @@ export class VegaStoryStage extends LitElement {
     this.maximum = 0;
     this.playerState = undefined;
     this.appliedLocale = "";
-    this.transportIssue = "";
     await engine?.dispose().catch(() => undefined);
   }
 
@@ -776,13 +765,6 @@ export class VegaStoryStage extends LitElement {
             : nothing
         }
         ${this.renderTransport()}
-        ${
-          this.transportIssue
-            ? html`
-                <p class="vega-story-runtime__transport-error" role="alert">${this.transportIssue}</p>
-              `
-            : nothing
-        }
       </section>
     `;
   }

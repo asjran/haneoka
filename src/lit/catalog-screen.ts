@@ -117,6 +117,22 @@ interface Config {
    * second hand-rolled list that drifts out of sync.
    */
   origin?: "release" | "bestdori";
+  /** Build-time entity payload URL for canonical entity pages. */
+  payload?: string;
+}
+/** The document lib/entity-graph.ts emits for one entity. */
+interface EntityPayload {
+  schema: string;
+  id: string;
+  item: Item;
+  characters?: Item[];
+  bands?: Item[];
+  marks?: Record<string, string>;
+  gameItems?: Item[];
+  document?: Item;
+  songMeta?: Item;
+  aux?: Item;
+  deferred?: Record<string, { url: string; count: number }>;
 }
 interface Profile {
   id: string[];
@@ -564,6 +580,7 @@ export class CatalogScreen extends LitElement {
   };
   private catalogRequests = new RequestScope();
   private catalogDocument: Item = {};
+  private payload?: EntityPayload;
   private skillText?: typeof import("./shared/skill-text");
   private songDetailRewards?: typeof import("./song-detail-rewards");
   private cardDetail?: typeof import("./card-detail");
@@ -1014,6 +1031,12 @@ export class CatalogScreen extends LitElement {
     const signal = this.catalogRequests.begin();
     this.phase = "loading";
     this.setEntityReady(false);
+    if (this.settings.payload && this.settings.entityContext) {
+      if (await this.loadPayload(this.settings.payload, signal)) return;
+      if (!this.isConnected || !this.catalogRequests.current(signal)) return;
+      // An unreadable payload falls back to the collection requests below.
+      this.payload = undefined;
+    }
     try {
       if (this.profile.presentation === "character") await import("./character-detail-archive");
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
@@ -1078,6 +1101,82 @@ export class CatalogScreen extends LitElement {
       this.phase = "error";
       this.setEntityReady(false);
     }
+  }
+  /**
+   * Entity pages ship one build-time payload (lib/entity-graph.ts) holding the
+   * entity, the characters/bands/items/marks it names and its pre-filtered
+   * detail sections. It replaces the collection and relation requests; the
+   * collection itself is only fetched if a feature needs it (play queue).
+   */
+  private async loadPayload(href: string, signal: AbortSignal): Promise<boolean> {
+    let payload: EntityPayload;
+    try {
+      const response = await fetch(href, { headers: { accept: "application/json" }, signal });
+      if (!response.ok) return false;
+      payload = (await response.json()) as EntityPayload;
+    } catch {
+      return false;
+    }
+    if (!this.isConnected || !this.catalogRequests.current(signal)) return false;
+    if (payload?.schema !== "haneoka-entity-payload-v1" || !payload.item || String(payload.id) !== this.selectedId)
+      return false;
+    this.payload = payload;
+    this.catalogDocument = payload.document || {};
+    this.items = [payload.item];
+    this.characters = payload.characters || [];
+    this.bands = payload.bands || [];
+    this.gameItems = payload.gameItems || [];
+    this.songMeta = payload.songMeta || {};
+    this.songMetaProvision = Promise.resolve();
+    this.facetCache = undefined;
+    this.resultCache = undefined;
+    this.gameMarks.clear();
+    for (const [logical, path] of Object.entries(payload.marks || {}))
+      this.gameMarks.set(logical, `/runtime/${this.dataServer()}/${path.slice("runtime/".length)}`);
+    this.selected = payload.item;
+    this.phase = "ready";
+    void this.loadEntityDetail(payload.item);
+    return true;
+  }
+  /**
+   * The payload omits the whole collection. Features that act on it from an
+   * entity page (the song play queue) load it once, on first use, restoring
+   * the state a collection-backed page had.
+   */
+  private collectionProvision?: Promise<void>;
+  private ensureCollection(): Promise<void> {
+    this.collectionProvision ??= fetch(this.sourceUrl(this.profile.collection || this.settings.resource), {
+      headers: { accept: "application/json" },
+    })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const items = asItems(await response.json(), this.profile.document);
+        if (!items.length || !this.isConnected) return;
+        this.items = items;
+        this.facetCache = undefined;
+        this.resultCache = undefined;
+      })
+      .catch(() => undefined);
+    return this.collectionProvision;
+  }
+  /** Loads a list the payload deferred (large, only shown when its tab opens). */
+  private deferredProvision = new Map<string, Promise<void>>();
+  requestDeferred(key: string) {
+    const source = this.payload?.deferred?.[key];
+    if (!source || Object.hasOwn(this.detailAux, key) || this.deferredProvision.has(key)) return;
+    const id = this.selectedId;
+    const pending = fetch(source.url, { headers: { accept: "application/json" } })
+      .then(async (response) => (response.ok ? ((await response.json()) as unknown) : {}))
+      .catch(() => ({}))
+      .then((value) => {
+        if (this.selectedId !== id) return;
+        this.detailAux = { ...this.detailAux, [key]: key === "voices" ? { entries: value } : value };
+      })
+      .finally(() => this.deferredProvision.delete(key));
+    this.deferredProvision.set(key, pending);
+  }
+  deferredCount(key: string): number | undefined {
+    return this.payload?.deferred?.[key]?.count;
   }
   private syncUrl() {
     const params = new URLSearchParams(location.search);
@@ -2029,52 +2128,66 @@ export class CatalogScreen extends LitElement {
       );
       void Promise.all([rewards, this.songMetaProvision]).then(() => this.requestUpdate());
     }
-    try {
-      // Meta rows identify as `<musicId>-<difficulty>` but fetch the song
-      // they belong to, so the detail keeps the full difficulty picker.
-      const response = await fetch(
-        this.sourceUrl(
-          this.profile.collection || this.settings.resource,
-          this.profile.perDifficulty ? String(summary.musicId || id) : id,
-        ),
-        { headers: { accept: "application/json" }, signal },
-      );
-      if (response.ok) {
-        const value = (await response.json()) as unknown;
-        const detail = value && typeof value === "object" && !Array.isArray(value) ? (value as Item) : {};
-        if (Object.keys(detail).length && this.detailRequests.current(signal) && this.selectedId === id) {
-          this.selected = {
-            ...summary,
-            ...detail,
-            artistName: detail.artistName || summary.artistName,
-            bandName: detail.bandName || summary.bandName,
-          };
-          loadedActualDetail = true;
-          if (this.settings.chartPage) {
-            await this.ensureChartPlayer();
-            // Loading the chart player yields to a dynamic import. The route
-            // may have changed while it was loading, so do not let this old
-            // entity continuation reveal stale content on the new selection.
-            if (!this.detailRequests.current(signal) || this.selectedId !== id) return;
-          }
-          this.setEntityReady(true);
-        }
+    const payload = this.payload && String(this.payload.id) === id ? this.payload : undefined;
+    if (payload) {
+      // The build already merged summary and detail; the page is readable now.
+      this.selected = payload.item;
+      loadedActualDetail = true;
+      if (this.settings.chartPage) {
+        await this.ensureChartPlayer();
+        if (!this.detailRequests.current(signal) || this.selectedId !== id) return;
       }
-    } catch {
-      // The summary remains a complete offline fallback.
-    }
+      this.setEntityReady(true);
+    } else
+      try {
+        // Meta rows identify as `<musicId>-<difficulty>` but fetch the song
+        // they belong to, so the detail keeps the full difficulty picker.
+        const response = await fetch(
+          this.sourceUrl(
+            this.profile.collection || this.settings.resource,
+            this.profile.perDifficulty ? String(summary.musicId || id) : id,
+          ),
+          { headers: { accept: "application/json" }, signal },
+        );
+        if (response.ok) {
+          const value = (await response.json()) as unknown;
+          const detail = value && typeof value === "object" && !Array.isArray(value) ? (value as Item) : {};
+          if (Object.keys(detail).length && this.detailRequests.current(signal) && this.selectedId === id) {
+            this.selected = {
+              ...summary,
+              ...detail,
+              artistName: detail.artistName || summary.artistName,
+              bandName: detail.bandName || summary.bandName,
+            };
+            loadedActualDetail = true;
+            if (this.settings.chartPage) {
+              await this.ensureChartPlayer();
+              // Loading the chart player yields to a dynamic import. The route
+              // may have changed while it was loading, so do not let this old
+              // entity continuation reveal stale content on the new selection.
+              if (!this.detailRequests.current(signal) || this.selectedId !== id) return;
+            }
+            this.setEntityReady(true);
+          }
+        }
+      } catch {
+        // The summary remains a complete offline fallback.
+      }
     if (!this.detailRequests.current(signal)) return;
     // Canonical pages keep their SSR article visible while the actual detail
     // is unavailable. A summary row is a browse projection, not a usable
     // replacement for the page's detail payload.
     if (this.settings.entityContext && !loadedActualDetail) return;
     const views: string[] = [];
-    if (this.profile.presentation === "member")
-      views.push("member-card-levels", "member-card-awake-resources", "skill-level-resources");
-    if (this.profile.presentation === "support") views.push("support-card-levels", "skill-level-resources");
-    if (this.profile.presentation === "band-item") views.push("skill-level-resources");
+    if (!payload) {
+      if (this.profile.presentation === "member")
+        views.push("member-card-levels", "member-card-awake-resources", "skill-level-resources");
+      if (this.profile.presentation === "support") views.push("support-card-levels", "skill-level-resources");
+      if (this.profile.presentation === "band-item") views.push("skill-level-resources");
+    }
     const relations = this.profile.presentation === "character";
     if (relations) void import("./character-detail-archive");
+    const card = ["member", "support"].includes(this.profile.presentation);
     try {
       const [viewResults, relationResults, progression, skillReference, skillText, cardDetail, gameSystemDetail] =
         await Promise.all([
@@ -2084,7 +2197,7 @@ export class CatalogScreen extends LitElement {
               return [view, response.ok ? await response.json() : []] as const;
             }),
           ),
-          relations
+          relations && !payload
             ? Promise.all(
                 [
                   "characters",
@@ -2107,18 +2220,18 @@ export class CatalogScreen extends LitElement {
                 }),
               )
             : [],
-          ["member", "support"].includes(this.profile.presentation)
+          card && !payload
             ? fetch(catalogUrl("progression"), { signal }).then(async (response) =>
                 response.ok ? await response.json() : {},
               )
             : {},
-          ["member", "support"].includes(this.profile.presentation)
+          card && !payload
             ? fetch(catalogUrl("skill-reference"), { signal }).then(async (response) =>
                 response.ok ? await response.json() : {},
               )
             : {},
-          ["member", "support"].includes(this.profile.presentation) ? import("./shared/skill-text") : undefined,
-          ["member", "support"].includes(this.profile.presentation) ? import("./card-detail") : undefined,
+          card ? import("./shared/skill-text") : undefined,
+          card ? import("./card-detail") : undefined,
           this.profile.presentation === "system" ? import("./game-system-detail") : undefined,
         ]);
       if (this.detailRequests.current(signal) && this.selectedId === id) {
@@ -2126,11 +2239,13 @@ export class CatalogScreen extends LitElement {
         this.cardDetail = cardDetail;
         this.gameSystemDetail = gameSystemDetail;
         this.gameSystemDetail?.initializeGameSystemDetail(this as unknown as Record<string, unknown>, summary);
-        this.detailAux = {
-          ...Object.fromEntries([...viewResults, ...relationResults]),
-          progression,
-          "skill-reference": skillReference,
-        };
+        this.detailAux = payload
+          ? { ...(payload.aux || {}) }
+          : {
+              ...Object.fromEntries([...viewResults, ...relationResults]),
+              progression,
+              "skill-reference": skillReference,
+            };
         const levelView = this.profile.presentation === "support" ? "support-card-levels" : "member-card-levels";
         const levelGroup = Number(
           this.profile.presentation === "support"
@@ -2774,6 +2889,9 @@ export class CatalogScreen extends LitElement {
       cover: String(item.jacketUrl || item.jacketThumbUrl || ""),
       url: String(item.musicUrl || ""),
     });
+    // An entity page queues the rest of the catalogue after its own song, as
+    // the collection-backed page did; the payload does not carry it.
+    if (this.payload) await this.ensureCollection();
     const item = this.items.find((entry) => this.itemId(entry) === id) || { musicUrl: url };
     await dock.playTrack(
       { ...track(item), id, url },

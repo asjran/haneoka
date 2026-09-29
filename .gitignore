@@ -63,3 +63,5 @@ usmlogs/
 !/docs/assets/haneoka-header.svg
 !/docs/assets/haneoka-social-card.png
 !/docs/assets/haneoka-social-card.svg
+/.zcode
+/packages/sonolus/.probe

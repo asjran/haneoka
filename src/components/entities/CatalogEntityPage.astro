@@ -15,6 +15,7 @@ import {
 } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
 import type { SearchableCatalogPage } from "../../lib/searchable-catalog";
+import { localeTaggedCandidates } from "../../lit/ui/lazy-images";
 import "../../lit/catalog-screen";
 import "../../styles/catalog.css";
 import "../../styles/static-detail.css";
@@ -28,8 +29,10 @@ interface Props {
   previous?: EntityLink;
   next?: EntityLink;
   chartPage?: boolean;
+  /** Build-time entity payload (lib/entity-graph.ts); replaces the screen's collection fetches. */
+  payloadHref?: string;
 }
-const { page, locale, server = "intl", canonical = false, returnTo, previous, next, chartPage = false } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next, chartPage = false, payloadHref } = Astro.props;
 const collectionRoute = findRoute(page.route);
 if (!collectionRoute) throw new Error(`Missing route definition for ${page.route}`);
 const sectionTitle = titleOf(collectionRoute, locale);
@@ -49,6 +52,10 @@ const seoTitleValues = Object.fromEntries(
   }),
 ) as Record<Locale, string>;
 const sectionHeading = t(locale, "details", "Details");
+// The interactive detail shows the locale's own artwork; the fallback asks for
+// the same URL so a full-size image is not downloaded twice. The asset route
+// resolves a missing localized variant to its sibling or the original.
+const image = page.image ? localeTaggedCandidates(page.image, locale)[0] : "";
 const screenConfig = catalogConfig({
   resource: page.resource,
   locale,
@@ -56,6 +63,7 @@ const screenConfig = catalogConfig({
   entityKind: kind,
   ...(canonical ? { entityId: page.id, entityContext: true } : {}),
   ...(chartPage ? { chartPage: true } : {}),
+  ...(canonical && payloadHref ? { payload: payloadHref } : {}),
   aspectRatio: page.resource === "cards" ? "224 / 294" : "1",
 });
 const entity = canonical
@@ -79,6 +87,7 @@ const entity = canonical
   seoTitleValues={seoTitleValues}
   seoDescriptionValues={page.descriptions}
 >
+  {canonical && payloadHref && <link slot="head" rel="preload" as="fetch" href={payloadHref} crossorigin="anonymous" />}
   <AppShell
     locale={locale}
     route={page.route}
@@ -114,10 +123,10 @@ const entity = canonical
       <div class="sheet__body">
         <div class="detail-layout">
           <div class="detail-layout__media">
-            {page.image && (
+            {image && (
               <div class="image-gallery">
                 <div class="image-gallery__stage">
-                  <img src={page.image} alt={page.titles[locale]} decoding="async" />
+                  <img src={image} alt={page.titles[locale]} decoding="async" />
                 </div>
               </div>
             )}

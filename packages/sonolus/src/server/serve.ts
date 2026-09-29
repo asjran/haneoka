@@ -178,11 +178,10 @@ function chartPath(chartFile: string): string | null {
   return existsSync(file) ? file : null;
 }
 
-// BGM cue name → mp3. Rule (verified, 33/33 songs): "M_Mayoiuta" → letter
-// subfolder from the prefix + "<rest>", file = "<cueName>.mp3"; a cue with no
-// "_" (e.g. "kk") sits directly under "<cueName>". CRI media lives under the
-// release runtime CRI audio. musicSoundID → cueName via MasterSoundCueSheet
-// (loaded in main).
+// BGM cue name → mp3. Current release layout (r-31fd…): music lives under
+// cri/sound/musicscore/<cueName>/1_<cueName>.mp3. The legacy rule ("M_x" →
+// letter subfolder + "<cueName>.mp3") is kept as a fallback for older
+// release layouts. musicSoundID → cueName via MasterSoundCueSheet.
 function bgmPath(cueName: string | undefined): string | null {
   if (!cueName) return null;
   const us = cueName.indexOf("_");
@@ -190,8 +189,10 @@ function bgmPath(cueName: string | undefined): string | null {
     us >= 0
       ? `cri/sound/${cueName.slice(0, us).toLowerCase()}/${cueName.slice(us + 1).toLowerCase()}`
       : `cri/sound/${cueName.toLowerCase()}`;
-  const p = resolve(workspace.runtimeRoot, relative, `${cueName}.mp3`);
-  return existsSync(p) ? p : null;
+  const legacy = resolve(workspace.runtimeRoot, relative, `${cueName}.mp3`);
+  if (existsSync(legacy)) return legacy;
+  const musicscore = resolve(workspace.runtimeRoot, "cri/sound/musicscore", cueName, `1_${cueName}.mp3`);
+  return existsSync(musicscore) ? musicscore : null;
 }
 
 function main() {
@@ -231,12 +232,15 @@ function main() {
   // projected into Sonolus particle graphs. Missing source-derived artifacts
   // are fatal: no pixel/8bit replacement is visually equivalent.
   const resourceDir = resolve(ROOT, "packages/sonolus/dist/our-notes");
-  const SKIN_NAME = "ourNotesSkin";
   const PARTICLE_NAME = "ourNotesParticle";
   const EFFECT_NAME = "ourNotesEffect";
   const requiredResourceFiles = [
-    "skin.data",
-    "skin.texture.png",
+    "skins/skin001/skin.data",
+    "skins/skin001/skin.texture.png",
+    "skins/skin002/skin.data",
+    "skins/skin002/skin.texture.png",
+    "skins/skin003/skin.data",
+    "skins/skin003/skin.texture.png",
     "particle.data",
     "particle.texture.png",
     "effect.data",
@@ -247,18 +251,28 @@ function main() {
     throw new Error(`Our Notes resource artifact missing under ${resourceDir}: ${missingResourceFiles.join(", ")}`);
   }
 
-  const skin: SkinItemModel = {
-    name: SKIN_NAME,
+  // The note/lane skins are the Cassiopeia-migrated skin001/002/003 packs;
+  // skin001 stays the engine default. The old single-skin root files were
+  // retired by the multi-skin packer.
+  const skinItems: SkinItemModel[] = (
+    [
+      ["skin001", "ourNotesSkin"],
+      ["skin002", "ourNotesSkin002"],
+      ["skin003", "ourNotesSkin003"],
+    ] as const
+  ).map(([skinId, name]) => ({
+    name,
     version: SONOLUS_ITEM_VERSIONS.skin,
     title: { ja: "Our Notes", en: "Our Notes" },
-    subtitle: { ja: "オリジナル skin001", en: "Original skin001" },
+    subtitle: { ja: `オリジナル ${skinId}`, en: `Original ${skinId}` },
     author: { en: "haneoka" },
     tags: [],
     thumbnail: EMPTY_SRL,
-    data: s.add(readFileSync(resolve(resourceDir, "skin.data"))),
-    texture: s.add(readFileSync(resolve(resourceDir, "skin.texture.png"))),
-  };
-  s.skin.items.push(skin);
+    data: s.add(readFileSync(resolve(resourceDir, "skins", skinId, "skin.data"))),
+    texture: s.add(readFileSync(resolve(resourceDir, "skins", skinId, "skin.texture.png"))),
+  }));
+  for (const skin of skinItems) s.skin.items.push(skin);
+  const engineSkin = "ourNotesSkin";
   const particle: ParticleItemModel = {
     name: PARTICLE_NAME,
     version: SONOLUS_ITEM_VERSIONS.particle,
@@ -283,7 +297,6 @@ function main() {
     audio: s.add(readFileSync(resolve(resourceDir, "effect.audio"))),
   };
   s.effect.items.push(effect);
-  const engineSkin = SKIN_NAME;
   const engineParticle = PARTICLE_NAME;
   const engineEffect = EFFECT_NAME;
 

@@ -207,6 +207,8 @@ export interface CatalogConfigOptions {
   chartPage?: boolean;
   aspectRatio?: string;
   origin?: "release" | "bestdori";
+  /** Build-time entity payload URL (lib/entity-graph.ts). */
+  payload?: string;
 }
 
 /** Serialises a catalogue screen's configuration. */
@@ -219,6 +221,7 @@ export function catalogConfig(options: CatalogConfigOptions): string {
     ...(options.entityId ? { entityId: options.entityId } : {}),
     ...(options.entityContext ? { entityContext: true } : {}),
     ...(options.chartPage ? { chartPage: true } : {}),
+    ...(options.payload ? { payload: options.payload } : {}),
     labelAliases: LABEL_ALIASES,
     aspectRatio: options.aspectRatio ?? "1",
     ...(options.origin ? { origin: options.origin } : {}),

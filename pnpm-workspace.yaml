@@ -28,8 +28,8 @@ catalog:
   "@fontsource-variable/noto-sans-tc": 5.2.10
   "@fontsource-variable/roboto": 5.2.10
   "@sinclair/typebox": 0.34.49
-  "@sonolus/core": 7.15.3
-  "@sonolus/express": 7.5.3
+  "@sonolus/core": 7.15.4
+  "@sonolus/express": 7.5.4
   "@sonolus/free-pack": 1.2.0
   "@types/express": 4.17.25
   "@types/node": 26.1.0

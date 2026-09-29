@@ -7,6 +7,7 @@ import { t } from "../../i18n/messages";
 import type { SearchableStoryPage, StaticStoryLine } from "../../lib/searchable-stories";
 import { resourcePath, storyCollectionPath, type EntityLink } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
+import { advTextHtml, escapeHtml } from "../../lib/adv-text-html";
 import "../../lit/story-workspace";
 import "../../styles/story.css";
 import "../../styles/static-detail.css";
@@ -19,8 +20,10 @@ interface Props {
   returnTo?: string;
   previous?: EntityLink;
   next?: EntityLink;
+  /** Build-time story payload (lib/entity-graph.ts); replaces the story index request. */
+  payloadHref?: string;
 }
-const { page, locale, server = "intl", canonical = false, returnTo, previous, next } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next, payloadHref } = Astro.props;
 const modeLabel = (target: Locale) => t(target, `storyNavigation.${page.mode}`, page.mode);
 const sectionRoute = `/catalog/stories/${page.mode}`;
 const sectionRouteDefinition = findRoute(sectionRoute);
@@ -35,14 +38,16 @@ const seoTitleValues = Object.fromEntries(
   }),
 ) as Record<Locale, string>;
 const choicesLabel = t(locale, "choices", "Choices");
+// Transcript text is game ADV markup, not HTML: it is parsed and escaped so a
+// `<size=…>` tag or a literal `&` can never be read as document markup.
 const line = (entry: StaticStoryLine) =>
   entry.kind === "chapter"
-    ? `<h2 class="static-story__chapter">${entry.text}</h2>`
+    ? `<h2 class="static-story__chapter">${advTextHtml(entry.text)}</h2>`
     : entry.kind === "choices"
-      ? `<div class="static-story__choices"><small>${choicesLabel}</small><ul>${entry.choices
-          .map((choice) => `<li>${choice}</li>`)
+      ? `<div class="static-story__choices"><small>${escapeHtml(choicesLabel)}</small><ul>${entry.choices
+          .map((choice) => `<li>${advTextHtml(choice)}</li>`)
           .join("")}</ul></div>`
-      : `<p class="static-story__line">${entry.name ? `<b>${entry.name}</b>` : ""}<span>${entry.text}</span></p>`;
+      : `<p class="static-story__line">${entry.name ? `<b>${advTextHtml(entry.name)}</b>` : ""}<span>${advTextHtml(entry.text)}</span></p>`;
 ---
 
 <Base
@@ -55,6 +60,7 @@ const line = (entry: StaticStoryLine) =>
   seoTitleValues={seoTitleValues}
   seoDescriptionValues={page.descriptions}
 >
+  {canonical && payloadHref && <link slot="head" rel="preload" as="fetch" href={payloadHref} crossorigin="anonymous" />}
   <AppShell
     locale={locale}
     route={sectionRoute}
@@ -72,7 +78,12 @@ const line = (entry: StaticStoryLine) =>
         : undefined
     }
   >
-    <story-workspace locale={locale} mode={page.mode} entity-id={canonical ? page.storyId : undefined}></story-workspace>
+    <story-workspace
+      locale={locale}
+      mode={page.mode}
+      entity-id={canonical ? page.storyId : undefined}
+      payload={canonical ? payloadHref : undefined}
+    ></story-workspace>
     <article class="static-detail" data-static-detail>
       <header class="static-detail__header">
         {!canonical && <a class="static-detail__back" href={storyCollectionPath({ server, locale, mode: page.mode })}>{sectionTitle}</a>}

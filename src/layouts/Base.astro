@@ -140,6 +140,7 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
     )}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/site.webmanifest" />
+    <slot name="head" />
     {!noindex && (
       <script
         type="application/ld+json"

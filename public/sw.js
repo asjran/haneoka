@@ -7,16 +7,20 @@
 // - Long-lived static assets (icon sprite, locale catalogs): cache-first;
 //   their HTTP cache policy already revalidates in the background.
 // - Images: cache-first with an entry cap, evicting the oldest first.
+// - Build-time entity payloads (/entity-data/v1/*): content-addressed, cache-first
+//   with an entry cap.
 // - Everything else (API, auth, worker routes): network only.
 
 const VERSION = "v5";
 const PAGES_CACHE = `haneoka.pages.${VERSION}`;
 const ASSETS_CACHE = `haneoka.assets.${VERSION}`;
 const IMAGES_CACHE = `haneoka.images.${VERSION}`;
-const ACTIVE_CACHES = [PAGES_CACHE, ASSETS_CACHE, IMAGES_CACHE];
+const DATA_CACHE = `haneoka.data.${VERSION}`;
+const ACTIVE_CACHES = [PAGES_CACHE, ASSETS_CACHE, IMAGES_CACHE, DATA_CACHE];
 
 const MAX_PAGES = 30;
 const MAX_IMAGES = 300;
+const MAX_DATA = 200;
 const NEVER_CACHE_PREFIXES = ["/api/", "/auth/", "/account/", "/admin/", "/sonolus/", "/game-client/"];
 
 self.addEventListener("install", (event) => {
@@ -109,6 +113,10 @@ self.addEventListener("fetch", (event) => {
   }
   if (url.pathname.startsWith("/_astro/") || url.pathname.startsWith("/fonts/")) {
     event.respondWith(cacheFirst(request, ASSETS_CACHE));
+    return;
+  }
+  if (url.pathname.startsWith("/entity-data/v1/")) {
+    event.respondWith(cacheFirst(request, DATA_CACHE, MAX_DATA));
     return;
   }
   if (request.destination === "image") {

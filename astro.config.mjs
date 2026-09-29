@@ -23,6 +23,13 @@ export default defineConfig({
       rollupOptions: {
         output: {
           manualChunks(id) {
+            // Rollup pulls a manual chunk's unassigned dependencies into it.
+            // The dynamic-import preload helper is such a dependency of the
+            // flowchart, and every lazy import site on the site references
+            // it, so leaving it unassigned made each page statically load
+            // the flowchart and, through it, three and the Vega renderer.
+            if (id.includes("vite/preload-helper") || id.includes("vite/modulepreload-polyfill"))
+              return "preload-helper";
             if (id.includes("/.dependencies/vega-shell-default/dist/flowchart-")) return "vega-flowchart";
             if (id.includes("/node_modules/three/") || id.includes("/node_modules/.pnpm/three@")) return "three-core";
             if (id.includes("/.dependencies/vega/packages/protocol/")) return "vega-protocol";

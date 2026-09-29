@@ -1,4 +1,5 @@
 import { handleCommunityMediaQueue, reconcileCommunityMedia } from "./community-media";
+import { version } from "@sonolus/core";
 export { CommunityMediaContainer } from "./community-media-container";
 import { catalogProjectionTables, projectCatalogDocument } from "../src/lib/catalog-projection";
 import { handleAdminRequest } from "./admin";
@@ -239,7 +240,10 @@ const RELEASE_REGISTRY_CACHE_TTL = 86_400;
 const RELEASE_REGISTRY_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800";
 const SOURCE_CACHE_TTL = 86_400;
 const MEDIA_CACHE_TTL = 7 * 86_400;
-const SONOLUS_VERSION = "1.1.4";
+// Single version source: @sonolus/core releases declare the Sonolus app
+// version they target, and the worker advertises the same value so clients
+// never see the server trail an app update.
+const SONOLUS_VERSION = version.sonolus;
 const CAS_PREFIX = "cas/v1/sha256";
 const RESOURCE_SERVER_CACHE_TTL_MS = 15_000;
 const RESOURCE_SERVER_CACHE_LIMIT = 128;

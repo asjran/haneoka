@@ -7,15 +7,21 @@
   "lockFileMaintenance": {
     "enabled": true
   },
-  "labels": ["dependencies"],
-  "schedule": ["* 16 8 * *"],
+  "labels": [
+    "dependencies"
+  ],
+  "schedule": [
+    "* 16 8 * *"
+  ],
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
   "constraints": {
     "python": "3.13"
   },
   "pip-compile": {
-    "managerFilePatterns": ["/^scripts/requirements\\.txt$/"]
+    "managerFilePatterns": [
+      "/^scripts/requirements\\.txt$/"
+    ]
   },
   "pip_requirements": {
     "enabled": false
@@ -23,23 +29,45 @@
   "packageRules": [
     {
       "description": "Update the pnpm release selected by Corepack",
-      "matchPackageNames": ["pnpm"],
+      "matchPackageNames": [
+        "pnpm"
+      ],
       "groupName": "pnpm toolchain"
     },
     {
       "description": "Group GitHub Actions updates",
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "groupName": "github actions"
     },
     {
       "description": "Keep Sonolus packages together",
-      "matchPackageNames": ["@sonolus/**"],
+      "matchPackageNames": [
+        "@sonolus/**"
+      ],
       "groupName": "sonolus packages"
     },
     {
       "description": "Keep Vue packages together",
-      "matchPackageNames": ["vue", "vue-router", "vue-tsc", "@vue/**"],
+      "matchPackageNames": [
+        "vue",
+        "vue-router",
+        "vue-tsc",
+        "@vue/**"
+      ],
       "groupName": "vue packages"
+    },
+    {
+      "description": "Sonolus toolchain pins are owned by the scheduled sonolus-toolchain-update workflow (the engine repository pins live outside Renovate's reach); skipping them here avoids duplicate PRs",
+      "matchPackageNames": [
+        "@sonolus/core",
+        "@sonolus/express",
+        "@sonolus/free-pack",
+        "@sonolus/sonolus.js",
+        "@sonolus/sonolus.js-compiler"
+      ],
+      "enabled": false
     }
   ]
 }
