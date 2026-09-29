@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from ingest.version_api import EMPTY_GRPC_FRAME, GRPC_USER_AGENT, _public_https, proxy_curl_flags
@@ -73,30 +74,41 @@ def discover_master_version(
     if not endpoint:
         raise ValueError("a Master version endpoint is required for live Master ingestion")
     _public_https(endpoint, skip_resolution_check)
-    with tempfile.TemporaryDirectory(prefix="haneoka-master-version-") as directory:
-        body = Path(directory) / "response.bin"
-        response = subprocess.run(
-            [
-                "curl", "--silent", "--show-error", "--http2", "--max-time", "30",
-                *proxy_curl_flags(proxy),
-                "--max-filesize", "65536", "-D", "-", "-o", str(body),
-                "-H", "content-type: application/grpc", "-H", "te: trailers",
-                "-H", "grpc-accept-encoding: identity", "-H", "x-platform: Android",
-                "-A", GRPC_USER_AGENT,
-                "--data-binary", "@-", endpoint,
-            ],
-            input=EMPTY_GRPC_FRAME,
-            capture_output=True,
-            timeout=40,
-            check=False,
-        )
-        if response.returncode:
-            raise RuntimeError("Master version request failed")
-        headers = {}
-        for line in response.stdout.decode("utf-8", "replace").splitlines():
-            if ":" in line:
-                name, value = line.split(":", 1)
-                headers[name.strip().lower()] = value.strip()
-        if headers.get("grpc-status") != "0" or not headers.get("content-type", "").startswith("application/grpc"):
-            raise RuntimeError(f"Master version service failed (gRPC {headers.get('grpc-status', 'missing')})")
-        return decode_master_version(body.read_bytes())
+    failure = ""
+    # The egress (direct or through a JP proxy node) can stall for one
+    # request while the sibling asset-version call succeeds seconds earlier;
+    # a short backoff recovers without failing the whole ingestion.
+    for delay in (0, 3, 8):
+        if delay:
+            time.sleep(delay)
+        with tempfile.TemporaryDirectory(prefix="haneoka-master-version-") as directory:
+            body = Path(directory) / "response.bin"
+            response = subprocess.run(
+                [
+                    "curl", "--silent", "--show-error", "--http2", "--max-time", "30",
+                    *proxy_curl_flags(proxy),
+                    "--max-filesize", "65536", "-D", "-", "-o", str(body),
+                    "-H", "content-type: application/grpc", "-H", "te: trailers",
+                    "-H", "grpc-accept-encoding: identity", "-H", "x-platform: Android",
+                    "-A", GRPC_USER_AGENT,
+                    "--data-binary", "@-", endpoint,
+                ],
+                input=EMPTY_GRPC_FRAME,
+                capture_output=True,
+                timeout=40,
+                check=False,
+            )
+            if response.returncode:
+                failure = response.stderr.decode("utf-8", "replace").strip() or f"curl exit {response.returncode}"
+                continue
+            headers = {}
+            for line in response.stdout.decode("utf-8", "replace").splitlines():
+                if ":" in line:
+                    name, value = line.split(":", 1)
+                    headers[name.strip().lower()] = value.strip()
+            if headers.get("grpc-status") != "0" or not headers.get("content-type", "").startswith(
+                "application/grpc"
+            ):
+                raise RuntimeError(f"Master version service failed (gRPC {headers.get('grpc-status', 'missing')})")
+            return decode_master_version(body.read_bytes())
+    raise RuntimeError(f"Master version request failed after 3 attempts: {failure}")

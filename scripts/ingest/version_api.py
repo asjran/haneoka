@@ -9,6 +9,7 @@ import ipaddress
 import json
 import os
 import re
+import time
 import shutil
 import socket
 import subprocess
@@ -152,8 +153,16 @@ def discover_asset_version(
         "@-",
         endpoint,
     ]
-    result = subprocess.run(command, input=EMPTY_GRPC_FRAME, capture_output=True, timeout=timeout + 10)
-    if result.returncode != 0:
+    # One stalled egress (direct or through a JP proxy node) must not fail
+    # the whole ingestion; mirror the Master version lookup's short backoff.
+    result = None
+    for delay in (0, 3, 8):
+        if delay:
+            time.sleep(delay)
+        result = subprocess.run(command, input=EMPTY_GRPC_FRAME, capture_output=True, timeout=timeout + 10)
+        if result.returncode == 0:
+            break
+    if result is None or result.returncode != 0:
         raise RuntimeError(f"version endpoint request failed: {result.stderr.decode('utf-8', 'replace').strip()}")
     headers: dict[str, str] = {}
     for raw_line in result.stdout.decode("utf-8", "replace").splitlines():
