@@ -116,10 +116,15 @@ def _expected_delta_paths(build, server: str) -> tuple[set[str], set[str]]:
     Home Spot scenes — is reachable from the local build documents, so the
     composer can distinguish "produced locally" from "must come from the base
     release" without trusting either side blindly.
+
+    Media expectations follow the CANONICAL corpus exactly: descriptor outputs
+    plus the merge's delta-declared document (declared media including locale
+    variants, and adopted projections).  Bundle reports also carry the outputs
+    of NON-canonical providers — a full build never publishes those, so
+    counting them here would demand files neither side has.
     """
 
     expected: set[str] = set()
-    unity_json_roots: set[str] = set()
 
     reports_dir = build.metadata / "bundles"
     for file in sorted(reports_dir.glob("*.json")):
@@ -130,23 +135,34 @@ def _expected_delta_paths(build, server: str) -> tuple[set[str], set[str]]:
         archive_path = str(archive.get("path") or "")
         if archive_path:
             expected.add(archive_path)
-        for source in (report.get("sources") or []) if isinstance(report, dict) else []:
-            for output in (source.get("outputs") or []):
-                relative = str(output.get("path") or "")
-                if relative:
-                    expected.add(relative)
-                    if relative.startswith("runtime/unity-json/"):
-                        unity_json_roots.add(relative)
 
     sources_dir = build.metadata / "sources"
     for file in sorted(sources_dir.rglob("*.json")):
         relative = f"metadata/{file.relative_to(build.metadata).as_posix()}"
         expected.add(relative)
         descriptor = read_json(file)
-        for projection in (descriptor.get("runtimeObjects") or []) if isinstance(descriptor, dict) else []:
+        if not isinstance(descriptor, dict):
+            continue
+        for projection in descriptor.get("runtimeObjects") or []:
             projection_path = str(projection.get("path") or "")
             if projection_path:
                 expected.add(projection_path)
+        for output in descriptor.get("outputs") or []:
+            output_path = str(output.get("path") or "")
+            if output_path:
+                expected.add(output_path)
+
+    declared_file = build.reports / "delta-declared.json"
+    if declared_file.is_file():
+        declared = read_json(declared_file)
+        if isinstance(declared, dict):
+            for item in declared.get("media") or []:
+                media_path = str((item or {}).get("path") or "")
+                if media_path:
+                    expected.add(media_path)
+            for projection_path in declared.get("projectionPaths") or []:
+                if projection_path:
+                    expected.add(str(projection_path))
 
     cri_file = build.metadata / "cri.json"
     if cri_file.is_file():
