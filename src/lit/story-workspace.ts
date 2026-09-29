@@ -597,6 +597,14 @@ export class StoryWorkspace extends LitElement {
     const value = this.releaseValue(item);
     return value ? new Intl.DateTimeFormat(this.locale, { dateStyle: "medium" }).format(new Date(value)) : "";
   }
+  /** The event's own window, as the game shows it on the event page. */
+  private eventWindow(event: JsonRecord) {
+    const start = this.releaseValue(event);
+    const end = Array.isArray(event.endAt) ? Number(event.endAt[0] || 0) : 0;
+    const format = new Intl.DateTimeFormat(this.locale, { dateStyle: "medium" });
+    if (!start) return end ? format.format(new Date(end)) : "";
+    return end ? `${format.format(new Date(start))} – ${format.format(new Date(end))}` : format.format(new Date(start));
+  }
   private duration(item: JsonRecord) {
     const seconds = Math.round(Number(item.playTime || 0));
     return seconds ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "";
@@ -764,7 +772,7 @@ export class StoryWorkspace extends LitElement {
       [
         "kind",
         uiText(this.locale, "type"),
-        this.origin === "release" && this.mode === "band"
+        this.origin === "release" && (this.mode === "band" || this.mode === "event")
           ? ["bandStory", "extraStory", "perspectiveStory"].filter((kind) =>
               episodes.some((episode) => this.episodeGroup(episode) === kind),
             )
@@ -796,7 +804,13 @@ export class StoryWorkspace extends LitElement {
         groups.push({
           key,
           label,
-          options: values.map((value) => ({ value, label: key === "kind" ? uiText(this.locale, value) : value })),
+          options: values.map((value) => ({
+            value,
+            label:
+              key === "kind"
+                ? uiText(this.locale, this.kindFacetLabel(this.mode, value))
+                : value,
+          })),
         });
     }
     const usedLevels = [
@@ -920,11 +934,13 @@ export class StoryWorkspace extends LitElement {
     // Sections whose single chapter is unnamed (friendship, home, tutorial)
     // have nothing to head: the page title already says where you are.
     if (!chapter || !title) return undefined;
+    const window = event ? this.eventWindow(event) : "";
+    const description = this.text(chapter.description) || this.text(chapter.caption) || "";
     return {
       title,
       titleLanguage: resolveLocalizedText(event ? event.name : chapter.chapterName, this.locale).locale,
       supportingLanguage: resolveLocalizedText(chapter.description || chapter.caption, this.locale).locale,
-      supporting: this.text(chapter.description) || this.text(chapter.caption) || "",
+      supporting: [window, description].filter(Boolean).join(" · "),
       image: String(chapter.icon || ""),
     };
   }
@@ -984,10 +1000,14 @@ export class StoryWorkspace extends LitElement {
         return chapter || direction * (Number(a.episodeNumber || 0) - Number(b.episodeNumber || 0));
       }
       if (this.origin === "release" && this.mode === "event") {
-        // Within one event the episodes read in authored order.
+        // Main episodes read in authored order; Extra stories and Another
+        // stories follow as their own runs, mirroring the band section.
+        const order = ["bandStory", "extraStory", "perspectiveStory"];
+        const group = order.indexOf(this.episodeGroup(a)) - order.indexOf(this.episodeGroup(b));
         return (
           direction *
-          (Number(a.episodeNumber || 0) - Number(b.episodeNumber || 0) ||
+          (group ||
+            Number(a.episodeNumber || 0) - Number(b.episodeNumber || 0) ||
             this.episodeId(a).localeCompare(this.episodeId(b), "en", { numeric: true }))
         );
       }
@@ -1233,6 +1253,7 @@ export class StoryWorkspace extends LitElement {
           value: this.railValue(),
           items: this.railItems(),
           onSelect: (value) => this.selectRail(value),
+          single: this.origin === "release" && this.mode === "event",
         },
         heading: this.heading(),
         modes: viewSwitch(this.locale, this.view, (view) => {

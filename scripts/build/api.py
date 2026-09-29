@@ -5217,14 +5217,24 @@ def _stories(data: BuildData, live2d: dict[str, dict[str, Any]]) -> dict[str, An
         chapter_id = int(row.get("_storyChapterId") or 0)
         if not chapter_id or str(chapter_id) not in chapters:
             continue
+        chapter = chapters[str(chapter_id)]
         event = {
             "eventId": int(row.get("_id") or 0),
             "chapterId": chapter_id,
             "name": data.text(row.get("_nameTextId") or row.get("_nameTextID")),
             "startAt": _timestamp(row.get("_startAt")),
             "endAt": _timestamp(row.get("_endAt")),
+            "displayEndAt": _timestamp(row.get("_displayEndAt")),
+            "eventType": int(row.get("_eventType") or 0),
+            "musicId": int(row.get("_musicId") or 0),
+            "bandId": int(chapter.get("bandId") or 0),
+            "mainCharacterIds": list(chapter.get("mainCharacterIds") or []),
+            "description": chapter.get("description") or ["", "", "", "", ""],
+            "banner": chapter.get("banner"),
+            "image": chapter.get("image"),
+            "icon": chapter.get("icon"),
         }
-        chapters[str(chapter_id)]["eventId"] = event["eventId"]
+        chapter["eventId"] = event["eventId"]
         story_events.append(event)
     story_events.sort(key=lambda item: int((item["startAt"] or [0])[0] or 0))
     return {

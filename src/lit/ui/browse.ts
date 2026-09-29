@@ -49,6 +49,10 @@ export interface BrowseRail {
   value: string;
   items: ReadonlyArray<BrowseRailItem>;
   onSelect: (value: string) => void;
+  /** Draw the rail even when it holds a single destination: sections whose
+   *  rail is the identity of the collection (event stories) want the one
+   *  tile on screen, not a silently dropped pane. */
+  single?: boolean;
 }
 
 /**
@@ -184,8 +188,9 @@ export function renderBrowse(options: BrowseOptions): TemplateResult {
   const open = Boolean(filters?.open);
   // The bar lives in the shell's app bar, not in the pane.
   setAppBarActions(BROWSE_OWNER, browseBar(options));
-  // A rail of one is not a choice, so it is not drawn.
-  const railed = Boolean(rail && rail.items.length > 1);
+  // A rail of one is not a choice, so it is not drawn — unless the section
+  // keeps its single destination visible on purpose.
+  const railed = Boolean(rail && (rail.single || rail.items.length > 1));
   const classes = ["browse", options.kind ? `browse--${options.kind}` : "", railed ? "browse--railed" : ""]
     .filter(Boolean)
     .join(" ");
