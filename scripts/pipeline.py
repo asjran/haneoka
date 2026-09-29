@@ -35,7 +35,12 @@ from extract.unity_reuse import (
 from extract.cri import extract_cri
 from extract.unity import extract_shard
 from ingest.apks import ingest_package, probe_source_identity
-from ingest.version_api import cdn_authorization, discover_asset_version, resolve_version_endpoint
+from ingest.version_api import (
+    cdn_authorization,
+    discover_asset_version,
+    proxy_from_env,
+    resolve_version_endpoint,
+)
 from ingest.reuse import build_reuse_index
 from ingest.unity import index_unity_dependencies
 from publish.r2 import (
@@ -278,6 +283,7 @@ def command_cdn_credential(args: argparse.Namespace) -> None:
                 resolve_version_endpoint(config.version_endpoint),
                 config.platform,
                 skip_resolution_check=config.skip_public_resolution_check,
+                proxy=proxy_from_env(config.version_proxy_env),
             )
         except Exception as error:  # noqa: BLE001 - reported, then fall back
             sys.stderr.write(f"warning: server version discovery failed: {error}\n")
