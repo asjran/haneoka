@@ -2153,5 +2153,33 @@
   "metaEffCurrent": "现实档效率",
   "metaTier": "参考档位",
   "metaTierTheorySub": "理想卡组",
-  "metaTierCurrentSub": "现有卡池"
+  "metaTierCurrentSub": "现有卡池",
+  "searchPage": {
+    "placeholder": "搜索资料、剧情与社区",
+    "hint": "查找乐曲、角色、剧情对白、帮助指南和社区帖子。"
+  },
+  "system": {
+    "eventRewards": "活动奖励",
+    "achievementRewards": "累计点数奖励",
+    "boxGachaRewards": "奖箱奖励",
+    "rankingRewards": "排名奖励",
+    "liveEventRewards": "现场奖励",
+    "challengeRewards": "挑战奖励",
+    "loopRewards": "循环奖励",
+    "rewardUnavailable": "奖励数据未提供",
+    "eventWindow": "活动时间",
+    "displayEnd": "展示结束",
+    "eventRankings": "评分与活动道具",
+    "liveRanking": "普通现场",
+    "challengeRanking": "挑战现场",
+    "loopStart": "起始点数",
+    "eventDetailsUnavailable": "暂无关联内容",
+    "eventEffects": "活动加成",
+    "eventEffect": "加成",
+    "eventLinks": "活动内容",
+    "eventItem": "活动道具",
+    "eventSong": "活动乐曲",
+    "storyEpisode": "剧情章节",
+    "goal": "目标"
+  }
 }

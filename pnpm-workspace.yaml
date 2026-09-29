@@ -48,13 +48,17 @@ catalog:
   "@fontsource/material-symbols-rounded": ^5.3.4
   photoswipe: ^5.4.4
   fflate: ^0.8.3
-  '@tiptap/core': 3.31.3
-  '@tiptap/starter-kit': 3.31.3
-  '@tiptap/pm': 3.31.3
-  '@bbob/parser': 4.4.1
-  '@tiptap/extension-text-align': 3.31.3
-  '@tiptap/extension-highlight': 3.31.3
-  '@cloudflare/containers': 0.3.7
+  "@tiptap/core": 3.31.3
+  "@tiptap/starter-kit": 3.31.3
+  "@tiptap/pm": 3.31.3
+  "@bbob/parser": 4.4.1
+  "@tiptap/extension-text-align": 3.31.3
+  "@tiptap/extension-highlight": 3.31.3
+  "@cloudflare/containers": 0.3.7
+  "@lit-labs/ssr": ^4.1.0
+  parse5: ^8.0.1
+  pagefind: ^1.5.2
+  '@lit-labs/ssr-client': ^1.1.8
 catalogMode: prefer
 cleanupUnusedCatalogs: true
 allowBuilds:

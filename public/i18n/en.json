@@ -2153,5 +2153,33 @@
   "metaEffCurrent": "Current-deck efficiency",
   "metaTier": "Reference tier",
   "metaTierTheorySub": "Ideal deck",
-  "metaTierCurrentSub": "Card pool"
+  "metaTierCurrentSub": "Card pool",
+  "searchPage": {
+    "placeholder": "Search the archive and community",
+    "hint": "Find songs, characters, story dialogue, guides and community posts."
+  },
+  "system": {
+    "eventRewards": "Event rewards",
+    "achievementRewards": "Point milestones",
+    "boxGachaRewards": "Box rewards",
+    "rankingRewards": "Ranking rewards",
+    "liveEventRewards": "Live rewards",
+    "challengeRewards": "Challenge rewards",
+    "loopRewards": "Repeat rewards",
+    "rewardUnavailable": "Reward unavailable",
+    "eventWindow": "Event window",
+    "displayEnd": "Display ends",
+    "eventRankings": "Score ranks and event items",
+    "liveRanking": "Regular Live",
+    "challengeRanking": "Challenge Live",
+    "loopStart": "Starting points",
+    "eventDetailsUnavailable": "No linked content",
+    "eventEffects": "Event bonuses",
+    "eventEffect": "Bonus",
+    "eventLinks": "Event content",
+    "eventItem": "Event item",
+    "eventSong": "Event song",
+    "storyEpisode": "Story episode",
+    "goal": "Goal"
+  }
 }

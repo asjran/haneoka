@@ -1,4 +1,3 @@
-import { catalogProjectionTables, projectCatalogDocument } from "../src/lib/catalog-projection.ts";
 import fs from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import https from "node:https";
@@ -703,16 +702,6 @@ function serveCatalogStorageApi(
       } else {
         writeJson(200, catalogBatchValue(workspace, resource.entities, ids));
       }
-    } else if (catalogProjectionTables(resourceName).length) {
-      const file = catalogStorageFile(workspace, resource.index);
-      const tables = Object.fromEntries(
-        catalogProjectionTables(resourceName).map((name) => {
-          const source = path.join(workspace.masterRoot, `${name}.json`);
-          return [name, fs.existsSync(source) ? JSON.parse(fs.readFileSync(source, "utf8")) : null];
-        }),
-      );
-      if (file) writeJson(200, projectCatalogDocument(resourceName, JSON.parse(fs.readFileSync(file, "utf8")), tables));
-      else writeJson(502, { error: { code: "catalog_missing", message: "Catalog index is missing" } });
     } else if (!sendCatalogStorageFile(req, res, workspace, resource.index)) {
       writeJson(502, { error: { code: "catalog_missing", message: "Catalog index is missing" } });
     }

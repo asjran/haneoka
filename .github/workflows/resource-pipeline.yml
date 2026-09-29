@@ -122,12 +122,9 @@ jobs:
 
   rebuild-static-catalog:
     name: Rebuild static catalog pages
-    needs: pipeline_intl
-    # The searchable routes use the intl catalog as their build-time data source.
-    # Read only the dedicated Intl reusable-workflow result: matrix reusable
-    # outputs are completion-order dependent and could otherwise be replaced
-    # by the JP result or lose the Intl result on a no-op.
-    if: ${{ always() && needs.pipeline_intl.result == 'success' && needs.pipeline_intl.outputs.release_promoted == 'true' }}
+    needs: [pipeline_intl, pipeline_jp]
+    # Rebuild once after either production server promotes an immutable release.
+    if: ${{ always() && ((needs.pipeline_intl.result == 'success' && needs.pipeline_intl.outputs.release_promoted == 'true') || (needs.pipeline_jp.result == 'success' && needs.pipeline_jp.outputs.release_promoted == 'true')) }}
     runs-on: ubuntu-latest
     permissions:
       actions: write

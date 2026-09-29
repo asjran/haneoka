@@ -1,0 +1,28 @@
+---
+import Base from "../../layouts/Base.astro";
+import AppShell from "../../components/AppShell.astro";
+import Icon from "../../components/Icon.astro";
+import { LOCALES, type Locale } from "../../i18n/locales";
+import { t } from "../../i18n/messages";
+import "../../styles/search.css";
+export const getStaticPaths = () => LOCALES.map(locale => ({params:{locale},props:{locale}}));
+const { locale } = Astro.props as {locale:Locale};
+const title = t(locale,"search","Search");
+---
+<Base locale={locale} route="/search" title={title} titleKey="search" noindex>
+  <AppShell locale={locale} route="/search" title={title} titleKey="search">
+    <form slot="search" class="global-search-bar" role="search" data-global-search-form>
+      <md-filled-text-field type="search" name="q" label={t(locale,"searchPage.placeholder","Search everything")} data-global-search-input>
+        <Icon slot="leading-icon" name="search" />
+      </md-filled-text-field>
+      <button class="icon-button" type="submit" aria-label={title}><Icon name="arrow_forward" /></button>
+    </form>
+    <global-search locale={locale} class="page search-page">
+      <p class="search-page__intro">{t(locale,"searchPage.hint","Search songs, characters, story dialogue, guides and community posts.")}</p>
+    </global-search>
+  </AppShell>
+</Base>
+<script>
+  import "@material/web/textfield/filled-text-field.js";
+  import "../../lit/global-search";
+</script>

@@ -77,6 +77,17 @@ export class ImageGallery extends LitElement {
   createRenderRoot() {
     return this;
   }
+  protected override shouldUpdate(changed: PropertyValues): boolean {
+    if (this.hasAttribute("data-prerendered") && !this.images.length) return false;
+    return super.shouldUpdate(changed);
+  }
+  protected override update(changed: PropertyValues): void {
+    if (this.hasAttribute("data-prerendered")) {
+      this.removeAttribute("data-prerendered");
+      this.replaceChildren();
+    }
+    super.update(changed);
+  }
   disconnectedCallback() {
     this.generation++;
     this.viewer?.destroy();

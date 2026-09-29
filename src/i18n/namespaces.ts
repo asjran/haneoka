@@ -108,6 +108,7 @@ const COMMON_FLAT_KEYS = [
 ] as const;
 
 const CATALOG_ROOT_KEYS = [
+  "searchPage",
   "catalog",
   "catalogCompat",
   "itemsPage",

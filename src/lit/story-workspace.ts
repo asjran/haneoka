@@ -1,3 +1,4 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { navigationDocumentUrl } from "../lib/document-url";
 import { localizedContent, localizedList } from "./ui/localized-content";
 import { resolveLocalizedText } from "../lib/localized-text";
@@ -47,6 +48,8 @@ import { entityHref, parseEntitySelection, returnStateFromLocation } from "../li
 import { readReleaseServer } from "../lib/release-server";
 import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
 import type { Locale } from "@haneoka/i18n";
+import { readPageData } from "../lib/page-data";
+import type { StoryPayload } from "../lib/entity-graph";
 
 /** Sections of the archive's own story catalogue. */
 type ReleaseMode = "event" | "band" | "link" | "home" | "afterlive" | "tutorial";
@@ -94,7 +97,6 @@ export class StoryWorkspace extends LitElement {
   static properties = {
     locale: { type: String },
     entityId: { type: String, attribute: "entity-id" },
-    payload: { type: String },
     mode: { type: String },
     origin: { type: String },
     phase: { state: true },
@@ -120,8 +122,6 @@ export class StoryWorkspace extends LitElement {
   };
   declare locale: string;
   declare entityId: string;
-  /** Build-time story payload URL (lib/entity-graph.ts) for canonical story pages. */
-  declare payload: string;
   declare mode: StoryMode;
   declare origin: Origin;
   declare phase: "loading" | "ready" | "error";
@@ -148,6 +148,7 @@ export class StoryWorkspace extends LitElement {
   private detailRequests = new RequestScope();
   private catalogRequests = new RequestScope();
   private readonly appBarOwner = `story-workspace-${++storyWorkspaceOwnerId}`;
+  private pageServer = "";
   private appBarRegistered = false;
   private homeStage?: HomeSpotStage;
   private homeStageSpot = "";
@@ -204,7 +205,6 @@ export class StoryWorkspace extends LitElement {
     super();
     this.locale = "ja";
     this.entityId = "";
-    this.payload = "";
     this.mode = "band";
     this.origin = "release";
     this.phase = "loading";
@@ -231,6 +231,35 @@ export class StoryWorkspace extends LitElement {
   createRenderRoot() {
     return this;
   }
+  protected shouldUpdate(): boolean {
+    return !this.hasAttribute("data-prerendered") || Boolean(this.detailEpisode) || this.phase === "error";
+  }
+  protected update(changed: Map<string, unknown>): void {
+    if (this.hasAttribute("data-prerendered")) {
+      this.removeAttribute("data-prerendered");
+      this.replaceChildren();
+    }
+    super.update(changed);
+  }
+  public prepareEntity(payload: StoryPayload, locale: string): void {
+    this.locale = locale;
+    this.entityId = payload.id;
+    this.mode = payload.mode as ReleaseMode;
+    this.pageServer = payload.server;
+    this.chapters = recordValues(payload.chapters);
+    this.episodes = payload.episodes;
+    this.storyEvents = payload.storyEvents;
+    this.spots = payload.homeSpots;
+    this.characters = payload.characters;
+    this.bands = payload.bands;
+    this.detailEpisode = this.episodes[payload.id] || null;
+    this.detailLoading = false;
+    this.detailError = "";
+    this.phase = "ready";
+  }
+  private dataServer(): string {
+    return this.pageServer || currentReleaseServer();
+  }
   private onLocale = () => {
     const locale = preferredLocale(this.locale);
     if (locale === this.locale) return;
@@ -244,11 +273,7 @@ export class StoryWorkspace extends LitElement {
     if (this.origin === "release" && selection?.source === "canonical" && selection.route.kind === "stories")
       this.entityId = selection.route.id;
     const mode = documentUrl.searchParams.get("mode");
-    if (
-      this.origin === "release" &&
-      mode &&
-      ["event", "band", "link", "home", "afterlive", "tutorial"].includes(mode)
-    )
+    if (this.origin === "release" && mode && ["event", "band", "link", "home", "afterlive", "tutorial"].includes(mode))
       this.mode = mode as ReleaseMode;
     addEventListener("haneoka:locale-ready", this.onLocale);
     this.releaseLocation = observeDetailLocation(this.restoreLocation, this);
@@ -357,6 +382,15 @@ export class StoryWorkspace extends LitElement {
   private async load() {
     const signal = this.catalogRequests.begin();
     const active = () => this.isConnected && this.catalogRequests.current(signal);
+    const page = readPageData<StoryPayload>(this);
+    if (page?.schema === "haneoka-story-payload-v1" && page.id === this.entityId) {
+      this.prepareEntity(page, this.locale);
+      await this.updateComplete;
+      if (!active()) return;
+      this.dataset.entityReady = "true";
+      if (new URLSearchParams(location.search).get("playback") === "play") await this.openVegaPlayer();
+      return;
+    }
     this.phase = "loading";
     this.error = "";
     // A canonical story can open independently of its collection indexes.
@@ -382,7 +416,6 @@ export class StoryWorkspace extends LitElement {
   private async loadRelease(signal: AbortSignal) {
     // A canonical story page needs only its own chapter, spot and cast, which
     // the build prepared; the full story index is for the collection.
-    if (this.entityId && this.payload && (await this.loadPayload(this.payload, signal))) return;
     if (!this.isConnected || !this.catalogRequests.current(signal)) return;
     const [stories, characters, bands] = await Promise.all([
       fetchJson<JsonRecord>(catalogUrl("stories"), { signal }),
@@ -396,22 +429,6 @@ export class StoryWorkspace extends LitElement {
     this.spots = recordValues(stories.homeSpots);
     this.characters = recordValues(characters);
     this.bands = recordValues(bands);
-  }
-  private async loadPayload(href: string, signal: AbortSignal): Promise<boolean> {
-    try {
-      const payload = await fetchJson<JsonRecord>(href, { signal });
-      if (payload.schema !== "haneoka-story-payload-v1" || String(payload.id) !== this.entityId) return false;
-      if (!this.isConnected || !this.catalogRequests.current(signal)) return false;
-      this.chapters = recordValues(payload.chapters);
-      this.episodes = (payload.episodes as Record<string, JsonRecord>) || {};
-      this.storyEvents = Array.isArray(payload.storyEvents) ? payload.storyEvents : [];
-      this.spots = recordValues(payload.homeSpots);
-      this.characters = recordValues(payload.characters);
-      this.bands = recordValues(payload.bands);
-      return true;
-    } catch {
-      return false;
-    }
   }
   /**
    * The Bestdori worker serves a bare record of episodes, each carrying its
@@ -515,11 +532,7 @@ export class StoryWorkspace extends LitElement {
       // itself (banner, episodes, description) renders exactly like a band's.
       return this.chapters
         .filter((c) => eventIds.has(String(c.chapterId)))
-        .sort(
-          (a, b) =>
-            this.eventStartAt(b) - this.eventStartAt(a) ||
-            Number(b.chapterId) - Number(a.chapterId),
-        );
+        .sort((a, b) => this.eventStartAt(b) - this.eventStartAt(a) || Number(b.chapterId) - Number(a.chapterId));
     }
     if (this.mode === "band")
       return this.chapters
@@ -816,10 +829,7 @@ export class StoryWorkspace extends LitElement {
           label,
           options: values.map((value) => ({
             value,
-            label:
-              key === "kind"
-                ? uiText(this.locale, this.kindFacetLabel(this.mode, value))
-                : value,
+            label: key === "kind" ? uiText(this.locale, this.kindFacetLabel(this.mode, value)) : value,
           })),
         });
     }
@@ -1916,7 +1926,7 @@ export class StoryWorkspace extends LitElement {
                         <vega-story-stage
                           .story=${episode}
                           .providerBase=${this.isBestdori() ? this.bestdoriBase() : ""}
-                          server=${currentReleaseServer()}
+                          server=${this.dataServer()}
                           .locale=${this.locale}
                           @open-text=${() => (this.detailMode = "text")}
                           @haneoka-story-finished=${(event: CustomEvent<{ storyId: string }>) => void this.continueStory(event)}
@@ -2052,7 +2062,7 @@ export class StoryWorkspace extends LitElement {
     const targets = Array.isArray(command.targets) ? (command.targets as JsonRecord[]) : [];
     const images =
       iconAsset && ["message", "stamp"].includes(entry.kind)
-        ? [storySourceUrl(`Assets/AddressableResources/Adv/Chat/Icon/${iconAsset}.png`, currentReleaseServer())]
+        ? [storySourceUrl(`Assets/AddressableResources/Adv/Chat/Icon/${iconAsset}.png`, this.dataServer())]
         : targets
             .map((target) => String(target.faceImage || this.character(Number(target.characterId))?.faceImage || ""))
             .filter(Boolean);

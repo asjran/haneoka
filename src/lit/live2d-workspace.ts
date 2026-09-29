@@ -1,3 +1,4 @@
+import { readPageData } from "../lib/page-data";
 import { navigationDocumentUrl } from "../lib/document-url";
 import { canvasToPngBlob, downloadBlob } from "../lib/canvas-capture";
 import { facet } from "./ui/facet";
@@ -391,6 +392,13 @@ export class Live2DWorkspace extends LitElement {
     return catalogUrl("live2d", path);
   }
   private async loadCatalog() {
+    const page = readPageData<{ schema: string; id: string; model: Value }>(this);
+    if (page?.schema === "haneoka-model-page-v1" && page.id === this.entityId) {
+      this.models = [page.model];
+      this.phase = "ready";
+      if (this.modelPhase !== "ready") void this.select(page.id, false, page.model);
+      return;
+    }
     this.catalogAbortController?.abort();
     const controller = new AbortController();
     this.catalogAbortController = controller;
@@ -421,7 +429,7 @@ export class Live2DWorkspace extends LitElement {
       // visible through the same non-empty model error channel.
     }
   }
-  private async select(key: string, updateUrl = true) {
+  private async select(key: string, updateUrl = true, prepared?: Value) {
     if (updateUrl && key !== this.entityId) {
       openDetailLocation(
         entityHref({
@@ -464,7 +472,7 @@ export class Live2DWorkspace extends LitElement {
       history.replaceState(history.state, "", `${location.pathname}?${params}`);
     }
     try {
-      const detail = await fetchJson<Value>(this.url(key), { signal: controller.signal });
+      const detail = prepared || (await fetchJson<Value>(this.url(key), { signal: controller.signal }));
       if (!this.isActiveSelection(generation, controller, key)) return;
       this.detail = detail;
       await this.loadViewer(detail, generation, controller, key);

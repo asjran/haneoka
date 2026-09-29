@@ -2153,5 +2153,33 @@
   "metaEffCurrent": "現實檔效率",
   "metaTier": "參考檔位",
   "metaTierTheorySub": "理想卡組",
-  "metaTierCurrentSub": "現有卡池"
+  "metaTierCurrentSub": "現有卡池",
+  "searchPage": {
+    "placeholder": "搜尋資料、劇情與社群",
+    "hint": "查找樂曲、角色、劇情對白、說明指南與社群貼文。"
+  },
+  "system": {
+    "eventRewards": "活動獎勵",
+    "achievementRewards": "累計點數獎勵",
+    "boxGachaRewards": "獎箱獎勵",
+    "rankingRewards": "排名獎勵",
+    "liveEventRewards": "LIVE獎勵",
+    "challengeRewards": "挑戰獎勵",
+    "loopRewards": "循環獎勵",
+    "rewardUnavailable": "獎勵資料未提供",
+    "eventWindow": "活動時間",
+    "displayEnd": "展示結束",
+    "eventRankings": "評分與活動道具",
+    "liveRanking": "普通LIVE",
+    "challengeRanking": "挑戰LIVE",
+    "loopStart": "起始點數",
+    "eventDetailsUnavailable": "暫無關聯內容",
+    "eventEffects": "活動加成",
+    "eventEffect": "加成",
+    "eventLinks": "活動內容",
+    "eventItem": "活動道具",
+    "eventSong": "活動樂曲",
+    "storyEpisode": "劇情章節",
+    "goal": "目標"
+  }
 }

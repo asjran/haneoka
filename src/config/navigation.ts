@@ -72,6 +72,7 @@ export const PRIMARY_DESTINATIONS: PrimaryDestination[] = [
     match: ["/community"],
     exclude: ["/community/stories-bestdori", "/community/songs-bestdori", "/community/playlists"],
   },
+  { id: "search", route: "/search", icon: "search", label: "search", match: ["/search"] },
 ];
 
 const sections: NavSection[] = [

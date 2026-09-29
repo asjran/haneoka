@@ -28,7 +28,8 @@
     list-style: none;
     padding: 0;
     margin: 12px 0 0;
-    display: grid;
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
   .upgrade-cost li {
@@ -36,6 +37,10 @@
     align-items: center;
     gap: 10px;
     min-height: 40px;
+    max-width: 100%;
+    padding: 4px 8px;
+    border-radius: 12px;
+    background: var(--md-sys-color-surface-container);
     font: 400 14px/20px var(--app-font);
   }
   .upgrade-cost img {
@@ -45,7 +50,7 @@
     flex: 0 0 32px;
   }
   .upgrade-cost li > span {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
     overflow-wrap: anywhere;
   }

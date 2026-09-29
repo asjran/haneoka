@@ -27,6 +27,13 @@ import { tile } from "./ui/tile";
 type Item = Record<string, unknown>;
 type Controller = Record<string, any>;
 
+const EVENT_SCORE_RANK_NAMES = ["", "E", "D", "C", "B", "A", "S", "SS"];
+
+function canonicalHref(c: Controller, href: string): string {
+  if (!href) return "";
+  return typeof c.resourceHref === "function" ? String(c.resourceHref(href) || href) : href;
+}
+
 export interface GachaSimState {
   draws: number;
   spent: number;
@@ -55,7 +62,7 @@ function rewardRow(c: Controller, reward: Item, trailing: unknown = nothing, bad
   if (!name) return nothing;
   const secondary = c.localized(reward.secondary);
   const image = String(reward.image || "");
-  const href = String(reward.href || "");
+  const href = canonicalHref(c, String(reward.href || ""));
   const count = Number(reward.count || 0);
   const badgeKey = reward.pickup ? "pickup" : reward.bonus ? "bonus" : "";
   const badge =
@@ -142,7 +149,13 @@ export function fold(title: unknown, content: unknown, meta: unknown = nothing) 
     <details class="detail-fold">
       <summary>
         <span class="detail-fold__title">${title}</span>
-        ${meta ? html`<span class="detail-fold__meta">${meta}</span>` : nothing}
+        ${
+          meta
+            ? html`
+                <span class="detail-fold__meta">${meta}</span>
+              `
+            : nothing
+        }
         <svg class="material-icon detail-fold__chevron" width="20" height="20" aria-hidden="true">
           <use href="/icons.svg#expand_more"></use>
         </svg>
@@ -162,9 +175,10 @@ function costLine(amount: string, image: unknown) {
         `
       : nothing;
   return html`
-    <span class="detail-cost"
-      >${emblem}<span>${amount}</span></span
-    >
+    <span class="detail-cost">
+      ${emblem}
+      <span>${amount}</span>
+    </span>
   `;
 }
 
@@ -413,7 +427,9 @@ function renderSimulator(c: Controller, item: Item) {
                 </div>
                 <div>
                   <dt>${c.label("spent", "Spent")}</dt>
-                  <dd>${costLine(`${sim.spent.toLocaleString(c.settings.locale)} ${sim.currency}`, sim.currencyImage)}</dd>
+                  <dd>
+                    ${costLine(`${sim.spent.toLocaleString(c.settings.locale)} ${sim.currency}`, sim.currencyImage)}
+                  </dd>
                 </div>
                 ${
                   sim.points
@@ -550,8 +566,7 @@ function renderShopFacts(c: Controller, item: Item) {
       rows.push({
         label: moneyName(code, c.settings.locale),
         value: html`
-          ${price}
-          ${converted}
+          ${price} ${converted}
         `,
       });
     }
@@ -684,11 +699,394 @@ function renderEventBands(c: Controller, bands: Item[]) {
   `;
 }
 
+function eventRewardValue(row: Item): Item {
+  const nested = row.reward && typeof row.reward === "object" ? (row.reward as Item) : row;
+  return nested && typeof nested === "object" ? nested : {};
+}
+
+function eventRewardCondition(c: Controller, row: Item): string {
+  const raw = row.raw && typeof row.raw === "object" ? (row.raw as Item) : {};
+  const values: string[] = [];
+  const point = raw._eventPoint ?? raw._loopEventPoint ?? raw._point ?? raw._requiredPoint;
+  const loopStart = raw._loopStartEventPoint;
+  const scoreRank = raw._scoreRank;
+  const rank = raw._rank ?? raw._ranking ?? scoreRank;
+  const goal = raw._achievementCount ?? raw._goal;
+  const limit = raw._limitCount ?? raw._limit;
+  if (point !== undefined && Number(point) > 0)
+    values.push(`${Number(point).toLocaleString(c.settings.locale)} ${c.label("points", "pt")}`);
+  if (loopStart !== undefined && Number(loopStart) > 0)
+    values.push(
+      `${c.label("loopStart", "Starts at")} ${Number(loopStart).toLocaleString(c.settings.locale)} ${c.label("points", "pt")}`,
+    );
+  if (rank !== undefined && Number(rank) > 0) {
+    const rankName = scoreRank !== undefined ? EVENT_SCORE_RANK_NAMES[Number(scoreRank)] || "—" : String(rank);
+    values.push(`${c.label("rank", "Rank")} ${rankName}`);
+  }
+  if (goal !== undefined && Number(goal) > 0)
+    values.push(`${c.label("goal", "Goal")} ${Number(goal).toLocaleString(c.settings.locale)}`);
+  if (limit !== undefined && Number(limit) > 0)
+    values.push(`${c.label("limit", "Limit")} ${Number(limit).toLocaleString(c.settings.locale)}`);
+  return values.join(" · ");
+}
+
+/** Event rewards keep condition/cost context in the same compact MD3 row. */
+function eventRewardRow(c: Controller, row: Item) {
+  const reward = eventRewardValue(row);
+  const name = c.localized(reward.name) || c.label("rewardUnavailable", "Reward unavailable");
+  const secondary = c.localized(reward.secondary);
+  const image = String(reward.image || "");
+  const href = String(reward.href || "");
+  const count = Number(reward.count || row.resourceCount || 0);
+  const condition = eventRewardCondition(c, row);
+  const body = html`
+    ${
+      image
+        ? html`
+            <img src=${image} alt="" loading="lazy" decoding="async" />
+          `
+        : icon("redeem", 32)
+    }
+    <span>
+      ${
+        condition
+          ? html`
+              <small class="detail-copy">${condition}</small>
+            `
+          : nothing
+      }
+      ${name}
+      ${
+        secondary
+          ? html`
+              <small class="detail-copy">${secondary}</small>
+            `
+          : nothing
+      }
+    </span>
+    ${
+      count > 1
+        ? html`
+            <strong>×${count.toLocaleString(c.settings.locale)}</strong>
+          `
+        : nothing
+    }
+  `;
+  const content = href
+    ? html`
+        <a class="detail-object" href=${href}>${body}</a>
+      `
+    : html`
+        <div class="detail-object">${body}</div>
+      `;
+  return html`
+    <li>${content}</li>
+  `;
+}
+
+function renderEventRewards(c: Controller, item: Item) {
+  const rewards = (Array.isArray(item.rewards) ? item.rewards : []).filter(
+    (row) =>
+      !["MasterLiveEventReward", "MasterChallengeLiveEventReward"].includes(String((row as Item).sourceTable || "")),
+  ) as Item[];
+  if (!rewards.length) return nothing;
+  const labels: Record<string, string> = {
+    MasterChallengeLiveEventReward: c.label("challengeRewards", "Challenge rewards"),
+    MasterEventAchievementReward: c.label("achievementRewards", "Achievement rewards"),
+    MasterEventBoxGachaReward: c.label("boxGachaRewards", "Box rewards"),
+    MasterEventRankingReward: c.label("rankingRewards", "Ranking rewards"),
+    MasterLiveEventReward: c.label("liveEventRewards", "Live rewards"),
+    MasterEventAchievementLoopReward: c.label("loopRewards", "Loop rewards"),
+  };
+  const groups = new Map<string, Item[]>();
+  for (const row of rewards) {
+    const key = String(row.sourceTable || "event");
+    const group = groups.get(key) || [];
+    group.push(row);
+    groups.set(key, group);
+  }
+  return html`
+    <section class="detail-section">
+      ${renderDetailSectionHeading(c.label("eventRewards", "Event rewards"), "rewards", { count: rewards.length })}
+      <div class="detail-fold-stack">
+        ${[...groups.entries()].map(([key, rows]) =>
+          fold(
+            labels[key] || c.label("rewards", "Rewards"),
+            html`
+              <ul class="detail-object-list" role="list">
+                ${rows.map((row) => eventRewardRow(c, row))}
+              </ul>
+            `,
+            rows.length.toLocaleString(c.settings.locale),
+          ),
+        )}
+      </div>
+    </section>
+  `;
+}
+
+function renderEventPickups(c: Controller, item: Item) {
+  const pickups = (Array.isArray(item.pickupCards) ? item.pickupCards : []) as Item[];
+  if (!pickups.length) return nothing;
+  return html`
+    <section class="detail-section">
+      ${renderDetailSectionHeading(c.label("featured", "Featured"), "cards", { count: pickups.length })}
+      <ul class="related-grid related-grid--wide" role="list">
+        ${pickups.map((row) => {
+          const card = eventRewardValue(row.card as Item);
+          const title = c.localized(card.name) || c.label("rewardUnavailable", "Reward unavailable");
+          return tile({
+            kind: "member",
+            title,
+            titleLanguage: c.localizedLanguage(card.name),
+            subtitle: c.localized(card.secondary),
+            label: title,
+            image: String(card.image || ""),
+            href: c.resourceHref(String(card.href || "")) || undefined,
+            fit: "contain",
+          });
+        })}
+      </ul>
+    </section>
+  `;
+}
+
+function renderEventLinks(c: Controller, item: Item) {
+  const links: Array<{ label: string; value: Item }> = [];
+  if (item.song && typeof item.song === "object")
+    links.push({ label: c.label("eventSong", "Event song"), value: item.song as Item });
+  if (item.eventItem && typeof item.eventItem === "object")
+    links.push({ label: c.label("eventItem", "Event item"), value: item.eventItem as Item });
+  if (!links.length) return nothing;
+  return html`
+    <section class="detail-section">
+      ${renderDetailSectionHeading(c.label("eventLinks", "Event links"), "content", { count: links.length })}
+      <ul class="detail-object-list" role="list">
+        ${links.map(
+          ({ label, value }) => html`
+            <li>${rewardRow(c, value, nothing, label)}</li>
+          `,
+        )}
+      </ul>
+    </section>
+  `;
+}
+
+function renderEventStory(c: Controller, item: Item) {
+  const story = item.story && typeof item.story === "object" ? (item.story as Item) : null;
+  if (!story) return nothing;
+  const episodes = (Array.isArray(story.episodes) ? story.episodes : []) as Item[];
+  const episodeGroups = [
+    {
+      key: "main",
+      label: c.label("eventMainStory", "Main"),
+      episodes: episodes.filter((episode) => !episode.isExtraEpisode && !episode.isAnotherEpisode),
+    },
+    {
+      key: "extra",
+      label: c.label("eventExtraStory", "Extra"),
+      episodes: episodes.filter((episode) => Boolean(episode.isExtraEpisode)),
+    },
+    {
+      key: "another",
+      label: c.label("eventAnotherStory", "Another"),
+      episodes: episodes.filter((episode) => Boolean(episode.isAnotherEpisode)),
+    },
+  ].filter((group) => group.episodes.length);
+  return html`
+    <section class="detail-section">
+      ${renderDetailSectionHeading(c.label("story", "Story"), "stories", { count: episodes.length || undefined })}
+      ${
+        story.image || story.banner
+          ? html`
+              <img
+                class="detail-media__image"
+                src=${String(story.image || story.banner)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+              />
+            `
+          : nothing
+      }
+      ${
+        c.localized(story.chapterName)
+          ? html`
+              <h3 class="song-detail-subheading">${c.localized(story.chapterName)}</h3>
+            `
+          : nothing
+      }
+      ${
+        c.plainGameText(story.description)
+          ? html`
+              <p class="detail-copy">${c.plainGameText(story.description)}</p>
+            `
+          : nothing
+      }
+      ${episodeGroups.map(
+        (group) => html`
+          <h3 class="song-detail-subheading">${group.label}</h3>
+          <ul class="detail-object-list" role="list">
+            ${group.episodes.map((episode) => {
+              const href =
+                typeof c.relatedEntityHref === "function" && episode.storyId
+                  ? c.relatedEntityHref("stories", String(episode.storyId), { mode: "event" })
+                  : "";
+              const body = html`
+                <span>
+                  ${c.localized(episode.title) || c.label("storyEpisode", "Story episode")}
+                  <small class="detail-copy">${episode.episodeNumber ? `#${episode.episodeNumber}` : ""}</small>
+                </span>
+              `;
+              return html`
+                <li>
+                  ${
+                    href
+                      ? html`
+                          <a class="detail-object" href=${c.resourceHref(href)}>${body}</a>
+                        `
+                      : html`
+                          <div class="detail-object">${body}</div>
+                        `
+                  }
+                </li>
+              `;
+            })}
+          </ul>
+        `,
+      )}
+    </section>
+  `;
+}
+
+function renderEventDisplayWindow(c: Controller, item: Item) {
+  const displayEnd = item.displayEndAt;
+  const formatted = displayEnd ? c.release(displayEnd) : "";
+  if (!formatted) return nothing;
+  return html`
+    <section class="detail-section detail-section--facts">
+      ${renderDetailSectionHeading(c.label("eventWindow", "Event window"), "details")}
+      <dl class="spec-list spec-list--split">
+        <div>
+          <dt>${c.label("displayEnd", "Display through")}</dt>
+          <dd>${formatted}</dd>
+        </div>
+      </dl>
+    </section>
+  `;
+}
+
+function renderEventRankings(c: Controller, item: Item) {
+  const rankings = (Array.isArray(item.rankings) ? item.rankings : []) as Item[];
+  if (!rankings.length) return nothing;
+  const label = (kind: string) =>
+    kind === "challenge" ? c.label("challengeRanking", "Challenge") : c.label("liveRanking", "Live");
+  return html`
+    <section class="detail-section">
+      ${renderDetailSectionHeading(c.label("eventRankings", "Score rank mappings"), "works", {
+        count: rankings.length,
+      })}
+      <div class="detail-fold-stack">
+        ${rankings.map((ranking) => {
+          const rewards = (Array.isArray(ranking.rewards) ? ranking.rewards : []) as Item[];
+          const rankName = EVENT_SCORE_RANK_NAMES[Number(ranking.scoreRank || 0)] || "—";
+          return fold(
+            `${label(String(ranking.kind || ""))} · ${c.label("rank", "Rank")} ${rankName}`,
+            html`
+              <p class="detail-copy">
+                ${c.label("points", "Points")} · ${Number(ranking.pointValue || 0).toLocaleString(c.settings.locale)}
+              </p>
+              ${
+                rewards.length
+                  ? html`
+                      <ul class="detail-object-list" role="list">
+                        ${rewards.map((reward) => eventRewardRow(c, reward))}
+                      </ul>
+                    `
+                  : nothing
+              }
+            `,
+          );
+        })}
+      </div>
+    </section>
+  `;
+}
+
+function renderEventEffects(c: Controller, item: Item) {
+  const effects = (Array.isArray(item.effects) ? item.effects : []) as Item[];
+  if (!effects.length) return nothing;
+  return html`
+    <section class="detail-section">
+      ${renderDetailSectionHeading(c.label("eventEffects", "Event effects"), "effects", { count: effects.length })}
+      <div class="detail-fold-stack">
+        ${effects.map((effect) => {
+          const targets =
+            effect.targets && typeof effect.targets === "object" ? (Object.values(effect.targets) as Item[]) : [];
+          const title = targets
+            .map((target) => c.localized(target.name))
+            .filter(Boolean)
+            .join(" · ");
+          const perRank = (Array.isArray(effect.perRank) ? effect.perRank : []) as Item[];
+          return fold(
+            title || c.label("eventEffect", "Effect"),
+            html`
+              ${
+                targets.length
+                  ? html`
+                      <ul class="detail-object-list" role="list">
+                        ${targets.map(
+                          (target) => html`
+                            <li>${rewardRow(c, target)}</li>
+                          `,
+                        )}
+                      </ul>
+                    `
+                  : nothing
+              }
+              <ul class="detail-object-list" role="list">
+                ${perRank.map(
+                  (value) => html`
+                    <li>
+                      <div class="detail-object">
+                        <span>${c.label("rank", "Rank")} ${Number(value.rank || 0)}</span>
+                        <strong>${Number(value.percent || 0).toLocaleString(c.settings.locale)}%</strong>
+                      </div>
+                    </li>
+                  `,
+                )}
+              </ul>
+            `,
+          );
+        })}
+      </div>
+    </section>
+  `;
+}
+
 /** The per-resource body, placed after the generic facts section. */
 export function renderGameSystemDetail(c: Controller, item: Item) {
   const resource = String(c.settings.resource || "");
   const rewards = (Array.isArray(item.rewards) ? item.rewards : []) as Item[];
+  const pickups = (Array.isArray(item.pickupCards) ? item.pickupCards : []) as Item[];
+  const rankings = (Array.isArray(item.rankings) ? item.rankings : []) as Item[];
+  const effects = (Array.isArray(item.effects) ? item.effects : []) as Item[];
   switch (resource) {
+    case "events":
+      return html`
+        ${renderEventDisplayWindow(c, item)} ${renderEventLinks(c, item)} ${renderEventStory(c, item)}
+        ${renderEventPickups(c, item)} ${renderEventRewards(c, item)} ${renderEventRankings(c, item)}
+        ${renderEventEffects(c, item)}
+        ${
+          !item.story && !pickups.length && !rewards.length && !rankings.length && !effects.length
+            ? html`
+                <p class="detail-copy">
+                  ${c.label("eventDetailsUnavailable", "No linked event details are available in this release.")}
+                </p>
+              `
+            : nothing
+        }
+      `;
     case "gacha":
       return html`
         ${featuredGrid(c, (Array.isArray(item.featured) ? item.featured : []) as Item[])} ${renderDrawOptions(c, item)}
@@ -723,7 +1121,7 @@ export function renderGameSystemDetail(c: Controller, item: Item) {
       return item.songHref
         ? html`
             <section class="detail-section">
-              <a class="button button--tonal" href=${String(item.songHref)}>
+              <a class="button button--tonal" href=${c.resourceHref(String(item.songHref))}>
                 ${icon("library_music", 18)}${c.label("viewSong", "View song")}
               </a>
             </section>

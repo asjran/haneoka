@@ -13,13 +13,6 @@ import type { ReleaseServer } from "./release-server";
 
 export type StoryMode = "event" | "band" | "link" | "home" | "afterlive" | "tutorial";
 
-export interface StaticStoryLine {
-  kind: "chapter" | "line" | "choices";
-  name: string;
-  text: string;
-  choices: string[];
-}
-
 export interface SearchableStoryPage {
   mode: StoryMode;
   storyId: string;
@@ -28,8 +21,6 @@ export interface SearchableStoryPage {
   chapterNames: Record<Locale, string>;
   descriptions: Record<Locale, string>;
   characterNames: Record<Locale, string>;
-  /** The projected transcript, resolved per locale so every language page carries its own text. */
-  lines: Record<Locale, StaticStoryLine[]>;
   episodeNumber: number;
   isAnotherEpisode: boolean;
   isExtraEpisode: boolean;
@@ -76,57 +67,6 @@ function modeOf(episode: EpisodeRecord, eventChapterIds: ReadonlySet<string>): S
     default:
       return undefined;
   }
-}
-
-/** Mirrors the interactive transcript's speaker resolution. */
-function speakerOf(command: RecordValue, characters: Map<number, RecordValue>, locale: Locale): string {
-  const status = Number(command.targetStatus || 0);
-  if (status === 2) return "";
-  if (status === 1) return "???";
-  const listed = (Array.isArray(command.targetTextNames) ? command.targetTextNames : [])
-    .map((value) => text(value, locale))
-    .filter(Boolean);
-  if (listed.length) return listed.join("、");
-  const targets = (Array.isArray(command.targets) ? command.targets : [])
-    .map((target) => asRecord(target))
-    .filter((target): target is RecordValue => !!target)
-    .map((target) => {
-      const named = text(target.name, locale);
-      if (named) return named;
-      const character = characters.get(Number(target.characterId || 0));
-      return text(character?.characterName, locale);
-    })
-    .filter(Boolean);
-  if (targets.length) return targets.join("、");
-  return text(command.targetName, locale);
-}
-
-function storyLines(
-  episode: EpisodeRecord,
-  characters: Map<number, RecordValue>,
-  locale: Locale,
-): StaticStoryLine[] {
-  const lines: StaticStoryLine[] = [];
-  for (const entry of projectHaneokaTranscript(episode)) {
-    const command = entry.command;
-    if (entry.kind === "location" || entry.kind === "conversation") {
-      const heading = text(command.text, locale) || speakerOf(command, characters, locale);
-      if (heading) lines.push({ kind: "chapter", name: "", text: heading, choices: [] });
-      continue;
-    }
-    if (entry.kind === "choices") {
-      const choices = (Array.isArray(command.choices) ? command.choices : [])
-        .map((choice) => text(asRecord(choice)?.text, locale))
-        .filter(Boolean);
-      if (choices.length) lines.push({ kind: "choices", name: "", text: "", choices });
-      continue;
-    }
-    if (entry.kind === "dialogue" || entry.kind === "message" || entry.kind === "subtitle") {
-      const line = text(command.text, locale);
-      if (line) lines.push({ kind: "line", name: speakerOf(command, characters, locale), text: line, choices: [] });
-    }
-  }
-  return lines;
 }
 
 /** First spoken line, kept unlocalised so every locale's meta can resolve it. */
@@ -221,9 +161,6 @@ async function buildSearchableStoryPages(server: ReleaseServer): Promise<Searcha
         chapterNames,
         descriptions,
         characterNames,
-        lines: Object.fromEntries(
-          LOCALES.map((locale) => [locale, storyLines(detail, characters, locale)]),
-        ) as Record<Locale, StaticStoryLine[]>,
         episodeNumber: Number(episode.episodeNumber || 0),
         isAnotherEpisode: Boolean(episode.isAnotherEpisode),
         isExtraEpisode: Boolean(episode.isExtraEpisode),

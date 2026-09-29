@@ -119,15 +119,341 @@ def _entry(
     }
 
 
-def _events(data: Any, documents: dict[str, Any], stamp: Callable[[Any], list[int | None]]) -> dict[str, Any]:
+EVENT_REWARD_TABLES = (
+    "MasterChallengeLiveEventReward",
+    "MasterEventAchievementReward",
+    "MasterEventBoxGachaReward",
+    "MasterEventRankingReward",
+    "MasterLiveEventReward",
+    "MasterEventAchievementLoopReward",
+)
+EVENT_SUPPORT_TABLES = (
+    "MasterChallengeLiveEventPoint",
+    "MasterEventBoxGacha",
+    "MasterEventEffect",
+    "MasterLiveEventPoint",
+    "MasterEventMission",
+    *EVENT_REWARD_TABLES,
+)
+
+
+def _event_id(row: dict[str, Any]) -> int:
+    """Read the current Master event foreign key exactly as authored."""
+
+    return _number(row, "_eventId")
+
+
+def _event_resource(
+    data: Any,
+    documents: dict[str, Any],
+    resource_types: dict[int, str],
+    table: str,
+    row: dict[str, Any],
+    resource_row: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Project one event row while retaining parent and linked reward rows.
+
+    Most event reward tables point at ``MasterReward`` through ``_rewardIds``;
+    live/challenge rewards carry the resource columns directly.  The caller
+    passes the linked MasterReward row only for the former shape, so no
+    inferred foreign key is needed for either case.
+    """
+
+    source = resource_row or row
+    resource_type = _number(source, "_resourceType")
+    resource_id = _number(source, "_resourceId")
+    resource_count = _number(source, "_resourceCount") or 1
+    value = {
+        "sourceTable": table,
+        "sourceId": _number(row, "_id"),
+        "resourceType": resource_type,
+        "resourceTypeName": resource_types.get(resource_type, ""),
+        "resourceId": resource_id,
+        "resourceCount": max(0, resource_count),
+        "reward": _resource(
+            data,
+            documents,
+            resource_types,
+            resource_type,
+            resource_id,
+            resource_count,
+        ),
+        # Keep the exact source row available for future table-specific UI.
+        # The projected reward above remains the only display contract.
+        "raw": row,
+    }
+    if resource_row is not None:
+        value["rewardId"] = _number(resource_row, "_id")
+        value["resourceRaw"] = resource_row
+    return value
+
+
+def _event_story(documents: dict[str, Any], chapter_id: int) -> dict[str, Any] | None:
+    if not chapter_id:
+        return None
+    stories = documents.get("stories", {})
+    chapters = stories.get("chapters", {}) if isinstance(stories, dict) else {}
+    chapter = chapters.get(str(chapter_id)) if isinstance(chapters, dict) else None
+    if not isinstance(chapter, dict):
+        return None
+    episodes = stories.get("episodes", {}) if isinstance(stories, dict) else {}
+    episode_rows = []
+    for story_id in chapter.get("episodes", []):
+        episode = episodes.get(str(story_id)) if isinstance(episodes, dict) else None
+        if not isinstance(episode, dict):
+            continue
+        episode_rows.append(
+            {
+                key: episode.get(key)
+                for key in (
+                    "storyId",
+                    "storyKey",
+                    "title",
+                    "episodeNumber",
+                    "isExtraEpisode",
+                    "isAnotherEpisode",
+                    "banner",
+                    "image",
+                    "description",
+                )
+                if episode.get(key) is not None
+            }
+        )
+    # The client presents the authored Main → Extra → Another groups.  The
+    # Master episode list is usually already grouped by Adv id, but that is
+    # an implementation detail and must not define the public ordering.
+    episode_rows.sort(
+        key=lambda episode: (
+            2 if episode.get("isAnotherEpisode") else 1 if episode.get("isExtraEpisode") else 0,
+            _number(episode, "episodeNumber"),
+            str(episode.get("storyId") or episode.get("storyKey") or ""),
+        )
+    )
+    return {
+        "chapterId": chapter_id,
+        "chapterName": chapter.get("chapterName", []),
+        "description": chapter.get("description", []),
+        "banner": chapter.get("banner"),
+        "image": chapter.get("image"),
+        "episodes": episode_rows,
+    }
+
+
+def _event_support(
+    data: Any,
+    documents: dict[str, Any],
+    resource_types: dict[int, str],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    event_id = _number(event, "_id")
+    live_point_group = _number(event, "_liveEventPointGroup")
+    live_reward_group = _number(event, "_liveEventRewardGroup")
+    challenge_point_group = _number(event, "_challengeLiveEventPointGroup")
+    challenge_reward_group = _number(event, "_challengeLiveEventRewardGroup")
+    reward_rows = {
+        _number(row, "_id"): row
+        for row in data.rows("MasterReward")
+        if _number(row, "_id")
+    }
+
+    def belongs(table: str, row: dict[str, Any]) -> bool:
+        explicit = _event_id(row)
+        if explicit:
+            return explicit == event_id
+        if table == "MasterLiveEventPoint":
+            return bool(live_point_group and _number(row, "_group") == live_point_group)
+        if table == "MasterLiveEventReward":
+            return bool(
+                live_point_group
+                and live_reward_group
+                and _number(row, "_group") == live_point_group
+                and _number(row, "_eventGroup") == live_reward_group
+            )
+        if table == "MasterChallengeLiveEventPoint":
+            return bool(challenge_point_group and _number(row, "_group") == challenge_point_group)
+        if table == "MasterChallengeLiveEventReward":
+            return bool(
+                challenge_point_group
+                and challenge_reward_group
+                and _number(row, "_group") == challenge_point_group
+                and _number(row, "_eventGroup") == challenge_reward_group
+            )
+        return False
+
+    support: dict[str, list[dict[str, Any]]] = {}
+    rewards: list[dict[str, Any]] = []
+    effects: list[dict[str, Any]] = []
+    missions: list[dict[str, Any]] = []
+    for table in EVENT_SUPPORT_TABLES:
+        rows = []
+        for row in data.rows(table):
+            if not belongs(table, row):
+                continue
+            value = {
+                "sourceTable": table,
+                "sourceId": _number(row, "_id"),
+                "raw": row,
+            }
+            if table in EVENT_REWARD_TABLES:
+                reward_ids = row.get("_rewardIds")
+                if isinstance(reward_ids, list):
+                    for reward_id in reward_ids:
+                        reward_identity = _number({"value": reward_id}, "value")
+                        linked = reward_rows.get(reward_identity)
+                        if linked is None:
+                            # Preserve an unresolved identifier in the API
+                            # contract; the UI renders its localized fallback.
+                            value.setdefault("unresolvedRewardIds", []).append(reward_identity)
+                            rewards.append(
+                                {
+                                    "sourceTable": table,
+                                    "sourceId": _number(row, "_id"),
+                                    "rewardId": reward_identity,
+                                    "resourceType": 0,
+                                    "resourceTypeName": "",
+                                    "resourceId": 0,
+                                    "resourceCount": 0,
+                                    "reward": {"name": [], "secondary": [], "image": "", "href": "", "count": 0},
+                                    "raw": row,
+                                    "unresolvedRewardId": reward_identity,
+                                }
+                            )
+                            continue
+                        rewards.append(
+                            _event_resource(
+                                data,
+                                documents,
+                                resource_types,
+                                table,
+                                row,
+                                linked,
+                            )
+                        )
+                elif (
+                    _number(row, "_resourceType")
+                    or _number(row, "_resourceId")
+                ):
+                    value = _event_resource(data, documents, resource_types, table, row)
+                    rewards.append(value)
+            elif table == "MasterEventEffect":
+                targets: dict[str, Any] = {}
+                member_card_id = _number(row, "_memberCardId")
+                support_card_id = _number(row, "_supportCardId")
+                band_id = _number(row, "_bandId")
+                if member_card_id:
+                    targets["memberCard"] = _resource(
+                        data, documents, resource_types, 2, member_card_id
+                    )
+                if support_card_id:
+                    targets["supportCard"] = _resource(
+                        data, documents, resource_types, 3, support_card_id
+                    )
+                if band_id:
+                    band = documents.get("bands", {}).get(str(band_id))
+                    if isinstance(band, dict):
+                        targets["band"] = {
+                            "name": band.get("bandName", []),
+                            "image": band.get("logo") or band.get("icon") or "",
+                            "href": f"/catalog/bands?band={band_id}",
+                        }
+                if targets:
+                    value["targets"] = targets
+                per_rank = []
+                for rank in range(1, 6):
+                    field = f"_rank{rank}EffectValue"
+                    if field in row:
+                        basis_points = _number(row, field)
+                        per_rank.append(
+                            {
+                                "rank": rank,
+                                "value": basis_points,
+                                "percent": basis_points / 100,
+                            }
+                        )
+                if per_rank:
+                    value["perRank"] = per_rank
+                effects.append(value)
+            elif table == "MasterEventMission":
+                missions.append(value)
+            rows.append(value)
+        if rows:
+            support[table] = rows
+    rankings: list[dict[str, Any]] = []
+    ranking_pairs = (
+        ("live", "MasterLiveEventPoint", "MasterLiveEventReward"),
+        ("challenge", "MasterChallengeLiveEventPoint", "MasterChallengeLiveEventReward"),
+    )
+    for kind, point_table, reward_table in ranking_pairs:
+        point_rows = support.get(point_table, [])
+        reward_rows = [row for row in rewards if row.get("sourceTable") == reward_table]
+        for point in point_rows:
+            point_raw = point.get("raw", {})
+            score_rank = _number(point_raw, "_scoreRank")
+            group = _number(point_raw, "_group")
+            linked = [
+                reward
+                for reward in reward_rows
+                if _number(reward.get("raw", {}), "_group") == group
+                and _number(reward.get("raw", {}), "_scoreRank") == score_rank
+            ]
+            rankings.append(
+                {
+                    "kind": kind,
+                    "group": group,
+                    "scoreRank": score_rank,
+                    "pointValue": _number(point_raw, "_value"),
+                    "pointSourceId": _number(point_raw, "_id"),
+                    "rewards": linked,
+                    "raw": point_raw,
+                }
+            )
+    return {
+        "support": support,
+        "rewards": rewards,
+        "effects": effects,
+        "missions": missions,
+        "rankings": rankings,
+        "sourceTables": list(EVENT_SUPPORT_TABLES),
+        "groups": {
+            "liveEventPoint": live_point_group,
+            "liveEventReward": live_reward_group,
+            "challengeLiveEventPoint": challenge_point_group,
+            "challengeLiveEventReward": challenge_reward_group,
+        },
+    }
+
+
+def _events(
+    data: Any,
+    documents: dict[str, Any],
+    resource_types: dict[int, str],
+    stamp: Callable[[Any], list[int | None]],
+) -> dict[str, Any]:
     entries: dict[str, Any] = {}
     for row in data.rows("MasterEvent"):
         identity = _number(row, "_id")
         if not identity:
             continue
+        story_chapter_id = _number(row, "_storyChapterId")
+        support = _event_support(data, documents, resource_types, row)
+        event_item_id = _number(row, "_eventItemId")
+        music_id = _number(row, "_musicId")
+        pickup_cards = []
+        for pickup in data.rows("MasterEventPickUpCard"):
+            if _event_id(pickup) != identity:
+                continue
+            pickup_value = _event_resource(
+                data,
+                documents,
+                resource_types,
+                "MasterEventPickUpCard",
+                pickup,
+            )
+            pickup_value["card"] = pickup_value.pop("reward")
+            pickup_cards.append(pickup_value)
         entries[str(identity)] = _entry(
             str(identity),
-            data.text(row.get("_nameTextId") or row.get("_nameTextID")),
+            data.text(row.get("_nameTextId")),
             kind="game-event",
             # The event's own key art lives under Image/Event/<background>;
             # the bare _bannerAsset value never resolved to a real file.
@@ -139,8 +465,32 @@ def _events(data: Any, documents: dict[str, Any], stamp: Callable[[Any], list[in
             description=data.text(row.get("_descriptionTextId")),
             start_at=stamp(row.get("_startAt")),
             end_at=stamp(row.get("_endAt")),
-            display_end_at=stamp(row.get("_displayEndAt")),
-            story_chapter_id=int(row.get("_storyChapterId") or 0),
+            displayEndAt=stamp(row.get("_displayEndAt")),
+            storyChapterId=story_chapter_id,
+            story=_event_story(documents, story_chapter_id),
+            eventType=_number(row, "_eventType"),
+            musicId=music_id,
+            song=(
+                _resource(data, documents, resource_types, 8, music_id)
+                if music_id
+                else None
+            ),
+            eventItem=(
+                _resource(data, documents, resource_types, 1, event_item_id)
+                if event_item_id
+                else None
+            ),
+            rankingDisabled=bool(row.get("_isRankingDisabled")),
+            musicRankingDisabled=bool(row.get("_isMusicRankingDisabled")),
+            totalMusicRankingDisabled=bool(row.get("_isTotalMusicRankingDisabled")),
+            rewardGroups=support["groups"],
+            pickupCards=pickup_cards,
+            rewards=support["rewards"],
+            effects=support["effects"],
+            missions=support["missions"],
+            rankings=support["rankings"],
+            support=support["support"],
+            sourceTables=["MasterEvent", "MasterEventPickUpCard", *support["sourceTables"]],
         )
     return {"entries": entries, "hasGameEvents": bool(data.rows("MasterEvent"))}
 
@@ -897,7 +1247,7 @@ def build_game_systems(
     stamp: Callable[[Any], list[int | None]],
 ) -> dict[str, dict[str, Any]]:
     base = {
-        "events": _events(data, documents, stamp),
+        "events": _events(data, documents, resource_types, stamp),
         "real-lives": _real_lives(data, documents, stamp),
         "home-banners": _home_banners(data, stamp),
         "gacha": _gacha(data, documents, resource_types, stamp),

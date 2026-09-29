@@ -4,13 +4,14 @@ import AppShell from "../../components/AppShell.astro";
 import { findRoute, titleOf } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
 import { t } from "../../i18n/messages";
-import type { SearchableStoryPage, StaticStoryLine } from "../../lib/searchable-stories";
+import type { SearchableStoryPage } from "../../lib/searchable-stories";
 import { resourcePath, storyCollectionPath, type EntityLink } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
-import { advTextHtml, escapeHtml } from "../../lib/adv-text-html";
+import { catalogEntityData, type StoryPayload } from "../../lib/entity-graph";
+import { serializePageData } from "../../lib/page-data";
+import { renderStory } from "../../server/render-catalog";
 import "../../lit/story-workspace";
 import "../../styles/story.css";
-import "../../styles/static-detail.css";
 
 interface Props {
   page: SearchableStoryPage;
@@ -20,10 +21,8 @@ interface Props {
   returnTo?: string;
   previous?: EntityLink;
   next?: EntityLink;
-  /** Build-time story payload (lib/entity-graph.ts); replaces the story index request. */
-  payloadHref?: string;
 }
-const { page, locale, server = "intl", canonical = false, returnTo, previous, next, payloadHref } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next } = Astro.props;
 const modeLabel = (target: Locale) => t(target, `storyNavigation.${page.mode}`, page.mode);
 const sectionRoute = `/catalog/stories/${page.mode}`;
 const sectionRouteDefinition = findRoute(sectionRoute);
@@ -37,17 +36,10 @@ const seoTitleValues = Object.fromEntries(
     return [target, parts.filter(Boolean).join(" · ")];
   }),
 ) as Record<Locale, string>;
-const choicesLabel = t(locale, "choices", "Choices");
-// Transcript text is game ADV markup, not HTML: it is parsed and escaped so a
-// `<size=…>` tag or a literal `&` can never be read as document markup.
-const line = (entry: StaticStoryLine) =>
-  entry.kind === "chapter"
-    ? `<h2 class="static-story__chapter">${advTextHtml(entry.text)}</h2>`
-    : entry.kind === "choices"
-      ? `<div class="static-story__choices"><small>${escapeHtml(choicesLabel)}</small><ul>${entry.choices
-          .map((choice) => `<li>${advTextHtml(choice)}</li>`)
-          .join("")}</ul></div>`
-      : `<p class="static-story__line">${entry.name ? `<b>${advTextHtml(entry.name)}</b>` : ""}<span>${advTextHtml(entry.text)}</span></p>`;
+const payload = await catalogEntityData(server, "stories", page.storyId) as StoryPayload | undefined;
+if (!payload) throw new Error(`Missing story page data: ${server}/${page.storyId}`);
+const pageDataId = `story-page-${page.storyId}`;
+const body = await renderStory(payload, locale);
 ---
 
 <Base
@@ -60,7 +52,6 @@ const line = (entry: StaticStoryLine) =>
   seoTitleValues={seoTitleValues}
   seoDescriptionValues={page.descriptions}
 >
-  {canonical && payloadHref && <link slot="head" rel="preload" as="fetch" href={payloadHref} crossorigin="anonymous" />}
   <AppShell
     locale={locale}
     route={sectionRoute}
@@ -78,37 +69,10 @@ const line = (entry: StaticStoryLine) =>
         : undefined
     }
   >
-    <story-workspace
-      locale={locale}
-      mode={page.mode}
-      entity-id={canonical ? page.storyId : undefined}
-      payload={canonical ? payloadHref : undefined}
-    ></story-workspace>
-    <article class="static-detail" data-static-detail>
-      <header class="static-detail__header">
-        {!canonical && <a class="static-detail__back" href={storyCollectionPath({ server, locale, mode: page.mode })}>{sectionTitle}</a>}
-        {!canonical && <h1>{page.titles[locale]}</h1>}
-        {page.chapterNames[locale] && page.chapterNames[locale] !== page.titles[locale] && (
-          <p class="static-detail__subtitle">{page.chapterNames[locale]}</p>
-        )}
-        {page.characterNames[locale] && (
-          <p class="static-detail__meta">
-            {t(locale, "character", "Character")}: {page.characterNames[locale]}
-          </p>
-        )}
-      </header>
-      <div class="story-transcript">
-        <h2>{t(locale, "storyText", "Text")}</h2>
-        <Fragment set:html={page.lines[locale].map(line).join("")} />
-      </div>
-    </article>
+    <script type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    <story-workspace locale={locale} mode={page.mode} entity-id={page.storyId} data-prerendered data-page-data={pageDataId} set:html={body}></story-workspace>
   </AppShell>
 </Base>
 <script>
   import "../../lit/story-workspace";
 </script>
-<style is:global>
-  story-workspace[data-entity-ready="true"] ~ [data-static-detail] {
-    display: none;
-  }
-</style>

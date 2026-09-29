@@ -1,3 +1,8 @@
+import fs from "node:fs";
+import nodePath from "node:path";
+import { createHash } from "node:crypto";
+import { openReleaseCatalog, ReleaseCatalogError, type ReleaseCatalog } from "../server/release-catalog";
+
 /**
  * Build-time access to the release catalog API.
  *
@@ -48,6 +53,48 @@ class StaticCatalogHttpError extends Error {
 
 const releasePromises = new Map<string, Promise<StaticCatalogRelease>>();
 const requestPromises = new Map<string, Promise<unknown>>();
+const localCatalogs = new Map<string, ReleaseCatalog | null>();
+
+function localCatalog(server: string): ReleaseCatalog | null {
+  if (process.env.STATIC_CATALOG_SOURCE === "http") return null;
+  if (localCatalogs.has(server)) return localCatalogs.get(server) || null;
+  const pointer = nodePath.join(process.cwd(), "data", "servers", server, "current.json");
+  const catalog = process.env.RESOURCE_RELEASE_ROOT || fs.existsSync(pointer) ? openReleaseCatalog(server) : null;
+  localCatalogs.set(server, catalog);
+  return catalog;
+}
+
+function readLocalPath(catalog: ReleaseCatalog, route: string): unknown {
+  const url = new URL(route, "https://catalog.invalid/");
+  const parts = url.pathname.slice(1).split("/").map(decodeURIComponent);
+  const [resource, action, name, id] = parts;
+  if (resource === "ui-marks" && parts.length === 1) return catalog.readUiMarks();
+  if (resource === "catalog") {
+    return action === "summary" ? catalog.readSummary() : catalog.manifest.document;
+  }
+  if (parts.length === 1) {
+    const ids = url.searchParams.getAll("id");
+    if (!ids.length) return catalog.readCollection(resource!);
+    const batch = catalog.readEntities(resource!, ids);
+    return { items: Object.fromEntries(batch.items), missing: batch.missing };
+  }
+  if (action === "views" && name) {
+    if (id) return catalog.readViewEntity(resource!, name, id);
+    const ids = url.searchParams.getAll("id");
+    if (!ids.length) return catalog.readView(resource!, name);
+    const items: Record<string, unknown> = {};
+    const missing: string[] = [];
+    for (const key of ids) {
+      const entity = catalog.readViewEntity(resource!, name, key);
+      if (entity) items[key] = entity;
+      else missing.push(key);
+    }
+    return { items, missing };
+  }
+  if (action === "relations" && name && id) return catalog.readRelation(resource!, name, id);
+  if (parts.length === 2 && action) return catalog.requireEntity(resource!, action);
+  throw new Error(`Unsupported build catalog route: ${route}`);
+}
 
 export function staticCatalogUrl(path: string, server = "intl", releaseId?: string): string {
   const url = new URL(`/api/v1/servers/${encodeURIComponent(server)}/${path.replace(/^\/+/, "")}`, ORIGIN);
@@ -114,15 +161,33 @@ async function fetchJson(path: string, server: string, release?: StaticCatalogRe
   const key = `${server}\u0000${release?.releaseId || "current"}\u0000${path}`;
   let pending = requestPromises.get(key);
   if (!pending) {
-    pending = fetchResponse(path, server, release?.releaseId).then(async (response) => {
+    pending = (async () => {
+      const cacheFile = release ? cachedResponseFile(path, release) : undefined;
+      if (cacheFile && fs.existsSync(cacheFile)) {
+        const cached = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+        if (cached.path === path && cached.releaseId === release?.releaseId && cached.sourceId === release?.sourceId)
+          return cached.value;
+        throw new StaticCatalogConsistencyError(`Cached catalog identity mismatch: ${server}/${path}`);
+      }
+      const response = await fetchResponse(path, server, release?.releaseId);
       try {
         observedRelease(response, release);
-        return await response.json();
+        const value: unknown = await response.json();
+        if (cacheFile && release) {
+          fs.mkdirSync(nodePath.dirname(cacheFile), { recursive: true });
+          const temporary = `${cacheFile}.${process.pid}.tmp`;
+          fs.writeFileSync(
+            temporary,
+            JSON.stringify({ path, releaseId: release.releaseId, sourceId: release.sourceId, value }),
+          );
+          fs.renameSync(temporary, cacheFile);
+        }
+        return value;
       } catch (error) {
         await response.body?.cancel().catch(() => undefined);
         throw error;
       }
-    });
+    })();
     requestPromises.set(key, pending);
   }
   try {
@@ -133,11 +198,28 @@ async function fetchJson(path: string, server: string, release?: StaticCatalogRe
   }
 }
 
+function cachedResponseFile(route: string, release: StaticCatalogRelease): string {
+  const hash = createHash("sha256").update(route).digest("hex");
+  if (!/^[a-z0-9-]+$/u.test(release.server) || !RELEASE_ID_PATTERN.test(release.releaseId))
+    throw new StaticCatalogConsistencyError("Invalid cache release identity");
+  return nodePath.join(
+    process.cwd(),
+    "data",
+    "static-catalog",
+    "v1",
+    release.server,
+    release.releaseId,
+    `${hash}.json`,
+  );
+}
+
 /** Pins the current release once. All static loaders share this promise. */
 export async function staticCatalogRelease(server = "intl"): Promise<StaticCatalogRelease> {
   const existing = releasePromises.get(server);
   if (existing) return existing;
   const promise = (async () => {
+    const local = localCatalog(server);
+    if (local) return Object.freeze({ ...local.identity });
     const response = await fetchResponse("release?projection=identity", server, undefined, "HEAD");
     const releaseId = response.headers.get("x-haneoka-release-id") || "";
     const sourceId = response.headers.get("x-haneoka-source-id") || "";
@@ -162,6 +244,19 @@ export async function fetchStaticCatalog(
   release?: StaticCatalogRelease,
 ): Promise<unknown> {
   const pinned = release || (await staticCatalogRelease(server));
+  const local = localCatalog(server);
+  if (local) {
+    if (local.identity.releaseId !== pinned.releaseId || local.identity.sourceId !== pinned.sourceId) {
+      throw new StaticCatalogConsistencyError(
+        `Local catalog identity differs from pinned ${server}/${pinned.releaseId}`,
+      );
+    }
+    try {
+      return readLocalPath(local, path);
+    } catch (error) {
+      if (!(error instanceof ReleaseCatalogError) || !error.fallbackToHttp) throw error;
+    }
+  }
   return fetchJson(path, server, pinned);
 }
 
@@ -174,7 +269,8 @@ export async function fetchOptionalStaticCatalog(
   try {
     return { value: await fetchStaticCatalog(path, server, release) };
   } catch (error) {
-    if (!(error instanceof StaticCatalogHttpError) || error.status !== 404) throw error;
+    if (!(error instanceof StaticCatalogHttpError || error instanceof ReleaseCatalogError) || error.status !== 404)
+      throw error;
     const reason = error instanceof Error ? error.message : String(error);
     console.warn(`Static catalog: optional ${server}/${path.split("?")[0]} absent (${reason})`);
     return { value: null, reason };

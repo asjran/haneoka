@@ -20,6 +20,7 @@ export interface SearchableModelPage {
   descriptions: Record<Locale, string>;
   facts: Record<Locale, Array<{ key: string; value: string }>>;
   image: string;
+  model: RecordValue;
 }
 
 const text = (value: unknown, locale: Locale): string => resolveLocalizedText(value, locale).text.trim();
@@ -65,6 +66,7 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
     server,
     release,
   );
+  const spineDetails = await fetchStaticCatalogBatch("spine", spineModels.map(([key]) => key), server, release);
 
   const live2dPages = live2dModels.map(([key, model]) => {
     const detail = live2dDetails.get(key) ?? model;
@@ -114,6 +116,7 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
       ) as Record<Locale, string>,
       facts,
       image: typeof preview?.runtime === "string" ? preview.runtime : "",
+      model: { ...model, ...detail },
     };
   });
 
@@ -156,6 +159,7 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
       ) as Record<Locale, string>,
       facts,
       image: previewPath.startsWith("/") ? previewPath : previewPath ? `/${previewPath}` : "",
+      model: { ...model, ...spineDetails.get(key) },
     };
   });
 

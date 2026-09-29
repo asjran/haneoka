@@ -40,6 +40,8 @@ const navigation = PRIMARY_DESTINATIONS.map((destination) => ({
 }));
 const utilities = UTILITY_DESTINATIONS;
 const informationPages = INFORMATION_DESTINATIONS;
+const hasSearch = Astro.slots.has("search");
+const searchIndexable = !["/account", "/admin", "/settings", "/search", "/community"].some(prefix => route === prefix || route.startsWith(`${prefix}/`));
 const inInformation = route === "/about" || informationPages.some((item) => itemActive(item.route));
 ---
 
@@ -254,9 +256,12 @@ const inInformation = route === "/about" || informationPages.some((item) => item
         {entity && <div class="top-app-bar__identity" data-top-app-bar-identity></div>}
       </div>
       <h1
+        hidden={hasSearch}
+        data-pagefind-meta="title"
         data-entity-title={entity ? "true" : undefined}
         lang={entity?.titleLanguage}
       >{shellTitleKey ? <I18nText keyName={shellTitleKey} fallback={shellTitle} locale={locale} /> : shellTitle}</h1>
+      <slot name="search" />
       <div class="top-app-bar__actions" data-top-app-bar-actions>
         {entity && (
           <div class="top-app-bar__secondary-actions">
@@ -307,7 +312,7 @@ const inInformation = route === "/about" || informationPages.some((item) => item
       <span class="app-shell__progress-fallback" data-page-progress-fallback aria-hidden="true"></span>
       <span class="app-shell__progress-status" data-page-progress-status role="status" aria-live="polite"></span>
     </div>
-    <main class="app-shell__main page-stage" id="main-content" tabindex="-1">
+    <main class="app-shell__main page-stage" id="main-content" tabindex="-1" data-pagefind-body={searchIndexable ? "" : undefined}>
       <slot />
     </main>
   </div>

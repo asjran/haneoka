@@ -1,3 +1,4 @@
+import { readPageData } from "../lib/page-data";
 import { navigationDocumentUrl } from "../lib/document-url";
 import "../styles/model-tile.css";
 import { saveCanvasFrame } from "../lib/canvas-capture";
@@ -192,6 +193,13 @@ export class SpineWorkspace extends LitElement {
     return catalogUrl("spine", id);
   }
   private async loadCatalog() {
+    const page = readPageData<{ schema: string; id: string; model: Value }>(this);
+    if (page?.schema === "haneoka-model-page-v1" && page.id === this.entityId) {
+      this.models = [page.model];
+      this.phase = "ready";
+      if (this.modelPhase !== "ready") void this.select(page.id, false, page.model);
+      return;
+    }
     this.catalogRequest?.abort();
     const controller = new AbortController();
     this.catalogRequest = controller;
@@ -226,7 +234,7 @@ export class SpineWorkspace extends LitElement {
     if (family === "home-spot") return uiText(this.locale, "spinePage.families.homeSpot");
     return family || "—";
   }
-  private async select(id: string, updateUrl = true) {
+  private async select(id: string, updateUrl = true, prepared?: Value) {
     if (updateUrl && id !== this.entityId) {
       openDetailLocation(
         entityHref({
@@ -263,7 +271,7 @@ export class SpineWorkspace extends LitElement {
       history.replaceState(history.state, "", `${location.pathname}?${params}`);
     }
     try {
-      const detail = await fetchJson<Value>(this.url(id), { signal: controller.signal });
+      const detail = prepared || (await fetchJson<Value>(this.url(id), { signal: controller.signal }));
       if (generation !== this.generation || controller.signal.aborted || !this.isConnected) return;
       this.detail = detail;
       await this.updateComplete;

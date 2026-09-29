@@ -155,8 +155,14 @@ export interface ServerI18nContext {
   seed(route?: string): MainI18nSeed;
 }
 
+const contextCache = new Map<string, ServerI18nContext>();
+const serializedSeeds = new WeakMap<object, string>();
+
 export const createServerI18nContext = (locale: UiLocale, request?: ServerI18nContextRequest): ServerI18nContext => {
   const namespaces = namespacesForRequest(request);
+  const key = `${locale}:${namespaces.join(",")}`;
+  const cached = contextCache.get(key);
+  if (cached) return cached;
   const projection = namespaceProjection(locale, namespaces);
   const catalog = createCatalog(locale, {
     [locale]: projection.preferred,
@@ -169,19 +175,26 @@ export const createServerI18nContext = (locale: UiLocale, request?: ServerI18nCo
     namespaces: projection.seedNamespaces,
     ...(Object.keys(projection.fallbackNamespaces).length ? { fallbacks: projection.fallbackNamespaces } : {}),
   };
-  return {
+  const context: ServerI18nContext = {
     locale,
     namespaces: [...namespaces],
     catalog,
     seed: (route?: string) => (route === undefined ? seed : createServerI18nContext(locale, route).seed()),
   };
+  contextCache.set(key, context);
+  return context;
 };
 
-export const serializeI18nSeed = (seed: I18nSeed): string =>
-  JSON.stringify(seed)
+export const serializeI18nSeed = (seed: I18nSeed): string => {
+  const cached = serializedSeeds.get(seed);
+  if (cached) return cached;
+  const serialized = JSON.stringify(seed)
     .replace(/</gu, "\\u003C")
     .replace(/\u2028/gu, "\\u2028")
     .replace(/\u2029/gu, "\\u2029");
+  serializedSeeds.set(seed, serialized);
+  return serialized;
+};
 
 const getFullCatalog = (locale: UiLocale): Catalog => {
   const cached = fullCatalogCache.get(locale);

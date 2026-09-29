@@ -1,7 +1,7 @@
 ---
 import CatalogEntityPage from "../../../../../components/entities/CatalogEntityPage.astro";
 import { LOCALES, type Locale } from "../../../../../i18n/locales";
-import { catalogEntityPayloadHref, staticResourceServers } from "../../../../../lib/entity-graph";
+import { staticResourceServers } from "../../../../../lib/entity-graph";
 import type { ReleaseServer } from "../../../../../lib/release-server";
 import { searchableCatalogPages, type SearchableCatalogPage } from "../../../../../lib/searchable-catalog";
 
@@ -9,7 +9,6 @@ type RouteProps = {
   server: ReleaseServer;
   locale: Locale;
   page: SearchableCatalogPage;
-  payloadHref?: string;
 };
 
 export async function getStaticPaths() {
@@ -18,11 +17,10 @@ export async function getStaticPaths() {
     const pages = await searchableCatalogPages(server);
     for (const page of pages) {
       if (page.collection !== "songs" || page.kind !== "song") continue;
-      const payloadHref = await catalogEntityPayloadHref(server, page.resource, page.id);
       for (const locale of LOCALES) {
         output.push({
           params: { server, locale, id: page.id },
-          props: { server, locale, page, payloadHref },
+          props: { server, locale, page },
         });
       }
     }
@@ -30,7 +28,7 @@ export async function getStaticPaths() {
   return output;
 }
 
-const { server, locale, page, payloadHref } = Astro.props as RouteProps;
+const { server, locale, page } = Astro.props as RouteProps;
 const rawReturnTo = Astro.url.searchParams.get("return") || "";
 const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : undefined;
 ---
@@ -42,5 +40,4 @@ const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? 
   canonical
   chartPage
   returnTo={returnTo}
-  payloadHref={payloadHref}
 />

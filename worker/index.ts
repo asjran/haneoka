@@ -1,7 +1,6 @@
 import { handleCommunityMediaQueue, reconcileCommunityMedia } from "./community-media";
 import { version } from "@sonolus/core";
 export { CommunityMediaContainer } from "./community-media-container";
-import { catalogProjectionTables, projectCatalogDocument } from "../src/lib/catalog-projection";
 import { handleAdminRequest } from "./admin";
 import { handleAccountRegistrationRequest, handleAuthRequest } from "./auth";
 import { handleAvatarRequest } from "./avatar";
@@ -1833,22 +1832,6 @@ async function handleCatalogStorageApi(
         producer = () => catalogBatch(env, request, release, resource.entities, ids);
       } else {
         producer = async () => {
-          const tables = catalogProjectionTables(resourceName);
-          if (tables.length) {
-            const [document, ...data] = await Promise.all([
-              readReleaseJson(env, release, resource.index),
-              ...tables.map((name) => readReleaseJson(env, release, `objects/master/${name}.json`)),
-            ]);
-            if (!document) return errorResponse(request, 502, "catalog_missing", "Catalog index is missing");
-            return jsonResponse(
-              request,
-              projectCatalogDocument(
-                resourceName,
-                document,
-                Object.fromEntries(tables.map((name, index) => [name, data[index]])),
-              ),
-            );
-          }
           const response = await serveReleaseObject(
             env,
             request,

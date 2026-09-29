@@ -1,3 +1,6 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { readPageData } from "../lib/page-data";
+import { releaseChartLevelName } from "@haneoka/sonolus";
 import { navigationDocumentUrl } from "../lib/document-url";
 import { localizedContent, localizedList } from "./ui/localized-content";
 import "../styles/model-tile.css";
@@ -56,6 +59,8 @@ import { tile } from "./ui/tile";
 import {
   chartPath,
   entityHref,
+  resourceCollectionHref,
+  legacyEntityRedirectTarget,
   parseEntitySelection,
   resourceKindForCollection,
   returnStateFromLocation,
@@ -119,8 +124,6 @@ interface Config {
    * second hand-rolled list that drifts out of sync.
    */
   origin?: "release" | "bestdori";
-  /** Build-time entity payload URL for canonical entity pages. */
-  payload?: string;
 }
 /** The document lib/entity-graph.ts emits for one entity. */
 interface EntityPayload {
@@ -742,7 +745,7 @@ export class CatalogScreen extends LitElement {
       kind: params.getAll("kind"),
       ...Object.fromEntries(EXTRA_FILTERS.map((key) => [key, params.getAll(key)])),
     };
-    this.ensureSongMeta();
+    if (!this.hasAttribute("data-page-data")) this.ensureSongMeta();
     void this.load();
   }
   disconnectedCallback() {
@@ -896,6 +899,23 @@ export class CatalogScreen extends LitElement {
       });
     });
   }
+  protected override shouldUpdate(changed: import("lit").PropertyValues): boolean {
+    if (
+      this.hasAttribute("data-prerendered") &&
+      this.settings.entityContext &&
+      !this.detailReady &&
+      this.phase !== "error"
+    )
+      return false;
+    return super.shouldUpdate(changed);
+  }
+  protected override update(changed: import("lit").PropertyValues): void {
+    if (this.hasAttribute("data-prerendered")) {
+      this.removeAttribute("data-prerendered");
+      this.replaceChildren();
+    }
+    super.update(changed);
+  }
   updated() {
     // Focus containment follows whichever overlay is on top: the detail pane
     // wins over the filter panel, and a docked filter panel is not an overlay
@@ -940,6 +960,13 @@ export class CatalogScreen extends LitElement {
   }
   private canonicalKind(): ResourceKind | undefined {
     return this.settings.entityKind || resourceKindForCollection(this.settings.resource);
+  }
+  resourceHref(value: string): string {
+    if (!value.startsWith("/catalog")) return value;
+    const target = resourceCollectionHref(value, this.dataServer(), this.settings.locale as Locale);
+    if (!target) return value;
+    const url = new URL(target, "https://route.invalid");
+    return legacyEntityRedirectTarget(url.pathname, url.search) || target;
   }
   private entityLink(id: string, difficulty?: number): string | undefined {
     const kind = this.canonicalKind();
@@ -1050,15 +1077,82 @@ export class CatalogScreen extends LitElement {
     if (this.profile.presentation === "song" && typeof item.jacketThumbUrl === "string") return item.jacketThumbUrl;
     return this.image(item);
   }
+  async prepareEntity(payload: EntityPayload, config: string = this.config): Promise<void> {
+    this.settings = JSON.parse(config || "{}") as Config;
+    this.profile = profiles[this.settings.resource] ?? fallbackProfile;
+    this.selectedId = String(payload.id);
+    this.payload = payload;
+    this.catalogDocument = payload.document || {};
+    this.items = [payload.item];
+    this.characters = payload.characters || [];
+    this.bands = payload.bands || [];
+    this.gameItems = payload.gameItems || [];
+    this.songMeta = payload.songMeta || {};
+    this.songMetaProvision = Promise.resolve();
+    this.detailAux = { ...(payload.aux || {}) };
+    this.gameMarks.clear();
+    for (const [logical, path] of Object.entries(payload.marks || {}))
+      this.gameMarks.set(logical, `/runtime/${this.dataServer()}/${path.replace(/^runtime\//u, "")}`);
+    this.selected = payload.item;
+    const card = ["member", "support"].includes(this.profile.presentation);
+    const [skill, cards, rewards, systems] = await Promise.all([
+      card ? import("./shared/skill-text") : undefined,
+      card ? import("./card-detail") : undefined,
+      this.profile.presentation === "song" ? import("./song-detail-rewards") : undefined,
+      this.profile.presentation === "system" ? import("./game-system-detail") : undefined,
+      this.profile.presentation === "character" ? import("./character-detail-archive") : undefined,
+    ]);
+    this.skillText = skill;
+    this.cardDetail = cards;
+    this.songDetailRewards = rewards;
+    this.gameSystemDetail = systems;
+    this.gameSystemDetail?.initializeGameSystemDetail(this, payload.item);
+    this.initializeCardDetailState(payload.item);
+    if (this.profile.presentation === "band-item")
+      this.detailLevel = Math.max(
+        1,
+        ...(Array.isArray(payload.item.levels) ? (payload.item.levels as Item[]) : []).map((row) =>
+          Number(row.level || 1),
+        ),
+      );
+    this.phase = "ready";
+    this.detailReady = true;
+  }
+  get contentLocale() {
+    return this.settings.locale;
+  }
+  get contentServer() {
+    return this.dataServer();
+  }
+  relatedEntityHref(kind: ResourceKind, id: string, query?: Record<string, string>): string {
+    return entityHref({
+      server: this.dataServer(),
+      locale: this.settings.locale as Locale,
+      kind,
+      id,
+      query,
+      ...(typeof window === "undefined" || !this.isConnected
+        ? {}
+        : { returnTo: returnStateFromLocation(location.pathname, location.search, kind) }),
+    });
+  }
   private async load() {
     const signal = this.catalogRequests.begin();
     this.phase = "loading";
     this.setEntityReady(false);
-    if (this.settings.payload && this.settings.entityContext) {
-      if (await this.loadPayload(this.settings.payload, signal)) return;
-      if (!this.isConnected || !this.catalogRequests.current(signal)) return;
-      // An unreadable payload falls back to the collection requests below.
-      this.payload = undefined;
+    const inline = readPageData<EntityPayload>(this);
+    if (inline?.schema === "haneoka-entity-payload-v1" && inline.item && inline.id === this.selectedId) {
+      try {
+        await this.prepareEntity(inline, this.config);
+        if (!this.isConnected || !this.catalogRequests.current(signal)) return;
+        this.restoreDetailQuery();
+        this.setEntityReady(true);
+      } catch {
+        if (!this.isConnected || !this.catalogRequests.current(signal)) return;
+        this.phase = "error";
+        this.setEntityReady(false);
+      }
+      return;
     }
     try {
       if (this.profile.presentation === "character") await import("./character-detail-archive");
@@ -1115,7 +1209,7 @@ export class CatalogScreen extends LitElement {
           this.selected = selected;
           this.setEntityReady(false);
           void this.loadEntityDetail(selected);
-        }
+        } else if (this.settings.entityContext) throw new Error("Entity is not present in this catalog release");
       }
       this.phase = "ready";
       this.restoreCollectionState();
@@ -1124,42 +1218,6 @@ export class CatalogScreen extends LitElement {
       this.phase = "error";
       this.setEntityReady(false);
     }
-  }
-  /**
-   * Entity pages ship one build-time payload (lib/entity-graph.ts) holding the
-   * entity, the characters/bands/items/marks it names and its pre-filtered
-   * detail sections. It replaces the collection and relation requests; the
-   * collection itself is only fetched if a feature needs it (play queue).
-   */
-  private async loadPayload(href: string, signal: AbortSignal): Promise<boolean> {
-    let payload: EntityPayload;
-    try {
-      const response = await fetch(href, { headers: { accept: "application/json" }, signal });
-      if (!response.ok) return false;
-      payload = (await response.json()) as EntityPayload;
-    } catch {
-      return false;
-    }
-    if (!this.isConnected || !this.catalogRequests.current(signal)) return false;
-    if (payload?.schema !== "haneoka-entity-payload-v1" || !payload.item || String(payload.id) !== this.selectedId)
-      return false;
-    this.payload = payload;
-    this.catalogDocument = payload.document || {};
-    this.items = [payload.item];
-    this.characters = payload.characters || [];
-    this.bands = payload.bands || [];
-    this.gameItems = payload.gameItems || [];
-    this.songMeta = payload.songMeta || {};
-    this.songMetaProvision = Promise.resolve();
-    this.facetCache = undefined;
-    this.resultCache = undefined;
-    this.gameMarks.clear();
-    for (const [logical, path] of Object.entries(payload.marks || {}))
-      this.gameMarks.set(logical, `/runtime/${this.dataServer()}/${path.slice("runtime/".length)}`);
-    this.selected = payload.item;
-    this.phase = "ready";
-    void this.loadEntityDetail(payload.item);
-    return true;
   }
   /**
    * The payload omits the whole collection. Features that act on it from an
@@ -2395,8 +2453,13 @@ export class CatalogScreen extends LitElement {
     if (this.settings.entityContext) {
       if (this.selected && this.detailReady)
         return this.settings.chartPage ? this.renderChartPage(this.selected) : this.renderDetail(this.selected);
-      // The server-rendered article remains the readable loading/error
-      // fallback. Do not replace it with a second loading pane.
+      if (this.phase === "error")
+        return errorState(
+          this.label("unavailable", "Unavailable"),
+          this.label("retry", "Retry"),
+          () => void this.load(),
+        );
+      // Keep the primary prerendered view until its controller is ready.
       return nothing;
     }
     const appliedCount = Object.values(this.facets).reduce((sum, values) => sum + values.length, 0);
@@ -2509,7 +2572,13 @@ export class CatalogScreen extends LitElement {
       this.requestUpdate();
       this.syncUrl();
     };
-    const options: Array<{ key: string; label: string; image: string; tier: "theory" | "current" | "band"; band: number }> = [
+    const options: Array<{
+      key: string;
+      label: string;
+      image: string;
+      tier: "theory" | "current" | "band";
+      band: number;
+    }> = [
       { key: "theory", label: this.label("metaTierTheory", "Theory"), image: "", tier: "theory", band: 0 },
       { key: "current", label: this.label("metaTierCurrent", "Current"), image: "", tier: "current", band: 0 },
       ...bands.map((band) => ({
@@ -2532,11 +2601,13 @@ export class CatalogScreen extends LitElement {
               title=${`${option.label}${option.tier === "band" ? ` · ${rows.filter((row) => Number(row.bandId || 0) === option.band).length}` : ""}`}
               @click=${() => select(option.tier, option.band)}
             >
-              ${option.image
-                ? html`
-                    <img src=${option.image} alt=${option.label} />
-                  `
-                : option.label}
+              ${
+                option.image
+                  ? html`
+                      <img src=${option.image} alt=${option.label} />
+                    `
+                  : option.label
+              }
             </button>
           `,
         )}
@@ -3201,9 +3272,9 @@ export class CatalogScreen extends LitElement {
     const row = this.profile.perDifficulty ? rows[0] : this.chartRow(item);
     const difficulty = String(row.difficultyName || "").toLowerCase();
     if (!row.file || !["easy", "normal", "hard", "expert", "master"].includes(difficulty)) return "";
-    const server = currentReleaseServer();
+    const server = this.dataServer();
     const song = String(Number(item.musicId || 0));
-    return `${SONOLUS_SERVER_LINK}/levels/release-level-${server.length}-${server}-${song.length}-${song}-${difficulty.length}-${difficulty}`;
+    return `${SONOLUS_SERVER_LINK}/levels/${releaseChartLevelName(server, song, difficulty)}`;
   }
   private chartPageTitle(item: Item) {
     const chart = this.chartRow(item);
@@ -3579,20 +3650,20 @@ export class CatalogScreen extends LitElement {
     return fold(
       label,
       upgradeCost({
-      label,
-      from: Math.max(0, level - 1),
-      to: level,
-      locale: this.settings.locale,
-      items: rows
-        .filter((row) => Number(row.level) === level)
-        .map((row) => {
-          const item = row.item as Item | undefined;
-          return {
-            name: this.localized(item?.name) || this.label("required", "Required"),
-            count: Number(row.count || 0),
-            image: String(item?.image || ""),
-          };
-        }),
+        label,
+        from: Math.max(0, level - 1),
+        to: level,
+        locale: this.settings.locale,
+        items: rows
+          .filter((row) => Number(row.level) === level)
+          .map((row) => {
+            const item = row.item as Item | undefined;
+            return {
+              name: this.localized(item?.name) || this.label("required", "Required"),
+              count: Number(row.count || 0),
+              image: String(item?.image || ""),
+            };
+          }),
       }),
     );
   }

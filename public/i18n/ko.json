@@ -2153,5 +2153,33 @@
   "metaEffCurrent": "현실 덱 효율",
   "metaTier": "참조 덱",
   "metaTierTheorySub": "이상적 덱",
-  "metaTierCurrentSub": "보유 카드 풀"
+  "metaTierCurrentSub": "보유 카드 풀",
+  "searchPage": {
+    "placeholder": "자료와 스토리, 커뮤니티 검색",
+    "hint": "곡, 캐릭터, 스토리 대사, 가이드, 커뮤니티 게시물을 찾아보세요."
+  },
+  "system": {
+    "eventRewards": "이벤트 보상",
+    "achievementRewards": "누적 포인트 보상",
+    "boxGachaRewards": "박스 보상",
+    "rankingRewards": "랭킹 보상",
+    "liveEventRewards": "라이브 보상",
+    "challengeRewards": "챌린지 보상",
+    "loopRewards": "반복 보상",
+    "rewardUnavailable": "보상 데이터 없음",
+    "eventWindow": "이벤트 기간",
+    "displayEnd": "표시 종료",
+    "eventRankings": "스코어 랭크와 이벤트 아이템",
+    "liveRanking": "일반 라이브",
+    "challengeRanking": "챌린지 라이브",
+    "loopStart": "시작 포인트",
+    "eventDetailsUnavailable": "연결된 콘텐츠 없음",
+    "eventEffects": "이벤트 보너스",
+    "eventEffect": "보너스",
+    "eventLinks": "이벤트 콘텐츠",
+    "eventItem": "이벤트 아이템",
+    "eventSong": "이벤트 곡",
+    "storyEpisode": "스토리 에피소드",
+    "goal": "목표"
+  }
 }

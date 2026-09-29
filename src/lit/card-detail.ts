@@ -1,14 +1,26 @@
 import { html, nothing } from "lit";
 import "../styles/card-detail.css";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
-import { entityHref, parseResourceRoute, returnStateFromLocation } from "../lib/resource-route";
-import { readReleaseServer } from "../lib/release-server";
-import type { Locale } from "../i18n/locales";
 
 type Item = Record<string, unknown>;
 type Controller = Record<string, any>;
 
 export function cardControlData(c: Controller, item: Item) {
+  const selectValue = (values: number[], current: unknown) => {
+    if (!values.length) {
+      const fallback = Number(current);
+      return Number.isFinite(fallback) && fallback > 0 ? fallback : 1;
+    }
+    const value = Number(current);
+    if (!Number.isFinite(value)) return values.at(-1) || 1;
+    if (value <= values[0]) return values[0];
+    if (value >= values.at(-1)!) return values.at(-1) || 1;
+    return values.includes(value)
+      ? value
+      : values.reduce((closest, candidate) =>
+          Math.abs(candidate - value) < Math.abs(closest - value) ? candidate : closest,
+        );
+  };
   const support = c.profile.presentation === "support";
   const view = support ? "support-card-levels" : "member-card-levels";
   const levelGroup = Number(support ? item.supportCardLevelGroup : item.memberCardLevelGroup);
@@ -36,6 +48,15 @@ export function cardControlData(c: Controller, item: Item) {
     c.uniqueNumbers((Array.isArray(value?.effects) ? (value.effects as Item[]) : []).map((effect) => effect.level));
   const live = skillLevels(skill("live"));
   const gekisou = skillLevels(skill("gekisou"));
+  // Master progression values are authored as game values (1..N). The
+  // slider uses zero-based indices only at render time. Clamp stale query
+  // values here so an injected `training=0`, `level=70` at stage 1, etc.
+  // cannot select a row outside the card's authored progression.
+  c.detailTraining = selectValue(training, c.detailTraining);
+  c.detailAwakening = selectValue(awakening, c.detailAwakening);
+  c.detailRank = selectValue(rank, c.detailRank);
+  c.detailLiveLevel = selectValue(live, c.detailLiveLevel);
+  c.detailGekisouLevel = selectValue(gekisou, c.detailGekisouLevel);
   const stage = c.detailTraining || training.at(-1) || 0;
   const memberCap = c
     .progressionRows("memberCardLevelLimits")
@@ -45,6 +66,7 @@ export function cardControlData(c: Controller, item: Item) {
   const levels = c
     .uniqueNumbers(levelRows.map((row: Item) => row.level))
     .filter((level: number) => !cap || level <= cap);
+  c.detailLevel = selectValue(levels, c.detailLevel);
   return { support, levelRows, awakeRows, rankRows, supportRankRows, training, awakening, rank, live, gekisou, levels };
 }
 
@@ -211,20 +233,7 @@ export function renderCardRelations(c: Controller, item: Item) {
               const character = c.character(id);
               const image = String(character?.faceImage || character?.thumbnailImage || "");
               return html`
-                <a
-                  href=${(() => {
-                    const current = parseResourceRoute(location.pathname);
-                    const locale = (current?.locale || document.documentElement.dataset.locale || "ja") as Locale;
-                    const server = current?.server || readReleaseServer();
-                    return entityHref({
-                      server,
-                      locale,
-                      kind: "characters",
-                      id: String(id),
-                      returnTo: returnStateFromLocation(location.pathname, location.search, "characters"),
-                    });
-                  })()}
-                >
+                <a href=${c.relatedEntityHref("characters", String(id))}>
                   ${
                     image
                       ? html`

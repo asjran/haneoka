@@ -11,20 +11,16 @@ import { tile } from "./ui/tile";
 import { storyCastMedia } from "./ui/story-media";
 import { LazyImages, nextImageCandidate } from "./ui/lazy-images";
 import { rovingKeydown } from "./ui/controls";
-import {
-  entityHref,
-  parseResourceRoute,
-  returnStateFromLocation,
-  storyCollectionPath,
-  type ResourceKind,
-} from "../lib/resource-route";
-import { readReleaseServer } from "../lib/release-server";
+import { storyCollectionPath, type ResourceKind } from "../lib/resource-route";
 import type { Locale } from "../i18n/locales";
 import "../styles/character-detail.css";
 
 type Item = Record<string, unknown>;
 type Field = { key: string; value: string };
 interface Controller {
+  readonly contentLocale: string;
+  readonly contentServer: import("../lib/release-server").ReleaseServer;
+  relatedEntityHref(kind: ResourceKind, id: string, query?: Record<string, string>): string;
   detailAux: Item;
   renderDetailMedia(item: Item): unknown;
   label(key: string, fallback: string): string;
@@ -70,27 +66,16 @@ const missionDescription = (template: string, values: Record<string, string>): s
 };
 
 /** The link-story collection opened on one pair; the screen reads `lead` and `second`. */
-const linkStoriesHref = (lead: number, second: number): string => {
-  const current = parseResourceRoute(location.pathname);
-  const locale = (current?.locale || document.documentElement.dataset.locale || "ja") as Locale;
-  const server = current?.server || readReleaseServer();
+const linkStoriesHref = (c: Controller, lead: number, second: number): string => {
   const query = new URLSearchParams({ lead: String(lead), ...(second ? { second: String(second) } : {}) });
-  return `${storyCollectionPath({ server, locale, mode: "link" })}?${query}`;
+  return `${storyCollectionPath({ server: c.contentServer, locale: c.contentLocale as Locale, mode: "link" })}?${query}`;
 };
-
-const resourceHrefForCurrent = (kind: ResourceKind, id: string, query?: Record<string, string>): string => {
-  const current = parseResourceRoute(location.pathname);
-  const locale = (current?.locale || document.documentElement.dataset.locale || "ja") as Locale;
-  const server = current?.server || readReleaseServer();
-  return entityHref({
-    server,
-    locale,
-    kind,
-    id,
-    returnTo: returnStateFromLocation(location.pathname, location.search, kind),
-    query,
-  });
-};
+const resourceHrefForCurrent = (
+  c: Controller,
+  kind: ResourceKind,
+  id: string,
+  query?: Record<string, string>,
+): string => c.relatedEntityHref(kind, id, query);
 
 export class CharacterDetailArchive extends LitElement {
   static properties = {
@@ -118,6 +103,17 @@ export class CharacterDetailArchive extends LitElement {
   }
   createRenderRoot() {
     return this;
+  }
+  protected override shouldUpdate(changed: import("lit").PropertyValues): boolean {
+    if (this.hasAttribute("data-prerendered") && !this.item.characterId) return false;
+    return super.shouldUpdate(changed);
+  }
+  protected override update(changed: import("lit").PropertyValues): void {
+    if (this.hasAttribute("data-prerendered")) {
+      this.removeAttribute("data-prerendered");
+      this.replaceChildren();
+    }
+    super.update(changed);
   }
   private lazyImages = new LazyImages();
   protected updated() {
@@ -265,8 +261,8 @@ export class CharacterDetailArchive extends LitElement {
       return modelTile({
         model: entry,
         character: c.character(characterId),
-        locale: document.documentElement.dataset.locale || "ja",
-        href: resourceHrefForCurrent("live2d", c.relatedId(entry, route)),
+        locale: this.controller.contentLocale,
+        href: resourceHrefForCurrent(c, "live2d", c.relatedId(entry, route)),
       });
     const kind =
       route === "member-cards"
@@ -321,17 +317,14 @@ export class CharacterDetailArchive extends LitElement {
       title: c.relatedTitle(entry, route),
       titleLanguage:
         route === "songs"
-          ? songTitle(entry, document.documentElement.dataset.locale || "ja").locale
-          : resolveLocalizedText(
-              entry.prefix || entry.name || entry.title,
-              document.documentElement.dataset.locale || "ja",
-            ).locale,
+          ? songTitle(entry, this.controller.contentLocale).locale
+          : resolveLocalizedText(entry.prefix || entry.name || entry.title, this.controller.contentLocale).locale,
       subtitle: description,
       adornment,
       label: c.relatedTitle(entry, route),
       image: source,
       imageCandidates,
-      href: resourceHrefForCurrent(hrefKind, c.relatedId(entry, route), hrefQuery),
+      href: resourceHrefForCurrent(c, hrefKind, c.relatedId(entry, route), hrefQuery),
       fit: "contain",
       natural:
         route !== "live2d" &&
@@ -409,7 +402,7 @@ export class CharacterDetailArchive extends LitElement {
       if (active === "profile")
         return characterProfile({
           item,
-          locale: document.documentElement.dataset.locale || "ja",
+          locale: this.controller.contentLocale,
           name: c.itemTitle(item),
           part: String(item.bandPart || ""),
           description: c.localized(item.description),
@@ -423,7 +416,7 @@ export class CharacterDetailArchive extends LitElement {
             .map((field) => ({
               label: c.detailLabel(field.key),
               value: field.value,
-              language: resolveLocalizedText(item[field.key], document.documentElement.dataset.locale || "ja").locale,
+              language: resolveLocalizedText(item[field.key], this.controller.contentLocale).locale,
             })),
         });
       if (active === "cards")
@@ -453,7 +446,7 @@ export class CharacterDetailArchive extends LitElement {
             .entries=${data.voices}
             .characters=${values(c.detailAux.characters)}
             .characterId=${id}
-            locale=${document.documentElement.dataset.locale || "ja"}
+            locale=${this.controller.contentLocale}
           ></character-voices>
         `;
       if (active === "friendships") {
@@ -471,7 +464,7 @@ export class CharacterDetailArchive extends LitElement {
             ${this.sectionHeading(c.label("characterBonds", "Character Bonds"), "friendships", data.friendships.length)}
             <div class="character-friendship-workspace">
               ${characterPair({
-                locale: document.documentElement.dataset.locale || "ja",
+                locale: this.controller.contentLocale,
                 characters: values(c.detailAux.characters).map((character) => ({
                   value: String(character.characterId),
                   label: c.characterName(Number(character.characterId)),
@@ -494,7 +487,7 @@ export class CharacterDetailArchive extends LitElement {
               ${
                 friendship
                   ? html`
-                      <a class="character-friendship-banner" href=${linkStoriesHref(id, partnerId)}>
+                      <a class="character-friendship-banner" href=${linkStoriesHref(c, id, partnerId)}>
                         ${
                           friendship.storyBanner
                             ? html`

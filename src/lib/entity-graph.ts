@@ -1,19 +1,4 @@
-/**
- * Build-time Master relationship graph for catalog entity pages.
- *
- * The interactive detail used to fetch the whole collection plus every
- * related collection (characters, bands, items, progression, skill
- * references, stories, missions…) and join them in the browser — up to 15
- * documents and several megabytes for one card or character. This module
- * performs those joins once per build against the release-pinned catalog and
- * emits, per entity, only the rows that entity's detail reads.
- *
- * Payloads are locale-independent (localized fields stay as the release's
- * per-locale tuples) so one file serves all five locale pages, and they are
- * content-addressed so an entity whose data did not change keeps its URL and
- * its pages stay byte-identical across releases.
- */
-import { createHash } from "node:crypto";
+/** Build-time, release-pinned data closures consumed by static and interactive entity views. */
 import {
   asRecord,
   fetchOptionalStaticCatalog,
@@ -496,10 +481,6 @@ async function friendshipRewards(graph: Graph, aux: RecordValue): Promise<void> 
   }
 }
 
-export function entityPayloadPath(server: ReleaseServer, resource: string, id: string, hash: string): string {
-  return `/entity-data/v1/${server}/entities/${resource}/${encodeURIComponent(id)}.${hash}.json`;
-}
-
 /** Where each collection keeps its entity map, and which field is the entity id (as catalog-screen reads them). */
 const COLLECTION_SHAPE: Record<EntityPayloadResource, { document?: string; id: string; path?: string }> = {
   cards: { id: "cardId" },
@@ -613,11 +594,11 @@ export async function buildEntityPayloads(
       ).length;
       deferred = {
         voices: {
-          url: `/api/v1/servers/${encodeURIComponent(server)}/voices/relations/character/${encodeURIComponent(id)}`,
+          url: `/api/v1/servers/${encodeURIComponent(server)}/voices/relations/character/${encodeURIComponent(id)}?release=${graph.release.releaseId}`,
           count: voiceCount,
         },
         "character-missions": {
-          url: `/api/v1/servers/${encodeURIComponent(server)}/character-missions`,
+          url: `/api/v1/servers/${encodeURIComponent(server)}/character-missions?release=${graph.release.releaseId}`,
           count: graph.missionCount,
         },
       };
@@ -650,7 +631,7 @@ export async function buildEntityPayloads(
  * A story page's payload: the episode summary plus the collection context its
  * detail reads — its chapter and the chapter's episodes (for "continue to
  * the next story"), the home spot it is told at, and the cast — instead of
- * the whole story index. The transcript itself stays in `/stories/{id}`.
+ * the whole story index. The complete episode script is included for text and playback.
  */
 export interface StoryPayload {
   schema: typeof STORY_PAYLOAD_SCHEMA;
@@ -663,6 +644,7 @@ export interface StoryPayload {
   homeSpots: RecordValue[];
   characters: Rows;
   bands: Rows;
+  storyEvents: Rows;
 }
 
 export const STORY_PAYLOAD_SCHEMA = "haneoka-story-payload-v1";
@@ -677,6 +659,7 @@ async function buildStoryPayloads(server: ReleaseServer, modes: ReadonlyMap<stri
   for (const spot of spots)
     for (const talk of rows(spot.talks)) if (talk.storyKey) spotOf.set(String(talk.storyKey), spot);
   const output = new Map<string, StoryPayload>();
+  const details = await fetchStaticCatalogBatch("stories", [...modes.keys()], server, graph.release);
   for (const [id, mode] of modes) {
     const episode = asRecord(episodes[id]);
     if (!episode) continue;
@@ -694,7 +677,7 @@ async function buildStoryPayloads(server: ReleaseServer, modes: ReadonlyMap<stri
     const successor = sequence[sequence.indexOf(id) + 1];
     const kept = order.filter((key) => key === id || key === successor);
     const spot = spotOf.get(id);
-    const included: Record<string, RecordValue> = { [id]: episode };
+    const included: Record<string, RecordValue> = { [id]: { ...episode, ...details.get(id) } };
     if (successor) included[successor] = episodes[successor] as RecordValue;
     const characterIds = new Set([
       ...Object.values(included).flatMap((row) => characterIdsOf(row)),
@@ -717,79 +700,44 @@ async function buildStoryPayloads(server: ReleaseServer, modes: ReadonlyMap<stri
       homeSpots: spot ? [spot] : [],
       characters: compactCharacters(graph, characterIds),
       bands: compactBands(graph, bandIds),
+      storyEvents: rows(graph.stories.storyEvents).filter((row) => String(row.chapterId) === String(episode.chapterId)),
     });
   }
   return output;
 }
 
-export interface EmittedEntityPayload {
-  resource: EntityPayloadResource | "stories";
-  id: string;
-  href: string;
-  /** Path parameter of the endpoint: `{id}.{hash}`. */
-  file: string;
-  body: string;
-}
-
-const emitted = new Map<ReleaseServer, Promise<Map<string, EmittedEntityPayload>>>();
-
+type PageData = EntityPayload | StoryPayload;
+const pageData = new Map<ReleaseServer, Promise<Map<string, PageData>>>();
 const payloadKey = (resource: string, id: string) => `${resource}\u0000${id}`;
 
-/**
- * Every catalog entity payload of a server, serialized and content-addressed.
- * Memoized per build so the page route (which needs the URL) and the
- * endpoint (which writes the body) share one computation.
- */
-export function catalogEntityPayloads(server: ReleaseServer): Promise<Map<string, EmittedEntityPayload>> {
-  let pending = emitted.get(server);
-  if (!pending) {
-    pending = (async () => {
-      const pages = await searchableCatalogPages(server);
-      const output = new Map<string, EmittedEntityPayload>();
-      for (const resource of ENTITY_PAYLOAD_RESOURCES) {
-        const ids = unique(pages.filter((page) => page.resource === resource).map((page) => page.id));
-        if (!ids.length) continue;
-        const payloads = await buildEntityPayloads(server, resource, ids);
-        for (const [id, payload] of payloads) {
-          const body = JSON.stringify(payload);
-          const hash = createHash("sha256").update(body).digest("hex").slice(0, 16);
-          output.set(payloadKey(resource, id), {
-            resource,
-            id,
-            href: entityPayloadPath(server, resource, id, hash),
-            file: `${id}.${hash}`,
-            body,
-          });
-        }
-      }
-      const stories = await searchableStoryPages(server);
-      const storyPayloads = await buildStoryPayloads(server, new Map(stories.map((page) => [page.storyId, page.mode])));
-      for (const [id, payload] of storyPayloads) {
-        const body = JSON.stringify(payload);
-        const hash = createHash("sha256").update(body).digest("hex").slice(0, 16);
-        output.set(payloadKey("stories", id), {
-          resource: "stories",
-          id,
-          href: entityPayloadPath(server, "stories", id, hash),
-          file: `${id}.${hash}`,
-          body,
-        });
-      }
-      return output;
-    })();
-    emitted.set(server, pending);
-    pending.catch(() => emitted.delete(server));
+async function buildPageData(server: ReleaseServer): Promise<Map<string, PageData>> {
+  const pages = await searchableCatalogPages(server);
+  const output = new Map<string, PageData>();
+  for (const resource of ENTITY_PAYLOAD_RESOURCES) {
+    const ids = unique(pages.filter((page) => page.resource === resource).map((page) => page.id));
+    if (!ids.length) continue;
+    for (const [id, payload] of await buildEntityPayloads(server, resource, ids)) {
+      output.set(payloadKey(resource, id), payload);
+    }
   }
-  return pending;
+  const stories = await searchableStoryPages(server);
+  const storyPayloads = await buildStoryPayloads(server, new Map(stories.map((page) => [page.storyId, page.mode])));
+  for (const [id, payload] of storyPayloads) output.set(payloadKey("stories", id), payload);
+  return output;
 }
 
-export async function catalogEntityPayloadHref(
+export async function catalogEntityData(
   server: ReleaseServer,
   resource: string,
   id: string,
-): Promise<string | undefined> {
-  if (!isEntityPayloadResource(resource) && resource !== "stories") return undefined;
-  return (await catalogEntityPayloads(server)).get(payloadKey(resource, id))?.href;
+): Promise<PageData | undefined> {
+  let pending = pageData.get(server);
+  if (!pending) {
+    pending = buildPageData(server);
+    pageData.set(server, pending);
+    pending.catch(() => pageData.delete(server));
+  }
+  return (await pending).get(payloadKey(resource, id));
 }
 
 /** Servers whose entity pages this build renders (`STATIC_RESOURCE_SERVERS`, default intl). */

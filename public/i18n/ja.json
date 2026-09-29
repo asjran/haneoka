@@ -2153,5 +2153,33 @@
   "metaEffCurrent": "現実デッキ効率",
   "metaTier": "参照デッキ",
   "metaTierTheorySub": "理想デッキ",
-  "metaTierCurrentSub": "所持カードプール"
+  "metaTierCurrentSub": "所持カードプール",
+  "searchPage": {
+    "placeholder": "資料・物語・コミュニティを検索",
+    "hint": "楽曲、キャラクター、物語の台詞、ガイド、コミュニティの投稿を検索できます。"
+  },
+  "system": {
+    "eventRewards": "イベント報酬",
+    "achievementRewards": "累計ポイント報酬",
+    "boxGachaRewards": "ボックス報酬",
+    "rankingRewards": "ランキング報酬",
+    "liveEventRewards": "ライブ報酬",
+    "challengeRewards": "チャレンジ報酬",
+    "loopRewards": "繰り返し報酬",
+    "rewardUnavailable": "報酬データなし",
+    "eventWindow": "イベント期間",
+    "displayEnd": "表示終了",
+    "eventRankings": "スコアランクとイベントアイテム",
+    "liveRanking": "通常ライブ",
+    "challengeRanking": "チャレンジライブ",
+    "loopStart": "開始ポイント",
+    "eventDetailsUnavailable": "関連コンテンツなし",
+    "eventEffects": "イベントボーナス",
+    "eventEffect": "ボーナス",
+    "eventLinks": "イベント内容",
+    "eventItem": "イベントアイテム",
+    "eventSong": "イベント楽曲",
+    "storyEpisode": "ストーリー",
+    "goal": "目標"
+  }
 }

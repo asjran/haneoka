@@ -1,7 +1,6 @@
 ---
 import Base from "../../layouts/Base.astro";
 import AppShell from "../AppShell.astro";
-import Icon from "../Icon.astro";
 import { catalogConfig } from "../../config/catalog-labels";
 import { findRoute, titleOf } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
@@ -15,10 +14,11 @@ import {
 } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
 import type { SearchableCatalogPage } from "../../lib/searchable-catalog";
-import { localeTaggedCandidates } from "../../lit/ui/lazy-images";
 import "../../lit/catalog-screen";
 import "../../styles/catalog.css";
-import "../../styles/static-detail.css";
+import { renderCatalog } from "../../server/render-catalog";
+import { catalogEntityData, type EntityPayload } from "../../lib/entity-graph";
+import { serializePageData } from "../../lib/page-data";
 
 interface Props {
   page: SearchableCatalogPage;
@@ -29,10 +29,8 @@ interface Props {
   previous?: EntityLink;
   next?: EntityLink;
   chartPage?: boolean;
-  /** Build-time entity payload (lib/entity-graph.ts); replaces the screen's collection fetches. */
-  payloadHref?: string;
 }
-const { page, locale, server = "intl", canonical = false, returnTo, previous, next, chartPage = false, payloadHref } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next, chartPage = false } = Astro.props;
 const collectionRoute = findRoute(page.route);
 if (!collectionRoute) throw new Error(`Missing route definition for ${page.route}`);
 const sectionTitle = titleOf(collectionRoute, locale);
@@ -51,11 +49,9 @@ const seoTitleValues = Object.fromEntries(
     ];
   }),
 ) as Record<Locale, string>;
-const sectionHeading = t(locale, "details", "Details");
-// The interactive detail shows the locale's own artwork; the fallback asks for
-// the same URL so a full-size image is not downloaded twice. The asset route
-// resolves a missing localized variant to its sibling or the original.
-const image = page.image ? localeTaggedCandidates(page.image, locale)[0] : "";
+const payload = await catalogEntityData(server,page.resource,page.id) as EntityPayload | undefined;
+if(!payload)throw new Error(`Missing page data: ${server}/${page.resource}/${page.id}`);
+const pageDataId=`catalog-page-${page.resource}-${page.id}`;
 const screenConfig = catalogConfig({
   resource: page.resource,
   locale,
@@ -63,9 +59,9 @@ const screenConfig = catalogConfig({
   entityKind: kind,
   ...(canonical ? { entityId: page.id, entityContext: true } : {}),
   ...(chartPage ? { chartPage: true } : {}),
-  ...(canonical && payloadHref ? { payload: payloadHref } : {}),
   aspectRatio: page.resource === "cards" ? "224 / 294" : "1",
 });
+const body = await renderCatalog(screenConfig,payload,locale);
 const entity = canonical
   ? {
       title: page.titles[locale],
@@ -87,7 +83,6 @@ const entity = canonical
   seoTitleValues={seoTitleValues}
   seoDescriptionValues={page.descriptions}
 >
-  {canonical && payloadHref && <link slot="head" rel="preload" as="fetch" href={payloadHref} crossorigin="anonymous" />}
   <AppShell
     locale={locale}
     route={page.route}
@@ -96,67 +91,10 @@ const entity = canonical
     titleKey={canonical ? undefined : collectionRoute.titleKey}
     entity={entity}
   >
-    <catalog-screen config={screenConfig}></catalog-screen>
-    <article
-      class:list={canonical ? ["static-detail", `static-detail--${page.kind}`] : ["sheet", "sheet--detail", `sheet--detail-${page.kind}`, "is-open", "static-detail"]}
-      role={canonical ? undefined : "dialog"}
-      aria-modal={canonical ? undefined : "true"}
-      aria-labelledby={canonical ? undefined : `static-detail-${page.id}-title`}
-      data-static-detail
-      style={page.accent ? `--entity-accent:${page.accent}` : undefined}
-    >
-      <header class="sheet__header">
-        {!canonical && (
-          <>
-            <a class="icon-button" href={backHref} aria-label={t(locale, "close", "Close")}>
-              <Icon name="arrow_back" />
-            </a>
-            <span class="sheet__title" id={`static-detail-${page.id}-title`}>
-              <strong lang={page.titles[locale] === page.title ? "ja" : undefined}>{page.titles[locale]}</strong>
-              {page.subtitles[locale] && <small>{page.subtitles[locale]}</small>}
-            </span>
-            <span class="sheet__actions"></span>
-          </>
-        )}
-        {canonical && page.subtitles[locale] && <p class="static-detail__subtitle">{page.subtitles[locale]}</p>}
-      </header>
-      <div class="sheet__body">
-        <div class="detail-layout">
-          <div class="detail-layout__media">
-            {image && (
-              <div class="image-gallery">
-                <div class="image-gallery__stage">
-                  <img src={image} alt={page.titles[locale]} decoding="async" />
-                </div>
-              </div>
-            )}
-          </div>
-          <div class="detail-layout__content pane-sections">
-            {page.bodies[locale] && <p class="detail-description">{page.bodies[locale]}</p>}
-            {page.facts[locale].length > 0 && (
-              <section class="detail-section detail-section--facts">
-                <h2 class="detail-section-title detail-section-title--h2">{sectionHeading}</h2>
-                <dl class="spec-list spec-list--split">
-                  {page.facts[locale].map((fact) => (
-                    <div>
-                      <dt>{t(locale, fact.key, fact.key)}</dt>
-                      <dd>{fact.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </section>
-            )}
-          </div>
-        </div>
-      </div>
-    </article>
+    <script type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    <catalog-screen config={screenConfig} data-prerendered data-page-data={pageDataId} set:html={body}></catalog-screen>
   </AppShell>
 </Base>
 <script>
   import "../../lit/catalog-screen";
 </script>
-<style is:global>
-  catalog-screen[data-entity-ready="true"] ~ [data-static-detail] {
-    display: none;
-  }
-</style>

@@ -6,10 +6,9 @@ import { LOCALES, type Locale } from "../../i18n/locales";
 import type { SearchableHelpTopic } from "../../lib/searchable-help";
 import { resourcePath, type EntityLink } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
-import "../../lit/help-workspace";
 import "../../styles/catalog.css";
 import "../../styles/help.css";
-import "../../styles/static-detail.css";
+
 
 interface Props {
   topic: SearchableHelpTopic;
@@ -67,24 +66,15 @@ const seoTitleValues = Object.fromEntries(
         : undefined
     }
   >
-    <help-workspace locale={locale} entity-id={canonical ? topic.id : undefined}></help-workspace>
-    <article class="static-detail" data-static-detail>
-      <header class="static-detail__header">
-        {!canonical && <a class="static-detail__back" href={resourcePath({ server, locale, kind: "help" })}>{sectionTitle}</a>}
+    <article class="page help-page help-topic-page">
+      <header class="help-topic-header">
+        {!canonical && <a class="button button--text" href={resourcePath({ server, locale, kind: "help" })}>{sectionTitle}</a>}
         {!canonical && <h1>{topic.titles[locale]}</h1>}
         {topic.categoryTitles[locale] && topic.categoryTitles[locale] !== topic.titles[locale] && (
-          <p class="static-detail__subtitle">{topic.categoryTitles[locale]}</p>
+          <p class="detail-description">{topic.categoryTitles[locale]}</p>
         )}
       </header>
-      <p class="static-detail__body">{topic.descriptions[locale]}</p>
+      <p class="detail-long-copy">{topic.descriptions[locale]}</p>
     </article>
   </AppShell>
 </Base>
-<script>
-  import "../../lit/help-workspace";
-</script>
-<style is:global>
-  help-workspace[data-entity-ready="true"] ~ [data-static-detail] {
-    display: none;
-  }
-</style>

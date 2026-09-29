@@ -20,7 +20,6 @@ const DEFAULT_MAX_CHART_BYTES = 4 * 1024 * 1024;
 const RELEASE_CHART_DATA_ID_PREFIX = "release:";
 const RELEASE_ID_PATTERN = /^r-[a-f0-9]{20}$/u;
 const RELEASE_SERVER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/u;
-const SONOLUS_NAME_PART_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/u;
 const SHA1_PATTERN = /^[a-f0-9]{40}$/u;
 
 export type ReleaseJsonReader = (releasePath: string) => Promise<unknown | null>;
@@ -130,15 +129,6 @@ function releaseChartProvenance(value: ReleaseChartProvenance): ReleaseChartProv
   return { releaseId: value.releaseId, server: value.server };
 }
 
-function sonolusNamePart(value: string | number, label: string): string {
-  if (typeof value !== "string" && (typeof value !== "number" || !Number.isFinite(value))) {
-    throw new TypeError(`Invalid Sonolus ${label}`);
-  }
-  const part = String(value).trim();
-  if (!SONOLUS_NAME_PART_PATTERN.test(part)) throw new TypeError(`Invalid Sonolus ${label}`);
-  return part;
-}
-
 /**
  * Returns a stable, collision-free level name for a chart in one logical
  * resource server. The immutable snapshot is carried by the chart data ID so
@@ -148,14 +138,12 @@ export function releaseChartLevelName(releaseServer: string, songId: string | nu
   if (typeof releaseServer !== "string" || !RELEASE_SERVER_PATTERN.test(releaseServer)) {
     throw new TypeError("Invalid release server");
   }
+  const id = String(songId).trim();
+  if (!/^\d{1,16}$/u.test(id)) throw new TypeError("Invalid song ID");
   if (typeof difficulty !== "string") throw new TypeError("Invalid Sonolus difficulty");
-  const normalizedSongId = sonolusNamePart(songId, "song ID");
-  const normalizedDifficulty = sonolusNamePart(difficulty.toLocaleLowerCase("en-US"), "difficulty");
-  // Length prefixes make the tuple unambiguous even when a valid segment
-  // contains hyphens, while keeping the result inside Sonolus's name alphabet.
-  const name = `release-level-${releaseServer.length}-${releaseServer}-${normalizedSongId.length}-${normalizedSongId}-${normalizedDifficulty.length}-${normalizedDifficulty}`;
-  if (name.length > 255) throw new TypeError("Sonolus level name is too long");
-  return name;
+  const level = difficulty.toLowerCase();
+  if (!["easy", "normal", "hard", "expert", "master", "special"].includes(level)) throw new TypeError("Invalid Sonolus difficulty");
+  return `${releaseServer}_${id}_${level}`;
 }
 
 /** Encodes an immutable release and its release-relative chart source path. */
