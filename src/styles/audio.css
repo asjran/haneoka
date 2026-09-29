@@ -330,6 +330,10 @@
     background: transparent;
     box-shadow: none;
   }
+  /* The rail tile closes the sidebar: keep a breath above it, flush below. */
+  .nav__rail-player {
+    padding-bottom: 16px;
+  }
   .player--docked .player__identity {
     flex: 1;
     padding: 4px;
@@ -339,7 +343,7 @@
     position: relative;
     width: 56px;
     height: 56px;
-    margin: 0 auto 12px;
+    margin: 0 auto;
     padding: 0;
     place-items: center;
     border-radius: var(--md-sys-shape-corner-large);
