@@ -1047,9 +1047,7 @@ export class HomeDashboard extends LitElement {
         <footer class="home-footer">
           <p>haneoka · ${this.text("fanArchive", "Unofficial archive and community")}</p>
           <nav aria-label=${this.text("legalNavigation", "Policies and project information")}>
-            <a class="text-link" href="https://bdon.moe" target="_blank" rel="noreferrer">
-              ${icon("favorite", 14)} MoeNotes ${icon("open_in_new", 14)}
-            </a>
+            <a class="text-link" href="https://bdon.moe" target="_blank" rel="noreferrer">${icon("favorite", 14)} MoeNotes ${icon("open_in_new", 14)}</a>
             <a class="text-link" href="/privacy">${this.text("privacy", "Privacy Policy")}</a>
             <a class="text-link" href="/terms">${this.text("terms", "Terms of Use")}</a>
             <a class="text-link" href="/about">${this.text("about", "About")}</a>

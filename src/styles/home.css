@@ -367,7 +367,12 @@
     flex-wrap: wrap;
     gap: 16px;
   }
+  /* Inline-flex keeps the reset's block svgs (favorite / open_in_new marks)
+   * on the link's own line instead of stacking into one line per icon. */
   .home-footer .text-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: inherit;
     font-weight: 400;
   }
