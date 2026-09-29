@@ -43,6 +43,10 @@ USM_ENCODING_FALLBACKS = ("cp932", "gb18030", "big5", "cp949", "latin-1")
 COMPATIBLE_TRANSFORM_IDS = {
     "8ad243295cc9c0a9b8e77be08d8ed1f504e0b15950674e86be8ae8e3d6300b57",
     "ec14e1a80a83abd5ed9cadcf5fb59e107544c69dc6e09496165a0110f44001ad",
+    # Missing-file tolerance for declared outputs does not change any decoded
+    # or muxed byte; records still adopt only when their outputs match the
+    # base release manifest exactly.
+    "b0bdf50c6a22701e23be88fc07c239ac01c33f943c4eebd35c8f3a269b6c52d9",
 }
 COMPATIBLE_HCA_KEY_SHA256 = "cd0b2ad6de5baa070f1c00baa33658b493a138919f00a4ed8418a7ff6af6ba2f"
 RestoreOutput = Callable[[dict[str, Any], Path], None]
@@ -946,13 +950,17 @@ def _master_rows(build_root: Path, table: str) -> list[dict[str, Any]]:
 
 
 def _runtime_file(build_root: Path, output: dict[str, Any]) -> Path:
+    """Resolve one CRI runtime output to its build-tree path.
+
+    Tolerates an absent file: declared outputs of adopted records exist only
+    in the base release, and every caller either probes/restores the file or
+    rejects the missing case itself.
+    """
+
     relative = PurePosixPath(str(output.get("path") or ""))
     if relative.parts[:1] != ("runtime",) or ".." in relative.parts:
         raise ValueError(f"invalid CRI runtime output path: {relative}")
-    path = build_root.joinpath(*relative.parts)
-    if not path.is_file():
-        raise FileNotFoundError(f"CRI runtime output is missing: {path}")
-    return path
+    return build_root.joinpath(*relative.parts)
 
 
 def _probe_streams(path: Path) -> dict[str, Any]:
