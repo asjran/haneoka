@@ -552,7 +552,13 @@ export class StoryWorkspace extends LitElement {
       );
     }
     const chapters = this.relevantChapters();
-    if (!chapters.length) return Object.values(this.episodes);
+    if (!chapters.length) {
+      // A release section with no chapters is simply empty — the event
+      // section before any event ships its story. The everything fallback
+      // below only serves the Bestdori worker's bare, chapter-less records.
+      if (this.origin === "release" && this.mode === "event") return [];
+      return Object.values(this.episodes);
+    }
     const seen = new Set<string>();
     return chapters.flatMap((chapter) =>
       this.chapterEpisodes(chapter).filter((episode) => {
