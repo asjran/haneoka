@@ -53,8 +53,8 @@
   {
    "name": "vega-plugin-cubism",
    "url": "https://github.com/haneoka-gakuen/vega-plugin-cubism.git",
-   "branch": "codex/cassiopeia-live2d-runtime",
-   "commit": "4e07095510df8e7e4941fa95dd52a38661f431da",
+   "branch": "main",
+   "commit": "e6fa13b546fb1a3e5a39a041649bf5ed25284827",
    "version": "0.1.0",
    "kind": "node"
   },
@@ -69,7 +69,7 @@
   {
    "name": "cassiopeia",
    "url": "https://github.com/haneoka-gakuen/cassiopeia.git",
-   "branch": "codex/judgment-and-native-effects",
+   "branch": "main",
    "commit": "40d70b3901dc0f9a84686c97f17bc410936f02f4",
    "version": "0.1.0",
    "kind": "node"
