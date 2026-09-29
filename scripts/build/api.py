@@ -1795,7 +1795,7 @@ def _score_metrics(
 def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
     score_rows = {int(row.get("_id") or 0): row for row in data.rows("MasterLiveMusicScore")}
     canonical_charts = _canonical_score_charts({
-        identity: file
+        str(identity): file
         for identity, file in (
             (
                 identity,
