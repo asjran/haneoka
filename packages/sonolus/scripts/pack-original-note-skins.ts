@@ -562,9 +562,21 @@ function addArrowAliases(
   label: "Up" | "Left" | "Right",
   arrows: NoteSkinDefinition["arrows"],
 ): void {
-  arrows.forEach((arrow, index) => {
+  // Some authored skins leave individual width tiers without a sprite
+  // (skin002's right arrow has none at maxWidth 13). The indicator must stay
+  // visible at every width, so a null tier falls forward to the nearest
+  // authored tier (and backward when only earlier tiers exist).
+  const original = arrows.map((arrow) => arrow.sprite);
+  const fallbacks = [...original];
+  for (let index = 0; index < fallbacks.length; index += 1) {
+    if (fallbacks[index]) continue;
+    const forward = original.slice(index + 1).find((sprite) => sprite) ?? null;
+    const backward = original.slice(0, index).findLast((sprite) => sprite) ?? null;
+    fallbacks[index] = forward ?? backward;
+  }
+  arrows.forEach((_, index) => {
     for (const color of ["Red", "Yellow"] as const) {
-      addAlias(sprites, sources, `Our Notes Flick Arrow ${color} ${label} ${index + 1}`, arrow.sprite);
+      addAlias(sprites, sources, `Our Notes Flick Arrow ${color} ${label} ${index + 1}`, fallbacks[index] ?? null);
     }
   });
 }
