@@ -110,7 +110,7 @@
    "name": "cassiopeia-plugin-sonolus",
    "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git",
    "branch": "main",
-   "commit": "ef67dc64c69ca64c3d6edc56bab9a46441c4132d",
+   "commit": "b73f0af50d7d650f9624b914ea7fee67dc00f81e",
    "version": "0.1.0",
    "kind": "node"
   }

@@ -107,35 +107,9 @@ try {
         destination,
       ]);
     } else if (cue === "just") {
-      // The native Just cue (MasterLiveNoteSe type 8) plays both waveform
-      // layers simultaneously at unity gain.
-      run(ffmpeg, [
-        "-nostdin",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        resolve(source, "just_01.mp3"),
-        "-i",
-        resolve(source, "just_02.mp3"),
-        "-filter_complex",
-        "[0:a][1:a]amix=inputs=2:duration=longest:normalize=0[out]",
-        "-map",
-        "[out]",
-        "-map_metadata",
-        "-1",
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
-        "-codec:a",
-        "libmp3lame",
-        "-b:a",
-        "320k",
-        "-write_xing",
-        "0",
-        destination,
-      ]);
+      // MasterLiveNoteSe group 1 maps LiveNoteSeType 8 (Just) to seId
+      // 2302001000001 = just_01 only; just_02 is referenced by no group.
+      encode(resolve(source, "just_01.mp3"), destination);
     } else {
       encode(resolve(source, `${cue}.mp3`), destination);
     }
