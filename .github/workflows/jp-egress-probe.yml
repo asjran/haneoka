@@ -38,3 +38,14 @@ jobs:
           code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -I \
             "https://static.bang-dream-on.jp/master/MasterManifest.json")
           echo "static.bang-dream-on.jp master/MasterManifest.json -> HTTP $code"
+      - name: Probe via the Cloudflare relay worker
+        run: |
+          set +e
+          printf '\x00\x00\x00\x00\x00' > /tmp/frame
+          curl -sS --max-time 30 -o /dev/null -D /tmp/relay-headers \
+            -H "content-type: application/grpc" -H "te: trailers" -H "x-platform: Android" \
+            -A "grpc-dotnet/2.66.0" --data-binary @/tmp/frame \
+            "https://haneoka-jp-version-relay.panxuc0618.workers.dev/app.announcement.AnnouncementService/GetList"
+          code=$?
+          echo "relay announcement -> curl exit $code"
+          grep -viE 'x-sirius-cred' /tmp/relay-headers || true
