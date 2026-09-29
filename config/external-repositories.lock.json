@@ -70,7 +70,7 @@
    "name": "cassiopeia",
    "url": "https://github.com/haneoka-gakuen/cassiopeia.git",
    "branch": "main",
-   "commit": "40d70b3901dc0f9a84686c97f17bc410936f02f4",
+   "commit": "754dbc7c5dbf5209005ea02205a6839305e624da",
    "version": "0.1.0",
    "kind": "node"
   },
