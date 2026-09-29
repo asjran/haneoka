@@ -14,7 +14,8 @@
   "assetVersion": {
     "catalogPath": "/asset/{version}/Android/{hash}/catalog_main.bin",
     "basicUser": "sirius",
-    "endpoint": "https://api.bang-dream-on.jp/app.announcement.AnnouncementService/GetList"
+    "endpoint": "https://api.bang-dream-on.jp/app.announcement.AnnouncementService/GetList",
+    "proxyEnv": "JP_VERSION_PROXY"
   },
   "masterVersionEndpoint": "https://api.bang-dream-on.jp/app.masterdata.MasterdataService/Version",
   "criHcaKey": "8594927479",

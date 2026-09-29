@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlsplit
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = PROJECT_ROOT / "scripts" / "config" / "servers"
 SERVER_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 HEX_64 = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -38,6 +39,7 @@ class ServerConfig:
     file: Path
     master_remote_root: str = ""
     master_version_endpoint: str = ""
+    version_proxy_env: str = ""
 
 
 def validate_server_id(value: str) -> str:
@@ -170,9 +172,12 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     asset_version = value.get("assetVersion", {})
     if not isinstance(asset_version, dict):
         raise ValueError(f"invalid assetVersion block: {file}")
-    unknown_asset_version = sorted(set(asset_version) - {"endpoint", "catalogPath", "basicUser"})
+    unknown_asset_version = sorted(set(asset_version) - {"endpoint", "catalogPath", "basicUser", "proxyEnv"})
     if unknown_asset_version:
         raise ValueError(f"unknown assetVersion fields in {file}: {unknown_asset_version}")
+    version_proxy_env = str(asset_version.get("proxyEnv", "")).strip()
+    if version_proxy_env and not ENV_NAME.fullmatch(version_proxy_env):
+        raise ValueError(f"assetVersion.proxyEnv must be an environment variable name: {file}")
     version_endpoint = str(asset_version.get("endpoint", "")).strip()
     if not version_endpoint and asset_version.get("endpoint") is not None:
         raise ValueError(f"assetVersion.endpoint must be a non-empty string when present: {file}")
@@ -255,6 +260,7 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         version_endpoint=version_endpoint,
         version_catalog_path=version_catalog_path,
         version_basic_user=version_basic_user,
+        version_proxy_env=version_proxy_env,
         cri_hca_key=str(value.get("criHcaKey", "")),
         master_crypto=crypto,
         catalog_version=catalog_version,

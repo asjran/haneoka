@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import shutil
 import socket
@@ -37,6 +38,32 @@ def resolve_version_endpoint(configured: str) -> str:
     if not endpoint:
         raise ValueError("no version endpoint in the selected server configuration")
     return endpoint
+
+
+def proxy_from_env(name: str) -> "str | None":
+    """Resolve the egress proxy for blocked version endpoints, if configured."""
+
+    if not name:
+        return None
+    return os.environ.get(name, "").strip() or None
+
+
+def proxy_curl_flags(proxy: "str | None") -> list[str]:
+    """Validate one proxy URL and render curl's -x flag pair."""
+
+    value = (proxy or "").strip()
+    if not value:
+        return []
+    parsed = urllib.parse.urlsplit(value)
+    if (
+        parsed.scheme.lower() not in {"http", "https", "socks5", "socks5h"}
+        or not parsed.hostname
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(f"version egress proxy must be a plain proxy URL: {value}")
+    return ["-x", value]
 
 
 def _public_https(url: str, skip_resolution_check: bool = False) -> None:
@@ -95,6 +122,7 @@ def discover_asset_version(
     platform: str,
     timeout: float = 30.0,
     skip_resolution_check: bool = False,
+    proxy: "str | None" = None,
 ) -> AssetVersionInfo:
     """Resolve the live asset version of ``platform`` from the game service."""
     curl = shutil.which("curl")
@@ -107,6 +135,7 @@ def discover_asset_version(
         "--http2-prior-knowledge",
         "--max-time",
         str(int(timeout)),
+        *proxy_curl_flags(proxy),
         "-o",
         "/dev/null",
         "-D",

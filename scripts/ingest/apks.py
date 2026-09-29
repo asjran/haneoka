@@ -37,6 +37,7 @@ from ingest.version_api import (
     AssetVersionInfo,
     cdn_authorization,
     discover_asset_version,
+    proxy_from_env,
     resolve_version_endpoint,
     version_key,
 )
@@ -640,6 +641,7 @@ def _discover_server_version(config: ServerConfig, scratch: Path, *, unity_versi
         resolve_version_endpoint(config.version_endpoint),
         config.platform,
         skip_resolution_check=config.skip_public_resolution_check,
+        proxy=proxy_from_env(config.version_proxy_env),
     )
     if info.cdn_root and info.cdn_root != config.remote_root:
         raise ValueError(
@@ -945,7 +947,8 @@ def _resolve_master(config: ServerConfig, scratch: Path, authorization: str = ""
         return None
     version, resource_version = discover_master_version(
         config.master_version_endpoint,
-        skip_resolution_check=config.skip_public_resolution_check
+        skip_resolution_check=config.skip_public_resolution_check,
+        proxy=proxy_from_env(config.version_proxy_env),
     )
     if (
         len(version) > 128

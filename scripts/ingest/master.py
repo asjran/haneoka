@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from ingest.version_api import EMPTY_GRPC_FRAME, GRPC_USER_AGENT, _public_https
+from ingest.version_api import EMPTY_GRPC_FRAME, GRPC_USER_AGENT, _public_https, proxy_curl_flags
 
 
 def _varint(data: bytes, position: int) -> tuple[int, int]:
@@ -63,7 +63,12 @@ def decode_master_version(frame: bytes) -> tuple[str, str]:
     return version, resource_version
 
 
-def discover_master_version(configured: str, *, skip_resolution_check: bool = False) -> tuple[str, str]:
+def discover_master_version(
+    configured: str,
+    *,
+    skip_resolution_check: bool = False,
+    proxy: "str | None" = None,
+) -> tuple[str, str]:
     endpoint = configured.strip()
     if not endpoint:
         raise ValueError("a Master version endpoint is required for live Master ingestion")
@@ -73,6 +78,7 @@ def discover_master_version(configured: str, *, skip_resolution_check: bool = Fa
         response = subprocess.run(
             [
                 "curl", "--silent", "--show-error", "--http2", "--max-time", "30",
+                *proxy_curl_flags(proxy),
                 "--max-filesize", "65536", "-D", "-", "-o", str(body),
                 "-H", "content-type: application/grpc", "-H", "te: trailers",
                 "-H", "grpc-accept-encoding: identity", "-H", "x-platform: Android",
