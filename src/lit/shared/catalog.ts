@@ -120,7 +120,7 @@ export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> 
   }
 }
 
-/** One game-side instant, with seconds, in the viewer's own timezone.
+/** One game-side instant, minute precision, in the viewer's own timezone.
  *  Master dates are JST-authored and stored as UTC milliseconds; the
  *  browser converts them to local time. */
 export function gameDateTime(locale: string, value: number): string {
@@ -131,7 +131,6 @@ export function gameDateTime(locale: string, value: number): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
     hour12: false,
   }).format(new Date(value));
 }

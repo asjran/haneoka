@@ -1893,6 +1893,7 @@
     "spanMinutes": "{count}분",
     "startsIn": "{time} 후 시작",
     "endsIn": "{time} 후 종료",
+    "endedAgo": "{time} 전에 종료",
     "releasedToday": "오늘 추가",
     "releasedAgo": "{time} 전 추가",
     "releasesIn": "{time} 후 추가",

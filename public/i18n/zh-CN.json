@@ -1893,6 +1893,7 @@
     "spanMinutes": "{count}分钟",
     "startsIn": "{time}后开始",
     "endsIn": "{time}后结束",
+    "endedAgo": "结束于 {time} 前",
     "releasedToday": "今日上线",
     "releasedAgo": "{time}前上线",
     "releasesIn": "{time}后上线",

@@ -1893,6 +1893,7 @@
     "spanMinutes": "{count}m",
     "startsIn": "Starts in {time}",
     "endsIn": "Ends in {time}",
+    "endedAgo": "Ended {time} ago",
     "releasedToday": "Added today",
     "releasedAgo": "Added {time} ago",
     "releasesIn": "Coming in {time}",

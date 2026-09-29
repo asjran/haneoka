@@ -9,7 +9,6 @@ import {
   catalogUrl,
   currentReleaseServer,
   fetchJson,
-  gameDateTimeRange,
   localizedText,
   preferredLocale,
   recordValues,
@@ -409,6 +408,16 @@ export class HomeDashboard extends LitElement {
     if (hours >= 1) return hour(hours);
     return this.text("spanMinutes", "{count}m").replace("{count}", this.count(minutes));
   }
+  /** The event card names its moment relatively — "ends in …", "starts in
+   *  …", "ended … ago" — never as a full date range. */
+  private eventPhrase(startAt: number, endAt: number) {
+    const now = Date.now();
+    if (startAt > now) return this.countdown(startAt, false);
+    if (endAt && endAt >= now) return this.countdown(endAt, true);
+    if (endAt)
+      return this.text("endedAgo", "Ended {time} ago").replace("{time}", this.spanText(now - endAt));
+    return this.countdown(startAt, false);
+  }
   private countdown(at: number, ending: boolean) {
     const span = this.spanText(at - Date.now());
     return (ending ? this.text("endsIn", "Ends in {time}") : this.text("startsIn", "Starts in {time}")).replace(
@@ -416,11 +425,17 @@ export class HomeDashboard extends LitElement {
       span,
     );
   }
-  /** Days since/until a release, e.g. "3 天前上线". */
+  /** Days since/until a release, e.g. "3 天前上线"; a release inside the
+   *  next day counts down in hours and minutes. */
   private releaseLabel(at: number) {
     if (!at) return "";
-    const days = Math.round((at - Date.now()) / 86400000);
-    if (days === 0) return this.text("releasedToday", "Added today");
+    const remaining = at - Date.now();
+    const days = Math.round(remaining / 86400000);
+    if (days === 0) {
+      if (remaining > 0)
+        return this.text("releasesIn", "Added in {time}").replace("{time}", this.spanText(remaining));
+      return this.text("releasedToday", "Added today");
+    }
     const span = this.text("spanDays", "{count}d").replace("{count}", this.count(Math.abs(days)));
     return (
       days < 0 ? this.text("releasedAgo", "Added {time} ago") : this.text("releasesIn", "Added in {time}")
@@ -644,11 +659,8 @@ export class HomeDashboard extends LitElement {
                         : nothing
                     }
                     <span class="home-event__countdown tabular">
-                      ${event.ending ? this.countdown(event.entry.endAt, true) : this.countdown(event.entry.startAt, false)}
+                      ${this.eventPhrase(event.entry.startAt, event.entry.endAt)}
                     </span>
-                    <small class="home-event__range">
-                      ${gameDateTimeRange(this.locale, event.entry.startAt, event.entry.endAt)}
-                    </small>
                   </a>
                 `
               : html`
