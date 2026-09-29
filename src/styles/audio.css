@@ -298,12 +298,6 @@
       width: 48px;
       height: 48px;
     }
-    .player--compact {
-      padding: 8px;
-    }
-    .player--compact > .icon-button {
-      --icon-button-size: 48px;
-    }
     .audio-queue-panel {
       top: 10dvh;
       bottom: env(safe-area-inset-bottom, 0px);
@@ -323,3 +317,64 @@
     z-index: var(--md-sys-z-index-overlay-raised-backdrop);
   }
 }
+
+  /* ---------- Sidebar presence (collapsed player) ----------
+     The dock renders its compact row into the navigation drawer and a
+     cover-only tile into the icon rail; the shell's own rail/drawer
+     visibility rules decide which is on screen. */
+  .player--docked {
+    position: static;
+    width: auto;
+    margin: 12px -4px 0;
+    padding: 4px;
+    background: transparent;
+    box-shadow: none;
+  }
+  .player--docked .player__identity {
+    flex: 1;
+    padding: 4px;
+  }
+  .nav-player-rail {
+    display: grid;
+    position: relative;
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 12px;
+    padding: 0;
+    place-items: center;
+    border-radius: var(--md-sys-shape-corner-large);
+    cursor: pointer;
+  }
+  .nav-player-rail__cover {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    overflow: hidden;
+    border-radius: var(--md-sys-shape-corner-medium, 12px);
+    background: var(--md-sys-color-surface-container-highest);
+  }
+  .nav-player-rail__cover > img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .nav-player-rail__overlay {
+    display: grid;
+    position: absolute;
+    inset: 0;
+    place-items: center;
+    color: var(--md-sys-color-on-primary);
+    background: color-mix(in srgb, var(--md-sys-color-scrim) 44%, transparent);
+    border-radius: var(--md-sys-shape-corner-large);
+    opacity: 0;
+    transition: opacity 150ms var(--ease-standard);
+  }
+  .nav-player-rail:hover .nav-player-rail__overlay,
+  .nav-player-rail:focus-visible .nav-player-rail__overlay {
+    opacity: 1;
+  }
+  .nav-player-rail:focus-visible {
+    outline: 3px solid var(--md-sys-color-secondary);
+    outline-offset: 2px;
+  }

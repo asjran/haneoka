@@ -170,7 +170,8 @@
   background: color-mix(in srgb, currentColor 8%, transparent);
 }
 @media (min-width: 1200px) {
-  :root[data-nav="expanded"] .nav__rail-utilities {
+  :root[data-nav="expanded"] .nav__rail-utilities,
+  :root[data-nav="expanded"] .nav__rail-player {
     display: none;
   }
 }
@@ -196,7 +197,8 @@
     display: flex;
   }
   .nav-modal-open .nav__rail,
-  .nav-modal-open .nav__rail-utilities {
+  .nav-modal-open .nav__rail-utilities,
+  .nav-modal-open .nav__rail-player {
     display: none;
   }
   .nav-modal-open .nav-scrim {

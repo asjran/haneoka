@@ -1,6 +1,6 @@
 import { observeSongDisplay, songTitle } from "../../lib/song-display";
 import { resolveLocalizedText } from "../../lib/localized-text";
-import { LitElement, html, nothing } from "lit";
+import { LitElement, html, nothing, render } from "lit";
 import "../../styles/audio.css";
 import { iconButton } from "../ui/controls";
 import { icon } from "../ui/icon";
@@ -119,6 +119,8 @@ export class AudioDock extends LitElement {
   private afterNavigation = () => {
     this.observedDock = undefined;
     this.requestUpdate();
+    // The navigation shell (and its player slots) is swapped on every page.
+    this.syncSidebarWidgets();
   };
 
   constructor() {
@@ -204,11 +206,14 @@ export class AudioDock extends LitElement {
     this.dockObserver?.disconnect();
     this.observedDock = undefined;
     document.documentElement.style.removeProperty("--audio-dock-height");
+    for (const slot of document.querySelectorAll<HTMLElement>("[data-nav-player], [data-nav-rail-player]"))
+      render(nothing, slot);
     this.persist();
     super.disconnectedCallback();
   }
 
   updated() {
+    this.syncSidebarWidgets();
     const panel = this.queueOpen ? this.querySelector<HTMLElement>(".audio-queue-panel") : null;
     if (panel !== (this.queuePanel ?? null)) {
       this.releaseQueueFocus?.();
@@ -589,8 +594,7 @@ export class AudioDock extends LitElement {
 
   render() {
     const track = this.track;
-    if (!track) return nothing;
-    if (this.collapsed) return this.renderCollapsed(track);
+    if (!track || this.collapsed) return nothing;
     return html`
       <aside class="player" aria-label=${this.t("musicPlayer")}>
         <div class="player__seek">
@@ -700,51 +704,90 @@ export class AudioDock extends LitElement {
     `;
   }
 
-  private renderCollapsed(track: AudioTrack) {
-    return html`
-      <aside class="player player--compact" aria-label=${this.t("musicPlayer")}>
-        <button
-          class="player__identity state-layer"
-          type="button"
-          aria-label=${`${this.t("expandPlayer")} · ${track.title}`}
-          @click=${() => {
-            this.collapsed = false;
-            this.persist();
-          }}
-        >
-          <span class="player__cover">
-            ${
-              track.cover
-                ? html`
-                    <img src=${track.cover} alt="" />
-                  `
-                : icon("queue_music", 24)
-            }
-          </span>
-          <span class="player__copy">
-            <strong lang=${track.titleLanguage || this.uiLanguage}>${track.title}</strong>
-            <small>${track.artist}</small>
-          </span>
-        </button>
-        <button
-          class="player__play state-layer"
-          type="button"
-          data-playing=${String(this.playing)}
-          aria-label=${this.t(this.playing ? "pause" : "play")}
-          @click=${() => void this.togglePlayback()}
-        >
-          ${icon(this.playing ? "pause" : "play_arrow", 24)}
-        </button>
-        ${iconButton({
-          label: this.t("expandPlayer"),
-          icon: "expand_less",
-          onClick: () => {
-            this.collapsed = false;
-            this.persist();
-          },
-        })}
-      </aside>
-    `;
+  /**
+   * The collapsed player's presence lives in the navigation shell instead of
+   * a fixed bottom bar: the drawer shows cover, title and the play control
+   * (clicking the cover expands the full player at the bottom), the icon rail
+   * shows the cover alone with a play/pause affordance on hover. Both forms
+   * render into slots the shell owns; the same CSS that shows the rail or
+   * the drawer decides which one is visible.
+   */
+  private syncSidebarWidgets() {
+    const track = this.track;
+    const drawer = document.querySelector<HTMLElement>("[data-nav-player]");
+    const rail = document.querySelector<HTMLElement>("[data-nav-rail-player]");
+    if (drawer)
+      render(
+        track
+          ? html`
+              <div class="player player--compact player--docked">
+                <button
+                  class="player__identity state-layer"
+                  type="button"
+                  aria-label=${`${this.t("expandPlayer")} · ${track.title}`}
+                  title=${this.t("expandPlayer")}
+                  @click=${() => {
+                    this.collapsed = false;
+                    this.persist();
+                  }}
+                >
+                  <span class="player__cover">
+                    ${
+                      track.cover
+                        ? html`
+                            <img src=${track.cover} alt="" />
+                        `
+                        : icon("queue_music", 24)
+                    }
+                  </span>
+                  <span class="player__copy">
+                    <strong lang=${track.titleLanguage || this.uiLanguage}>${track.title}</strong>
+                    <small>${track.artist || "\u00a0"}</small>
+                  </span>
+                </button>
+                <button
+                  class="player__play state-layer"
+                  type="button"
+                  data-playing=${String(this.playing)}
+                  aria-label=${this.t(this.playing ? "pause" : "play")}
+                  @click=${() => void this.togglePlayback()}
+                >
+                  ${this.playing ? icon("pause", 24) : icon("play_arrow", 24)}
+                </button>
+              </div>
+          `
+          : nothing,
+        drawer,
+      );
+    if (rail)
+      render(
+        track
+          ? html`
+              <button
+                class="nav-player-rail"
+                type="button"
+                data-playing=${String(this.playing)}
+                aria-label=${`${track.title} · ${this.t(this.playing ? "pause" : "play")}`}
+                title=${track.title}
+                @click=${() => void this.togglePlayback()}
+              >
+                <span class="nav-player-rail__cover">
+                  ${
+                    track.cover
+                      ? html`
+                          <img src=${track.cover} alt="" />
+                      `
+                      : icon("queue_music", 24)
+                  }
+                </span>
+                <span class="nav-player-rail__overlay" aria-hidden="true">
+                  ${this.playing ? icon("pause", 22) : icon("play_arrow", 22)}
+                </span>
+              </button>
+          `
+          : nothing,
+        rail,
+      );
   }
 
   private modeLabel() {
