@@ -136,6 +136,7 @@ jobs:
         run: |
           pnpm --filter @haneoka/cassiopeia build:web
           pnpm --filter @haneoka/cassiopeia-plugin-our-notes build
+          pnpm --filter @haneoka/cassiopeia-renderer-three build
           pnpm --filter @haneoka/cassiopeia-plugin-sonolus build
 
       - name: Set up Python
