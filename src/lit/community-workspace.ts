@@ -14,6 +14,7 @@ import { navigationDocumentUrl } from "../lib/document-url";
 import { RequestScope } from "../lib/request-scope";
 import { beginLoading } from "../lib/loading-progress";
 import { communityMarkup, communityExcerpt } from "../lib/community-markup";
+import { formatCommunityTime, isEdited } from "../lib/community-time";
 import { communityImageRatio, type CommunityImage } from "./community-gallery";
 import { keyed } from "lit/directives/keyed.js";
 import "./community-sticker";
@@ -212,6 +213,7 @@ export class CommunityWorkspace extends LitElement {
   private disposeSongDisplay?: () => void;
   private releaseLocation?: () => void;
   private playlistSequence = 0;
+  private relativeTimeTimer?: number;
   private restorePlaylist = () => {
     if (this.mode !== "playlists") return;
     const id = new URLSearchParams(location.search).get("playlist") || "";
@@ -279,6 +281,8 @@ export class CommunityWorkspace extends LitElement {
       while (feedSnapshots.size > 3) feedSnapshots.delete(feedSnapshots.keys().next().value!);
     }
     this.columnsObserver?.disconnect();
+    window.clearInterval(this.relativeTimeTimer);
+    this.relativeTimeTimer = undefined;
     this.requests.cancel();
     this.commentsRequest.cancel();
     this.lifetime.abort();
@@ -301,6 +305,11 @@ export class CommunityWorkspace extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.lifetime = new AbortController();
+    if (this.routeKind !== "post-new" && this.routeKind !== "post-edit" && this.mode !== "playlists" && this.mode !== "tags") {
+      this.relativeTimeTimer = window.setInterval(() => {
+        if (this.isConnected && !document.hidden) this.requestUpdate();
+      }, 30_000);
+    }
     this.scrollHost = this.closest<HTMLElement>(".app-shell__main") || undefined;
     this.columnsObserver = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width || this.clientWidth;
@@ -629,13 +638,32 @@ export class CommunityWorkspace extends LitElement {
     this.syncCollectionUrl();
     void this.load(false);
   }
-  private date(value: unknown) {
-    const number = Number(value);
-    return Number.isFinite(number)
-      ? new Intl.DateTimeFormat(this.locale, { dateStyle: "medium" }).format(
-          new Date(number < 1e12 ? number * 1000 : number),
-        )
-      : "";
+  private time(value: unknown) {
+    const formatted = formatCommunityTime(value, this.locale);
+    return formatted
+      ? html`
+          <time datetime=${formatted.dateTime} title=${formatted.title} aria-label=${formatted.title}>
+            ${formatted.text}
+          </time>
+        `
+      : nothing;
+  }
+  private ipLocation(value: unknown) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    const location = value as Value;
+    const countryCode = String(location.countryCode || "")
+      .trim()
+      .toUpperCase();
+    if (!/^[A-Z]{2}$/u.test(countryCode)) return "";
+    let country = "";
+    try {
+      country = new Intl.DisplayNames([this.locale], { type: "region" }).of(countryCode) || "";
+    } catch {
+      country = "";
+    }
+    if (!country) return "";
+    const region = typeof location.regionName === "string" ? location.regionName.trim() : "";
+    return region ? `${country} · ${region}` : country;
   }
   /**
    * Internal routes are emitted with the visitor's locale prefix: the worker
@@ -1771,6 +1799,7 @@ export class CommunityWorkspace extends LitElement {
     );
     const attachments = Array.isArray(post.attachments) ? (post.attachments as Value[]) : [];
     const images = attachments.filter((item) => /^(image|video)\//.test(String(item.mediaType)) && item.contentUrl);
+    const postLocation = this.ipLocation(post.ipLocation);
     setAppBarActions(
       COMMUNITY_BAR_OWNER,
       html`
@@ -1873,11 +1902,17 @@ export class CommunityWorkspace extends LitElement {
                     : nothing
                 }
                 <div class="community-post-date">
-                  <time>${this.date(post.createdAt)}</time>
+                  ${this.time(post.createdAt)}
                   ${
-                    post.lastEditedAt
+                    isEdited(post)
                       ? html`
-                          <span>${this.label("lastEdited", "Last edited")} ${this.date(post.lastEditedAt)}</span>
+                          <span>${this.label("lastEdited", "Last edited")} ${this.time(post.lastEditedAt)}</span>
+                        `
+                      : nothing
+                  }${
+                    postLocation
+                      ? html`
+                          <span>${this.label("ipLocation", "IP location")}: ${postLocation}</span>
                         `
                       : nothing
                   }
@@ -2119,7 +2154,7 @@ export class CommunityWorkspace extends LitElement {
     const parent = (this.document?.comments as Value[] | undefined)?.find(
       (entry) => String(entry.id) === String(comment.parentId),
     );
-    const region = (comment.ipLocation as Value | undefined)?.regionName;
+    const location = this.ipLocation(comment.ipLocation);
     return html`
       <article class=${`community-comment${reply ? " is-reply" : ""}`} id=${`comment-${comment.id}`}>
         <a href=${this.path(`/community/users/${comment.authorUid}`)} aria-label=${name}>
@@ -2179,11 +2214,11 @@ export class CommunityWorkspace extends LitElement {
                 `
           }
           <div class="community-comment__context">
-            <time>${this.date(comment.createdAt)}</time>
+            ${this.time(comment.createdAt)}
             ${
-              region
+              location
                 ? html`
-                    <span>${String(region)}</span>
+                    <span>${this.label("ipLocation", "IP location")}: ${location}</span>
                   `
                 : nothing
             }${
@@ -2473,7 +2508,7 @@ export class CommunityWorkspace extends LitElement {
           <span>
             <h2>${String(profile.displayName || profile.handle || this.entityId)}</h2>
             <p>${String(profile.bio || "")}</p>
-            <small>${this.label("joined", "Joined")} ${this.date(profile.joinedAt)}</small>
+            <small>${this.label("joined", "Joined")} ${this.time(profile.joinedAt)}</small>
           </span>
           ${
             !profile.owner && (viewer.canInteract || viewer.blocked || !this.session)
@@ -3422,7 +3457,7 @@ export class CommunityWorkspace extends LitElement {
               <article class="community-activity-row">
                 <span>
                   <strong>${String(comment.postTitle || this.label("activityPost", "Post"))}</strong>
-                  <small>${this.date(comment.createdAt)}</small>
+                  <small>${this.time(comment.createdAt)}</small>
                   <p>${String(comment.body || "")}</p>
                 </span>
                 <footer>
@@ -3536,7 +3571,7 @@ export class CommunityWorkspace extends LitElement {
                     <span class="list-item__headline">${item.actorName || "haneoka"}</span>
                     <span class="list-item__supporting">${this.notificationLabel(item)}</span>
                   </span>
-                  <span class="list-item__trailing list-item__meta">${this.date(item.createdAt)}</span>
+                  <span class="list-item__trailing list-item__meta">${this.time(item.createdAt)}</span>
                 </a>
               </li>
             `,
