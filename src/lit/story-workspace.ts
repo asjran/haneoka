@@ -479,6 +479,15 @@ export class StoryWorkspace extends LitElement {
   private chapterKind(chapter: JsonRecord) {
     return String(chapter.chapterKey || "").toLowerCase();
   }
+  /** The band section names its episode kinds directly; the event section
+   *  follows the game: main run, Extra stories, Another stories. */
+  private kindFacetLabel(mode: string, kind: string): string {
+    if (mode === "event") {
+      if (kind === "bandStory") return "eventStory";
+      if (kind === "perspectiveStory") return "anotherStory";
+    }
+    return kind;
+  }
   /** Chapters an event owns; empty until the release ships storyEvents. */
   private eventChapterIds(): Set<string> {
     return new Set(this.storyEvents.map((event) => String(event.chapterId)));
