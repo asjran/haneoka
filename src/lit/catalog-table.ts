@@ -448,8 +448,7 @@ export class CatalogTable extends LitElement {
                 type="button"
                 @click=${(event: Event) => {
                   event.stopPropagation();
-                  c.open(item);
-                  void c.openChart();
+                  c.openChartFor(item);
                 }}
                 aria-label=${c.label("chart", "Chart")}
                 title=${c.label("chart", "Chart")}

@@ -940,7 +940,7 @@ export class CatalogScreen extends LitElement {
   private canonicalKind(): ResourceKind | undefined {
     return this.settings.entityKind || resourceKindForCollection(this.settings.resource);
   }
-  private entityLink(id: string): string | undefined {
+  private entityLink(id: string, difficulty?: number): string | undefined {
     const kind = this.canonicalKind();
     if (!kind || this.settings.origin === "bestdori") return undefined;
     const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
@@ -950,6 +950,7 @@ export class CatalogScreen extends LitElement {
       kind,
       id,
       returnTo,
+      ...(difficulty !== undefined ? { query: { difficulty: String(difficulty) } } : {}),
     });
   }
   private label(key: string, fallback: string) {
@@ -2104,7 +2105,14 @@ export class CatalogScreen extends LitElement {
   private async open(item: Item) {
     if (this.selected === item && this.selectedId === this.itemId(item) && this.selected) return;
     const id = this.itemId(item);
-    const canonical = this.entityLink(this.itemId(item));
+    // A meta row identifies as `<musicId>-<difficulty>`, which has no page of
+    // its own: its canonical entity is the song it belongs to.
+    const songId = this.profile.perDifficulty ? String(item.musicId || "") || id : id;
+    const rowDifficulty = Number(item.__difficultyIndex);
+    const canonical = this.entityLink(
+      songId,
+      this.profile.perDifficulty && Number.isFinite(rowDifficulty) && rowDifficulty >= 0 ? rowDifficulty : undefined,
+    );
     if (canonical) {
       if (this.pendingNavigation) return;
       const kind = this.canonicalKind();
@@ -3211,7 +3219,10 @@ export class CatalogScreen extends LitElement {
     return (this.chartPlayerProvision ??= import("./runtime/chart-simulator").then(() => undefined));
   }
   private chartPageHref(item: Item) {
-    const id = this.itemId(item);
+    // A meta row identifies as `<musicId>-<difficulty>`; the chart page is
+    // the owning song's.
+    const fallback = this.itemId(item);
+    const id = this.profile.perDifficulty ? String(item.musicId || fallback) : fallback;
     const server = this.dataServer();
     const locale = preferredLocale(this.settings.locale) as Locale;
     const target = new URL(chartPath({ server, locale, id }), location.href);
@@ -3229,6 +3240,40 @@ export class CatalogScreen extends LitElement {
     }
     await this.ensureChartPlayer();
     this.chartOpen = true;
+  }
+  /**
+   * A catalogue table row opens the canonical chart page directly. open()
+   * navigates to the song document first, and any chart state raised on this
+   * collection screen is discarded with that navigation — the row's chart
+   * never appeared.
+   */
+  openChartFor(item: Item) {
+    if (this.pendingNavigation) return;
+    const kind = this.canonicalKind();
+    if (this.settings.origin === "bestdori" || !kind) {
+      // No canonical chart page from this origin: open the detail inline and
+      // raise the chart on it, as the table did before canonical navigation.
+      void this.open(item).then(() => this.openChart());
+      return;
+    }
+    const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
+    const own = Number(item.__difficultyIndex);
+    const preferred = rows.findIndex((row, index) => difficultyKey(row, index) === this.selectedSongDifficulty);
+    // A meta row speaks for its own difficulty; the songs table keeps the
+    // difficulty the catalogue picker has selected.
+    this.detailDifficulty =
+      this.profile.perDifficulty && Number.isFinite(own) && own >= 0
+        ? own
+        : preferred >= 0
+          ? preferred
+          : Math.min(3, Math.max(0, rows.length - 1));
+    const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
+    const href = this.chartPageHref(item);
+    this.captureCollectionState(returnTo, this.itemId(item));
+    this.pendingNavigation = href;
+    void navigateDetailPage(href, "push").finally(() => {
+      if (this.pendingNavigation === href) this.pendingNavigation = "";
+    });
   }
   private async downloadChartImage(item: Item) {
     const simulator = this.querySelector<HTMLElement & { downloadOverview: (meta: unknown) => Promise<void> }>(
