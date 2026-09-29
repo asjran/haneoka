@@ -2077,6 +2077,54 @@ async function handleCatalogApi(
   return handleCatalogStorageApi(env, ctx, request, release, storage, tail);
 }
 
+const LATEST_CATALOG_RESERVED_SEGMENTS = new Set([
+  "account",
+  "admin",
+  "auth",
+  "catalog",
+  "community",
+  "garupa",
+  "me",
+  "release",
+  "releases",
+  "servers",
+  "sources",
+  "ui-marks",
+]);
+
+/**
+ * Public latest aliases deliberately normalize into the scoped catalog
+ * handler. The rewrite removes the optional release pin so callers always
+ * resolve the active pointer while internal callers retain the scoped route
+ * and its explicit-release support.
+ */
+async function handleLatestCatalogApi(
+  env: Env,
+  ctx: ExecutionContext,
+  request: Request,
+  pathname: string,
+): Promise<Response | null> {
+  const match = /^\/api\/v1\/([^/]+)(?:\/(.*))?$/u.exec(pathname);
+  if (!match) return null;
+  const rawResource = match[1] || "";
+  const rawTail = match[2] || "";
+  const resource = decodePathPart(rawResource);
+  if (!resource || LATEST_CATALOG_RESERVED_SEGMENTS.has(resource)) return null;
+  const url = new URL(request.url);
+  const serverValues = url.searchParams.getAll("server");
+  if (serverValues.length > 1) return errorResponse(request, 400, "invalid_server", "Server must be specified once");
+  const server = serverValues[0] || "intl";
+  if (!RESOURCE_SERVER_SLUG_PATTERN.test(server)) {
+    return errorResponse(request, 404, "server_not_found", "Server not found");
+  }
+  url.searchParams.delete("server");
+  // Public aliases are latest-only. Never let an ordinary alias caller select
+  // a historical release through the scoped route's advanced query parameter.
+  url.searchParams.delete("release");
+  url.pathname = `/api/v1/servers/${encodeURIComponent(server)}/${rawResource}${rawTail ? `/${rawTail}` : ""}`;
+  return handleCatalogApi(env, ctx, new Request(url, request), url.pathname);
+}
+
 async function handleReleaseMedia(
   env: Env,
   ctx: ExecutionContext,
@@ -2768,6 +2816,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (garupaPlaylists) return garupaPlaylists;
   const releaseRegistry = await handleReleaseRegistryApi(env, ctx, request, url.pathname);
   if (releaseRegistry) return releaseRegistry;
+  const latestCatalog = await handleLatestCatalogApi(env, ctx, request, url.pathname);
+  if (latestCatalog) return latestCatalog;
   const api = await handleCatalogApi(env, ctx, request, url.pathname);
   if (api) return api;
   const media = await handleReleaseMedia(env, ctx, request, url.pathname);

@@ -1,13 +1,14 @@
 packages:
   - "."
   - "packages/*"
+  - ".dependencies/design-tokens"
   - ".dependencies/cassiopeia"
   - ".dependencies/cassiopeia-plugin-our-notes"
   - ".dependencies/cassiopeia-renderer-three"
   - ".dependencies/cassiopeia-host-web"
   - ".dependencies/cassiopeia-ui-vue"
   - ".dependencies/cassiopeia-plugin-sonolus"
-  - ".dependencies/cassiopeia-plugin-sonolus/engine"
+  - ".dependencies/sonolus-our-notes"
   # Materialized privately at the exact locked commits.
   - ".dependencies/vega"
   - ".dependencies/vega/packages/*"
@@ -58,7 +59,7 @@ catalog:
   "@lit-labs/ssr": ^4.1.0
   parse5: ^8.0.1
   pagefind: ^1.5.2
-  '@lit-labs/ssr-client': ^1.1.8
+  "@lit-labs/ssr-client": ^1.1.8
 catalogMode: prefer
 cleanupUnusedCatalogs: true
 allowBuilds:

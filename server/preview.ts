@@ -82,10 +82,24 @@ const WORKSPACES = new Map<string, WorkspaceSelection>(
 const HOST = process.env.HOST ?? "0.0.0.0";
 const PORT = parsePort(process.env.PORT);
 const sonolusLevelService = new SonolusLevelService(3);
-const allowedMethods: ReadonlySet<string> = new Set(["GET", "HEAD"]);
+const allowedMethods: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 const catalogRouteKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:~-]{0,255}$/u;
 const releaseIdPattern = /^r-[a-f0-9]{20}$/u;
 const releaseSourceIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const latestCatalogReservedSegments = new Set([
+  "account",
+  "admin",
+  "auth",
+  "catalog",
+  "community",
+  "garupa",
+  "me",
+  "release",
+  "releases",
+  "servers",
+  "sources",
+  "ui-marks",
+]);
 const releaseIdentitySchema = "haneoka-resource-release-identity-v1";
 const releaseIdentityFilename = "release-identity.json";
 const releaseIdentityKeys = ["releaseId", "schema", "server", "sourceId"] as const;
@@ -197,7 +211,7 @@ function json(
     "Cache-Control": cache,
     ...extraHeaders,
   });
-  res.end(body);
+  res.end(res.req?.method === "HEAD" ? undefined : body);
 }
 
 function isBestdoriProviderApiRequest(url: URL): boolean {
@@ -1132,6 +1146,17 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     json(res, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } });
     return;
   }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+      "Access-Control-Allow-Headers": "Range, If-Range, If-None-Match, Content-Type",
+      "Access-Control-Expose-Headers":
+        "Accept-Ranges, Content-Length, Content-Range, ETag, X-Haneoka-Garupa-Snapshot-Id, X-Haneoka-Release-Id, X-Haneoka-Source-Id, X-Request-Id",
+    });
+    res.end();
+    return;
+  }
   // Locale-prefixed paths are the built pages; anything else that looks like
   // a page address moves to the visitor's locale — the same negotiation the
   // production worker performs (cookie, then Accept-Language, then English).
@@ -1331,6 +1356,30 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (url.pathname === "/api/v1/releases") {
     json(res, 200, localReleaseRegistry(), "public, max-age=86400, stale-while-revalidate=604800");
     return;
+  }
+
+  const latest = url.pathname.match(/^\/api\/v1\/([^/]+)(?:\/(.*))?$/u);
+  if (latest) {
+    const encodedResource = latest[1] ?? "";
+    const rawTail = latest[2] ?? "";
+    const resource = decodePathPart(encodedResource);
+    if (resource && !latestCatalogReservedSegments.has(resource)) {
+      const serverValues = url.searchParams.getAll("server");
+      if (serverValues.length > 1) {
+        json(res, 400, { error: { code: "invalid_server", message: "Server must be specified once" } });
+        return;
+      }
+      const server = serverValues[0] || "intl";
+      if (!WORKSPACES.has(server)) {
+        json(res, 404, { error: { code: "server_not_found", message: "Server not found" } });
+        return;
+      }
+      url.searchParams.delete("server");
+      // Public aliases are latest-only. Historical release selection remains
+      // available through the explicit scoped route below.
+      url.searchParams.delete("release");
+      url.pathname = `/api/v1/servers/${encodeURIComponent(server)}/${encodedResource}${rawTail ? `/${rawTail}` : ""}`;
+    }
   }
 
   const api = url.pathname.match(/^\/api\/v1\/servers\/([^/]+)\/(.+)$/);

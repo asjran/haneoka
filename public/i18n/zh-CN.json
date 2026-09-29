@@ -1568,7 +1568,11 @@
       },
       {
         "title": "Cassiopeia Sonolus plugin",
-        "body": "谱面转换、游玩/观看/预览/教程引擎与特效资源。"
+        "body": "Cassiopeia 与 Sonolus 之间的谱面转换和插件接入。"
+      },
+      {
+        "title": "Sonolus Our Notes",
+        "body": "独立的游玩、观看、预览与教程引擎，承载游戏判定及原作演出。"
       },
       {
         "title": "Altair",
@@ -1584,7 +1588,8 @@
     "noticesLink": "第三方声明",
     "licenseLink": "MPL-2.0 许可证",
     "contactLink": "打开 GitHub Issue",
-    "heroTitle": "让每一段故事，都有更大的舞台"
+    "heroTitle": "让每一段故事，都有更大的舞台",
+    "apiLink": "API 文档"
   },
   "bandItemsPage": {
     "title": "乐队道具",

@@ -1568,7 +1568,11 @@
       },
       {
         "title": "Cassiopeia Sonolus plugin",
-        "body": "譜面変換、プレイ・視聴・プレビュー・チュートリアル用エンジン、エフェクトキャプチャ。"
+        "body": "CassiopeiaとSonolusをつなぐ譜面変換・プラグイン連携。"
+      },
+      {
+        "title": "Sonolus Our Notes",
+        "body": "ゲーム固有の表現を備えた、独立したプレイ・ウォッチ・プレビュー・チュートリアルエンジン。"
       },
       {
         "title": "Altair",
@@ -1584,7 +1588,8 @@
     "noticesLink": "第三者通知",
     "licenseLink": "MPL-2.0 ライセンス",
     "contactLink": "GitHub Issue を開く",
-    "heroTitle": "すべての物語に、もっと大きな舞台を"
+    "heroTitle": "すべての物語に、もっと大きな舞台を",
+    "apiLink": "APIドキュメント"
   },
   "bandItemsPage": {
     "title": "バンドアイテム",

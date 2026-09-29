@@ -3,13 +3,13 @@ name: Sonolus toolchain update
 # Keeps the Sonolus server stack on the @sonolus/* release generation that
 # matches the current Sonolus app (the Sonolus-Version header is baked into
 # @sonolus/core). The engine toolchain pins live in the externally locked
-# cassiopeia-plugin-sonolus repository, which Renovate cannot see, so this
+# sonolus-our-notes repository, which Renovate cannot see, so this
 # workflow bumps them, pushes the engine repository, refreshes the external
 # lock, and opens one review PR. Merging it triggers the existing
 # "Sonolus engine payload" workflow, which rebuilds and publishes everything.
 #
 # Requires a fine-grained PAT with contents:write on
-# haneoka-gakuen/cassiopeia-plugin-sonolus stored as HANEOKA_PUSH_TOKEN.
+# haneoka-gakuen/sonolus-our-notes stored as HANEOKA_PUSH_TOKEN.
 # Main-repo @sonolus/* pins are excluded from Renovate (see renovate.json)
 # so this workflow is their single owner.
 
@@ -56,7 +56,7 @@ jobs:
         # The lock checks out a detached commit; the bump must land on main so
         # the refreshed lock stays on the locked branch.
         run: |
-          cd .dependencies/cassiopeia-plugin-sonolus
+          cd .dependencies/sonolus-our-notes
           git fetch origin main
           git checkout main
           git reset --hard origin/main
@@ -65,7 +65,7 @@ jobs:
         id: updates
         run: |
           node scripts/sonolus-toolchain-update.mjs apply
-          if git -C .dependencies/cassiopeia-plugin-sonolus diff --quiet; then
+          if git -C .dependencies/sonolus-our-notes diff --quiet; then
             echo "engine-changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "engine-changed=true" >> "$GITHUB_OUTPUT"
@@ -81,18 +81,18 @@ jobs:
             echo "::error::HANEOKA_PUSH_TOKEN is not set; cannot push the engine toolchain bump."
             exit 1
           fi
-          cd .dependencies/cassiopeia-plugin-sonolus
+          cd .dependencies/sonolus-our-notes
           git config user.name "haneoka-bot"
           git config user.email "bot@haneoka.org"
-          git remote set-url origin "https://x-access-token:${HANEOKA_PUSH_TOKEN}@github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git"
-          git add engine/package.json
+          git remote set-url origin "https://x-access-token:${HANEOKA_PUSH_TOKEN}@github.com/haneoka-gakuen/sonolus-our-notes.git"
+          git add package.json
           git commit -m "chore(engine): bump @sonolus toolchain"
           git push origin main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Pin the updated engine submodule
         if: steps.updates.outputs.engine-changed == 'true'
-        run: git add .dependencies/cassiopeia-plugin-sonolus
+        run: git add .dependencies/sonolus-our-notes
 
       - name: Install refreshed workspace dependencies
         run: pnpm install --no-frozen-lockfile
@@ -114,7 +114,7 @@ jobs:
             the Sonolus engine payload (engine + server + particle data).
 
             The engine repository bump was pushed to
-            haneoka-gakuen/cassiopeia-plugin-sonolus main and the external
+            haneoka-gakuen/sonolus-our-notes main and the external
             repository lock now pins that commit.
           commit-message: "chore(sonolus): bump @sonolus toolchain"
           labels: dependencies
@@ -122,4 +122,4 @@ jobs:
             pnpm-workspace.yaml
             packages/sonolus/package.json
             pnpm-lock.yaml
-            .dependencies/cassiopeia-plugin-sonolus
+            .dependencies/sonolus-our-notes

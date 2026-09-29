@@ -128,26 +128,33 @@ const commonTexture = decodeRgba8Png(
 const nativeSkinPacks = buildNativeNoteSkinPacks(resolve(out, "skins"), commonTexture);
 for (const retired of ["skin.data", "skin.texture.png"]) rmSync(resolve(out, retired), { force: true });
 
-// Engine-facing sprite coverage: every "Our Notes ..." sprite the vendored
-// engine references must exist in the default skin pack, or Sonolus would
-// silently fall back to stock sprites (the classic "wrong notes" symptom).
+// Engine-facing sprite coverage: every "Our Notes ..." sprite in the compiled
+// engine facets must exist in the default skin pack, or Sonolus would silently
+// fall back to stock sprites. The published engine package contains compiled
+// Engine*Data artifacts but not the source skin.ts files.
 {
-  const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/cassiopeia-sonolus-engine/package.json")));
+  const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/sonolus-our-notes/package.json")));
   const referencedNames = new Set<string>();
-  for (const [facet, dataDir] of [
-    ["play", "playData"],
-    ["watch", "watchData"],
-    ["preview", "previewData"],
-    ["tutorial", "tutorialData"],
-  ] as const) {
-    const skinFile = resolve(engineRoot, facet, "src", "engine", dataDir, "skin.ts");
-    if (!existsSync(skinFile)) continue;
-    const source = readFileSync(skinFile, "utf8");
-    for (const match of source.matchAll(/'([^']*)'/g)) {
-      if (match[1]!.startsWith("Our Notes ")) referencedNames.add(match[1]!);
+  for (const artifact of ["EnginePlayData", "EngineWatchData", "EnginePreviewData", "EngineTutorialData"] as const) {
+    const artifactFile = resolve(engineRoot, "dist", artifact);
+    if (!existsSync(artifactFile)) throw new Error(`missing compiled engine artifact: ${artifactFile}`);
+    const compiled = JSON.parse(gunzipSync(readFileSync(artifactFile)).toString("utf8")) as {
+      skin?: { sprites?: unknown };
+    };
+    if (!compiled.skin || !Array.isArray(compiled.skin.sprites)) {
+      throw new Error(`compiled engine artifact has no skin.sprites array: ${artifactFile}`);
+    }
+    for (const [index, sprite] of compiled.skin.sprites.entries()) {
+      if (!sprite || typeof sprite !== "object" || typeof (sprite as { name?: unknown }).name !== "string") {
+        throw new Error(`compiled engine artifact has an invalid skin sprite at ${artifact}[${index}]`);
+      }
+      const name = (sprite as { name: string }).name;
+      if (name.startsWith("Our Notes ")) referencedNames.add(name);
     }
   }
-  const defaultSkin = JSON.parse(gunzipSync(readFileSync(resolve(out, "skins", "skin001", "skin.data"))).toString("utf8")) as {
+  const defaultSkin = JSON.parse(
+    gunzipSync(readFileSync(resolve(out, "skins", "skin001", "skin.data"))).toString("utf8"),
+  ) as {
     sprites: Array<{ name?: unknown }>;
   };
   const available = new Set(defaultSkin.sprites.map((sprite) => String(sprite.name)));

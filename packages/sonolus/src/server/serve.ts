@@ -35,7 +35,7 @@ import { buildLevelMetas, type BandRow, type LevelMeta, type MusicRow, type Scor
 import { resolveSonolusReleaseWorkspace } from "./releaseWorkspace";
 
 // Repo root: the server is run from the repo root (cwd), or set OUR_NOTES_ROOT.
-const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/cassiopeia-sonolus-engine/package.json")));
+const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/sonolus-our-notes/package.json")));
 
 const ROOT = process.env.OUR_NOTES_ROOT ?? process.cwd();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -64,7 +64,13 @@ interface SoundCueSheetRow {
   _cueSheetName: string;
 }
 
-type MasterRow = MusicRow | ScoreRow | TextRow | BandRow | SoundCueSheetRow | { _id: number; _assetName: string; _skinNameTextId: string };
+type MasterRow =
+  | MusicRow
+  | ScoreRow
+  | TextRow
+  | BandRow
+  | SoundCueSheetRow
+  | { _id: number; _assetName: string; _skinNameTextId: string };
 type JsonRowGuard<T> = (value: JsonValue) => value is JsonObject & T;
 type LevelEntry = { meta: LevelMeta; level: LevelItemModel };
 

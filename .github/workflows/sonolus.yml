@@ -16,6 +16,7 @@ on:
     paths:
       - .gitmodules
       - .dependencies/cassiopeia-plugin-sonolus
+      - .dependencies/sonolus-our-notes
       - .dependencies/cassiopeia-plugin-our-notes
       - .dependencies/cassiopeia-renderer-three
       - .dependencies/cassiopeia
@@ -67,27 +68,27 @@ jobs:
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
 
-      - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install engine dependencies
+        run: pnpm --dir .dependencies/sonolus-our-notes install --frozen-lockfile
 
       - name: Restore compiled ${{ matrix.facet }} facet
         id: engine-cache
         uses: actions/cache/restore@v6
         with:
-          path: .dependencies/cassiopeia-plugin-sonolus/engine/.build-matrix/${{ matrix.facet }}/dist
+          path: .dependencies/sonolus-our-notes/.build-matrix/${{ matrix.facet }}/dist
           # Exact-key match only (no restore-keys): a stale output must never ship.
-          key: sonolus-engine-${{ matrix.facet }}-v3-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('.gitmodules', format('.dependencies/cassiopeia-plugin-sonolus/engine/{0}/**', matrix.facet), '.dependencies/cassiopeia-plugin-sonolus/engine/shared/**', '.dependencies/cassiopeia-plugin-sonolus/engine/scripts/build.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/esbuild.config.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/tsconfig.base.json', '.dependencies/cassiopeia-plugin-sonolus/engine/package.json', 'pnpm-lock.yaml') }}
+          key: sonolus-engine-${{ matrix.facet }}-v4-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles(format('.dependencies/sonolus-our-notes/{0}/**', matrix.facet), '.dependencies/sonolus-our-notes/shared/**', '.dependencies/sonolus-our-notes/scripts/build.ts', '.dependencies/sonolus-our-notes/esbuild.config.ts', '.dependencies/sonolus-our-notes/tsconfig.base.json', '.dependencies/sonolus-our-notes/package.json', '.dependencies/sonolus-our-notes/pnpm-lock.yaml', '.dependencies/sonolus-our-notes/dev-bgm.ts') }}
 
       - name: Compile ${{ matrix.facet }} facet
         if: steps.engine-cache.outputs.cache-hit != 'true'
-        run: node .dependencies/cassiopeia-plugin-sonolus/engine/scripts/build.ts ${{ matrix.facet }}
+        run: node .dependencies/sonolus-our-notes/scripts/build.ts ${{ matrix.facet }}
 
       - name: Save compiled ${{ matrix.facet }} facet
         if: steps.engine-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: .dependencies/cassiopeia-plugin-sonolus/engine/.build-matrix/${{ matrix.facet }}/dist
-          key: sonolus-engine-${{ matrix.facet }}-v3-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('.gitmodules', format('.dependencies/cassiopeia-plugin-sonolus/engine/{0}/**', matrix.facet), '.dependencies/cassiopeia-plugin-sonolus/engine/shared/**', '.dependencies/cassiopeia-plugin-sonolus/engine/scripts/build.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/esbuild.config.ts', '.dependencies/cassiopeia-plugin-sonolus/engine/tsconfig.base.json', '.dependencies/cassiopeia-plugin-sonolus/engine/package.json', 'pnpm-lock.yaml') }}
+          path: .dependencies/sonolus-our-notes/.build-matrix/${{ matrix.facet }}/dist
+          key: sonolus-engine-${{ matrix.facet }}-v4-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles(format('.dependencies/sonolus-our-notes/{0}/**', matrix.facet), '.dependencies/sonolus-our-notes/shared/**', '.dependencies/sonolus-our-notes/scripts/build.ts', '.dependencies/sonolus-our-notes/esbuild.config.ts', '.dependencies/sonolus-our-notes/tsconfig.base.json', '.dependencies/sonolus-our-notes/package.json', '.dependencies/sonolus-our-notes/pnpm-lock.yaml', '.dependencies/sonolus-our-notes/dev-bgm.ts') }}
 
       - name: Upload ${{ matrix.facet }} facet artifact
         # Always uploaded, even on a cache hit (re-uploaded from the restored
@@ -95,7 +96,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: engine-facet-${{ matrix.facet }}
-          path: .dependencies/cassiopeia-plugin-sonolus/engine/.build-matrix/${{ matrix.facet }}/dist
+          path: .dependencies/sonolus-our-notes/.build-matrix/${{ matrix.facet }}/dist
           if-no-files-found: error
           retention-days: 1
 
@@ -160,7 +161,7 @@ jobs:
 
       - name: Typecheck engine tooling
         # Runs once here (was bundled into the per-machine build before).
-        run: pnpm --dir .dependencies/cassiopeia-plugin-sonolus/engine run typecheck:tools
+        run: pnpm --dir .dependencies/sonolus-our-notes run typecheck:tools
 
       - name: Download compiled facets
         # Each artifact contributes EngineConfiguration (byte-identical across
@@ -168,11 +169,11 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: engine-facet-*
-          path: .dependencies/cassiopeia-plugin-sonolus/engine/dist
+          path: .dependencies/sonolus-our-notes/dist
           merge-multiple: true
 
       - name: Stamp engine distribution with licenses
-        run: node .dependencies/cassiopeia-plugin-sonolus/engine/scripts/copy-upstream-license.ts
+        run: node .dependencies/sonolus-our-notes/scripts/copy-upstream-license.ts
 
       - name: Fetch release presentation assets
         # Materialize only the runtime slices the build reads (note-se audio,

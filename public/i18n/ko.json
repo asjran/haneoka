@@ -1568,7 +1568,11 @@
       },
       {
         "title": "Cassiopeia Sonolus plugin",
-        "body": "차트 변환, 플레이·시청·미리보기·튜토리얼 엔진과 제한된 이펙트 캡처."
+        "body": "Cassiopeia와 Sonolus를 연결하는 채보 변환과 플러그인 통합."
+      },
+      {
+        "title": "Sonolus Our Notes",
+        "body": "게임 고유의 표현을 제공하는 독립적인 플레이, 관전, 미리보기, 튜토리얼 엔진."
       },
       {
         "title": "Altair",
@@ -1584,7 +1588,8 @@
     "noticesLink": "제3자 고지",
     "licenseLink": "MPL-2.0 라이선스",
     "contactLink": "GitHub Issue 열기",
-    "heroTitle": "모든 이야기에 더 큰 무대를"
+    "heroTitle": "모든 이야기에 더 큰 무대를",
+    "apiLink": "API 문서"
   },
   "bandItemsPage": {
     "title": "밴드 아이템",

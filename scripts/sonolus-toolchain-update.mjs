@@ -8,7 +8,7 @@
 //   apply  rewrite pnpm-workspace.yaml catalog + engine package.json pins
 //
 // The engine's package.json lives in the externally locked
-// cassiopeia-plugin-sonolus repository; committing, pushing, and updating
+// sonolus-our-notes repository; committing, pushing, and updating
 // the Git submodule pin is the caller's job (the scheduled
 // sonolus-toolchain-update workflow does exactly that).
 
@@ -18,13 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceFile = join(repositoryRoot, "pnpm-workspace.yaml");
-const enginePackageFile = join(
-  repositoryRoot,
-  ".dependencies",
-  "cassiopeia-plugin-sonolus",
-  "engine",
-  "package.json",
-);
+const enginePackageFile = join(repositoryRoot, ".dependencies", "sonolus-our-notes", "package.json");
 
 // package -> where the pin lives. free-pack has no app-version coupling but
 // is kept in lockstep so the engine and server never mix release generations.
@@ -109,10 +103,7 @@ function rewriteCatalog(updates) {
   const lines = readLines(workspaceFile);
   const rewritten = lines.map((line) => {
     for (const [pkg, version] of updates) {
-      line = line.replace(
-        new RegExp(`(\\s*"${pkg}":\\s*)\\d+\\.\\d+\\.\\d+\\s*$`),
-        `$1${version}`,
-      );
+      line = line.replace(new RegExp(`(\\s*"${pkg}":\\s*)\\d+\\.\\d+\\.\\d+\\s*$`), `$1${version}`);
     }
     return line;
   });

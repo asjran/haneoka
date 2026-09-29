@@ -1568,7 +1568,11 @@
       },
       {
         "title": "Cassiopeia Sonolus plugin",
-        "body": "Chart conversion, play, watch, preview, tutorial engines, and effect resources."
+        "body": "Chart conversion and plugin integration between Cassiopeia and Sonolus."
+      },
+      {
+        "title": "Sonolus Our Notes",
+        "body": "Standalone play, watch, preview and tutorial targets with native gameplay presentation."
       },
       {
         "title": "Altair",
@@ -1584,7 +1588,8 @@
     "noticesLink": "Third-party notices",
     "licenseLink": "MPL-2.0 license",
     "contactLink": "Open a GitHub issue",
-    "heroTitle": "Give every story a bigger stage"
+    "heroTitle": "Give every story a bigger stage",
+    "apiLink": "API documentation"
   },
   "bandItemsPage": {
     "title": "Band Items",

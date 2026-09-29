@@ -49,7 +49,7 @@
     "@haneoka/cassiopeia": "workspace:*",
     "@haneoka/cassiopeia-plugin-our-notes": "workspace:*",
     "@haneoka/cassiopeia-renderer-three": "workspace:*",
-    "@haneoka/cassiopeia-sonolus-engine": "workspace:*",
+    "@haneoka/sonolus-our-notes": "workspace:*",
     "@types/node": "^26.1.0",
     "@types/three": "catalog:",
     "esbuild": "^0.21.5",

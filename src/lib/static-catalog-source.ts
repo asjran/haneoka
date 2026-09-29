@@ -164,23 +164,41 @@ async function fetchJson(path: string, server: string, release?: StaticCatalogRe
     pending = (async () => {
       const cacheFile = release ? cachedResponseFile(path, release) : undefined;
       if (cacheFile && fs.existsSync(cacheFile)) {
-        const cached = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
-        if (cached.path === path && cached.releaseId === release?.releaseId && cached.sourceId === release?.sourceId)
-          return cached.value;
-        throw new StaticCatalogConsistencyError(`Cached catalog identity mismatch: ${server}/${path}`);
+        try {
+          const cached = asRecord(JSON.parse(fs.readFileSync(cacheFile, "utf8")));
+          if (
+            cached?.path === path &&
+            cached.releaseId === release?.releaseId &&
+            cached.sourceId === release?.sourceId &&
+            "value" in cached
+          )
+            return cached.value;
+        } catch {
+          // Interrupted cache writes are rebuilt from the same pinned release.
+        }
+        console.warn(`Static catalog: rebuilding invalid cache for ${server}/${path.split("?")[0]}`);
       }
       const response = await fetchResponse(path, server, release?.releaseId);
       try {
         observedRelease(response, release);
         const value: unknown = await response.json();
         if (cacheFile && release) {
-          fs.mkdirSync(nodePath.dirname(cacheFile), { recursive: true });
           const temporary = `${cacheFile}.${process.pid}.tmp`;
-          fs.writeFileSync(
-            temporary,
-            JSON.stringify({ path, releaseId: release.releaseId, sourceId: release.sourceId, value }),
-          );
-          fs.renameSync(temporary, cacheFile);
+          try {
+            fs.mkdirSync(nodePath.dirname(cacheFile), { recursive: true });
+            fs.writeFileSync(
+              temporary,
+              JSON.stringify({ path, releaseId: release.releaseId, sourceId: release.sourceId, value }),
+            );
+            fs.renameSync(temporary, cacheFile);
+          } catch (error) {
+            console.warn(`Static catalog: could not save cache for ${server}/${path.split("?")[0]}`, error);
+            try {
+              fs.rmSync(temporary, { force: true });
+            } catch {
+              /* Cache persistence is optional. */
+            }
+          }
         }
         return value;
       } catch (error) {

@@ -53,6 +53,13 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_EC2_METADATA_DISABLED: "true"
 
+      - name: Reuse immutable release catalog reads
+        uses: actions/cache@v6
+        with:
+          path: data/static-catalog/v1
+          key: static-catalog-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: static-catalog-v1-${{ runner.os }}-
+
       - name: Build production assets before database changes
         run: pnpm build
         env:

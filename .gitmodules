@@ -67,3 +67,11 @@
 	path = .dependencies/cassiopeia-plugin-sonolus
 	url = https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git
 	branch = main
+[submodule "design-tokens"]
+	path = .dependencies/design-tokens
+	url = https://github.com/haneoka-gakuen/design-tokens.git
+	branch = main
+[submodule "sonolus-our-notes"]
+	path = .dependencies/sonolus-our-notes
+	url = https://github.com/haneoka-gakuen/sonolus-our-notes.git
+	branch = main

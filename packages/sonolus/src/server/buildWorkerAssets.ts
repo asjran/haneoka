@@ -35,7 +35,7 @@ import {
   type SonolusLocalizedLabels,
 } from "../sonolusLocalization";
 
-const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/cassiopeia-sonolus-engine/package.json")));
+const engineRoot = dirname(fileURLToPath(import.meta.resolve("@haneoka/sonolus-our-notes/package.json")));
 
 const root = resolve(process.env.OUR_NOTES_ROOT || process.cwd());
 const pkg = resolve(root, "packages/sonolus");

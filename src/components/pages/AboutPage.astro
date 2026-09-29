@@ -28,6 +28,7 @@ interface AboutCopy {
   repositoriesIntro: string;
   repositories: AboutItem[];
   footerBody: string;
+  apiLink: string;
   sourceLink: string;
   noticesLink: string;
   licenseLink: string;
@@ -42,6 +43,7 @@ const repositories = [
   { href: "https://github.com/haneoka-gakuen/vega", icon: "auto_stories" },
   { href: "https://github.com/haneoka-gakuen/cassiopeia", icon: "music_note" },
   { href: "https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus", icon: "sports_esports" },
+  { href: "https://github.com/haneoka-gakuen/sonolus-our-notes", icon: "sports_esports" },
   { href: "https://github.com/haneoka-gakuen/altair", icon: "edit" },
   { href: "https://github.com/haneoka-gakuen/deneb", icon: "inventory_2" },
 ] as const;
@@ -206,6 +208,11 @@ const noticesHref = "https://github.com/haneoka-gakuen/haneoka/blob/main/THIRD_P
       </a>
       <a class="text-link" href="https://bdon.moe" target="_blank" rel="noreferrer">
         <Icon name="favorite" size={20} /> MoeNotes
+        <Icon name="open_in_new" size={16} />
+      </a>
+      <a class="text-link" href={locale === "zh-CN" ? "https://docs.haneoka.org/zh-cn/" : "https://docs.haneoka.org/"} target="_blank" rel="noreferrer">
+        <Icon name="code" size={20} />
+        <I18nText keyName="aboutPage.apiLink" fallback={copy.apiLink} locale={locale} />
         <Icon name="open_in_new" size={16} />
       </a>
       <a class="text-link" href={sourceHref} target="_blank" rel="noreferrer">

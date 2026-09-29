@@ -12,6 +12,8 @@
 //  4. Effects are authored for several chart widths so sprite aspect survives
 //     wide notes; the engine picks the nearest width and stretches the rest.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { NoteSimulateJudgement } from "@haneoka/cassiopeia";
 import { nativeParticleEffectLifetime, type RenderParticleEffect } from "@haneoka/cassiopeia-plugin-our-notes";
 import {
@@ -43,8 +45,23 @@ import {
 import { ease } from "./fit.ts";
 import { EffectTracer, unitsPerPixel, type ParticleSample, type QuadSample, type TextureKey } from "./trace.ts";
 
+interface NativeEffectContract {
+  nativeEffects: {
+    profiles: readonly string[];
+    profileQualities: readonly number[];
+    widths: readonly number[];
+    planes: readonly { label: string; alpha1: number; slope: number }[];
+    baseNames: Readonly<Record<string, string>>;
+  };
+}
+
+const nativeEffectContract = JSON.parse(
+  readFileSync(fileURLToPath(import.meta.resolve("@haneoka/sonolus-our-notes/contract/native-effects.json")), "utf8"),
+) as NativeEffectContract;
+const nativeEffects = nativeEffectContract.nativeEffects;
+
 /** Chart widths with their own authored effects (84% of notes are 6 or 8). */
-export const NATIVE_EFFECT_WIDTHS = [4, 6, 8, 12, 24] as const;
+export const NATIVE_EFFECT_WIDTHS = nativeEffects.widths;
 
 const SEEDS = [0x4f4e, 0x1234, 0xbeef, 0x51a7, 0x7777, 0x2468];
 const SAMPLE_STEP = 1 / 60;
@@ -122,12 +139,12 @@ const JUDGEMENTS = [
 ] as const;
 
 const NOTE_KINDS = [
-  { label: "Normal", kind: "tap", direction: "none" },
-  { label: "Slide", kind: "slide", direction: "none" },
-  { label: "Flick", kind: "flick", direction: "up" },
-  { label: "Flick Left", kind: "flick", direction: "left" },
-  { label: "Flick Right", kind: "flick", direction: "right" },
-  { label: "Connect", kind: "connect", direction: "none" },
+  { label: nativeEffects.baseNames.normalNoteCircular!, kind: "tap", direction: "none" },
+  { label: nativeEffects.baseNames.slideNoteCircular!, kind: "slide", direction: "none" },
+  { label: nativeEffects.baseNames.flickNoteCircular!, kind: "flick", direction: "up" },
+  { label: nativeEffects.baseNames.flickLeftWall!, kind: "flick", direction: "left" },
+  { label: nativeEffects.baseNames.flickRightWall!, kind: "flick", direction: "right" },
+  { label: nativeEffects.baseNames.normalTraceNoteCircular!, kind: "connect", direction: "none" },
 ] as const;
 
 const LANE_KINDS = [
@@ -148,25 +165,20 @@ export const nativeEffectName = (base: string, width: number): string => `${base
  * (nativeEffects.ts NATIVE_EFFECT_PLANES), so parallax is exact at every lane.
  * Depths are relative to the judgement line (Three z; negative = farther).
  */
-export const NATIVE_EFFECT_PLANES = [
-  { label: "P0", depth: 0, ground: false },
-  { label: "P1", depth: -0.64, ground: false },
-  { label: "P2", depth: 0.6, ground: false },
-  { label: "P3", depth: 0, ground: true },
-] as const;
+export const NATIVE_EFFECT_PLANES = nativeEffects.planes;
 
 const planeOf = (sample: QuadSample): number => sample.plane;
 const majorityPlane = (samples: readonly QuadSample[]): number => {
-  const counts = [0, 0, 0, 0];
+  const counts = Array.from({ length: NATIVE_EFFECT_PLANES.length }, () => 0);
   for (const sample of samples) counts[sample.plane]! += 1;
   return counts.indexOf(Math.max(...counts));
 };
 
 /** Native effect profiles: MasterLiveQualitySettings Low loads effect001Light. */
-export const NATIVE_EFFECT_PROFILES = [
-  { prefix: "Our Notes Light", quality: 2 },
-  { prefix: "Our Notes Native", quality: 0 },
-] as const;
+export const NATIVE_EFFECT_PROFILES = nativeEffects.profiles.map((prefix, index) => ({
+  prefix,
+  quality: nativeEffects.profileQualities[index]!,
+}));
 
 /** MasterLiveQualitySettings _effectRenderingScale by quality (0 High, 2 Low). */
 const EFFECT_RENDERING_SCALE: Readonly<Record<number, number>> = { 0: 1, 1: 0.85, 2: 0.71 };
@@ -228,7 +240,9 @@ const intensity = (emission: readonly number[]): number => Math.max(emission[0]!
 function tileClass(sample: QuadSample, mips: number, mipFrom = 0): string {
   const peak = Math.max(intensity(sample.emission), 1e-9);
   // Halos keep their HDR chroma too: the clip toward white happens before any tint.
-  const chroma = sample.emission.map((value) => Math.round((value / peak) * (mipFrom ? 4 : 8)) / (mipFrom ? 4 : 8)).join(",");
+  const chroma = sample.emission
+    .map((value) => Math.round((value / peak) * (mipFrom ? 4 : 8)) / (mipFrom ? 4 : 8))
+    .join(",");
   return `${sample.file}|${sample.uv.map((value) => value.toFixed(4)).join(",")}|${chroma}|${mips}${mipFrom ? `h${mipFrom}` : ""}`;
 }
 
@@ -301,7 +315,9 @@ class TileRegistry {
           sigmaScale: acc.sigmaScale,
           // 9-slice frame borders: margin on the frame's outer edges only.
           ...(acc.texture === "frame"
-            ? { padSides: [acc.uv[0] <= 1e-6, acc.uv[2] >= 1 - 1e-6, acc.uv[1] <= 1e-6, acc.uv[3] >= 1 - 1e-6] as const }
+            ? {
+                padSides: [acc.uv[0] <= 1e-6, acc.uv[2] >= 1 - 1e-6, acc.uv[1] <= 1e-6, acc.uv[3] >= 1 - 1e-6] as const,
+              }
             : {}),
           ...(acc.texture === "wall" ? { maxDensity: 1 } : {}),
           mips: acc.mips,
@@ -415,7 +431,13 @@ function fitPieces(
     for (const channel of CHANNELS) {
       const list = observations[channel];
       if (!list.length) {
-        fits[channel] = { from: [0, 0, 0, 0, 0, 0, 0, 0, 0], to: [0, 0, 0, 0, 0, 0, 0, 0, 0], ease: "linear", rms: 0, max: 0 };
+        fits[channel] = {
+          from: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+          to: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+          ease: "linear",
+          rms: 0,
+          max: 0,
+        };
         continue;
       }
       const channelFeatures = random ? screenFeatures(list, CHANNEL_DRAWS[channel]) : [];
@@ -426,7 +448,10 @@ function fitPieces(
         const sign = list.reduce((sum, observation) => sum + observation.v, 0) < 0 ? -1 : 1;
         const magnitude = list.map((observation) => ({ ...observation, v: Math.abs(observation.v) }));
         const ceiling = Math.max(...magnitude.map((observation) => observation.v)) * 1.1;
-        fit = capToCeiling(raiseToFloor(fitChannel(magnitude, channelFeatures, random ? COHORT_EASES : undefined), 0), ceiling);
+        fit = capToCeiling(
+          raiseToFloor(fitChannel(magnitude, channelFeatures, random ? COHORT_EASES : undefined), 0),
+          ceiling,
+        );
         if (sign < 0) fit = { ...fit, from: fit.from.map((value) => -value), to: fit.to.map((value) => -value) };
       } else {
         fit = fitChannel(list, channelFeatures, random ? COHORT_EASES : undefined);
@@ -550,7 +575,8 @@ function flickerEnvelope(list: readonly ParticleSample[]): ParticleSample[] {
     if (peak <= 0) return sample;
     // RMS-sized quad centred on this sample, brightness = window energy / area.
     let areaSum = 0;
-    for (let j = Math.max(0, index - window); j <= Math.min(list.length - 1, index + window); j += 1) areaSum += list[j]!.pixelArea;
+    for (let j = Math.max(0, index - window); j <= Math.min(list.length - 1, index + window); j += 1)
+      areaSum += list[j]!.pixelArea;
     const rms = Math.sqrt(areaSum / count);
     const scale = rms / Math.max(1e-9, sizes[index]!);
     const cx = sample.corners.reduce((sum, corner) => sum + corner.x, 0) / 4;
@@ -719,7 +745,10 @@ export async function compileNativeParticles(options: {
   const sliceTiles = (key: string, baked: ReturnType<typeof bakeCompositeHalo>, endWidth: number): void => {
     if (slicedComposites.has(`${key}|L`)) return;
     const { width, height, pixels } = baked.tile.image;
-    const endColumns = Math.max(1, Math.min(Math.floor(width / 2) - 1, Math.round((endWidth / (baked.rect.x1 - baked.rect.x0)) * width)));
+    const endColumns = Math.max(
+      1,
+      Math.min(Math.floor(width / 2) - 1, Math.round((endWidth / (baked.rect.x1 - baked.rect.x0)) * width)),
+    );
     const cut = (from: number, to: number, suffix: string) => {
       const columns = to - from;
       const out = new Uint8Array(columns * height * 4);
@@ -775,7 +804,9 @@ export async function compileNativeParticles(options: {
   // Pass 2: fit with the baked tile expansion/response.
   const effects: Json[] = [];
   const report: CompileResult["report"] = [];
-  const identity = Object.fromEntries(["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"].map((key) => [key, { [key]: 1 }]));
+  const identity = Object.fromEntries(
+    ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"].map((key) => [key, { [key]: 1 }]),
+  );
   for (const entry of pending) {
     // Lane effects keep one layer; hits and the hold loop get every plane.
     const layers = entry.layered ? NATIVE_EFFECT_PLANES.length : 1;
@@ -796,72 +827,86 @@ export async function compileNativeParticles(options: {
   return { effects, atlas, report };
 
   async function traceProfile(prefix: string): Promise<void> {
-  const specs: EffectSpec[] = [];
-  for (const kind of NOTE_KINDS)
-    for (const judgement of JUDGEMENTS)
-      specs.push({
-        name: `${prefix} ${kind.label}${judgement.suffix}`,
-        kind: kind.kind,
-        direction: kind.direction,
-        judgement: judgement.judgement,
-        lifetime: nativeParticleEffectLifetime(kind.kind, judgement.native),
-      });
-  const loopPeriod = await tracer.clipDuration(tracer.assets.particles.effect001Prefabs.SlideLoop!.animationClipUrl);
-  specs.push({
-    name: `${prefix} Slide Loop`,
-    kind: "slide-loop",
-    direction: "none",
-    judgement: "perfect",
-    lifetime: loopPeriod,
-    loop: { period: loopPeriod },
-  });
-  if (prefix === profiles[0]!.prefix)
-    for (const kind of LANE_KINDS)
-      specs.push({ name: `Our Notes Lane ${kind.label}`, kind: kind.kind, direction: "none", judgement: "perfect", lifetime: 0.45 / 2, lane: true });
+    const specs: EffectSpec[] = [];
+    for (const kind of NOTE_KINDS)
+      for (const judgement of JUDGEMENTS)
+        specs.push({
+          name: `${prefix} ${kind.label}${judgement.suffix}`,
+          kind: kind.kind,
+          direction: kind.direction,
+          judgement: judgement.judgement,
+          lifetime: nativeParticleEffectLifetime(kind.kind, judgement.native),
+        });
+    const loopPeriod = await tracer.clipDuration(tracer.assets.particles.effect001Prefabs.SlideLoop!.animationClipUrl);
+    specs.push({
+      name: `${prefix} Slide Loop`,
+      kind: "slide-loop",
+      direction: "none",
+      judgement: "perfect",
+      lifetime: loopPeriod,
+      loop: { period: loopPeriod },
+    });
+    if (prefix === profiles[0]!.prefix)
+      for (const kind of LANE_KINDS)
+        specs.push({
+          name: `Our Notes Lane ${kind.label}`,
+          kind: kind.kind,
+          direction: "none",
+          judgement: "perfect",
+          lifetime: 0.45 / 2,
+          lane: true,
+        });
 
-  // Pass 1: trace everything and register tile classes.
-  for (const spec of specs) {
-    for (const width of spec.lane ? [2] : NATIVE_EFFECT_WIDTHS) {
-      const name = spec.lane ? spec.name : nativeEffectName(spec.name, width);
-      if (options.only && !options.only(name)) continue;
-      const warm = spec.loop ? spec.loop.period * 3 : 0;
-      const times: number[] = [];
-      const span = spec.loop ? spec.loop.period * 2 : spec.lifetime;
-      for (let t = 0; t <= span + 1e-9; t += SAMPLE_STEP) times.push(warm + t);
-      const groups: PendingGroup[] = [];
-      const progressOf = (t: number) => (t - warm) / spec.lifetime;
-      if (spec.lane) {
-        const samples = tracer.traceLane(spec.kind, width, times);
-        groups.push(...deterministicGroups([samples], registry, progressOf, spec));
-      } else {
-        const trace = tracer.trace(
-          { kind: spec.kind, direction: spec.direction, judgement: spec.judgement, lifetime: spec.loop ? undefined : spec.lifetime } as never,
-          width,
-          times,
-          spec.loop ? SEEDS.slice(0, 1) : SEEDS,
-        );
-        const oneCycle = (list: readonly QuadSample[]) => list.filter((sample) => progressOf(sample.t) <= 1 + 1e-9);
-        // Halos first: groups draw in order and the sharp cores go on top.
-        groups.push(...compositeHaloGroups(trace.meshes, width, progressOf, spec));
-        groups.push(...deterministicGroups(significantMeshes(trace.meshes, oneCycle), registry, progressOf, spec));
-        // Off by default: measured worse than none (see SWARM_VISIBILITY).
-        if (!spec.loop && Number.isFinite(SWARM_VISIBILITY))
-          groups.unshift(...swarmBloomGroups(trace.particles, width, progressOf, spec, SEEDS.length));
-        const stars = hdrBoost(dropLargeStars(trace.particles));
-        groups.push(...cohortGroups(withOverlapGain(stars, width), registry, progressOf, spec, warm, width));
-        const seedCount = spec.loop ? 1 : SEEDS.length;
-        groups.unshift(
-          // Star cloud glow (a flux-centroid blob) is off by default: with the large
-          // stars removed it only showed as stray blobs.
-          ...(STAR_GLOW ? glowGroups([], trace.particles, width, progressOf, spec, seedCount, glowKernelFor(bloomScale)) : []),
-        );
+    // Pass 1: trace everything and register tile classes.
+    for (const spec of specs) {
+      for (const width of spec.lane ? [2] : NATIVE_EFFECT_WIDTHS) {
+        const name = spec.lane ? spec.name : nativeEffectName(spec.name, width);
+        if (options.only && !options.only(name)) continue;
+        const warm = spec.loop ? spec.loop.period * 3 : 0;
+        const times: number[] = [];
+        const span = spec.loop ? spec.loop.period * 2 : spec.lifetime;
+        for (let t = 0; t <= span + 1e-9; t += SAMPLE_STEP) times.push(warm + t);
+        const groups: PendingGroup[] = [];
+        const progressOf = (t: number) => (t - warm) / spec.lifetime;
+        if (spec.lane) {
+          const samples = tracer.traceLane(spec.kind, width, times);
+          groups.push(...deterministicGroups([samples], registry, progressOf, spec));
+        } else {
+          const trace = tracer.trace(
+            {
+              kind: spec.kind,
+              direction: spec.direction,
+              judgement: spec.judgement,
+              lifetime: spec.loop ? undefined : spec.lifetime,
+            } as never,
+            width,
+            times,
+            spec.loop ? SEEDS.slice(0, 1) : SEEDS,
+          );
+          const oneCycle = (list: readonly QuadSample[]) => list.filter((sample) => progressOf(sample.t) <= 1 + 1e-9);
+          // Halos first: groups draw in order and the sharp cores go on top.
+          groups.push(...compositeHaloGroups(trace.meshes, width, progressOf, spec));
+          groups.push(...deterministicGroups(significantMeshes(trace.meshes, oneCycle), registry, progressOf, spec));
+          // Off by default: measured worse than none (see SWARM_VISIBILITY).
+          if (!spec.loop && Number.isFinite(SWARM_VISIBILITY))
+            groups.unshift(...swarmBloomGroups(trace.particles, width, progressOf, spec, SEEDS.length));
+          const stars = hdrBoost(dropLargeStars(trace.particles));
+          groups.push(...cohortGroups(withOverlapGain(stars, width), registry, progressOf, spec, warm, width));
+          const seedCount = spec.loop ? 1 : SEEDS.length;
+          groups.unshift(
+            // Star cloud glow (a flux-centroid blob) is off by default: with the large
+            // stars removed it only showed as stray blobs.
+            ...(STAR_GLOW
+              ? glowGroups([], trace.particles, width, progressOf, spec, seedCount, glowKernelFor(bloomScale))
+              : []),
+          );
+        }
+        // The hold loop gets the same plane layers as a hit (the engine moves
+        // all four instances with nativeEffectPlaneLayout).
+        pending.push({ name, groups, layered: !spec.lane });
+        log(`traced ${name}: ${groups.length} groups`);
       }
-      // The hold loop gets the same plane layers as a hit (the engine moves
-      // all four instances with nativeEffectPlaneLayout).
-      pending.push({ name, groups, layered: !spec.lane });
-      log(`traced ${name}: ${groups.length} groups`);
     }
-  }
   }
 
   function deterministicGroups(
@@ -892,7 +937,11 @@ export async function compileNativeParticles(options: {
             const params = run.samples.map((sample) => {
               const quad = quadParams(sample, tile.expand, previousR, tile.offset);
               previousR = quad.r;
-              return { q: (progressOf(sample.t) - start) / duration, quad, a: responseAt(tile, tiles.relative(run.key, sample)) };
+              return {
+                q: (progressOf(sample.t) - start) / duration,
+                quad,
+                a: responseAt(tile, tiles.relative(run.key, sample)),
+              };
             });
             const build = (q0: number, q1: number): ChannelObservations => {
               const observations = emptyObservations();
@@ -900,7 +949,8 @@ export async function compileNativeParticles(options: {
               for (const { q, quad, a } of params) {
                 if (q < q0 - 1e-9 || q > q1 + 1e-9) continue;
                 const local = (q - q0) / span;
-                for (const channel of ["x", "y", "w", "h", "r"] as const) observations[channel].push({ q: local, r: [], v: quad[channel] });
+                for (const channel of ["x", "y", "w", "h", "r"] as const)
+                  observations[channel].push({ q: local, r: [], v: quad[channel] });
                 observations.a.push({ q: local, r: [], v: a });
               }
               return observations;
@@ -1026,7 +1076,8 @@ export async function compileNativeParticles(options: {
               const haloTile = tiles.tiles.get(haloKey)!;
               const halo = sprites.get(haloKey)!;
               const start = Math.max(0, progressOf(Math.min(...samples.map((sample) => sample.t))));
-              const endProgress = progressOf(Math.max(...samples.map((sample) => sample.t))) + SAMPLE_STEP / spec.lifetime;
+              const endProgress =
+                progressOf(Math.max(...samples.map((sample) => sample.t))) + SAMPLE_STEP / spec.lifetime;
               const end = Math.min(spec.loop ? 2 : 1, endProgress);
               const duration = Math.max(1e-4, end - start);
               const traced = members.map((raw) => {
@@ -1048,32 +1099,34 @@ export async function compileNativeParticles(options: {
                 });
               });
               const gridStep = SAMPLE_STEP / (spec.lifetime * duration);
-              const observe = (useHalo: boolean) => (q0: number, q1: number): ChannelObservations => {
-                const observations = emptyObservations();
-                const span = Math.max(1e-9, q1 - q0);
-                for (const instance of traced) {
-                  const draws = instance[0]!.draws;
-                  const first = instance[0]!.q;
-                  const last = instance[instance.length - 1]!.q;
-                  for (const { q, quad: core, a, haloQuad, haloA } of instance) {
-                    if (q < q0 - 1e-9 || q > q1 + 1e-9) continue;
-                    const local = (q - q0) / span;
-                    const quad = useHalo ? haloQuad : core;
-                    observations.x.push({ q: local, r: draws, v: quad.x });
-                    observations.y.push({ q: local, r: draws, v: quad.y });
-                    observations.w.push({ q: local, r: draws, v: quad.w });
-                    observations.h.push({ q: local, r: draws, v: quad.h });
-                    observations.r.push({ q: local, r: draws, v: quad.r });
-                    observations.a.push({ q: local, r: draws, v: useHalo ? haloA : a });
+              const observe =
+                (useHalo: boolean) =>
+                (q0: number, q1: number): ChannelObservations => {
+                  const observations = emptyObservations();
+                  const span = Math.max(1e-9, q1 - q0);
+                  for (const instance of traced) {
+                    const draws = instance[0]!.draws;
+                    const first = instance[0]!.q;
+                    const last = instance[instance.length - 1]!.q;
+                    for (const { q, quad: core, a, haloQuad, haloA } of instance) {
+                      if (q < q0 - 1e-9 || q > q1 + 1e-9) continue;
+                      const local = (q - q0) / span;
+                      const quad = useHalo ? haloQuad : core;
+                      observations.x.push({ q: local, r: draws, v: quad.x });
+                      observations.y.push({ q: local, r: draws, v: quad.y });
+                      observations.w.push({ q: local, r: draws, v: quad.w });
+                      observations.h.push({ q: local, r: draws, v: quad.h });
+                      observations.r.push({ q: local, r: draws, v: quad.r });
+                      observations.a.push({ q: local, r: draws, v: useHalo ? haloA : a });
+                    }
+                    // Before birth and after death the instance is invisible.
+                    for (let q = q0; q <= q1 + 1e-9; q += gridStep) {
+                      if (q >= first - gridStep / 2 && q <= last + gridStep / 2) continue;
+                      observations.a.push({ q: (q - q0) / span, r: draws, v: 0 });
+                    }
                   }
-                  // Before birth and after death the instance is invisible.
-                  for (let q = q0; q <= q1 + 1e-9; q += gridStep) {
-                    if (q >= first - gridStep / 2 && q <= last + gridStep / 2) continue;
-                    observations.a.push({ q: (q - q0) / span, r: draws, v: 0 });
-                  }
-                }
-                return observations;
-              };
+                  return observations;
+                };
               const spritePieces = fitPieces(observe(false), true, MAX_COHORT_PIECES);
               if (process.env.SONOLUS_FIT_REPORT) {
                 const obs = observe(false)(0, 1);
@@ -1092,7 +1145,10 @@ export async function compileNativeParticles(options: {
                     for (const o of observe(false)(piece.q0, piece.q1)[channel]) {
                       const fit = piece.fits[channel];
                       const value = (expression: readonly number[]) =>
-                        expression.reduce((sum, coefficient, index) => sum + coefficient * (index === 0 ? 1 : o.r[index - 1]!), 0);
+                        expression.reduce(
+                          (sum, coefficient, index) => sum + coefficient * (index === 0 ? 1 : o.r[index - 1]!),
+                          0,
+                        );
                       const k = ease(fit.ease, o.q);
                       fitted += Math.abs(value(fit.from) + (value(fit.to) - value(fit.from)) * k);
                       observed += Math.abs(o.v);
@@ -1105,7 +1161,10 @@ export async function compileNativeParticles(options: {
                 fitReport.push(
                   `${key.split("|")[0]!.split("/").pop()} n=${members.length} pieces=${pieceCount} ` +
                     (["x", "y", "w", "h", "a"] as const)
-                      .map((channel) => `${channel}:${(piece[channel].rms / Math.max(1e-6, channel === "x" || channel === "y" ? units.x * 20 : mean(channel))).toFixed(2)}`)
+                      .map(
+                        (channel) =>
+                          `${channel}:${(piece[channel].rms / Math.max(1e-6, channel === "x" || channel === "y" ? units.x * 20 : mean(channel))).toFixed(2)}`,
+                      )
                       .join(" "),
                 );
               }
@@ -1204,8 +1263,12 @@ export async function compileNativeParticles(options: {
         for (let index = prev; index <= nextIndex; index += 1) {
           const weight =
             index <= entry.index
-              ? k === 0 ? 1 : (index - prev) / Math.max(1, entry.index - prev)
-              : k === baked.length - 1 ? 1 : (nextIndex - index) / Math.max(1, nextIndex - entry.index);
+              ? k === 0
+                ? 1
+                : (index - prev) / Math.max(1, entry.index - prev)
+              : k === baked.length - 1
+                ? 1
+                : (nextIndex - index) / Math.max(1, nextIndex - entry.index);
           params.push({
             q: progressOf(steps[index]! * SAMPLE_STEP),
             a: Math.max(0, Math.min(1, weight * responseAt(entry.result.tile, energies[index]! / Math.max(1e-9, own)))),
@@ -1279,7 +1342,8 @@ export async function compileNativeParticles(options: {
       const y = (c0.y + c2.y) / 2;
       const key = `${Math.floor(x / units.x / GLOW_CELL)}:${Math.floor(y / units.y / GLOW_CELL)}`;
       let cell = cells.get(key);
-      if (!cell) cells.set(key, (cell = { flux: new Map(), centroid: new Map(), chroma: [0, 0, 0], px: 0, py: 0, weight: 0 }));
+      if (!cell)
+        cells.set(key, (cell = { flux: new Map(), centroid: new Map(), chroma: [0, 0, 0], px: 0, py: 0, weight: 0 }));
       const bin = Math.round(p * steps);
       cell.flux.set(bin, (cell.flux.get(bin) ?? 0) + peak);
       const centroid = cell.centroid.get(bin) ?? [0, 0, 0];
@@ -1302,7 +1366,12 @@ export async function compileNativeParticles(options: {
       for (let step = 0; step <= steps; step += 1) {
         const centroid = cell.centroid.get(step);
         if (centroid && centroid[2] > 0) last = [centroid[0] / centroid[2], centroid[1] / centroid[2]];
-        params.push({ q: step / steps, a: kernelAlpha(kernel.centerGain * (cell.flux.get(step) ?? 0)), x: last[0], y: last[1] });
+        params.push({
+          q: step / steps,
+          a: kernelAlpha(kernel.centerGain * (cell.flux.get(step) ?? 0)),
+          x: last[0],
+          y: last[1],
+        });
       }
       if (Math.max(...params.map((param) => param.a)) < GLOW_VISIBILITY) continue;
       const peakChroma = Math.max(...cell.chroma);
@@ -1362,12 +1431,13 @@ export async function compileNativeParticles(options: {
       const byStep = new Map<number, QuadSample[]>();
       for (const list of trajectories)
         for (const sample of list) {
-          const step = Math.round(progressOf(sample.t) * spec.lifetime / SAMPLE_STEP);
+          const step = Math.round((progressOf(sample.t) * spec.lifetime) / SAMPLE_STEP);
           let entry = byStep.get(step);
           if (!entry) byStep.set(step, (entry = []));
           entry.push(sample);
         }
-      const total = (samples: readonly QuadSample[]) => samples.reduce((sum, sample) => sum + intensity(sample.emission) * sample.pixelArea, 0);
+      const total = (samples: readonly QuadSample[]) =>
+        samples.reduce((sum, sample) => sum + intensity(sample.emission) * sample.pixelArea, 0);
       let peakStep = -1;
       let peak = 0;
       for (const [step, samples] of byStep) {
@@ -1402,85 +1472,91 @@ export async function compileNativeParticles(options: {
       const maxX = Math.max(...quads.flatMap((quad) => quad.corners.map(([x]) => x)));
       const maxY = Math.max(...quads.flatMap((quad) => quad.corners.map(([, y]) => y)));
       for (const layer of COMPOSITE_LAYERS) {
-      if (layer.families !== "all" && layer.families !== family) continue;
-      const key = `composite|${layer.label}|${family}|${bloomScale.toFixed(2)}|${signature}`;
-      let baked = compositeHalos.get(key);
-      if (!baked) {
-        const local = quads.map((quad) => ({
-          ...quad,
-          corners: quad.corners.map(([x, y]) => [x - originX, y - originY] as const),
-        }));
-        baked = bakeCompositeHalo(
-          key,
-          local,
-          layer.mipFrom,
-          layer.mipTo,
-          BLOOM_GAIN,
-          layer.density,
-          bloomScale,
-          "core" in layer && layer.core,
+        if (layer.families !== "all" && layer.families !== family) continue;
+        const key = `composite|${layer.label}|${family}|${bloomScale.toFixed(2)}|${signature}`;
+        let baked = compositeHalos.get(key);
+        if (!baked) {
+          const local = quads.map((quad) => ({
+            ...quad,
+            corners: quad.corners.map(([x, y]) => [x - originX, y - originY] as const),
+          }));
+          baked = bakeCompositeHalo(
+            key,
+            local,
+            layer.mipFrom,
+            layer.mipTo,
+            BLOOM_GAIN,
+            layer.density,
+            bloomScale,
+            "core" in layer && layer.core,
+          );
+          compositeHalos.set(key, baked);
+        }
+        // The baked padding around the family box is the same at every width.
+        const padX = -baked.rect.x0;
+        const padY = -baked.rect.y0;
+        const rect = { x0: originX - padX, x1: maxX + padX, y0: originY - padY, y1: maxY + padY };
+        const tile = baked.tile;
+        // Pieces: [unit-space x0, x1, key suffix]. Sliced families stretch a
+        // one-texel middle column between their fixed-size ends.
+        const bakedWidth = baked.rect.x1 - baked.rect.x0;
+        const endWidth = Math.min(bakedWidth / 2 - 1, padX + SLICE_END_MARGIN);
+        const pieces: Array<[number, number, string]> =
+          sliced && endWidth > 0
+            ? [
+                [rect.x0, rect.x0 + endWidth, "L"],
+                [rect.x0 + endWidth, rect.x1 - endWidth, "M"],
+                [rect.x1 - endWidth, rect.x1, "R"],
+              ]
+            : [[rect.x0, rect.x1, ""]];
+        if (sliced && endWidth > 0) sliceTiles(key, baked, endWidth);
+        const params = [...byStep.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([step, samples]) => ({
+            q: (step * SAMPLE_STEP) / spec.lifetime,
+            a: responseAt(tile, total(samples) / peak),
+          }));
+        const largest = snapshot.reduce(
+          (best, sample) => (sample.pixelArea > best.pixelArea ? sample : best),
+          snapshot[0]!,
         );
-        compositeHalos.set(key, baked);
-      }
-      // The baked padding around the family box is the same at every width.
-      const padX = -baked.rect.x0;
-      const padY = -baked.rect.y0;
-      const rect = { x0: originX - padX, x1: maxX + padX, y0: originY - padY, y1: maxY + padY };
-      const tile = baked.tile;
-      // Pieces: [unit-space x0, x1, key suffix]. Sliced families stretch a
-      // one-texel middle column between their fixed-size ends.
-      const bakedWidth = baked.rect.x1 - baked.rect.x0;
-      const endWidth = Math.min(bakedWidth / 2 - 1, padX + SLICE_END_MARGIN);
-      const pieces: Array<[number, number, string]> =
-        sliced && endWidth > 0
-          ? [
-              [rect.x0, rect.x0 + endWidth, "L"],
-              [rect.x0 + endWidth, rect.x1 - endWidth, "M"],
-              [rect.x1 - endWidth, rect.x1, "R"],
-            ]
-          : [[rect.x0, rect.x1, ""]];
-      if (sliced && endWidth > 0) sliceTiles(key, baked, endWidth);
-      const params = [...byStep.entries()]
-        .sort((a, b) => a[0] - b[0])
-        .map(([step, samples]) => ({ q: (step * SAMPLE_STEP) / spec.lifetime, a: responseAt(tile, total(samples) / peak) }));
-      const largest = snapshot.reduce((best, sample) => (sample.pixelArea > best.pixelArea ? sample : best), snapshot[0]!);
-      const plane = planeOf(largest);
-      for (const [pieceX0, pieceX1, suffix] of pieces)
-      groups.push({
-        plane,
-        build: (sprites) => {
-          const sprite = sprites.get(suffix ? `${key}|${suffix}` : key);
-          if (sprite === undefined) return undefined;
-          const x = ((pieceX0 + pieceX1) / 2) * units.x;
-          const y = ((rect.y0 + rect.y1) / 2) * units.y;
-          const w = ((pieceX1 - pieceX0) / 2) * units.x;
-          const h = ((rect.y1 - rect.y0) / 2) * units.y;
-          const start = Math.max(0, params[0]!.q - SAMPLE_STEP / 2 / spec.lifetime);
-          const end = Math.min(1, params[params.length - 1]!.q + SAMPLE_STEP / spec.lifetime);
-          const duration = Math.max(1e-4, end - start);
-          const build = (q0: number, q1: number): ChannelObservations => {
-            const observations = emptyObservations();
-            const span = Math.max(1e-9, q1 - q0);
-            for (const param of params) {
-              const q = (param.q - start) / duration;
-              if (q < q0 - 1e-9 || q > q1 + 1e-9) continue;
-              const local = (q - q0) / span;
-              observations.x.push({ q: local, r: [], v: x });
-              observations.y.push({ q: local, r: [], v: y });
-              observations.w.push({ q: local, r: [], v: w });
-              observations.h.push({ q: local, r: [], v: h });
-              observations.r.push({ q: local, r: [], v: 0 });
-              observations.a.push({ q: local, r: [], v: param.a });
-            }
-            return observations;
-          };
-          return {
-            count: 1,
-            particles: particleDefs(sprite, start, duration, fitPieces(build, false, MAX_MESH_PIECES)),
-            ...debugTag(`halo ${layer.label} ${family}${suffix}`),
-          };
-        },
-      });
+        const plane = planeOf(largest);
+        for (const [pieceX0, pieceX1, suffix] of pieces)
+          groups.push({
+            plane,
+            build: (sprites) => {
+              const sprite = sprites.get(suffix ? `${key}|${suffix}` : key);
+              if (sprite === undefined) return undefined;
+              const x = ((pieceX0 + pieceX1) / 2) * units.x;
+              const y = ((rect.y0 + rect.y1) / 2) * units.y;
+              const w = ((pieceX1 - pieceX0) / 2) * units.x;
+              const h = ((rect.y1 - rect.y0) / 2) * units.y;
+              const start = Math.max(0, params[0]!.q - SAMPLE_STEP / 2 / spec.lifetime);
+              const end = Math.min(1, params[params.length - 1]!.q + SAMPLE_STEP / spec.lifetime);
+              const duration = Math.max(1e-4, end - start);
+              const build = (q0: number, q1: number): ChannelObservations => {
+                const observations = emptyObservations();
+                const span = Math.max(1e-9, q1 - q0);
+                for (const param of params) {
+                  const q = (param.q - start) / duration;
+                  if (q < q0 - 1e-9 || q > q1 + 1e-9) continue;
+                  const local = (q - q0) / span;
+                  observations.x.push({ q: local, r: [], v: x });
+                  observations.y.push({ q: local, r: [], v: y });
+                  observations.w.push({ q: local, r: [], v: w });
+                  observations.h.push({ q: local, r: [], v: h });
+                  observations.r.push({ q: local, r: [], v: 0 });
+                  observations.a.push({ q: local, r: [], v: param.a });
+                }
+                return observations;
+              };
+              return {
+                count: 1,
+                particles: particleDefs(sprite, start, duration, fitPieces(build, false, MAX_MESH_PIECES)),
+                ...debugTag(`halo ${layer.label} ${family}${suffix}`),
+              };
+            },
+          });
       }
     }
     return groups;
