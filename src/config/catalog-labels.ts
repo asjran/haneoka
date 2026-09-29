@@ -68,9 +68,13 @@ export const LABEL_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["stats", "stats"],
   ["details", "details"],
   ["difficulty", "difficulty"],
-  ...["metaR", "metaTime", "metaScore", "metaEff", "metaBpm", "metaN", "metaNps", "metaSr", "combo"].map(
-    (key) => [key, key] as const,
-  ),
+  ...[
+    "metaR", "metaTime", "metaScore", "metaEff", "metaBpm", "metaN", "metaNps", "metaSr", "combo",
+    "metaMode", "metaModeLive", "metaModeGekisou", "metaTierTheory", "metaTierCurrent",
+    "justableRate", "justable", "luck", "metaEffCurrent", "metaTier", "metaTierTheorySub", "metaTierCurrentSub", "gekisouSegment", "gekisouJustable",
+    "gekisouMissionCombo", "gekisouMissionLuck", "gekisouMissionJustCount", "gekisouMissionAll",
+    "gekisouMissionNone",
+  ].map((key) => [key, key] as const),
   ["diary", "diary"],
   ["rewards", "rewards"],
   ["content", "content"],

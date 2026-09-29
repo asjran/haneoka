@@ -78,13 +78,10 @@ function bakeSlideLineColors(input: Buffer): Buffer {
     }
   };
 
-  // SlideLine judgement-end color keys from the slide line material. The
-  // uncoloured strip is retained for Sonolus fallback sprite names; custom
-  // connector archetypes use the three coloured strips.
+  // The plain strip stays for Sonolus fallback sprite names; the three
+  // coloured strips are baked per skin inside pack-original-note-skins from
+  // each skin's authored SlideLine gradient + glow (see bakeSkinSlideStrips).
   writePaddedSlideStrip(401, [1, 1, 1, 1]);
-  writePaddedSlideStrip(505, [0.4796607196, 0.2862745523, 1, 0.8627451062]);
-  writePaddedSlideStrip(609, [0.6041513681, 0.334905684, 1, 0.8627451062]);
-  writePaddedSlideStrip(713, [0.470588237, 0.384313732, 1, 0.509803951]);
 
   const writePaddedSolid = (spriteX: number, rgba: ByteRgba): void => {
     for (let y = 3692; y <= 3701; y++) {
@@ -158,7 +155,10 @@ for (const retired of ["skin.data", "skin.texture.png"]) rmSync(resolve(out, ret
   // getArrowSpriteIndex only reaches the first four Up tiers, so packs whose
   // authored atlas ships four Up arrows are complete for every reachable draw.
   const optional = (name: string): boolean =>
-    name.startsWith("Our Notes Slot ") || /Our Notes Flick Arrow (Red|Yellow) Up [5-8]$/.test(name);
+    name.startsWith("Our Notes Slot ") ||
+    /Our Notes Flick Arrow (Red|Yellow) Up [5-8]$/.test(name) ||
+    // Exactly one skin marker exists per pack (the packer enforces it).
+    /Our Notes Native Flick Arrow Animation Skin skin\d{3}$/.test(name);
   const missing = [...referencedNames].filter((name) => !available.has(name) && !optional(name));
   if (missing.length) {
     throw new Error(`Skin pack skin001 is missing engine-referenced sprites: ${missing.join(", ")}`);

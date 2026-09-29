@@ -1628,10 +1628,19 @@ def _live_skill_top_effects(data: BuildData) -> dict[int, float]:
         levels.setdefault(int(row.get("_liveSkillID") or 0), []).append(row)
     effects: dict[int, float] = {}
     for skill_id, rows in levels.items():
-        top = max(rows, key=lambda item: int(item.get("_level") or 0))
-        if int(top.get("_skillEffectType") or 0) not in (2000, 2004):
+        top_level = max(int(row.get("_level") or 0) for row in rows)
+        # Skills 6/7 carry two conditional branches per level (LIFE >= 700 gives
+        # the higher boost); the all-PERFECT reference deck is always at full
+        # life, so the high branch is the effective value.
+        branch_values = [
+            float(row.get("_effectValue") or 0)
+            for row in rows
+            if int(row.get("_level") or 0) == top_level
+            and int(row.get("_skillEffectType") or 0) in (2000, 2004)
+        ]
+        if not branch_values:
             continue
-        effects[skill_id] = float(top.get("_effectValue") or 0)
+        effects[skill_id] = max(branch_values)
     return effects
 
 
@@ -1682,10 +1691,47 @@ def _live_meta_profiles(data: BuildData, model: dict[str, Any]) -> dict[str, dic
     return profiles or None
 
 
+def _gekisou_note_sum(
+    notes: list[dict[str, Any]],
+    combo_state: list,
+    note_score_percents: dict[int, float],
+    combo_bonuses: list[tuple[int, float]],
+    normalize: float,
+    just_factor: float,
+) -> float:
+    """Just-weighted relative note sum for the gekisou proxy, advancing the
+    shared whole-chart combo counter so the ladder matches live play."""
+    total = 0.0
+    combo_bonus = combo_state[1]
+    for note in notes:
+        combo_state[0] += 1
+        for required_combo, bonus in combo_bonuses:
+            if required_combo > combo_state[0]:
+                break
+            if required_combo == combo_state[0]:
+                combo_bonus += bonus
+        combo_state[1] = combo_bonus
+        judgement_factor = (
+            just_factor
+            if int(note.get("judgementType") or 0) in JUSTABLE_NOTE_JUDGEMENT_TYPES
+            else 1.0
+        )
+        total += (
+            note_score_percents[int(note.get("operateType") or 0)]
+            / 100
+            * (1 + combo_bonus)
+            * normalize
+            * judgement_factor
+        )
+    return total
+
+
 def _gekisou_chart_metrics(
     chart: dict[str, Any] | None,
     model: dict[str, Any],
     luck_expectations: dict[tuple[int, int], float],
+    rank_bonuses: dict[int, dict[int, float]] | None = None,
+    mission_pattern: list[int] | None = None,
 ) -> dict[str, Any] | None:
     """Per-segment gekisou metrics from the canonical chart's fever ranges.
 
@@ -1707,14 +1753,28 @@ def _gekisou_chart_metrics(
     luck_perfect_cat1 = luck_expectations.get((1, 5), 0.0)
     gauge_max = float(model.get("gekisouLuckGaugeMax") or 140.0)
     gauge_rush = float(model.get("gekisouLuckGaugeMaxRush") or 70.0)
+    rush_multiplier = 1 + float(model.get("gekisouLuckRushScoreBonusPercent") or 10.0) / 100
+    note_score_percents = model["noteScorePercents"]
+    combo_bonuses = model["comboBonuses"]
+    score_percent_total = sum(
+        note_score_percents[int(note.get("operateType") or 0)] for note in events
+    )
+    converted_note_count = math.ceil(score_percent_total / 100) or 1
+    # The relative proxy reuses the live score model's per-note shape with a
+    # Just-weighted judgement factor, so ranking across songs is meaningful
+    # while absolute points stay uncalibrated (per-JUST price is not in master).
+    normalize = model["scoreAdjustment"] / converted_note_count
     segments = []
-    for start, end in fever_ranges:
+    combo_state = [0, 0.0]
+    segment_scores: list[float] = []
+    for index, (start, end) in enumerate(fever_ranges):
         segment_notes = [
             note for note in events
             if start <= float(note.get("tick") or 0) <= end
         ]
         if not segment_notes:
             segments.append({"notes": 0, "justable": 0, "justableRate": 0, "luckExpected": 0, "rushExpected": 0})
+            segment_scores.append(0.0)
             continue
         justable = sum(
             1 for note in segment_notes
@@ -1729,6 +1789,12 @@ def _gekisou_chart_metrics(
         rush_expected = 0
         if luck >= gauge_max:
             rush_expected = 1 + int((luck - gauge_max) // gauge_rush)
+        segment_scores.append(
+            _gekisou_note_sum(
+                segment_notes, combo_state, note_score_percents, combo_bonuses,
+                normalize, model["justFactor"],
+            )
+        )
         segments.append(
             {
                 "notes": len(segment_notes),
@@ -1738,13 +1804,44 @@ def _gekisou_chart_metrics(
                 "rushExpected": rush_expected,
             }
         )
+    # Gekisou scores the whole chart; the fever segments additionally carry
+    # the per-segment rank bonus, the notes outside them only the base value.
+    inside_ticks: list[tuple[float, float]] = fever_ranges
+    outside_notes_list = [
+        note for note in events
+        if not any(start <= float(note.get("tick") or 0) <= end for start, end in inside_ticks)
+    ]
+    outside_notes = len(outside_notes_list)
+    outside_base = _gekisou_note_sum(
+        outside_notes_list, combo_state, note_score_percents, combo_bonuses,
+        normalize, model["justFactor"],
+    )
     justable_total = sum(segment["justable"] for segment in segments)
     notes_total = sum(segment["notes"] for segment in segments)
+    # Rank bonuses: per-segment mission pattern, expected = rank 3 (median),
+    # top = rank 1. The rush bonus is applied as a standing multiplier: at an
+    # all-Just charge rate the gauge cycles faster than it drains.
+    def _segment_total(rank: int) -> float:
+        total = outside_base
+        for seg_index, seg_base in enumerate(segment_scores):
+            pattern = (
+                mission_pattern[seg_index]
+                if mission_pattern and seg_index < len(mission_pattern)
+                else 1
+            ) or 1
+            bonus = (rank_bonuses or {}).get(pattern, {}).get(rank, 0.0)
+            total += seg_base * (1 + bonus / 100)
+        return total * rush_multiplier
+    score_expected = round(_segment_total(3), 8)
+    score_top = round(_segment_total(1), 8)
     return {
         "segments": segments,
         "justableTotal": justable_total,
         "notesTotal": notes_total,
         "justableRate": round(justable_total / notes_total, 6) if notes_total else 0,
+        "outsideNotes": outside_notes,
+        "score": score_expected,
+        "scoreTop": score_top,
         "metaStatus": "available",
         "scoreKind": "gekisou-relative",
         "metricSources": {
@@ -1827,7 +1924,16 @@ def _score_model(data: BuildData) -> dict[str, Any] | None:
         )
         return None
     skill_seconds, skill_multiplier, support_extension = _reference_skill_profile(data)
+    just_percent = max(
+        (
+            float(row.get("_scorePercent") or 0)
+            for row in data.rows("MasterLiveJudgementParameter")
+            if int(row.get("_noteSimulateJudgement") or 0) == 6
+        ),
+        default=230.0,
+    )
     return {
+        "justFactor": just_percent / 100,
         "noteScorePercents": note_score_percents,
         "comboBonuses": combo_bonuses,
         "scoreAdjustment": settings["note_score_adjustment_factor"],
@@ -2145,7 +2251,11 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                 difficulty_metrics.append(metrics)
                 gekisou_metrics = (
                     _gekisou_chart_metrics(
-                        canonical_charts.get(str(score_id)), score_model, luck_expectations
+                        canonical_charts.get(str(score_id)),
+                        score_model,
+                        luck_expectations,
+                        gekisou_rank_bonuses,
+                        mission_pattern,
                     )
                     if score_model
                     else None
@@ -2177,10 +2287,26 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                             * 60,
                             8,
                         )
+                for diff_entry in song_metadata.values():
+                    gekisou_entry = diff_entry.get("gekisou") if isinstance(diff_entry, dict) else None
+                    if isinstance(gekisou_entry, dict) and gekisou_entry.get("score") is not None:
+                        gekisou_entry["eff"] = round(
+                            float(gekisou_entry["score"])
+                            / (song_seconds + META_REFERENCE_DOWNTIME_SECONDS)
+                            * 60,
+                            8,
+                        )
+                        gekisou_entry["effTop"] = round(
+                            float(gekisou_entry["scoreTop"])
+                            / (song_seconds + META_REFERENCE_DOWNTIME_SECONDS)
+                            * 60,
+                            8,
+                        )
                 metrics["metricSources"].update({
                     "time": "maximum canonical last-judged-note time across song difficulties",
                     "nps": "MasterLiveMusicScore._fullComboCount / song time",
                 })
+
                 if metrics.get("eff") is not None:
                     metrics["metricSources"]["eff"] = (
                         "relative score / (song time + 30-second reference downtime) * 60"

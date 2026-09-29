@@ -137,7 +137,7 @@ function rewardSection(
  * entries. Summaries stay inside the section rhythm instead of looking like
  * bare unstyled <details>.
  */
-function fold(title: unknown, content: unknown, meta: unknown = nothing) {
+export function fold(title: unknown, content: unknown, meta: unknown = nothing) {
   return html`
     <details class="detail-fold">
       <summary>

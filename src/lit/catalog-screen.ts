@@ -9,6 +9,7 @@ import { shopPriceLine } from "../lib/shop-currency";
 import "./catalog-table";
 import { filterDateBound } from "../lib/filter-date";
 import { facet } from "./ui/facet";
+import { fold } from "./game-system-detail";
 import { collectionList, collectionView, viewSwitch, type CollectionView } from "./ui/collection-view";
 import {
   openDetailLocation,
@@ -503,6 +504,12 @@ export class CatalogScreen extends LitElement {
   private profile = fallbackProfile;
   private characters: Item[] = [];
   private bands: Item[] = [];
+  /** song-meta table view state: live/gekisou mode and the reference tier. */
+  private metaMode: "live" | "gekisou" = "live";
+  private metaTier: "theory" | "current" | "band" = "theory";
+  private metaBand = 0;
+  /** Reactive snapshot handed to the table so tier switches re-render cells. */
+  private metaView: { mode: string; tier: string; band: number } = { mode: "live", tier: "theory", band: 0 };
   private gameMarks = new Map<string, string>();
   private gameItems: Item[] = [];
   private songMeta: Item = {};
@@ -522,6 +529,13 @@ export class CatalogScreen extends LitElement {
   private restoreLocation = () => {
     const params = new URLSearchParams(location.search);
     this.view = this.profile.perDifficulty ? "table" : collectionView(params.get("view"));
+    if (this.settings.resource === "song-meta") {
+      this.metaMode = params.get("metaMode") === "gekisou" ? "gekisou" : "live";
+      const tier = params.get("metaTier");
+      this.metaTier = tier === "current" || tier === "band" ? tier : "theory";
+      this.metaBand = Math.max(0, Number(params.get("metaBand") || 0));
+      this.metaView = { mode: this.metaMode, tier: this.metaTier, band: this.metaBand };
+    }
     this.selectedSongDifficulty = params.get("chartDifficulty") || "expert";
     const id = this.settings.entityId || params.get(this.selectionParam()) || "";
     if (id === this.selectedId) {
@@ -695,6 +709,13 @@ export class CatalogScreen extends LitElement {
     this.sort = this.normalizeSort(params.get("sort") ?? this.profile.defaultSort);
     this.order = params.has("order") ? (params.get("order") === "desc" ? "desc" : "asc") : this.profile.defaultOrder;
     this.view = this.profile.perDifficulty ? "table" : collectionView(params.get("view"));
+    if (this.settings.resource === "song-meta") {
+      this.metaMode = params.get("metaMode") === "gekisou" ? "gekisou" : "live";
+      const tier = params.get("metaTier");
+      this.metaTier = tier === "current" || tier === "band" ? tier : "theory";
+      this.metaBand = Math.max(0, Number(params.get("metaBand") || 0));
+      this.metaView = { mode: this.metaMode, tier: this.metaTier, band: this.metaBand };
+    }
     const bandRail = this.hasBandRail();
     this.activeBand = bandRail ? Number(params.get("band") || 0) : 0;
     this.selectedId = this.settings.entityId || params.get(this.selectionParam()) || "";
@@ -1186,6 +1207,11 @@ export class CatalogScreen extends LitElement {
     set("sort", this.sort, this.profile.defaultSort);
     set("order", this.order, this.profile.defaultOrder);
     set("view", this.view, this.profile.perDifficulty ? "table" : "grid");
+    if (this.settings.resource === "song-meta") {
+      set("metaMode", this.metaMode, "live");
+      set("metaTier", this.metaTier, "theory");
+      set("metaBand", String(this.metaBand), "0");
+    }
     const bandRail = this.hasBandRail();
     if (bandRail) set("band", String(this.activeBand), "0");
     else params.delete("band");
@@ -1234,6 +1260,7 @@ export class CatalogScreen extends LitElement {
       this.activeBand,
       this.settings.locale,
       this.selectedSongDifficulty,
+      this.settings.resource === "song-meta" ? `${this.metaMode}|${this.metaTier}|${this.metaBand}` : "",
       JSON.stringify(this.facets),
     ].join("\u0000");
     if (this.resultCache?.key === key && this.resultCache.items.length <= this.expandedItems().length)
@@ -1391,6 +1418,27 @@ export class CatalogScreen extends LitElement {
     if (!chart) return Number.NaN;
     if (key === "bpm") return Number(chart.firstBpm ?? chart.minBpm ?? chart.maxBpm);
     if (key === "n") return Number(chart.n ?? chart.noteCount ?? chart.canonicalNoteCount);
+    if (this.settings.resource === "song-meta" && this.metaMode === "gekisou") {
+      const gekisou = (difficulty?.gekisou as Item | undefined) || {};
+      if (key === "score") return Number(gekisou.score ?? Number.NaN);
+      if (key === "eff") return Number(gekisou.eff ?? Number.NaN);
+      if (key === "justable") return Number(gekisou.justableTotal ?? Number.NaN);
+      if (key === "justableRate") return Number(gekisou.justableRate ?? Number.NaN);
+      if (key === "luck")
+        return Number(
+          (Array.isArray(gekisou.segments) ? (gekisou.segments as Item[]) : []).reduce(
+            (total, segment) => total + Number(segment.luckExpected || 0),
+            0,
+          ) || Number.NaN,
+        );
+    }
+    if (this.settings.resource === "song-meta" && this.metaTier !== "theory") {
+      const profile =
+        (chart.profiles as Record<string, Item> | undefined)?.[
+          this.metaTier === "band" ? `band:${this.metaBand}` : "current"
+        ] || {};
+      if (key === "score" || key === "eff" || key === "sr") return Number(profile[key] ?? chart[key]);
+    }
     return Number(chart[key]);
   }
   songListMeta(item: Item, key: string) {
@@ -1402,7 +1450,7 @@ export class CatalogScreen extends LitElement {
     }
     // Score factor and efficiency are fractions; the table reads them the same
     // way the song detail does, as whole percent.
-    if (key === "score" || key === "eff")
+    if (key === "score" || key === "eff" || key === "justableRate")
       return `${(value * 100).toLocaleString(this.settings.locale, { maximumFractionDigits: 0 })}%`;
     if (["nps", "sr"].includes(key)) return value.toFixed(2);
     return Math.round(value).toLocaleString();
@@ -1438,7 +1486,7 @@ export class CatalogScreen extends LitElement {
       return Number((Array.isArray(item.musicCategories) ? item.musicCategories[0] : 99) || 99);
     if (this.sort === "lyrics") return this.localized(item.lyricist);
     if (this.sort === "arrangement") return this.localized(item.arranger);
-    if (["time", "score", "eff", "bpm", "n", "nps", "sr"].includes(this.sort))
+    if (["time", "score", "eff", "bpm", "n", "nps", "sr", "justable", "justableRate", "luck"].includes(this.sort))
       return this.songMetaValue(item, this.sort);
     if (this.sort === "level") {
       const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
@@ -2432,13 +2480,89 @@ export class CatalogScreen extends LitElement {
     `;
   }
 
+  /** Reference-tier selector above the meta table — the bond browser's band
+   * selector markup (`character-pair__bands`): one row of pill buttons, band
+   * logos for the bands, plain labels for theory/current. */
+  private renderMetaTierBands() {
+    if (this.settings.resource !== "song-meta") return nothing;
+    const bands = this.bands.length
+      ? this.bands
+      : Object.values(
+          (this.items || []).reduce<Record<number, Item>>((bands, item) => {
+            const id = Number(item.bandId || 0);
+            if (id && !bands[id]) bands[id] = item;
+            return bands;
+          }, {}),
+        );
+    const rows = Array.isArray(this.items) ? this.items : [];
+    const select = (tier: "theory" | "current" | "band", band = 0) => {
+      this.metaTier = tier;
+      this.metaBand = tier === "band" ? band : 0;
+      this.metaView = { mode: this.metaMode, tier: this.metaTier, band: this.metaBand };
+      this.requestUpdate();
+      this.syncUrl();
+    };
+    const options: Array<{ key: string; label: string; image: string; tier: "theory" | "current" | "band"; band: number }> = [
+      { key: "theory", label: this.label("metaTierTheory", "Theory"), image: "", tier: "theory", band: 0 },
+      { key: "current", label: this.label("metaTierCurrent", "Current"), image: "", tier: "current", band: 0 },
+      ...bands.map((band) => ({
+        key: `band:${Number(band.bandId)}`,
+        label: this.bandName(Number(band.bandId)) || String(band.bandId),
+        image: this.imageForLocale(String(band.logo || band.icon || "")),
+        tier: "band" as const,
+        band: Number(band.bandId),
+      })),
+    ];
+    const current = this.metaTier === "band" ? `band:${this.metaBand}` : this.metaTier;
+    return html`
+      <div class="character-pair__bands" role="group" aria-label=${this.label("metaTier", "Reference tier")}>
+        ${options.map(
+          (option) => html`
+            <button
+              type="button"
+              aria-pressed=${option.key === current}
+              aria-label=${option.label}
+              title=${`${option.label}${option.tier === "band" ? ` · ${rows.filter((row) => Number(row.bandId || 0) === option.band).length}` : ""}`}
+              @click=${() => select(option.tier, option.band)}
+            >
+              ${option.image
+                ? html`
+                    <img src=${option.image} alt=${option.label} />
+                  `
+                : option.label}
+            </button>
+          `,
+        )}
+      </div>
+    `;
+  }
   private renderBarModes() {
-    // The meta collection is a table by definition; there is nothing to switch.
-    if (this.profile.perDifficulty) return nothing;
+    // The meta table swaps its metric columns between the live and gekisou
+    // models instead of switching grid/table views.
+    if (this.profile.perDifficulty) return this.renderMetaModeControls();
     return viewSwitch(this.settings.locale, this.view, (view) => {
       this.view = view;
       this.ensureSongMeta();
       this.syncUrl();
+    });
+  }
+
+  private renderMetaModeControls() {
+    if (this.settings.resource !== "song-meta") return nothing;
+    return segmented({
+      label: this.label("metaMode", "Mode"),
+      value: this.metaMode,
+      options: [
+        { value: "live", label: this.label("metaModeLive", "Live") },
+        { value: "gekisou", label: this.label("metaModeGekisou", "Gekisou") },
+      ],
+      onSelect: (mode) => {
+        this.metaMode = mode;
+        this.metaView = { mode: this.metaMode, tier: this.metaTier, band: this.metaBand };
+        this.requestUpdate();
+        if (mode === "gekisou") this.metaTier = "theory";
+        this.syncUrl();
+      },
     });
   }
 
@@ -2736,6 +2860,7 @@ export class CatalogScreen extends LitElement {
         .items=${items}
         .difficulty=${this.selectedSongDifficulty}
         .locale=${this.settings.locale}
+        .meta=${this.metaView}
       ></catalog-table-view>
     `;
   }
@@ -2758,7 +2883,9 @@ export class CatalogScreen extends LitElement {
       });
     const collection =
       this.view === "table"
-        ? this.renderStructuredList(items)
+        ? html`
+            ${this.renderMetaTierBands()}${this.renderStructuredList(items)}
+          `
         : this.view === "list"
           ? collectionList(
               items.map((item) => ({
@@ -3051,6 +3178,13 @@ export class CatalogScreen extends LitElement {
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
     const difficulty = song?.[String(this.detailDifficulty)] as Item | undefined;
     return (difficulty?.chart as Item | undefined) || {};
+  }
+  /** Song-level gekisou mission pattern merged with the selected difficulty's
+   * per-segment metrics (both live in the song-meta entry). */
+  private songGekisouMeta(item: Item) {
+    const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
+    const difficulty = song?.[String(this.detailDifficulty)] as Item | undefined;
+    return { ...((song?.gekisou as Item | undefined) || {}), ...((difficulty?.gekisou as Item | undefined) || {}) };
   }
   private sonolusUrl(item: Item) {
     if (this.profile.presentation !== "song") return "";
@@ -3398,7 +3532,9 @@ export class CatalogScreen extends LitElement {
   private renderCostList(label: string, rows: Item[]) {
     if (!rows.length) return nothing;
     const level = Number(rows[0].level || 1);
-    return upgradeCost({
+    return fold(
+      label,
+      upgradeCost({
       label,
       from: Math.max(0, level - 1),
       to: level,
@@ -3413,7 +3549,8 @@ export class CatalogScreen extends LitElement {
             image: String(item?.image || ""),
           };
         }),
-    });
+      }),
+    );
   }
   private skillDescription(skill: Item, requestedLevel?: number) {
     const raw = localizedText(skill.description, this.settings.locale);
@@ -3508,6 +3645,7 @@ export class CatalogScreen extends LitElement {
     );
     const chart = this.chartRow(item);
     const songMeta = this.songChartMeta(item);
+    const songGekisou = this.songGekisouMeta(item);
     const videos =
       item.musicVideos && typeof item.musicVideos === "object"
         ? Object.values(item.musicVideos as Item).filter((value): value is Item =>
@@ -3597,6 +3735,7 @@ export class CatalogScreen extends LitElement {
                 ? (this.songDetailRewards?.renderSongSummary({
                     item,
                     meta: songMeta,
+                    gekisou: songGekisou,
                     difficulty,
                     selectedDifficulty: this.detailDifficulty,
                     locale: this.settings.locale,

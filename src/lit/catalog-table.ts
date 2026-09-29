@@ -129,6 +129,28 @@ const COLUMNS: Record<string, Column[]> = {
     column("category", "text", "category"),
     column("release", "text", "release"),
   ],
+  // The gekisou view of the meta table keeps the identity columns and swaps
+  // the live score metrics for the per-segment just/luck model.
+  "song-meta-gekisou": [
+    column("title", "entity", "title", true),
+    column("play", "action"),
+    column("chart", "action"),
+    column("sonolus", "action"),
+    column("attribute", "mark", "musicType"),
+    column("band", "entity", "band"),
+    column("difficulty", "numeric", "level"),
+    column("time", "numeric", "time"),
+    column("score", "numeric", "score"),
+    column("eff", "numeric", "eff"),
+    column("justableRate", "numeric", "justableRate"),
+    column("justable", "numeric", "justable"),
+    column("luck", "numeric", "luck"),
+    column("bpm", "numeric", "bpm"),
+    column("n", "numeric", "n"),
+    column("nps", "numeric", "nps"),
+    column("category", "text", "category"),
+    column("release", "text", "release"),
+  ],
   band: [column("title", "entity", "title", true)],
   "band-item": [
     column("title", "entity", "title", true),
@@ -167,11 +189,19 @@ const CELL_MAX: Record<string, string> = {
 };
 
 export class CatalogTable extends LitElement {
-  static properties = { controller: { attribute: false }, items: { attribute: false }, difficulty: {}, locale: {} };
+  static properties = {
+    controller: { attribute: false },
+    items: { attribute: false },
+    difficulty: {},
+    locale: {},
+    meta: { attribute: false },
+  };
   declare difficulty: string;
   declare locale: string;
   declare controller: Controller;
   declare items: Item[];
+  /** song-meta view state snapshot; changing it re-renders the metric cells. */
+  declare meta?: { mode: string; tier: string; band: number };
   createRenderRoot() {
     return this;
   }
@@ -179,7 +209,10 @@ export class CatalogTable extends LitElement {
   render() {
     const c = this.controller;
     if (!c) return nothing;
-    const columns = COLUMNS[c.profile.perDifficulty ? "song-meta" : c.profile.presentation] || COLUMNS.item;
+    const columns =
+      COLUMNS[
+        c.profile.perDifficulty ? (this.meta?.mode === "gekisou" ? "song-meta-gekisou" : "song-meta") : c.profile.presentation
+      ] || COLUMNS.item;
     const label = (key: string) => c.detailLabel(key);
     return html`
       <div class="table-scroll" role="region" tabindex="0" aria-label=${c.label("table", "Table")} data-scroll-region>
@@ -482,7 +515,8 @@ export class CatalogTable extends LitElement {
       return wrap(value ? c.label(value, value) : "—");
     }
     if (key === "status") return wrap(c.systemStatusLabel(item) || "—");
-    if (["time", "score", "eff", "bpm", "n", "nps", "sr"].includes(key)) return wrap(c.songListMeta(item, key));
+    if (["time", "score", "eff", "bpm", "n", "nps", "sr", "justableRate", "justable", "luck"].includes(key))
+      return wrap(c.songListMeta(item, key));
     if (key === "release") return wrap(c.release(item.releasedAt || item.publishedAt || item.publicStartAt) || "—");
     if (key === "subtitle") return wrap(c.localized(item.subTitle) || "—");
     if (key === "part") return wrap(c.localized(item.bandPart) || "—");

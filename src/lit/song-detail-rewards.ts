@@ -19,6 +19,9 @@ export interface SongSummaryRenderOptions {
   difficulty: Item[];
   selectedDifficulty: number;
   locale: string;
+  /** Gekisou (撃奏) summary: song-level mission pattern merged with the
+   * per-difficulty segment metrics from the song-meta entry. */
+  gekisou: Item;
   label(key: string, fallback: string): string;
   detailLabel(key: string): string;
   fieldValue(item: Item, key: string): string;
@@ -26,7 +29,7 @@ export interface SongSummaryRenderOptions {
 }
 
 export function renderSongSummary(options: SongSummaryRenderOptions) {
-  const { item, meta, difficulty, selectedDifficulty, locale, label, detailLabel, fieldValue, selectDifficulty } =
+  const { item, meta, difficulty, selectedDifficulty, locale, gekisou, label, detailLabel, fieldValue, selectDifficulty } =
     options;
   const percentage = (value: unknown) =>
     value !== null && value !== undefined && Number.isFinite(Number(value))
@@ -43,11 +46,16 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
   const minimum = Number(meta.minBpm ?? meta.firstBpm ?? 0);
   const maximum = Number(meta.maxBpm ?? meta.firstBpm ?? 0);
   const bpm = minimum || maximum ? (minimum === maximum ? String(minimum) : `${minimum}–${maximum}`) : "—";
+  const profiles = (meta.profiles as Record<string, Item> | undefined) || {};
+  const currentEff = Number(profiles.current?.eff ?? Number.NaN);
   const metrics: Array<[string, string, string]> = [
     ["metaR", "Difficulty Rating", decimal(meta.r)],
     ["metaTime", "Song Duration", duration(meta.time)],
     ["metaScore", "Relative Score Factor", percentage(meta.score)],
     ["metaEff", "Score Efficiency per Minute", percentage(meta.eff)],
+    ...(Number.isFinite(currentEff)
+      ? ([["metaEffCurrent", "Current-deck Efficiency per Minute", percentage(currentEff)]] as Array<[string, string, string]>)
+      : []),
     ["metaBpm", "Beats per Minute", bpm],
     ["metaN", "Note Count", decimal(meta.n)],
     ["metaNps", "Notes per Second", decimal(meta.nps, 1)],
@@ -66,6 +74,26 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
       return value ? [{ key, value }] : [];
     },
   );
+  // Each song's three gekisou (撃奏) segments: mission type, per-segment
+  // justable note rate and the rank-1 score bonus of the mission pattern.
+  const missionTypes = Array.isArray(gekisou.missionTypes) ? (gekisou.missionTypes as string[]) : [];
+  const rankBonusTop = Array.isArray(gekisou.rankBonusTop) ? (gekisou.rankBonusTop as number[]) : [];
+  const segments = Array.isArray(gekisou.segments) ? (gekisou.segments as Item[]) : [];
+  const gekisouCells = missionTypes.map((type, index) => {
+    const segment = segments[index] || {};
+    const rate = Number(segment.justableRate ?? 0);
+    const bonus = Number(rankBonusTop[index] ?? 0);
+    const detail = [
+      rate ? `${label("gekisouJustable", "Justable")} ${percentage(rate)}` : "",
+      bonus ? `+${decimal(bonus, 0)}%` : "",
+    ].filter(Boolean).join(" · ");
+    return html`
+      <div>
+        <dt>${label("gekisouSegment", "Gekisou segment")} ${index + 1}</dt>
+        <dd>${label(`gekisouMission${type}`, type)}${detail ? html` <small>${detail}</small>` : nothing}</dd>
+      </div>
+    `;
+  });
   return html`
     <section class="detail-section song-detail-section song-detail-summary">
       ${renderDetailSectionHeading(label("details", "Details"), "details")}
@@ -80,6 +108,11 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
           `,
         )}
       </dl>
+      ${gekisouCells.length
+        ? html`<dl class="song-data-grid song-detail-facts">
+            ${gekisouCells}
+          </dl>`
+        : nothing}
       <dl class="song-data-grid song-detail-facts">
         ${facts.map(
           ({ key, value }) => html`

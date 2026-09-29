@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { deflateSync, gzipSync, inflateSync } from "node:zlib";
 import {
+  OUR_NOTES_SLIDE_LINE_STYLES,
   OUR_NOTES_BUNDLED_NOTE_ATLASES,
   OUR_NOTES_NOTE_SKINS,
   type BundledNoteAtlas,
@@ -571,7 +572,8 @@ function addArrowAliases(
   for (let index = 0; index < fallbacks.length; index += 1) {
     if (fallbacks[index]) continue;
     const forward = original.slice(index + 1).find((sprite) => sprite) ?? null;
-    const backward = original.slice(0, index).findLast((sprite) => sprite) ?? null;
+    const before = original.slice(0, index);
+    const backward = before.length ? (before.filter((sprite): sprite is string => !!sprite).at(-1) ?? null) : null;
     fallbacks[index] = forward ?? backward;
   }
   arrows.forEach((_, index) => {
@@ -754,6 +756,116 @@ function validateBounds(
   }
 }
 
+// Live/Unlit/SlideLine fragment composite (HoldRibbon): the authored
+// gradient runs along the line's length; the cross-section is the grayscale
+// art tinted by that gradient plus glow rails on the outer edges.
+const SLIDE_STRIP_X = { normal: 505, pressed: 609, missed: 713 } as const;
+const SLIDE_SOURCE_ROW = 3693;
+const SLIDE_STRIP_WIDTH = 100;
+/** The authored grayscale line art spans x=6..93 of the 100px row. */
+const SLIDE_ART_SPAN = { left: 6, right: 93 } as const;
+
+type SlideGradient = { colors: readonly (readonly number[])[]; alpha: readonly number[] };
+
+function sampleSlideGradient(gradient: SlideGradient, time: number): [number, number, number, number] {
+  const stops = gradient.colors;
+  if (!stops.length) return [1, 1, 1, 1];
+  let left = stops[0]!;
+  let right = stops[stops.length - 1]!;
+  for (let index = 0; index + 1 < stops.length; index += 1) {
+    if (time >= stops[index]![0]! && time <= stops[index + 1]![0]!) {
+      left = stops[index]!;
+      right = stops[index + 1]!;
+      break;
+    }
+  }
+  const span = Math.max(1e-6, right[0]! - left[0]!);
+  const amount = Math.min(1, Math.max(0, (time - left[0]!) / span));
+  const channel = (offset: number): number =>
+    Math.min(1, Math.max(0, left[offset]! + (right[offset]! - left[offset]!) * amount));
+  const alphaKeys = gradient.alpha;
+  const a0 = alphaKeys[1] ?? 1;
+  const a1 = alphaKeys[2] ?? a0;
+  const t0 = alphaKeys[0] ?? 0;
+  const t1 = alphaKeys[3] ?? 1;
+  const alphaAmount = Math.min(1, Math.max(0, (time - t0) / Math.max(1e-6, t1 - t0)));
+  return [channel(1), channel(2), channel(3), a0 + (a1 - a0) * alphaAmount];
+}
+
+function rgbToHsv(r: number, g: number, b: number): readonly [number, number, number] {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const h =
+    delta === 0 ? 0 : max === r ? ((g - b) / delta) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+  return [((h / 6) + 1) % 1, max === 0 ? 0 : delta / max, max];
+}
+
+function hsvToRgb(h: number, s: number, v: number): readonly [number, number, number] {
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  const table: ReadonlyArray<readonly [number, number, number]> = [
+    [v, t, p],
+    [q, v, p],
+    [p, v, t],
+    [p, q, v],
+    [t, p, v],
+    [v, p, q],
+  ];
+  return table[((i % 6) + 6) % 6]!;
+}
+
+function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNoteSkin): void {
+  // HoldRibbon's fragment shader: the authored gradient (uGradientTex) runs
+  // ALONG the line's length (u = lineProgress) and the cross-section carries
+  // only the grayscale art tinted by the gradient at that length, plus the
+  // glow rails on the outer edges (vColor.g). Sonolus stretches one sprite
+  // per connector segment, so the length axis cannot vary; each state bakes
+  // the gradient at its mid length, which keeps the cross-section symmetric
+  // like the original.
+  const style = OUR_NOTES_SLIDE_LINE_STYLES[skinName];
+  const stride = texture.width * 4;
+  const sourceOffset = SLIDE_SOURCE_ROW * stride;
+  const states: ReadonlyArray<[keyof typeof SLIDE_STRIP_X, SlideGradient, number]> = [
+    ["normal", style.normal, style.glow.enabledScale],
+    ["pressed", style.pressed, style.glow.pressedScale],
+    ["missed", style.disabled, style.glow.disabledScale],
+  ];
+  for (const [state, gradient, stateScale] of states) {
+    const targetX = SLIDE_STRIP_X[state];
+    const [baseR, baseG, baseB, baseA] = sampleSlideGradient(gradient, 0.5);
+    for (let column = 0; column < SLIDE_STRIP_WIDTH; column += 1) {
+      const sourceOffsetPixel = sourceOffset + Math.min(99, column) * 4;
+      const gray = texture.pixels[sourceOffsetPixel]! / 255;
+      const sourceA = texture.pixels[sourceOffsetPixel + 3]! / 255;
+      // Glow rides the authored art's outer rails: symmetric across the
+      // strip, strongest at the edges, zero from 12.5% inward.
+      const u = Math.min(1, Math.max(0, (column - SLIDE_ART_SPAN.left) / (SLIDE_ART_SPAN.right - SLIDE_ART_SPAN.left)));
+      const edge = Math.abs(2 * u - 1);
+      const glowBase = Math.min(1, Math.max(0, edge / 0.125 - 7));
+      const glow =
+        (glowBase <= 0 ? 0 : Math.pow(glowBase, style.glow.falloff)) * style.glow.intensity * stateScale;
+      const [h, s, v] = rgbToHsv(baseR, baseG, baseB);
+      const [ar, ag, ab] = hsvToRgb(h, Math.min(1, Math.max(0, s - glow)), Math.min(1, v + glow));
+      const mixAmount = Math.min(1, glow);
+      const r = (ar + (style.glow.color[0] - ar) * mixAmount) * gray;
+      const g = (ag + (style.glow.color[1] - ag) * mixAmount) * gray;
+      const b = (ab + (style.glow.color[2] - ab) * mixAmount) * gray;
+      const a = (baseA + (1 - baseA) * mixAmount) * sourceA;
+      for (let y = SLIDE_SOURCE_ROW - 1; y <= SLIDE_SOURCE_ROW + 8; y += 1) {
+        const target = y * stride + (targetX + column) * 4;
+        texture.pixels[target] = Math.round(Math.min(1, Math.max(0, r)) * 255);
+        texture.pixels[target + 1] = Math.round(Math.min(1, Math.max(0, g)) * 255);
+        texture.pixels[target + 2] = Math.round(Math.min(1, Math.max(0, b)) * 255);
+        texture.pixels[target + 3] = Math.round(Math.min(1, Math.max(0, a)) * 255);
+      }
+    }
+  }
+}
+
 function copySprite(texture: DecodedRgbaPng, sprite: PackedNativeSprite): void {
   const stride = texture.width * 4;
   for (let row = 0; row < sprite.h; row++) {
@@ -831,6 +943,7 @@ function packSkin(
   const texture = cloneTexture(commonTexture);
   texture.pixels.fill(0, 0, NATIVE_TEXTURE_SIZE * texture.width * 4);
   for (const sprite of native) copySprite(texture, sprite);
+  bakeSkinSlideStrips(texture, skinName);
 
   return {
     skinSprites: sprites,
