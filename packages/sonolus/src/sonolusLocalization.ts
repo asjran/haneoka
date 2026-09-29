@@ -27,8 +27,8 @@ export const OUR_NOTES_SONOLUS_ITEM_NAMES = Object.freeze({
   }),
   stages: Object.freeze({
     0: "ourNotesBgStage",
-    1: "ourNotesBgBlue",
-    2: "ourNotesBgTheatre",
+    1: "ourNotesBgMyGO",
+    2: "ourNotesBgAveMujica",
     3: "ourNotesBgMugendaiMewType",
     4: "ourNotesBgMillsage",
     5: "ourNotesBgIkkaDumbRock",

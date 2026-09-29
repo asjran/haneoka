@@ -51,14 +51,20 @@ const EMPTY_SRL: Srl = {};
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 type JsonObject = { [key: string]: JsonValue };
-type MasterName = "MasterLiveMusic" | "MasterLiveMusicScore" | "MasterText" | "MasterBand" | "MasterSoundCueSheet";
+type MasterName =
+  | "MasterLiveMusic"
+  | "MasterLiveMusicScore"
+  | "MasterText"
+  | "MasterBand"
+  | "MasterSoundCueSheet"
+  | "MasterLiveNoteSkin";
 
 interface SoundCueSheetRow {
   _id: number;
   _cueSheetName: string;
 }
 
-type MasterRow = MusicRow | ScoreRow | TextRow | BandRow | SoundCueSheetRow;
+type MasterRow = MusicRow | ScoreRow | TextRow | BandRow | SoundCueSheetRow | { _id: number; _assetName: string; _skinNameTextId: string };
 type JsonRowGuard<T> = (value: JsonValue) => value is JsonObject & T;
 type LevelEntry = { meta: LevelMeta; level: LevelItemModel };
 
@@ -148,6 +154,7 @@ function master(name: "MasterLiveMusicScore"): ScoreRow[];
 function master(name: "MasterText"): TextRow[];
 function master(name: "MasterBand"): BandRow[];
 function master(name: "MasterSoundCueSheet"): SoundCueSheetRow[];
+function master(name: "MasterLiveNoteSkin"): Array<{ _id: number; _assetName: string; _skinNameTextId: string }>;
 function master(name: MasterName): MasterRow[] {
   const parsed: JsonValue = JSON.parse(readFileSync(resolve(workspace.masterRoot, `${name}.json`), "utf8"));
   if (!isJsonObject(parsed) || !Array.isArray(parsed._allData)) {
@@ -165,6 +172,8 @@ function master(name: MasterName): MasterRow[] {
       return validateMasterRows(name, parsed._allData, isBandRow);
     case "MasterSoundCueSheet":
       return validateMasterRows(name, parsed._allData, isSoundCueSheetRow);
+    case "MasterLiveNoteSkin":
+      return parsed._allData as Array<{ _id: number; _assetName: string; _skinNameTextId: string }>;
   }
 }
 
@@ -252,8 +261,15 @@ function main() {
   }
 
   // The note/lane skins are the Cassiopeia-migrated skin001/002/003 packs;
-  // skin001 stays the engine default. The old single-skin root files were
-  // retired by the multi-skin packer.
+  // skin001 stays the engine default. Titles come from MasterLiveNoteSkin's
+  // own text ids so the local server names them exactly like the game
+  // (アワーノーツ / ガルパ / ハニカム in the current release).
+  const textById = new Map(master("MasterText").map((row) => [row._id, row]));
+  const localizedText = (id: string): { ja: string; en: string } => {
+    const row = textById.get(id);
+    return { ja: row?._japanese ?? id, en: row?._english ?? row?._japanese ?? id };
+  };
+  const skinNameByAsset = new Map(master("MasterLiveNoteSkin").map((row) => [row._assetName, row._skinNameTextId]));
   const skinItems: SkinItemModel[] = (
     [
       ["skin001", "ourNotesSkin"],
@@ -263,8 +279,8 @@ function main() {
   ).map(([skinId, name]) => ({
     name,
     version: SONOLUS_ITEM_VERSIONS.skin,
-    title: { ja: "Our Notes", en: "Our Notes" },
-    subtitle: { ja: `オリジナル ${skinId}`, en: `Original ${skinId}` },
+    title: localizedText(skinNameByAsset.get(skinId) ?? `NoteSkinName_${skinId.slice(-1)}`),
+    subtitle: { ja: "Our Notes", en: "Our Notes" },
     author: { en: "haneoka" },
     tags: [],
     thumbnail: EMPTY_SRL,
@@ -304,19 +320,25 @@ function main() {
   // override an engine default per play, so expose both instead of baking a
   // song/video-derived choice into the engine. ---
   const bgDir = resolve(ROOT, "packages/sonolus/dist/background");
-  const backgroundSources = [
-    {
-      name: "ourNotesBgBlue",
-      directory: "blue",
-      title: { ja: "ブルーステージ", en: "Blue Stage" },
-    },
-    {
-      name: "ourNotesBgTheatre",
-      directory: "theatre",
-      title: { ja: "シアターステージ", en: "Theatre Stage" },
-    },
-  ];
-  const engineBg = backgroundSources[0].name;
+  // Every native lightweight stage, named from MasterBand so the local server
+  // matches the game's stage list; band 0 is the generic stage. Item ids use
+  // the band names (MyGO!!!!!/Ave Mujica/...), not legacy colour codenames.
+  const bandNameById = new Map(master("MasterBand").map((row) => [row._id, row._nameTextID]));
+  const backgroundSources = (
+    [
+      [0, "ourNotesBgStage", "stage", { ja: "ステージ", en: "Stage" }],
+      [1, "ourNotesBgMyGO", "mygo", null],
+      [2, "ourNotesBgAveMujica", "ave-mujica", null],
+      [3, "ourNotesBgMugendaiMewType", "mugendai-mewtype", null],
+      [4, "ourNotesBgMillsage", "millsage", null],
+      [5, "ourNotesBgIkkaDumbRock", "ikka-dumb-rock", null],
+    ] as const
+  ).map(([bandId, name, directory, fallback]) => ({
+    name,
+    directory,
+    title: fallback ?? localizedText(bandNameById.get(bandId) ?? ""),
+  }));
+  const engineBg = "ourNotesBgMyGO";
   for (const background of backgroundSources) {
     const bgImageFile = resolve(bgDir, background.directory, "image.png");
     const bgThumbFile = resolve(bgDir, background.directory, "thumbnail.png");

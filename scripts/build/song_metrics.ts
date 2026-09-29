@@ -10,6 +10,7 @@ interface ScoreEvent {
   tick: number;
   timeMs: number;
   operateType: number;
+  judgementType: number;
 }
 
 interface MetricBpmChange {
@@ -23,6 +24,7 @@ interface MetricChart {
   notes: readonly {
     judged: boolean;
     operateType: number;
+    judgementType: number;
     tick: number;
     timeMs: number;
   }[];
@@ -122,6 +124,7 @@ for (const [key, file] of Object.entries(files)) {
       tick: Number(note.tick),
       timeMs: Number(note.timeMs),
       operateType: Number(note.operateType),
+      judgementType: Number(note.judgementType ?? 0),
     }));
   const bpmChanges = chart.bpmChanges.map((change) => ({
     tick: Number(change.tick),

@@ -573,8 +573,8 @@ async function main() {
       configuration: addJson({ blur: 0, mask: "#0000004d" }),
     };
   });
-  const backgroundBlue = backgroundItems[1];
-  if (!backgroundBlue) throw new Error("Native background item list is missing stage 1");
+  const backgroundMyGO = backgroundItems[1];
+  if (!backgroundMyGO) throw new Error("Native background item list is missing stage 1");
   const engine: EngineItem = {
     ...itemBase(
       "ourNotes",
@@ -584,7 +584,7 @@ async function main() {
       "haneoka",
     ),
     skin,
-    background: backgroundBlue,
+    background: backgroundMyGO,
     effect,
     particle,
     thumbnail: emptySrl,

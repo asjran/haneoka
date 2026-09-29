@@ -12,6 +12,8 @@ export const SONOLUS_INPUT_PREFIXES = [
   "runtime/unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/",
   "runtime/unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/common/",
   "runtime/unity-json/Assets/AddressableResources/Effect/Live/LaneEffect/effect001/",
+  "assets/Assets/AddressableResources/Effect/Live/NoteEffect/common/",
+  "assets/Assets/AddressableResources/Live/Images/lane_effect_white.png",
   "runtime/unity/Assets/AddressableResources/Effect/Live/NoteEffect/common/",
   "runtime/unity-json/Assets/AddressableResources/Live/Images/lane_effect_white.png/",
   "runtime/unity/Assets/AddressableResources/Live/Images/lane_effect_white.png/",

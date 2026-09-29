@@ -1520,10 +1520,13 @@ def _canonical_score_charts(files: dict[str, Path]) -> dict[str, dict[str, Any]]
 META_DEFAULT_SCORE_UP_MULTIPLIER = 2.5
 META_DEFAULT_SKILL_SECONDS = 10.0
 META_DEFAULT_SUPPORT_EXTENSION_SECONDS = 5.0
-# The intl 1.0.1 master set predates `fever_bonus_percent` (jp ships 100, i.e.
-# a x2 fever multiplier) while every other scoring input is present. Fall back
-# to the jp value instead of dropping the whole song-meta document.
-META_DEFAULT_FEVER_BONUS_PERCENT = 100.0
+# Production master sets (intl 1.0.1 and the jp live snapshot from 2026-09)
+# carry no `fever_bonus_percent`: the chart fever ranges are the gekisou (撃奏)
+# rush segments, so the normal-mode score model must not apply a fever
+# multiplier. Only the legacy jp-cbt master still ships the key (=100 → x2);
+# it keeps its historical value because the model reads whatever the build's
+# LiveSettings table provides.
+META_DEFAULT_FEVER_BONUS_PERCENT = 0.0
 META_DEFAULT_SCORE_ADJUSTMENT = 3.0
 # MasterSupportSkillEffect._skillEffectType 15000 = extend the equipped
 # member's live-skill activation time (value in milliseconds).
@@ -1576,6 +1579,193 @@ def _reference_skill_profile(data: BuildData) -> tuple[float, float, float]:
     return activation, multiplier, extension
 
 
+# MasterLiveJudgementTiming gives a Just (±2 ms) row only to these canonical
+# judgement types; SlideEnd (11), Trace (21) and SlideEndTrace (22) cannot be
+# Just, which caps the theoretical per-segment Just count of gekisou charts.
+JUSTABLE_NOTE_JUDGEMENT_TYPES = frozenset({1, 2, 5, 10, 12, 15})
+# Flick-family judgement types charge the luck gauge on note category 1
+# (MasterLiveGekisouLuckBasePoint ships only category 0/1 rows).
+LUCK_CATEGORY_1_JUDGEMENT_TYPES = frozenset({5, 12})
+
+
+def _luck_expectations(data: BuildData) -> dict[tuple[int, int], float]:
+    """Expected luck points per judged note from MasterLiveGekisouLuckBasePoint.
+
+    Each (noteCategory, judgement) carries up to three weighted rows and the
+    game draws one per note, so the expected charge is the weight mean.
+    """
+    grouped: dict[tuple[int, int], list[tuple[float, float]]] = {}
+    for row in data.rows("MasterLiveGekisouLuckBasePoint"):
+        key = (int(row.get("_noteCategory") or 0), int(row.get("_noteSimulateJudgement") or 0))
+        grouped.setdefault(key, []).append(
+            (float(row.get("_basePoint") or 0), float(row.get("_weight") or 0))
+        )
+    expectations: dict[tuple[int, int], float] = {}
+    for key, weighted in grouped.items():
+        total_weight = sum(weight for _, weight in weighted)
+        if total_weight > 0:
+            expectations[key] = round(
+                sum(point * weight for point, weight in weighted) / total_weight, 6
+            )
+    return expectations
+
+
+def _gekisou_rank_bonuses(data: BuildData) -> dict[int, dict[int, float]]:
+    """Per-rank score bonus percent keyed by mission pattern."""
+    bonuses: dict[int, dict[int, float]] = {}
+    for row in data.rows("MasterLiveGekisouRankingScoreBonus"):
+        pattern = int(row.get("_missionPattern") or 0)
+        rank = int(row.get("_rank") or 0)
+        bonuses.setdefault(pattern, {})[rank] = float(row.get("_scoreBonusPercent") or 0)
+    return bonuses
+
+
+def _live_skill_top_effects(data: BuildData) -> dict[int, float]:
+    """SL5 score-up effect value per live skill (2000 unconditional and 2004
+    PERFECT-or-higher are equivalent under the all-PERFECT reference deck)."""
+    levels: dict[int, list[dict[str, Any]]] = {}
+    for row in data.rows("MasterLiveSkillEffect"):
+        levels.setdefault(int(row.get("_liveSkillID") or 0), []).append(row)
+    effects: dict[int, float] = {}
+    for skill_id, rows in levels.items():
+        top = max(rows, key=lambda item: int(item.get("_level") or 0))
+        if int(top.get("_skillEffectType") or 0) not in (2000, 2004):
+            continue
+        effects[skill_id] = float(top.get("_effectValue") or 0)
+    return effects
+
+
+def _live_meta_profiles(data: BuildData, model: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
+    """Deck-based live score profiles: `current` (whole card pool, any band)
+    and `band:<id>` (cards of that band's characters only).
+
+    The chart-level `score`/`eff` fields keep the ideal reference deck
+    (strongest SL5 live skill x5, the `theory` tier); these profiles add the
+    pools players can actually field. The multiplier is the mean deck effect
+    under the single-multiplier window model (all decks share the same
+    skill-duration window from the support-card extension).
+    """
+    effects = _live_skill_top_effects(data)
+    if not effects or not data.rows("MasterMemberCard"):
+        return None
+    band_of_character = {
+        int(row.get("_id") or 0): int(row.get("_bandID") or 0)
+        for row in data.rows("MasterCharacter")
+    }
+    pools: dict[str, list[int]] = {"current": []}
+    for card in data.rows("MasterMemberCard"):
+        skill_id = int(card.get("_liveSkillID") or 0)
+        if skill_id not in effects:
+            continue
+        pools["current"].append(skill_id)
+        band = band_of_character.get(int(card.get("_characterID") or 0), 0)
+        if band:
+            pools.setdefault(f"band:{band}", []).append(skill_id)
+    profiles: dict[str, dict[str, Any]] = {}
+    for name, pool in pools.items():
+        if len(pool) < 5:
+            continue
+        deck = sorted(pool, key=lambda skill: effects[skill], reverse=True)[:5]
+        multiplier = 1 + (sum(effects[skill] for skill in deck) / len(deck)) / 10000
+        profiles[name] = {
+            "scoreUpMultiplier": round(multiplier, 6),
+            "skillDurationSeconds": model["skillDurationSeconds"],
+            "deck": [
+                {"liveSkillId": skill, "effectValue": effects[skill]}
+                for skill in sorted(deck, reverse=True)
+            ],
+            "deckSource": (
+                "member-card pool (all bands)" if name == "current"
+                else "member-card pool (band characters)"
+            ),
+        }
+    return profiles or None
+
+
+def _gekisou_chart_metrics(
+    chart: dict[str, Any] | None,
+    model: dict[str, Any],
+    luck_expectations: dict[tuple[int, int], float],
+) -> dict[str, Any] | None:
+    """Per-segment gekisou metrics from the canonical chart's fever ranges.
+
+    The three chart fever ranges are the gekisou (撃奏) scoring segments.
+    Justable counts come from the canonical judgement types (no Just row for
+    SlideEnd/Trace families); luck expectation assumes an all-Just playthrough
+    charges the PERFECT rows (the luck table defines no Just row).
+    """
+    if not chart:
+        return None
+    events = chart.get("events", [])
+    fever_ranges = [
+        (float(value.get("startTick") or 0), float(value.get("endTick") or 0))
+        for value in chart.get("feverRanges", [])
+    ]
+    if not fever_ranges:
+        return None
+    luck_perfect_cat0 = luck_expectations.get((0, 5), 0.0)
+    luck_perfect_cat1 = luck_expectations.get((1, 5), 0.0)
+    gauge_max = float(model.get("gekisouLuckGaugeMax") or 140.0)
+    gauge_rush = float(model.get("gekisouLuckGaugeMaxRush") or 70.0)
+    segments = []
+    for start, end in fever_ranges:
+        segment_notes = [
+            note for note in events
+            if start <= float(note.get("tick") or 0) <= end
+        ]
+        if not segment_notes:
+            segments.append({"notes": 0, "justable": 0, "justableRate": 0, "luckExpected": 0, "rushExpected": 0})
+            continue
+        justable = sum(
+            1 for note in segment_notes
+            if int(note.get("judgementType") or 0) in JUSTABLE_NOTE_JUDGEMENT_TYPES
+        )
+        luck = sum(
+            luck_perfect_cat1
+            if int(note.get("judgementType") or 0) in LUCK_CATEGORY_1_JUDGEMENT_TYPES
+            else luck_perfect_cat0
+            for note in segment_notes
+        )
+        rush_expected = 0
+        if luck >= gauge_max:
+            rush_expected = 1 + int((luck - gauge_max) // gauge_rush)
+        segments.append(
+            {
+                "notes": len(segment_notes),
+                "justable": justable,
+                "justableRate": round(justable / len(segment_notes), 6),
+                "luckExpected": round(luck, 3),
+                "rushExpected": rush_expected,
+            }
+        )
+    justable_total = sum(segment["justable"] for segment in segments)
+    notes_total = sum(segment["notes"] for segment in segments)
+    return {
+        "segments": segments,
+        "justableTotal": justable_total,
+        "notesTotal": notes_total,
+        "justableRate": round(justable_total / notes_total, 6) if notes_total else 0,
+        "metaStatus": "available",
+        "scoreKind": "gekisou-relative",
+        "metricSources": {
+            "segments": "canonical score.events sliced by score.passthrough.fever ranges",
+            "justable": (
+                "canonical note judgementType in {Normal,EasyNormal,Flick,SlideBegin,"
+                "SlideEndFlick,SlideBeginEasy}; MasterLiveJudgementTiming has no Just row "
+                "for SlideEnd/Trace/SlideEndTrace"
+            ),
+            "luckExpected": (
+                "weight mean of MasterLiveGekisouLuckBasePoint (category 1 assumed for "
+                "flick-family judgement types; Just assumed to charge the PERFECT rows)"
+            ),
+            "rushExpected": (
+                "expected gauge cycles: first trigger at gekisou_luck_gauge_max, "
+                "then gekisou_luck_gauge_max_rush"
+            ),
+        },
+    }
+
+
 def _score_model(data: BuildData) -> dict[str, Any] | None:
     note_score_percents = {
         int(row.get("_noteOperateType") or 0): float(row.get("_scorePercent") or 0)
@@ -1589,7 +1779,13 @@ def _score_model(data: BuildData) -> dict[str, Any] | None:
         ),
         key=lambda value: value[0],
     )
-    numeric_setting_keys = ("note_score_adjustment_factor", "fever_bonus_percent")
+    numeric_setting_keys = (
+        "note_score_adjustment_factor",
+        "fever_bonus_percent",
+        "gekisou_luck_gauge_max",
+        "gekisou_luck_gauge_max_rush",
+        "gekisou_luck_rush_score_bonus_percent",
+    )
     settings = {
         str(row.get("_key") or ""): float(row.get("_value") or 0)
         for row in data.rows("MasterLiveSettings")
@@ -1606,6 +1802,14 @@ def _score_model(data: BuildData) -> dict[str, Any] | None:
     if "fever_bonus_percent" not in settings:
         setting_defaults["fever_bonus_percent"] = META_DEFAULT_FEVER_BONUS_PERCENT
         settings["fever_bonus_percent"] = META_DEFAULT_FEVER_BONUS_PERCENT
+    for key, fallback in (
+        ("gekisou_luck_gauge_max", 140.0),
+        ("gekisou_luck_gauge_max_rush", 70.0),
+        ("gekisou_luck_rush_score_bonus_percent", 10.0),
+    ):
+        if key not in settings:
+            setting_defaults[key] = fallback
+            settings[key] = fallback
     if setting_defaults:
         sys.stderr.write(
             "warning: MasterLiveSettings is missing "
@@ -1632,6 +1836,9 @@ def _score_model(data: BuildData) -> dict[str, Any] | None:
         "skillDurationSeconds": skill_seconds + support_extension,
         "supportExtensionSeconds": support_extension,
         "skillScoreMultiplier": skill_multiplier,
+        "gekisouLuckGaugeMax": settings["gekisou_luck_gauge_max"],
+        "gekisouLuckGaugeMaxRush": settings["gekisou_luck_gauge_max_rush"],
+        "gekisouLuckRushScoreBonusPercent": settings["gekisou_luck_rush_score_bonus_percent"],
         "settingDefaults": setting_defaults,
     }
 
@@ -1642,6 +1849,7 @@ def _score_metrics(
     display_level: float,
     note_count: int,
     model: dict[str, Any] | None,
+    meta_profiles: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     metrics: dict[str, Any] = {
         "r": math.trunc(display_level),
@@ -1762,7 +1970,7 @@ def _score_metrics(
         scoreKind="chart-relative-factor",
         absoluteScoreAvailable=False,
         reference={
-            "fever": True,
+            "fever": model["feverMultiplier"] > 1,
             "perfectRate": 1,
             "scoreUpMultiplier": model["skillScoreMultiplier"],
             "skillDurationSeconds": model["skillDurationSeconds"],
@@ -1771,6 +1979,22 @@ def _score_metrics(
         },
         _durationSeconds=float(chart.get("durationMs") or 0) / 1000,
     )
+    if meta_profiles:
+        # theory = the chart-level ideal reference deck above; each additional
+        # profile re-uses the same skill windows with its own deck multiplier.
+        metrics["profiles"] = {
+            name: {
+                "score": round(
+                    model["perfectFactor"] * (outside_skill + profile["scoreUpMultiplier"] * inside_skill), 8
+                ),
+                "sr": metrics["sr"],
+                "scoreUpMultiplier": profile["scoreUpMultiplier"],
+                "skillDurationSeconds": profile["skillDurationSeconds"],
+                "deck": profile["deck"],
+                "deckSource": profile["deckSource"],
+            }
+            for name, profile in meta_profiles.items()
+        }
     if warnings:
         metrics["metaWarnings"] = warnings
     metrics["metricSources"].update({
@@ -1810,6 +2034,9 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
         if file is not None
     })
     score_model = _score_model(data)
+    luck_expectations = _luck_expectations(data)
+    gekisou_rank_bonuses = _gekisou_rank_bonuses(data)
+    meta_profiles = _live_meta_profiles(data, score_model) if score_model else None
     items = _item_entries(data)
     score_ranks_by_group: dict[int, list[dict[str, Any]]] = {}
     for score_rank in _sorted_rows(data, "MasterLiveScoreRank", "_group", "_liveScoreRank", "_id"):
@@ -1860,7 +2087,26 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
         if not identity:
             continue
         difficulties = []
-        song_metadata = {}
+        song_metadata: dict[str, Any] = {}
+        mission_pattern = [
+            int(row.get(f"_gekisouMission{index}") or 0) for index in (1, 2, 3)
+        ]
+        song_metadata["gekisou"] = {
+            "missionPattern": mission_pattern,
+            "missionTypes": [
+                GEKISOU_MISSION_TYPES.get(mission, "None") for mission in mission_pattern
+            ],
+            "rankBonusTop": [
+                gekisou_rank_bonuses.get(mission, {}).get(1, 0) for mission in mission_pattern
+            ],
+            "metricSources": {
+                "missionPattern": "MasterLiveMusic._gekisouMission1..3",
+                "rankBonusTop": (
+                    "MasterLiveGekisouRankingScoreBonus._scoreBonusPercent at rank 1 "
+                    "per mission pattern"
+                ),
+            },
+        }
         difficulty_metrics = []
         for index, name in enumerate(DIFFICULTIES):
             score_id = int(row.get(f"_{name}ID") or 0)
@@ -1892,10 +2138,20 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                 sort_level,
                 note_count,
                 score_model,
+                meta_profiles=meta_profiles,
             )
             if metrics:
                 song_metadata[str(index)] = {"chart": metrics}
                 difficulty_metrics.append(metrics)
+                gekisou_metrics = (
+                    _gekisou_chart_metrics(
+                        canonical_charts.get(str(score_id)), score_model, luck_expectations
+                    )
+                    if score_model
+                    else None
+                )
+                if gekisou_metrics:
+                    song_metadata[str(index)]["gekisou"] = gekisou_metrics
         song_seconds = max(
             (float(metrics.pop("_durationSeconds", 0)) for metrics in difficulty_metrics),
             default=0,
@@ -1913,6 +2169,14 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                         * 60,
                         8,
                     )
+                for profile in (metrics.get("profiles") or {}).values():
+                    if profile.get("score") is not None:
+                        profile["eff"] = round(
+                            float(profile["score"])
+                            / (song_seconds + META_REFERENCE_DOWNTIME_SECONDS)
+                            * 60,
+                            8,
+                        )
                 metrics["metricSources"].update({
                     "time": "maximum canonical last-judged-note time across song difficulties",
                     "nps": "MasterLiveMusicScore._fullComboCount / song time",
