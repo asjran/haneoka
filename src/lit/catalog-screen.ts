@@ -1924,10 +1924,8 @@ export class CatalogScreen extends LitElement {
   }
   private release(value: unknown) {
     const raw = Array.isArray(value) ? value.find((entry) => Number(entry) > 0) : value;
-    // Game-side instants are JST-authored; show them in the game's own
-    // timezone with seconds, the way the game presents its windows.
-    const text = gameDateTime(this.settings.locale, Number(raw || 0));
-    return text ? `${text} JST` : "";
+    // Game-side instants render with seconds in the viewer's timezone.
+    return gameDateTime(this.settings.locale, Number(raw || 0));
   }
   private detailLabel(key: string) {
     const aliases: Record<string, string> = {

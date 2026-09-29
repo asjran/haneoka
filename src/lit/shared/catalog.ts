@@ -120,13 +120,9 @@ export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> 
   }
 }
 
-/** The timezone every game-side timestamp is authored in. Master dates
- *  arrive as JST wall-clock strings and the pipeline pins them to UTC
- *  milliseconds; displaying them anywhere else shifts event windows. */
-export const GAME_TIME_ZONE = "Asia/Tokyo";
-
-/** One game-side instant, pinned to the game's own timezone with seconds,
- *  the way the game presents event windows. */
+/** One game-side instant, with seconds, in the viewer's own timezone.
+ *  Master dates are JST-authored and stored as UTC milliseconds; the
+ *  browser converts them to local time. */
 export function gameDateTime(locale: string, value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "";
   return new Intl.DateTimeFormat(locale, {
@@ -136,15 +132,14 @@ export function gameDateTime(locale: string, value: number): string {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    timeZone: GAME_TIME_ZONE,
     hour12: false,
   }).format(new Date(value));
 }
 
-/** A game-side window, as one JST-labelled range. */
+/** A game-side window, rendered in the viewer's own timezone. */
 export function gameDateTimeRange(locale: string, start: number, end: number): string {
   const from = gameDateTime(locale, start);
   const to = gameDateTime(locale, end);
-  if (!from) return to ? `${to} JST` : "";
-  return `${from} \u2013 ${to || "\u2014"} JST`;
+  if (!from) return to;
+  return `${from} - ${to || "\u2014"}`;
 }
