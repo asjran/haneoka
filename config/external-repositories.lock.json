@@ -78,7 +78,7 @@
    "name": "cassiopeia-plugin-our-notes",
    "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git",
    "branch": "main",
-   "commit": "80b4a0edde29846d3c9ea9b6f4896b3a72dd11bb",
+   "commit": "5657e1c7731c838268d93248a386380721569e1d",
    "version": "0.1.0",
    "kind": "node"
   },
@@ -110,7 +110,7 @@
    "name": "cassiopeia-plugin-sonolus",
    "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-sonolus.git",
    "branch": "main",
-   "commit": "b73f0af50d7d650f9624b914ea7fee67dc00f81e",
+   "commit": "3665ea1e2127e91641df9693d067a6b0df721740",
    "version": "0.1.0",
    "kind": "node"
   }

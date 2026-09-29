@@ -82,6 +82,7 @@
     height: 42px;
     flex: 0 0 42px;
     place-items: center;
+    overflow: hidden;
     border-radius: 50%;
     color: var(--md-sys-color-on-secondary-container);
     background: var(--md-sys-color-secondary-container);

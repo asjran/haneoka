@@ -66,6 +66,25 @@ const JUDGMENT_Y = -0.5815420740473228;
 const JUDGMENT_HALF_X = 0.7932747292495311;
 const ASPECT = 16 / 9;
 const STAGE_T = HORIZON_Y;
+/** World z just in front of the trace camera (camera faces -z at the origin). */
+const NEAR_CLIP_Z = -0.2;
+
+/** Sutherland-Hodgman clip of a convex world polygon against z <= NEAR_CLIP_Z. */
+function clipNearPlane(corners: readonly Vector3[]): Vector3[] {
+  const output: Vector3[] = [];
+  for (let index = 0; index < corners.length; index += 1) {
+    const current = corners[index]!;
+    const next = corners[(index + 1) % corners.length]!;
+    const currentInside = current.z <= NEAR_CLIP_Z;
+    const nextInside = next.z <= NEAR_CLIP_Z;
+    if (currentInside) output.push(current);
+    if (currentInside !== nextInside) {
+      const amount = (NEAR_CLIP_Z - current.z) / (next.z - current.z);
+      output.push(current.clone().lerp(next, amount));
+    }
+  }
+  return output;
+}
 const STAGE_B = JUDGMENT_Y;
 const STAGE_SX = ASPECT * (JUDGMENT_HALF_X / 6);
 const STAGE_SY = STAGE_B - STAGE_T;
@@ -294,7 +313,15 @@ export class EffectTracer {
   ): QuadSample {
     const depth = quad.corners.reduce((sum, corner) => sum + corner.z, 0) / 4 - JUDGEMENT_Z;
     const plane = forcedPlane ?? planeIndex(depth, ground);
-    const projected = quad.corners.map((corner) => this.toUnit(corner, size, plane));
+    // The lane fill's 70-unit ground quad reaches past the camera; projecting
+    // behind-camera corners flips their screen coordinates and wrecks the
+    // fitted rect. The native GPU clips at the near plane, so clip the world
+    // polygon there first and fit the visible remainder.
+    const worldCorners = quad.corners.some((corner) => corner.z > NEAR_CLIP_Z)
+      ? clipNearPlane(quad.corners)
+      : quad.corners;
+    if (worldCorners.length < 3) return null as never;
+    const projected = worldCorners.map((corner) => this.toUnit(corner, size, plane));
     const tint = TEXTURE_TINTS[texture]!;
     // Compiled MobileAddHdrColor: rgb * 2 * tint^2 and alpha * 2 * tint.a^2;
     // SrcAlpha/One blending multiplies them. texel.rgb * texel.a stays in the tile.
@@ -303,18 +330,25 @@ export class EffectTracer {
       texture === "laneEffect" ? Math.max(0, color.a) : Math.max(0, Math.min(1, color.a * tint[3])) * 2 * tint[3];
     const hdr = texture === "laneEffect" ? [1, 1, 1] : [2 * tint[0] * tint[0], 2 * tint[1] * tint[1], 2 * tint[2] * tint[2]];
     const emission = [color.r * hdr[0]! * alpha, color.g * hdr[1]! * alpha, color.b * hdr[2]! * alpha] as const;
-    const [p0, p1, p2, p3] = projected as [typeof projected[0], typeof projected[0], typeof projected[0], typeof projected[0]];
-    const edge = (a: typeof p0, b: typeof p0) => Math.hypot(b.px - a.px, b.py - a.py);
-    const area =
-      Math.abs(
-        (p0.px * p1.py - p1.px * p0.py) +
-          (p1.px * p2.py - p2.px * p1.py) +
-          (p2.px * p3.py - p3.px * p2.py) +
-          (p3.px * p0.py - p0.px * p3.py),
-      ) / 2;
+    const minX = Math.min(...projected.map((point) => point.x));
+    const maxX = Math.max(...projected.map((point) => point.x));
+    const minY = Math.min(...projected.map((point) => point.y));
+    const maxY = Math.max(...projected.map((point) => point.y));
+    const pixelLeft = Math.min(...projected.map((point) => point.px));
+    const pixelRight = Math.max(...projected.map((point) => point.px));
+    const pixelTop = Math.min(...projected.map((point) => point.py));
+    const pixelBottom = Math.max(...projected.map((point) => point.py));
     return {
       t,
-      corners: projected.map(({ x, y }) => ({ x, y })) as QuadSample["corners"],
+      // Rectified plane coordinates are axis-aligned rectangles; the bounding
+      // box of the (possibly near-clipped) projected corners is that
+      // rectangle's visible remainder.
+      corners: [
+        { x: minX, y: minY },
+        { x: maxX, y: minY },
+        { x: maxX, y: maxY },
+        { x: minX, y: maxY },
+      ] as QuadSample["corners"],
       texture,
       file: this.textureFile(texture),
       depth,
@@ -322,9 +356,9 @@ export class EffectTracer {
       plane,
       uv: quad.uv,
       emission,
-      pixelWidth: (edge(p0, p1) + edge(p3, p2)) / 2,
-      pixelHeight: (edge(p0, p3) + edge(p1, p2)) / 2,
-      pixelArea: area,
+      pixelWidth: pixelRight - pixelLeft,
+      pixelHeight: pixelBottom - pixelTop,
+      pixelArea: (pixelRight - pixelLeft) * (pixelBottom - pixelTop),
     };
   }
 
