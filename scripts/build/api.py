@@ -243,15 +243,16 @@ class BuildData:
         self,
         server: str,
         root: Path,
-        base_release_paths: "frozenset[str] | None" = None,
+        base_release_entries: "dict[str, dict[str, Any]] | None" = None,
         restore_archive: "callable | None" = None,
     ):
         self.server = server
         self.root = root
-        # Delta builds: paths the pinned base release declares and the release
-        # composer will fill, plus an on-demand fetcher for reusable bundles'
-        # object archives, keep derivation byte-identical to a full rebuild.
-        self.base_release_paths: "frozenset[str]" = base_release_paths or frozenset()
+        # Delta builds: entries the pinned base release declares and the
+        # release composer will fill, plus an on-demand fetcher for reusable
+        # bundles' object archives, keep derivation byte-identical to a full
+        # rebuild.
+        self.base_release_entries: "dict[str, dict[str, Any]]" = base_release_entries or {}
         self.restore_archive = restore_archive
         self.assets = root / "assets"
         self.runtime = root / "runtime"
@@ -417,7 +418,7 @@ class BuildData:
         if not value.startswith(("Assets/", "Packages/")) or value not in self.source_path_set:
             return None
         if not (self.assets / Path(*path.parts)).is_file() and (
-            f"assets/{value}" not in self.base_release_paths
+            f"assets/{value}" not in self.base_release_entries
         ):
             return None
         return f"/assets/{self.server}/" + "/".join(path.parts)
@@ -425,12 +426,36 @@ class BuildData:
     def runtime_url(self, value: str) -> str | None:
         path = PurePosixPath(value)
         if value not in self.runtime_path_set:
-            if f"runtime/{value}" not in self.base_release_paths:
+            if f"runtime/{value}" not in self.base_release_entries:
                 return None
             return f"/runtime/{self.server}/" + "/".join(path.parts)
         if not (self.runtime / Path(*path.parts)).is_file():
             return None
         return f"/runtime/{self.server}/" + "/".join(path.parts)
+
+    def output_integrity(
+        self, release_path: str, expected_sha256: str, expected_bytes: int
+    ) -> bool:
+        """Verify a stage output, against the local file or the pinned base entry.
+
+        Delta builds do not materialize outputs of reusable stages; their bytes
+        stay in the base release, which passed the same integrity check when it
+        was promoted.  A base entry matching the record exactly carries that
+        guarantee forward.
+        """
+
+        file = self.root / Path(*PurePosixPath(release_path).parts)
+        if file.is_file():
+            return (
+                file.stat().st_size == expected_bytes
+                and sha256_file(file) == expected_sha256
+            )
+        entry = self.base_release_entries.get(release_path)
+        return (
+            entry is not None
+            and str(entry.get("sha256") or "") == expected_sha256
+            and int(entry.get("bytes", -1)) == expected_bytes
+        )
 
     def runtime_output_url(self, value: str) -> str | None:
         path = PurePosixPath(value)
@@ -3975,12 +4000,14 @@ def _home_spot_spine_runtime(
         raise ValueError(f"Home Spot {identity} rendered background has no geometry")
     background_output_path = str(background_output.get("path") or "")
     background_url = data.runtime_output_url(background_output_path)
-    background_file = data.root / Path(*PurePosixPath(background_output_path).parts)
     if (
         not background_url
         or background_output.get("runtime") != background_url
-        or int(background_output.get("bytes") or -1) != background_file.stat().st_size
-        or str(background_output.get("sha256") or "") != sha256_file(background_file)
+        or not data.output_integrity(
+            background_output_path,
+            str(background_output.get("sha256") or ""),
+            int(background_output.get("bytes") or -1),
+        )
     ):
         raise ValueError(f"Home Spot {identity} background output fails integrity checks")
     if (
@@ -4016,16 +4043,14 @@ def _home_spot_spine_runtime(
         raise ValueError(f"Home Spot {identity} background preview pixel count is invalid")
     background_preview_path = str(background_preview.get("path") or "")
     background_preview_url = data.runtime_output_url(background_preview_path)
-    background_preview_file = data.root / Path(
-        *PurePosixPath(background_preview_path).parts
-    )
     if (
         not background_preview_url
         or background_preview.get("runtime") != background_preview_url
-        or int(background_preview.get("bytes") or -1)
-        != background_preview_file.stat().st_size
-        or str(background_preview.get("sha256") or "")
-        != sha256_file(background_preview_file)
+        or not data.output_integrity(
+            background_preview_path,
+            str(background_preview.get("sha256") or ""),
+            int(background_preview.get("bytes") or -1),
+        )
     ):
         raise ValueError(
             f"Home Spot {identity} background preview fails integrity checks"
@@ -7081,11 +7106,11 @@ def build_api(
     config: ServerConfig,
     source_id: str,
     build_id: str,
-    base_release_paths: "frozenset[str] | None" = None,
+    base_release_entries: "dict[str, dict[str, Any]] | None" = None,
     restore_archive: "callable | None" = None,
 ) -> dict[str, Any]:
     layout = build_layout(config.id, build_id)
-    data = BuildData(config.id, layout.root, base_release_paths, restore_archive)
+    data = BuildData(config.id, layout.root, base_release_entries, restore_archive)
     live2d_raw = _live2d_models(data, source_id)
     live2d = _enrich_live2d(data, live2d_raw)
     songs, song_metadata = _songs(data)

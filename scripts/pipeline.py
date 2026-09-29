@@ -726,13 +726,13 @@ def command_build_home_spots(args: argparse.Namespace) -> None:
 def command_build_api(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
-    base_release_paths = None
+    base_release_entries = None
     restore_archive = None
     if args.delta_plan:
         delta = _delta_context(config, args.delta_plan)
-        base_release_paths = frozenset(delta.entries())
+        base_release_entries = delta.entries()
         restore_archive = lambda digest, target: delta.fetch_archive(digest, target)  # noqa: E731
-    _print(build_api(config, args.source, identity, base_release_paths, restore_archive))
+    _print(build_api(config, args.source, identity, base_release_entries, restore_archive))
 
 
 def command_build_ktx2(args: argparse.Namespace) -> None:
