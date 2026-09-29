@@ -245,15 +245,17 @@ class BuildData:
         root: Path,
         base_release_entries: "dict[str, dict[str, Any]] | None" = None,
         restore_archive: "callable | None" = None,
+        restore_output: "callable | None" = None,
     ):
         self.server = server
         self.root = root
         # Delta builds: entries the pinned base release declares and the
-        # release composer will fill, plus an on-demand fetcher for reusable
-        # bundles' object archives, keep derivation byte-identical to a full
-        # rebuild.
+        # release composer will fill, plus on-demand fetchers for reusable
+        # bundles' object archives and declared media outputs, keep derivation
+        # byte-identical to a full rebuild.
         self.base_release_entries: "dict[str, dict[str, Any]]" = base_release_entries or {}
         self.restore_archive = restore_archive
+        self.restore_output = restore_output
         self.assets = root / "assets"
         self.runtime = root / "runtime"
         self.master = root / "master"
@@ -432,6 +434,34 @@ class BuildData:
         if not (self.runtime / Path(*path.parts)).is_file():
             return None
         return f"/runtime/{self.server}/" + "/".join(path.parts)
+
+    def has_asset(self, value: str) -> bool:
+        """Local assets-tree presence, falling back to the pinned base entry."""
+
+        path = PurePosixPath(value)
+        return (self.assets / Path(*path.parts)).is_file() or (
+            f"assets/{value}" in self.base_release_entries
+        )
+
+    def asset_file(self, value: str) -> Path | None:
+        """Resolve one assets-tree file, restoring it from the base on demand.
+
+        Content reads (score bytes, ADV episode sidecars, USM metadata) must
+        see unchanged files even when their bundle was reusable and only
+        declared; fetching the byte-exact base object keeps the derived
+        documents identical to a full rebuild.
+        """
+
+        path = PurePosixPath(value)
+        file = self.assets / Path(*path.parts)
+        if file.is_file():
+            return file
+        release_path = f"assets/{value}"
+        if release_path in self.base_release_entries and self.restore_output is not None:
+            self.restore_output(release_path, file)
+            if file.is_file():
+                return file
+        return None
 
     def output_integrity(
         self, release_path: str, expected_sha256: str, expected_bytes: int
@@ -1764,19 +1794,20 @@ def _score_metrics(
 
 def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
     score_rows = {int(row.get("_id") or 0): row for row in data.rows("MasterLiveMusicScore")}
-    score_paths = {
-        str(identity): data.assets
-        / Path(
-            *PurePosixPath(
-                "Assets/AddressableResources/Live/MusicScore/"
-                + str(row.get("_musicScoreTextFileName") or "")
-                + ".bytes"
-            ).parts
-        )
-        for identity, row in score_rows.items()
-    }
     canonical_charts = _canonical_score_charts({
-        identity: file for identity, file in score_paths.items() if file.is_file()
+        identity: file
+        for identity, file in (
+            (
+                identity,
+                data.asset_file(
+                    "Assets/AddressableResources/Live/MusicScore/"
+                    + str(row.get("_musicScoreTextFileName") or "")
+                    + ".bytes"
+                ),
+            )
+            for identity, row in score_rows.items()
+        )
+        if file is not None
     })
     score_model = _score_model(data)
     items = _item_entries(data)
@@ -2029,7 +2060,7 @@ def _image_variants(data: BuildData, record: dict[str, Any]) -> dict[str, dict[s
         choices = {"ja": url}
         for locale in ("en", "zh-Hant", "zh-Hans", "ko"):
             candidate = source.with_name(f"{source.stem}({locale}){source.suffix}")
-            if (data.assets / Path(*candidate.parts)).is_file():
+            if data.has_asset(candidate.as_posix()):
                 choices[locale] = f"{prefix}{candidate.as_posix()}"
         if len(choices) > 1:
             variants[url] = choices
@@ -2538,12 +2569,15 @@ def _stage_runtime(data: BuildData, asset_name: str) -> dict[str, Any]:
 
 
 def _story_commands(data: BuildData, asset_name: str) -> list[dict[str, Any]]:
-    base = data.assets / "Assets" / "AddressableResources" / "Adv" / "Episode" / asset_name
-    episode_file = base / f"{asset_name}-Episode.txt"
-    text_file = base / f"{asset_name}-Text.txt"
-    if not episode_file.is_file():
+    episode_file = data.asset_file(
+        f"Assets/AddressableResources/Adv/Episode/{asset_name}/{asset_name}-Episode.txt"
+    )
+    text_file = data.asset_file(
+        f"Assets/AddressableResources/Adv/Episode/{asset_name}/{asset_name}-Text.txt"
+    )
+    if episode_file is None:
         return []
-    text_rows = read_json(text_file).get("_allData", []) if text_file.is_file() else []
+    text_rows = read_json(text_file).get("_allData", []) if text_file is not None else []
     texts = {str(row.get("_id")): _localized(row) for row in text_rows}
     output = []
     for row in read_json(episode_file).get("_allData", []):
@@ -2603,18 +2637,18 @@ def _story_commands(data: BuildData, asset_name: str) -> list[dict[str, Any]]:
 
 
 def _adv_sound_maps(
-    sound_file: Path, cue_sheet_file: Path
+    sound_file: Path | None, cue_sheet_file: Path | None
 ) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
     sound_rows = {
         int(row.get("_id") or 0): row
-        for row in (read_json(sound_file).get("_allData", []) if sound_file.is_file() else [])
+        for row in (read_json(sound_file).get("_allData", []) if sound_file is not None else [])
         if int(row.get("_id") or 0)
     }
     cue_sheet_rows = {
         int(row.get("_id") or 0): row
         for row in (
             read_json(cue_sheet_file).get("_allData", [])
-            if cue_sheet_file.is_file()
+            if cue_sheet_file is not None
             else []
         )
         if int(row.get("_id") or 0)
@@ -2625,10 +2659,13 @@ def _adv_sound_maps(
 def _story_sound_maps(
     data: BuildData, asset_name: str
 ) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
-    base = data.assets / "Assets" / "AddressableResources" / "Adv" / "Episode" / asset_name
     return _adv_sound_maps(
-        base / f"{asset_name}-Sound.txt",
-        base / f"{asset_name}-SoundCueSheet.txt",
+        data.asset_file(
+            f"Assets/AddressableResources/Adv/Episode/{asset_name}/{asset_name}-Sound.txt"
+        ),
+        data.asset_file(
+            f"Assets/AddressableResources/Adv/Episode/{asset_name}/{asset_name}-SoundCueSheet.txt"
+        ),
     )
 
 
@@ -3133,8 +3170,7 @@ def _authored_frame_fallback(
     group_prefix = f"{ADV_FRAME_ROOT}/{group}/"
     available_pngs = [
         path for path in data.source_path_set
-        if path.casefold().endswith(".png")
-        and (data.assets / Path(*PurePosixPath(path).parts)).is_file()
+        if path.casefold().endswith(".png") and data.has_asset(path)
     ]
     group_pngs = sorted(path for path in available_pngs if path.startswith(group_prefix))
 
@@ -3415,28 +3451,21 @@ def _story_assets(
     sound_id_by_resource_ref: dict[str, int] = {}
     videos: dict[int, dict[str, Any]] = {}
     story_sounds, story_cue_sheets = _story_sound_maps(data, asset_name)
-    chat_root = data.assets / "Assets" / "AddressableResources" / "Adv" / "Chat"
     chat_sounds, chat_cue_sheets = _adv_sound_maps(
-        chat_root / "AdvChat-Sound.txt",
-        chat_root / "AdvChat-SoundCueSheet.txt",
+        data.asset_file("Assets/AddressableResources/Adv/Chat/AdvChat-Sound.txt"),
+        data.asset_file("Assets/AddressableResources/Adv/Chat/AdvChat-SoundCueSheet.txt"),
     )
     chat_masters = {
         int(row.get("_id") or 0): row
         for row in data.rows("MasterAdvChat")
         if int(row.get("_id") or 0)
     }
-    video_file = (
-        data.assets
-        / "Assets"
-        / "AddressableResources"
-        / "Adv"
-        / "Episode"
-        / asset_name
-        / f"{asset_name}-Video.txt"
+    video_file = data.asset_file(
+        f"Assets/AddressableResources/Adv/Episode/{asset_name}/{asset_name}-Video.txt"
     )
     story_videos = {
         int(row.get("_id") or 0): row
-        for row in (read_json(video_file).get("_allData", []) if video_file.is_file() else [])
+        for row in (read_json(video_file).get("_allData", []) if video_file is not None else [])
         if int(row.get("_id") or 0)
     }
 
@@ -4250,7 +4279,9 @@ def _home_spot_spine_runtime(
         texture = data.asset(texture_source)
         if texture_source not in texture_set or not atlas or not texture:
             raise ValueError(f"Home Spot atlas/texture assets are absent: {atlas_source}")
-        atlas_file = data.assets / Path(*PurePosixPath(atlas_source).parts)
+        atlas_file = data.asset_file(atlas_source)
+        if atlas_file is None:
+            raise ValueError(f"Home Spot atlas asset is absent: {atlas_source}")
         atlas_pages = {
             line.strip()
             for line in atlas_file.read_text(encoding="utf-8").splitlines()
@@ -5534,10 +5565,9 @@ def _story_assets_catalog(
             raise ValueError(
                 f"ADV chat sound cue-sheet table is missing: {chat_cue_sheet_source}"
             )
-        chat_root = data.assets / "Assets" / "AddressableResources" / "Adv" / "Chat"
         sound_rows, cue_sheet_rows = _adv_sound_maps(
-            chat_root / "AdvChat-Sound.txt",
-            chat_root / "AdvChat-SoundCueSheet.txt",
+            data.asset_file("Assets/AddressableResources/Adv/Chat/AdvChat-Sound.txt"),
+            data.asset_file("Assets/AddressableResources/Adv/Chat/AdvChat-SoundCueSheet.txt"),
         )
         chat_usage: dict[int, list[dict[str, Any]]] = {}
         for row in _sorted_rows(data, "MasterAdvChat", "_id"):
@@ -5597,8 +5627,8 @@ def _story_assets_catalog(
         relative = path.parts[len(episode_root) :]
         if len(relative) != 2 or relative[1] != f"{relative[0]}{video_suffix}":
             continue
-        video_file = data.assets / Path(*path.parts)
-        rows = read_json(video_file).get("_allData", []) if video_file.is_file() else []
+        video_file = data.asset_file(source_path)
+        rows = read_json(video_file).get("_allData", []) if video_file is not None else []
         for row in rows:
             video_id = int(row.get("_id") or 0)
             asset_name = str(row.get("_assetName") or "").strip("/")
@@ -7108,9 +7138,12 @@ def build_api(
     build_id: str,
     base_release_entries: "dict[str, dict[str, Any]] | None" = None,
     restore_archive: "callable | None" = None,
+    restore_output: "callable | None" = None,
 ) -> dict[str, Any]:
     layout = build_layout(config.id, build_id)
-    data = BuildData(config.id, layout.root, base_release_entries, restore_archive)
+    data = BuildData(
+        config.id, layout.root, base_release_entries, restore_archive, restore_output
+    )
     live2d_raw = _live2d_models(data, source_id)
     live2d = _enrich_live2d(data, live2d_raw)
     songs, song_metadata = _songs(data)

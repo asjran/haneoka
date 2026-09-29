@@ -728,11 +728,17 @@ def command_build_api(args: argparse.Namespace) -> None:
     identity = args.build or build_id(config, args.source)
     base_release_entries = None
     restore_archive = None
+    restore_output = None
     if args.delta_plan:
         delta = _delta_context(config, args.delta_plan)
         base_release_entries = delta.entries()
         restore_archive = lambda digest, target: delta.fetch_archive(digest, target)  # noqa: E731
-    _print(build_api(config, args.source, identity, base_release_entries, restore_archive))
+        restore_output = lambda path, target: delta.fetch_release_path(path, target)  # noqa: E731
+    _print(
+        build_api(
+            config, args.source, identity, base_release_entries, restore_archive, restore_output
+        )
+    )
 
 
 def command_build_ktx2(args: argparse.Namespace) -> None:
