@@ -1,0 +1,40 @@
+name: JP egress probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: Probe JP endpoints from the runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe API version endpoint (expected 403 while blocked)
+        run: |
+          set +e
+          printf '\x00\x00\x00\x00\x00' > /tmp/frame
+          code=$(curl -sS --http2-prior-knowledge --max-time 20 -o /dev/null -w '%{http_code}' \
+            -D /tmp/api-headers \
+            -H "content-type: application/grpc" -H "te: trailers" -H "x-platform: Android" \
+            -A "grpc-dotnet/2.66.0" --data-binary @/tmp/frame \
+            "https://api.bang-dream-on.jp/app.announcement.AnnouncementService/GetList")
+          echo "api.bang-dream-on.jp -> HTTP $code"
+          grep -viE 'x-sirius-cred|^date' /tmp/api-headers || true
+      - name: Probe master CDN manifest (HEAD)
+        run: |
+          set +e
+          code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -I \
+            "https://static.bang-dream-on.jp/")
+          echo "static.bang-dream-on.jp / -> HTTP $code"
+      - name: Probe asset catalog bin (HEAD, current live version)
+        run: |
+          set +e
+          code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -I \
+            "https://static.bang-dream-on.jp/asset/1.0.0.100/Android/6e5f131f85a5a99987f13d1ed85f1649/catalog_main.bin")
+          echo "static.bang-dream-on.jp catalog_main.bin -> HTTP $code"
+      - name: Probe master manifest path (HEAD)
+        run: |
+          set +e
+          code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -I \
+            "https://static.bang-dream-on.jp/master/MasterManifest.json")
+          echo "static.bang-dream-on.jp master/MasterManifest.json -> HTTP $code"
