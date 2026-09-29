@@ -26,7 +26,13 @@ HASH_SUFFIX = re.compile(r"_[0-9a-f]{32}$")
 CHUNK_SUFFIX = re.compile(r"-(\d+)\.bytes$", re.IGNORECASE)
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 CRI_SCHEMA = "haneoka-cri-runtime-v1"
-CRI_TRANSFORM_SCHEMA = "haneoka-cri-transform-v1"
+CRI_TRANSFORM_SCHEMA = "haneoka-cri-transform-v2"
+# The decode contract pins everything that can change a decoded or muxed
+# output byte: decoders, encoders, metadata projection, mux composition.
+# Bump it ONLY for deliberate semantic changes — a bump forces one full
+# CRI re-decode before adoption resumes. Refactors, logging, orchestration,
+# and comment edits must leave it alone; they cannot alter output bytes.
+DECODE_CONTRACT = "haneoka-cri-decode-v1"
 # Asset locales guide the order of metadata code-page candidates. They are
 # hints, not an encoding declaration; video/audio validation remains separate.
 USM_LOCALE_ENCODINGS = {
@@ -37,17 +43,14 @@ USM_LOCALE_ENCODINGS = {
     "ko": "cp949",
 }
 USM_ENCODING_FALLBACKS = ("cp932", "gb18030", "big5", "cp949", "latin-1")
-# The published UTF-8-only release uses the same decoding for every source it
-# successfully processed. Its content-hashed outputs remain reusable after
-# the cp932 fallback was added, provided the HCA key is unchanged.
+# Legacy transform ids from the v1 identity scheme (which hashed cri.py
+# itself, so every code edit minted a new id). Kept so releases published
+# before the scheme change keep adopting; drop entries once no live release
+# carries them. v2 ids match directly and change only when DECODE_CONTRACT
+# or the HCA key changes.
 COMPATIBLE_TRANSFORM_IDS = {
     "8ad243295cc9c0a9b8e77be08d8ed1f504e0b15950674e86be8ae8e3d6300b57",
     "ec14e1a80a83abd5ed9cadcf5fb59e107544c69dc6e09496165a0110f44001ad",
-    # Missing-file tolerance for declared outputs does not change any decoded
-    # or muxed byte; records still adopt only when their outputs match the
-    # base release manifest exactly. Composite ids (stable_json over schema,
-    # extractorSha256, hcaKeySha256) of releases built by 2f66c39-era and
-    # b29b8b5-era cri.py.
     "864e5e7ad6deee535ea37870ce4d74c546546311341b531638d78e1cbdabad28",
     "060164f03d19e145f12c0d64765ce294567ac1cfff2fa4e2e85247b5e22f9046",
 }
@@ -58,7 +61,7 @@ RestoreOutput = Callable[[dict[str, Any], Path], None]
 def _cri_transform_id(config: ServerConfig) -> str:
     identity = {
         "schema": CRI_TRANSFORM_SCHEMA,
-        "extractorSha256": sha256_file(Path(__file__)),
+        "decodeContract": DECODE_CONTRACT,
         "hcaKeySha256": sha256_bytes(config.cri_hca_key),
     }
     return sha256_bytes(stable_json(identity))
