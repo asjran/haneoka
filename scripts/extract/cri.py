@@ -43,17 +43,9 @@ USM_LOCALE_ENCODINGS = {
     "ko": "cp949",
 }
 USM_ENCODING_FALLBACKS = ("cp932", "gb18030", "big5", "cp949", "latin-1")
-# Legacy transform ids from the v1 identity scheme (which hashed cri.py
-# itself, so every code edit minted a new id). Kept so releases published
-# before the scheme change keep adopting; drop entries once no live release
-# carries them. v2 ids match directly and change only when DECODE_CONTRACT
-# or the HCA key changes.
-COMPATIBLE_TRANSFORM_IDS = {
-    "8ad243295cc9c0a9b8e77be08d8ed1f504e0b15950674e86be8ae8e3d6300b57",
-    "ec14e1a80a83abd5ed9cadcf5fb59e107544c69dc6e09496165a0110f44001ad",
-    "864e5e7ad6deee535ea37870ce4d74c546546311341b531638d78e1cbdabad28",
-    "060164f03d19e145f12c0d64765ce294567ac1cfff2fa4e2e85247b5e22f9046",
-}
+# Both live releases carry the v2 id already; adoption now only matches the
+# current transform id. A DECODE_CONTRACT bump therefore means exactly one
+# full re-decode, and nothing else ever does.
 COMPATIBLE_HCA_KEY_SHA256 = "cd0b2ad6de5baa070f1c00baa33658b493a138919f00a4ed8418a7ff6af6ba2f"
 RestoreOutput = Callable[[dict[str, Any], Path], None]
 
@@ -67,9 +59,15 @@ def _cri_transform_id(config: ServerConfig) -> str:
     return sha256_bytes(stable_json(identity))
 
 
-def _cri_task_id(task: dict[str, Any], transform_id: str) -> str:
+# Task ids have baked every schema constant into their hash since the
+# beginning; a base manifest written under an older schema can only be
+# re-keyed by rebuilding ids with that era's string.
+TASK_ID_SCHEMAS = (CRI_TRANSFORM_SCHEMA, "haneoka-cri-transform-v1")
+
+
+def _cri_task_id(task: dict[str, Any], transform_id: str, schema: str = CRI_TRANSFORM_SCHEMA) -> str:
     identity = {
-        "schema": CRI_TRANSFORM_SCHEMA,
+        "schema": schema,
         "transformId": transform_id,
         "source": task["source"],
         "kind": task["kind"],
@@ -760,7 +758,7 @@ def _cached_records(manifest: dict[str, Any] | None, transform_id: str) -> dict[
     if (
         not isinstance(manifest, dict)
         or manifest.get("schema") != CRI_SCHEMA
-        or manifest.get("transformId") not in {transform_id, *COMPATIBLE_TRANSFORM_IDS}
+        or manifest.get("transformId") != transform_id
         or not isinstance(manifest.get("entries"), list)
     ):
         return {}
@@ -1460,16 +1458,28 @@ def extract_cri(
                 else {}
             )
             if cached and previous_transform != transform_id:
-                cached = {
-                    task["taskId"]: {
-                        **cached[_cri_task_id(task, previous_transform)],
-                        "taskId": task["taskId"],
-                    }
-                    for task in tasks
-                    if _cri_task_id(task, previous_transform) in cached
-                }
+                def legacy_id(task: dict[str, Any]) -> str | None:
+                    for schema in TASK_ID_SCHEMAS:
+                        legacy = _cri_task_id(task, previous_transform, schema)
+                        if legacy in cached:
+                            return legacy
+                    return None
+
+                remapped = {}
+                for task in tasks:
+                    legacy = legacy_id(task)
+                    if legacy is None:
+                        continue
+                    remapped[task["taskId"]] = {**cached[legacy], "taskId": task["taskId"]}
+                if len(remapped) < len(cached):
+                    sys.stderr.write(
+                        f"warning: CRI cache remap matched {len(remapped)} of {len(cached)} "
+                        f"base records (transform {previous_transform[:12]})\n"
+                    )
+                cached = remapped
             cache_manifest_accepted = bool(cached)
-        except ValueError:
+        except ValueError as error:
+            sys.stderr.write(f"warning: CRI cache manifest rejected: {error}\n")
             cached = {}
         reused, reuse = _restore_cached_records(
             tasks,
