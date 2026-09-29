@@ -129,10 +129,18 @@ def _events(data: Any, documents: dict[str, Any], stamp: Callable[[Any], list[in
             str(identity),
             data.text(row.get("_nameTextId") or row.get("_nameTextID")),
             kind="game-event",
-            image=_asset(data, row.get("_bannerAssetName") or row.get("_bannerAsset")),
+            # The event's own key art lives under Image/Event/<background>;
+            # the bare _bannerAsset value never resolved to a real file.
+            image=(
+                _asset(data, f"Image/Event/{row.get('_backgroundAsset')}")
+                or _asset(data, row.get("_bannerAssetName") or row.get("_bannerAsset"))
+            ),
+            logo=_asset(data, f"Image/Event/{row.get('_logoAsset')}"),
             description=data.text(row.get("_descriptionTextId")),
             start_at=stamp(row.get("_startAt")),
             end_at=stamp(row.get("_endAt")),
+            display_end_at=stamp(row.get("_displayEndAt")),
+            story_chapter_id=int(row.get("_storyChapterId") or 0),
         )
     return {"entries": entries, "hasGameEvents": bool(data.rows("MasterEvent"))}
 

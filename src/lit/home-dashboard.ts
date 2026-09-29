@@ -9,6 +9,7 @@ import {
   catalogUrl,
   currentReleaseServer,
   fetchJson,
+  gameDateTimeRange,
   localizedText,
   preferredLocale,
   recordValues,
@@ -646,7 +647,7 @@ export class HomeDashboard extends LitElement {
                       ${event.ending ? this.countdown(event.entry.endAt, true) : this.countdown(event.entry.startAt, false)}
                     </span>
                     <small class="home-event__range">
-                      ${this.formatDate(event.entry.startAt)} – ${this.formatDate(event.entry.endAt)}
+                      ${gameDateTimeRange(this.locale, event.entry.startAt, event.entry.endAt)}
                     </small>
                   </a>
                 `

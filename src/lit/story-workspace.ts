@@ -21,6 +21,7 @@ import {
   currentReleaseServer,
   fetchJson,
   formatList,
+  gameDateTimeRange,
   localizedText,
   preferredLocale,
   recordValues,
@@ -608,11 +609,11 @@ export class StoryWorkspace extends LitElement {
   }
   /** The event's own window, as the game shows it on the event page. */
   private eventWindow(event: JsonRecord) {
-    const start = this.releaseValue(event);
-    const end = Array.isArray(event.endAt) ? Number(event.endAt[0] || 0) : 0;
-    const format = new Intl.DateTimeFormat(this.locale, { dateStyle: "medium" });
-    if (!start) return end ? format.format(new Date(end)) : "";
-    return end ? `${format.format(new Date(start))} – ${format.format(new Date(end))}` : format.format(new Date(start));
+    return gameDateTimeRange(
+      this.locale,
+      this.releaseValue(event),
+      Array.isArray(event.endAt) ? Number(event.endAt[0] || 0) : 0,
+    );
   }
   private duration(item: JsonRecord) {
     const seconds = Math.round(Number(item.playTime || 0));
