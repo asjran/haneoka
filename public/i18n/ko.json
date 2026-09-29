@@ -469,6 +469,7 @@
   "afterlive": "Afterlive",
   "notAvailable": "사용할 수 없음",
   "storyNavigation": {
+    "event": "이벤트 스토리",
     "band": "밴드 스토리",
     "link": "인연 스토리",
     "home": "홈 스토리",

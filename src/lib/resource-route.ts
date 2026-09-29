@@ -35,7 +35,7 @@ export const RESOURCE_KINDS = [
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
 /** The archive's five first-party story collections. */
-export const STORY_MODES = ["band", "link", "home", "afterlive", "tutorial"] as const;
+export const STORY_MODES = ["event", "band", "link", "home", "afterlive", "tutorial"] as const;
 export type StoryMode = (typeof STORY_MODES)[number];
 
 /** First-party ANON TOKYO views. These are auxiliary collections rather than resource kinds. */

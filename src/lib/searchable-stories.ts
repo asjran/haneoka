@@ -11,7 +11,7 @@ import {
 import { disambiguateTitles } from "./title-disambiguation";
 import type { ReleaseServer } from "./release-server";
 
-export type StoryMode = "band" | "link" | "home" | "afterlive" | "tutorial";
+export type StoryMode = "event" | "band" | "link" | "home" | "afterlive" | "tutorial";
 
 export interface StaticStoryLine {
   kind: "chapter" | "line" | "choices";
@@ -56,10 +56,13 @@ const localizedAll = (value: unknown): Record<Locale, string> =>
   Object.fromEntries(LOCALES.map((locale) => [locale, text(value, locale)])) as Record<Locale, string>;
 
 /**
- * The interactive screen derives the mode from the chapter: numbered chapters
- * (below the synthetic 900000 range) are band stories, the rest map by key.
+ * The interactive screen derives the mode from the chapter: event-owned
+ * chapters are event stories, other numbered chapters (below the synthetic
+ * 900000 range) are band stories, the rest map by key.
  */
-function modeOf(episode: EpisodeRecord): StoryMode | undefined {
+function modeOf(episode: EpisodeRecord, eventChapterIds: ReadonlySet<string>): StoryMode | undefined {
+  const chapterId = String(episode.chapterId || "");
+  if (eventChapterIds.has(chapterId)) return "event";
   if (Number(episode.chapterId || 0) < 900000) return "band";
   switch (episode.chapterKey) {
     case "asset_linkstory":
@@ -165,10 +168,17 @@ async function buildSearchableStoryPages(server: ReleaseServer): Promise<Searcha
     }),
   );
   if (!Object.keys(episodes).length) return [];
+  const storyEvents = Array.isArray(storiesRoot.storyEvents) ? storiesRoot.storyEvents : [];
+  const eventChapterIds = new Set(
+    storyEvents.flatMap((raw) => {
+      const record = asRecord(raw);
+      return record && record.chapterId ? [String(record.chapterId)] : [];
+    }),
+  );
 
   const wanted = Object.entries(episodes).flatMap(([key, raw]) => {
     const episode = asRecord(raw) as EpisodeRecord | undefined;
-    const mode = episode ? modeOf(episode) : undefined;
+    const mode = episode ? modeOf(episode, eventChapterIds) : undefined;
     return episode && mode ? [[key, episode, mode] as [string, EpisodeRecord, StoryMode]] : [];
   });
   const details = await fetchStaticCatalogBatch("stories", wanted.map(([key]) => key), server, release);

@@ -469,6 +469,7 @@
   "afterlive": "Afterlive",
   "notAvailable": "利用できません",
   "storyNavigation": {
+    "event": "イベントストーリー",
     "band": "バンドストーリー",
     "link": "絆ストーリー",
     "home": "ホームストーリー",

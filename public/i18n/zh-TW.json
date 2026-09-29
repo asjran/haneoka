@@ -469,6 +469,7 @@
   "afterlive": "演出後",
   "notAvailable": "無法使用",
   "storyNavigation": {
+    "event": "活動故事",
     "band": "樂團故事",
     "link": "羈絆故事",
     "home": "主頁故事",

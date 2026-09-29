@@ -5209,7 +5209,30 @@ def _stories(data: BuildData, live2d: dict[str, dict[str, Any]]) -> dict[str, An
             talks=talks,
             spine=_home_spot_spine_runtime(data, row),
         )
-    return {"chapters": chapters, "episodes": episodes, "homeSpots": spots}
+    # Event stories are ordinary story chapters referenced by MasterEvent's
+    # _storyChapterId; the collection surfaces them as their own section with
+    # the event (not the chapter) as the rail destination.
+    story_events: list[dict[str, Any]] = []
+    for row in data.rows("MasterEvent"):
+        chapter_id = int(row.get("_storyChapterId") or 0)
+        if not chapter_id or str(chapter_id) not in chapters:
+            continue
+        event = {
+            "eventId": int(row.get("_id") or 0),
+            "chapterId": chapter_id,
+            "name": data.text(row.get("_nameTextId") or row.get("_nameTextID")),
+            "startAt": _timestamp(row.get("_startAt")),
+            "endAt": _timestamp(row.get("_endAt")),
+        }
+        chapters[str(chapter_id)]["eventId"] = event["eventId"]
+        story_events.append(event)
+    story_events.sort(key=lambda item: int((item["startAt"] or [0])[0] or 0))
+    return {
+        "chapters": chapters,
+        "episodes": episodes,
+        "homeSpots": spots,
+        "storyEvents": story_events,
+    }
 
 
 def _sprite_outputs(

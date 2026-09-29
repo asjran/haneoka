@@ -24,8 +24,9 @@ export interface PrimaryDestination {
   exclude?: string[];
 }
 
-const STORY_ROUTES = ["band", "link", "home", "afterlive", "tutorial"] as const;
+const STORY_ROUTES = ["event", "band", "link", "home", "afterlive", "tutorial"] as const;
 const STORY_ICONS: Record<(typeof STORY_ROUTES)[number], string> = {
+  event: "local_activity",
   band: "groups",
   link: "diversity_1",
   home: "home",

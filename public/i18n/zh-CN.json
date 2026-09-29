@@ -469,6 +469,7 @@
   "afterlive": "演出后",
   "notAvailable": "暂无内容",
   "storyNavigation": {
+    "event": "活动故事",
     "band": "乐队故事",
     "link": "羁绊故事",
     "home": "主页故事",

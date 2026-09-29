@@ -74,7 +74,7 @@ export const ROUTES: RouteDefinition[] = [
     titleKey,
     resource: resource ?? key,
   })),
-  ...["band", "link", "home", "afterlive", "tutorial"].map((key) => ({
+  ...(["event", "band", "link", "home", "afterlive", "tutorial"] as const).map((key) => ({
     route: `/catalog/stories/${key}`,
     kind: "catalog" as const,
     key: `stories-${key}`,

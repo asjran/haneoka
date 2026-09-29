@@ -469,6 +469,7 @@
   "afterlive": "Afterlive",
   "notAvailable": "Not available",
   "storyNavigation": {
+    "event": "Event Stories",
     "band": "Band Stories",
     "link": "Bond Stories",
     "home": "Home Stories",

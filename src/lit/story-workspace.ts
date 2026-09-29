@@ -48,7 +48,7 @@ import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
 import type { Locale } from "@haneoka/i18n";
 
 /** Sections of the archive's own story catalogue. */
-type ReleaseMode = "band" | "link" | "home" | "afterlive" | "tutorial";
+type ReleaseMode = "event" | "band" | "link" | "home" | "afterlive" | "tutorial";
 /** Sections the Bestdori worker serves. */
 type BestdoriMode = "event" | "band" | "main" | "afterlive" | "card";
 type StoryMode = ReleaseMode | BestdoriMode;
@@ -99,6 +99,7 @@ export class StoryWorkspace extends LitElement {
     phase: { state: true },
     chapters: { state: true },
     episodes: { state: true },
+    storyEvents: { state: true },
     spots: { state: true },
     characters: { state: true },
     bands: { state: true },
@@ -125,6 +126,8 @@ export class StoryWorkspace extends LitElement {
   declare phase: "loading" | "ready" | "error";
   declare chapters: JsonRecord[];
   declare episodes: Record<string, JsonRecord>;
+  /** Release events that own a story chapter, oldest first. */
+  declare storyEvents: JsonRecord[];
   declare spots: JsonRecord[];
   declare characters: JsonRecord[];
   declare bands: JsonRecord[];
@@ -209,6 +212,7 @@ export class StoryWorkspace extends LitElement {
     this.spots = [];
     this.characters = [];
     this.bands = [];
+    this.storyEvents = [];
     this.facets = {};
     this.query = "";
     this.view = "grid";
@@ -239,7 +243,11 @@ export class StoryWorkspace extends LitElement {
     if (this.origin === "release" && selection?.source === "canonical" && selection.route.kind === "stories")
       this.entityId = selection.route.id;
     const mode = documentUrl.searchParams.get("mode");
-    if (this.origin === "release" && mode && ["band", "link", "home", "afterlive", "tutorial"].includes(mode))
+    if (
+      this.origin === "release" &&
+      mode &&
+      ["event", "band", "link", "home", "afterlive", "tutorial"].includes(mode)
+    )
       this.mode = mode as ReleaseMode;
     addEventListener("haneoka:locale-ready", this.onLocale);
     this.releaseLocation = observeDetailLocation(this.restoreLocation, this);
@@ -383,6 +391,7 @@ export class StoryWorkspace extends LitElement {
     if (!this.isConnected || !this.catalogRequests.current(signal)) return;
     this.chapters = recordValues(stories.chapters);
     this.episodes = (stories.episodes as Record<string, JsonRecord>) || {};
+    this.storyEvents = Array.isArray(stories.storyEvents) ? stories.storyEvents : [];
     this.spots = recordValues(stories.homeSpots);
     this.characters = recordValues(characters);
     this.bands = recordValues(bands);
@@ -394,6 +403,7 @@ export class StoryWorkspace extends LitElement {
       if (!this.isConnected || !this.catalogRequests.current(signal)) return false;
       this.chapters = recordValues(payload.chapters);
       this.episodes = (payload.episodes as Record<string, JsonRecord>) || {};
+      this.storyEvents = Array.isArray(payload.storyEvents) ? payload.storyEvents : [];
       this.spots = recordValues(payload.homeSpots);
       this.characters = recordValues(payload.characters);
       this.bands = recordValues(payload.bands);
@@ -459,14 +469,27 @@ export class StoryWorkspace extends LitElement {
     return String(episode.storyId || episode.cardId || episode.storyKey || "");
   }
   private defaultSort() {
-    if (this.isBestdori() && this.mode === "event") return "id";
-    return this.mode === "link" || this.mode === "afterlive" || this.mode === "event" ? "release" : "id";
+    if (this.mode === "event") return "id";
+    return this.mode === "link" || this.mode === "afterlive" ? "release" : "id";
   }
   private defaultOrder(): "asc" | "desc" {
+    if (this.origin === "release" && this.mode === "event") return "asc";
     return this.isCardSection() || this.defaultSort() === "release" ? "desc" : "asc";
   }
   private chapterKind(chapter: JsonRecord) {
     return String(chapter.chapterKey || "").toLowerCase();
+  }
+  /** Chapters an event owns; empty until the release ships storyEvents. */
+  private eventChapterIds(): Set<string> {
+    return new Set(this.storyEvents.map((event) => String(event.chapterId)));
+  }
+  private eventForChapter(chapter: JsonRecord | undefined): JsonRecord | undefined {
+    if (!chapter) return undefined;
+    return this.storyEvents.find((event) => String(event.chapterId) === String(chapter.chapterId));
+  }
+  private eventStartAt(chapter: JsonRecord): number {
+    const event = this.eventForChapter(chapter);
+    return event ? this.releaseValue(event) : 0;
   }
   private relevantChapters(): JsonRecord[] {
     if (this.isBestdori())
@@ -476,9 +499,21 @@ export class StoryWorkspace extends LitElement {
               Number(b.chapterSort || 0) - Number(a.chapterSort || 0) || Number(b.chapterId) - Number(a.chapterId),
           )
         : this.chapters;
+    const eventIds = this.eventChapterIds();
+    if (this.mode === "event") {
+      // Events own their rail destination and run newest first; the chapter
+      // itself (banner, episodes, description) renders exactly like a band's.
+      return this.chapters
+        .filter((c) => eventIds.has(String(c.chapterId)))
+        .sort(
+          (a, b) =>
+            this.eventStartAt(b) - this.eventStartAt(a) ||
+            Number(b.chapterId) - Number(a.chapterId),
+        );
+    }
     if (this.mode === "band")
       return this.chapters
-        .filter((c) => Number(c.chapterId) < 900000)
+        .filter((c) => Number(c.chapterId) < 900000 && !eventIds.has(String(c.chapterId)))
         .sort((a, b) => Number(a.chapterSort) - Number(b.chapterSort));
     const key = this.mode === "link" ? "asset_linkstory" : `asset_${this.mode}`;
     return this.chapters.filter((c) => this.chapterKind(c) === key);
@@ -820,13 +855,17 @@ export class StoryWorkspace extends LitElement {
         image: String(character.faceImage || character.thumbnailImage || ""),
         meta: this.bandName(Number(character.bandId)),
       }));
-    return this.relevantChapters().map((chapter) => ({
-      value: String(chapter.chapterId),
-      label: this.chapterName(chapter) || String(chapter.chapterId || ""),
-      language: resolveLocalizedText(chapter.chapterName, this.locale).locale,
-      image: String(chapter.banner || chapter.image || chapter.icon || ""),
-      meta: `${this.chapterEpisodes(chapter).length} ${uiText(this.locale, "episodes")}`,
-    }));
+    return this.relevantChapters().map((chapter) => {
+      const event = this.eventForChapter(chapter);
+      const name = event?.name;
+      return {
+        value: String(chapter.chapterId),
+        label: (event ? this.text(name) : "") || this.chapterName(chapter) || String(chapter.chapterId || ""),
+        language: resolveLocalizedText(event ? name : chapter.chapterName, this.locale).locale,
+        image: String(chapter.banner || chapter.image || chapter.icon || ""),
+        meta: `${this.chapterEpisodes(chapter).length} ${uiText(this.locale, "episodes")}`,
+      };
+    });
   }
   private railValue() {
     return (this.facets[this.railAxis()] || [])[0] || "";
@@ -870,13 +909,14 @@ export class StoryWorkspace extends LitElement {
       return undefined;
     }
     const chapter = this.relevantChapters().find((item) => String(item.chapterId) === value);
-    const title = this.chapterName(chapter);
+    const event = this.eventForChapter(chapter);
+    const title = (event ? this.text(event.name) : "") || this.chapterName(chapter);
     // Sections whose single chapter is unnamed (friendship, home, tutorial)
     // have nothing to head: the page title already says where you are.
     if (!chapter || !title) return undefined;
     return {
       title,
-      titleLanguage: resolveLocalizedText(chapter.chapterName, this.locale).locale,
+      titleLanguage: resolveLocalizedText(event ? event.name : chapter.chapterName, this.locale).locale,
       supportingLanguage: resolveLocalizedText(chapter.description || chapter.caption, this.locale).locale,
       supporting: this.text(chapter.description) || this.text(chapter.caption) || "",
       image: String(chapter.icon || ""),
@@ -936,6 +976,14 @@ export class StoryWorkspace extends LitElement {
         const chapter =
           Number(b.chapterSort || 0) - Number(a.chapterSort || 0) || Number(b.chapterId) - Number(a.chapterId);
         return chapter || direction * (Number(a.episodeNumber || 0) - Number(b.episodeNumber || 0));
+      }
+      if (this.origin === "release" && this.mode === "event") {
+        // Within one event the episodes read in authored order.
+        return (
+          direction *
+          (Number(a.episodeNumber || 0) - Number(b.episodeNumber || 0) ||
+            this.episodeId(a).localeCompare(this.episodeId(b), "en", { numeric: true }))
+        );
       }
       if (this.origin === "release" && this.mode === "band") {
         const order = ["bandStory", "extraStory", "perspectiveStory"];
