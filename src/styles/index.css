@@ -1,7 +1,7 @@
 @layer tokens, reset, base, layout, components, shell, patterns, pages, utilities, accessibility;
 
 /* 1 — tokens */
-@import "../../packages/design-tokens/src/tokens.css" layer(tokens);
+@import "@haneoka/design-tokens/tokens.css" layer(tokens);
 @import "./base/tokens.css" layer(tokens);
 
 /* 2 — base */
