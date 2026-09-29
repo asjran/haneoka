@@ -1227,10 +1227,18 @@ def ingest_package(
             }
             existing_plan = plans.get(filename)
             if existing_plan:
-                # Shared bundles appear in multiple locale catalogs. The locale list
-                # is the only difference; compare without it to detect real collisions.
-                _strip_locales = lambda d: {k: v for k, v in d.items() if k != "locales"}
-                if _strip_locales(existing_plan[2]) != _strip_locales(addressables) or existing_plan[3] != expected:
+                # Shared bundles appear in multiple locale catalogs (the locale
+                # list is the only difference), and one file's bytes can be
+                # catalogued under several addressable keys — e.g. the same
+                # member-preview movie served from two card paths. Content
+                # identity (hash + size under one filename) is what may not
+                # collide; catalog-key and URL duplicates merge into the
+                # first (deterministically sorted) plan.
+                _download_identity = lambda d: (
+                    d.get("hash"),
+                    (d.get("primaryParts") or [""])[0],
+                )
+                if _download_identity(existing_plan[2]) != _download_identity(addressables) or existing_plan[3] != expected:
                     raise ValueError(f"Addressables filename collision: {filename}")
                 existing_plan[2]["locales"].append(locale_tag)
                 continue
