@@ -13,24 +13,14 @@ import "./catalog-table";
 import { filterDateBound } from "../lib/filter-date";
 import { facet } from "./ui/facet";
 import { fold } from "./game-system-detail";
-import {
-  collectionList,
-  collectionView,
-  viewSwitch,
-  type CollectionView,
-} from "./ui/collection-view";
+import { collectionList, collectionView, viewSwitch, type CollectionView } from "./ui/collection-view";
 import {
   openDetailLocation,
   closeDetailLocation,
   observeDetailLocation,
   navigateDetailPage,
 } from "../lib/detail-navigation";
-import {
-  clearAppBarActions,
-  clearAppBarIdentity,
-  setAppBarActions,
-  setAppBarIdentity,
-} from "../lib/app-bar";
+import { clearAppBarActions, clearAppBarIdentity, setAppBarActions, setAppBarIdentity } from "../lib/app-bar";
 import { RequestScope } from "../lib/request-scope";
 import { LitElement, html, nothing } from "lit";
 import { clientText } from "../i18n/client";
@@ -59,12 +49,7 @@ import { SONOLUS_SERVER_LINK } from "../config/sonolus";
 import { type GridIdentityAdornment } from "./shared/grid-identity";
 import { DENSITY_EVENT, currentDensity, type Density } from "../lib/density";
 import { clearBrowseBar, renderBrowse, filterGroup } from "./ui/browse";
-import {
-  LazyImages,
-  localeTaggedCandidates,
-  localizedAssetUrl,
-  nextImageCandidate,
-} from "./ui/lazy-images";
+import { LazyImages, localeTaggedCandidates, localizedAssetUrl, nextImageCandidate } from "./ui/lazy-images";
 import { iconButton, inputChip, segmented } from "./ui/controls";
 import { icon } from "./ui/icon";
 import { COMPACT, EXPANDED, matches, watchMedia } from "./ui/media";
@@ -424,16 +409,10 @@ const fallbackProfile: Profile = {
 };
 const asItems = (value: unknown, document?: string): Item[] => {
   const source = document ? readPath(value, document) : value;
-  if (Array.isArray(source))
-    return source.filter(
-      (item): item is Item => !!item && typeof item === "object",
-    );
+  if (Array.isArray(source)) return source.filter((item): item is Item => !!item && typeof item === "object");
   return source && typeof source === "object"
-    ? Object.entries(source as Record<string, unknown>).flatMap(
-        ([key, item]) =>
-          item && typeof item === "object"
-            ? [{ _key: key, ...(item as Item) }]
-            : [],
+    ? Object.entries(source as Record<string, unknown>).flatMap(([key, item]) =>
+        item && typeof item === "object" ? [{ _key: key, ...(item as Item) }] : [],
       )
     : [];
 };
@@ -559,9 +538,7 @@ export class CatalogScreen extends LitElement {
   private readonly entityAppBarOwner = `catalog-screen-entity-${++entityAppBarOwnerSequence}`;
   private restoreLocation = () => {
     const params = new URLSearchParams(location.search);
-    this.view = this.profile.perDifficulty
-      ? "table"
-      : collectionView(params.get("view"));
+    this.view = this.profile.perDifficulty ? "table" : collectionView(params.get("view"));
     if (this.settings.resource === "song-meta") {
       this.metaMode = params.get("metaMode") === "gekisou" ? "gekisou" : "live";
       const tier = params.get("metaTier");
@@ -574,8 +551,7 @@ export class CatalogScreen extends LitElement {
       };
     }
     this.selectedSongDifficulty = params.get("chartDifficulty") || "expert";
-    const id =
-      this.settings.entityId || params.get(this.selectionParam()) || "";
+    const id = this.settings.entityId || params.get(this.selectionParam()) || "";
     if (id === this.selectedId) {
       this.restoreDetailQuery();
       return;
@@ -638,8 +614,7 @@ export class CatalogScreen extends LitElement {
   private cardDetail?: typeof import("./card-detail");
   private gameSystemDetail?: typeof import("./game-system-detail");
   private onAudioState = (event: Event) => {
-    const detail = (event as CustomEvent<{ id?: string; playing?: boolean }>)
-      .detail;
+    const detail = (event as CustomEvent<{ id?: string; playing?: boolean }>).detail;
     this.playingSong = detail?.playing ? detail.id || "" : "";
   };
 
@@ -745,17 +720,9 @@ export class CatalogScreen extends LitElement {
     const params = documentUrl.searchParams;
     this.query = params.get("q") ?? "";
     this.selectedSongDifficulty = params.get("chartDifficulty") || "expert";
-    this.sort = this.normalizeSort(
-      params.get("sort") ?? this.profile.defaultSort,
-    );
-    this.order = params.has("order")
-      ? params.get("order") === "desc"
-        ? "desc"
-        : "asc"
-      : this.profile.defaultOrder;
-    this.view = this.profile.perDifficulty
-      ? "table"
-      : collectionView(params.get("view"));
+    this.sort = this.normalizeSort(params.get("sort") ?? this.profile.defaultSort);
+    this.order = params.has("order") ? (params.get("order") === "desc" ? "desc" : "asc") : this.profile.defaultOrder;
+    this.view = this.profile.perDifficulty ? "table" : collectionView(params.get("view"));
     if (this.settings.resource === "song-meta") {
       this.metaMode = params.get("metaMode") === "gekisou" ? "gekisou" : "live";
       const tier = params.get("metaTier");
@@ -769,8 +736,7 @@ export class CatalogScreen extends LitElement {
     }
     const bandRail = this.hasBandRail();
     this.activeBand = bandRail ? Number(params.get("band") || 0) : 0;
-    this.selectedId =
-      this.settings.entityId || params.get(this.selectionParam()) || "";
+    this.selectedId = this.settings.entityId || params.get(this.selectionParam()) || "";
     this.activeMedia = params.get("media") || "full";
     this.characterSection = params.get("section") || "profile";
     const typeParam = ["member", "support"].includes(this.profile.presentation)
@@ -782,24 +748,16 @@ export class CatalogScreen extends LitElement {
       // The character catalogue uses `character` for the open detail. It is
       // not a facet there; treating it as both collapsed the background list
       // to the selected row whenever a detail was opened.
-      character:
-        this.profile.presentation === "character"
-          ? []
-          : params.getAll("character"),
+      character: this.profile.presentation === "character" ? [] : params.getAll("character"),
       collectionBand: bandRail
         ? params.getAll("collectionBand")
         : [...params.getAll("band"), ...params.getAll("collectionBand")],
-      type: [
-        ...params.getAll(typeParam),
-        ...(typeParam === "type" ? [] : params.getAll("type")),
-      ],
+      type: [...params.getAll(typeParam), ...(typeParam === "type" ? [] : params.getAll("type"))],
       rarity: params.getAll("rarity"),
       category: params.getAll("category"),
       status: params.getAll("status"),
       kind: params.getAll("kind"),
-      ...Object.fromEntries(
-        EXTRA_FILTERS.map((key) => [key, params.getAll(key)]),
-      ),
+      ...Object.fromEntries(EXTRA_FILTERS.map((key) => [key, params.getAll(key)])),
     };
     if (!this.hasAttribute("data-page-data")) this.ensureSongMeta();
     void this.load();
@@ -832,14 +790,7 @@ export class CatalogScreen extends LitElement {
     if (!holder) return;
     if (holder.tagName === "A") {
       const mouse = event as MouseEvent;
-      if (
-        mouse.button !== 0 ||
-        mouse.ctrlKey ||
-        mouse.metaKey ||
-        mouse.shiftKey ||
-        mouse.altKey
-      )
-        return;
+      if (mouse.button !== 0 || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey || mouse.altKey) return;
       event.preventDefault();
     }
     const id = holder.getAttribute("data-open-item");
@@ -852,10 +803,8 @@ export class CatalogScreen extends LitElement {
   }
   private runtimeReturnTo(): string | undefined {
     if (!this.settings.entityContext) return undefined;
-    const value =
-      new URL(location.href).searchParams.get("return")?.trim() || "";
-    if (!value || !value.startsWith("/") || value.startsWith("//"))
-      return undefined;
+    const value = new URL(location.href).searchParams.get("return")?.trim() || "";
+    if (!value || !value.startsWith("/") || value.startsWith("//")) return undefined;
     try {
       const target = new URL(value, location.origin);
       if (target.origin !== location.origin) return undefined;
@@ -865,10 +814,7 @@ export class CatalogScreen extends LitElement {
     }
   }
   private entityFallbackHref() {
-    return (
-      document.querySelector<HTMLAnchorElement>("[data-entity-back]")?.dataset
-        .entityFallbackHref || ""
-    );
+    return document.querySelector<HTMLAnchorElement>("[data-entity-back]")?.dataset.entityFallbackHref || "";
   }
   private entityReturnHref() {
     return this.runtimeReturnTo() || this.entityFallbackHref();
@@ -889,31 +835,26 @@ export class CatalogScreen extends LitElement {
     const item = this.selected;
     if (item) {
       const title = this.itemTitleValue(item);
-      const heading = document.querySelector<HTMLElement>(
-        "[data-entity-title]",
-      );
+      const heading = document.querySelector<HTMLElement>("[data-entity-title]");
       if (heading) {
-        const headingText = this.settings.chartPage
-          ? this.chartPageTitle(item)
-          : title.text;
+        const headingText = this.settings.chartPage ? this.chartPageTitle(item) : title.text;
         heading.textContent = headingText;
         if (title.locale) heading.lang = title.locale;
       }
     }
     const returnTo = this.runtimeReturnTo();
-    const back =
-      document.querySelector<HTMLAnchorElement>("[data-entity-back]");
+    const back = document.querySelector<HTMLAnchorElement>("[data-entity-back]");
     if (back) back.href = returnTo || this.entityFallbackHref() || back.href;
-    document
-      .querySelectorAll<HTMLAnchorElement>("[data-entity-navigation]")
-      .forEach((link) => {
-        const base = link.dataset.entityBaseHref || link.href;
-        link.href = this.withReturn(base, returnTo);
-      });
+    document.querySelectorAll<HTMLAnchorElement>("[data-entity-navigation]").forEach((link) => {
+      const base = link.dataset.entityBaseHref || link.href;
+      link.href = this.withReturn(base, returnTo);
+    });
     if (item && this.detailReady) {
       setAppBarIdentity(
         this.entityAppBarOwner,
-        html` ${this.renderDetailLeading(item)} `,
+        html`
+          ${this.renderDetailLeading(item)}
+        `,
         this,
       );
       setAppBarActions(
@@ -936,9 +877,7 @@ export class CatalogScreen extends LitElement {
   private captureCollectionState(returnTo: string, focusItemId: string) {
     const main = document.querySelector<HTMLElement>("#main-content");
     const active = document.activeElement as HTMLElement | null;
-    const focusedItemId =
-      active?.closest<HTMLElement>("[data-open-item]")?.dataset.openItem ||
-      focusItemId;
+    const focusedItemId = active?.closest<HTMLElement>("[data-open-item]")?.dataset.openItem || focusItemId;
     try {
       sessionStorage.setItem(
         "haneoka.catalog.return.v1",
@@ -951,12 +890,7 @@ export class CatalogScreen extends LitElement {
     } catch {}
   }
   private restoreCollectionState() {
-    if (
-      this.settings.entityContext ||
-      this.restoredCollectionState ||
-      this.phase !== "ready"
-    )
-      return;
+    if (this.settings.entityContext || this.restoredCollectionState || this.phase !== "ready") return;
     const current = `${location.pathname}${location.search}`;
     type CollectionReturnState = {
       url?: string;
@@ -974,12 +908,11 @@ export class CatalogScreen extends LitElement {
     void this.updateComplete.then(() => {
       requestAnimationFrame(() => {
         const main = document.querySelector<HTMLElement>("#main-content");
-        if (main && Number.isFinite(saved.scrollTop))
-          main.scrollTop = Number(saved.scrollTop);
+        if (main && Number.isFinite(saved.scrollTop)) main.scrollTop = Number(saved.scrollTop);
         if (saved.focusedItemId) {
-          const target = [
-            ...this.querySelectorAll<HTMLElement>("[data-open-item]"),
-          ].find((node) => node.dataset.openItem === saved.focusedItemId);
+          const target = [...this.querySelectorAll<HTMLElement>("[data-open-item]")].find(
+            (node) => node.dataset.openItem === saved.focusedItemId,
+          );
           target?.focus({ preventScroll: true });
         }
         try {
@@ -988,9 +921,7 @@ export class CatalogScreen extends LitElement {
       });
     });
   }
-  protected override shouldUpdate(
-    changed: import("lit").PropertyValues,
-  ): boolean {
+  protected override shouldUpdate(changed: import("lit").PropertyValues): boolean {
     if (
       this.hasAttribute("data-prerendered") &&
       this.settings.entityContext &&
@@ -1012,15 +943,11 @@ export class CatalogScreen extends LitElement {
     // wins over the filter panel, and a docked filter panel is not an overlay
     // at all, so it is never trapped.
     this.paneFocus.sync(
-      this.selected && !this.settings.entityContext
-        ? this.querySelector<HTMLElement>("[data-detail-pane]")
-        : null,
+      this.selected && !this.settings.entityContext ? this.querySelector<HTMLElement>("[data-detail-pane]") : null,
       () => this.close(),
     );
     this.filterFocus.sync(
-      !this.selected && this.filtersOpen && !this.docked
-        ? this.querySelector<HTMLElement>(".browse__filters")
-        : null,
+      !this.selected && this.filtersOpen && !this.docked ? this.querySelector<HTMLElement>(".browse__filters") : null,
       () => (this.filtersOpen = false),
     );
     if (this.settings.entityContext) {
@@ -1034,27 +961,18 @@ export class CatalogScreen extends LitElement {
     this.lazyImages.observe(this);
   }
   private localizedImageCandidates = (source: string) =>
-    this.settings.origin === "bestdori"
-      ? [source]
-      : localeTaggedCandidates(source, this.settings.locale);
+    this.settings.origin === "bestdori" ? [source] : localeTaggedCandidates(source, this.settings.locale);
   imageForLocale(source: string) {
-    return this.settings.origin === "bestdori"
-      ? source
-      : localizedAssetUrl(source, this.settings.locale);
+    return this.settings.origin === "bestdori" ? source : localizedAssetUrl(source, this.settings.locale);
   }
   private imageError = nextImageCandidate;
   /** Bestdori's region is chosen by the reading locale, as the worker expects. */
   private bestdoriRegion() {
-    return (
-      { "zh-TW": "tw", "zh-CN": "cn", ko: "kr", en: "en" }[
-        this.settings.locale
-      ] || "jp"
-    );
+    return { "zh-TW": "tw", "zh-CN": "cn", ko: "kr", en: "en" }[this.settings.locale] || "jp";
   }
   /** Resolves a resource against whichever origin this screen was given. */
   private sourceUrl(resource: string, id = "") {
-    if (this.settings.origin !== "bestdori")
-      return catalogUrl(resource, id, this.dataServer());
+    if (this.settings.origin !== "bestdori") return catalogUrl(resource, id, this.dataServer());
     const base = `/api/v1/garupa/bestdori/${this.bestdoriRegion()}`;
     const path = id ? `${resource}/${encodeURIComponent(id)}` : resource;
     return `${base}/${path}?lang=${encodeURIComponent(this.settings.locale)}`;
@@ -1063,26 +981,15 @@ export class CatalogScreen extends LitElement {
     return this.settings.server || (currentReleaseServer() as ReleaseServer);
   }
   private canonicalKind(): ResourceKind | undefined {
-    return (
-      this.settings.entityKind ||
-      resourceKindForCollection(this.settings.resource)
-    );
+    return this.settings.entityKind || resourceKindForCollection(this.settings.resource);
   }
   resourceHref(value: string): string {
     if (!value.startsWith("/catalog")) return value;
-    const target = resourceCollectionHref(
-      value,
-      this.dataServer(),
-      this.settings.locale as Locale,
-    );
+    const target = resourceCollectionHref(value, this.dataServer(), this.settings.locale as Locale);
     if (!target) {
       const source = new URL(value, "https://route.invalid");
       if (source.pathname === "/catalog/bands") {
-        const base = resourceCollectionHref(
-          "/catalog",
-          this.dataServer(),
-          this.settings.locale as Locale,
-        );
+        const base = resourceCollectionHref("/catalog", this.dataServer(), this.settings.locale as Locale);
         return base ? `${base}bands/${source.search}` : value;
       }
       return value;
@@ -1093,20 +1000,14 @@ export class CatalogScreen extends LitElement {
   private entityLink(id: string, difficulty?: number): string | undefined {
     const kind = this.canonicalKind();
     if (!kind || this.settings.origin === "bestdori") return undefined;
-    const returnTo = returnStateFromLocation(
-      location.pathname,
-      location.search,
-      kind,
-    );
+    const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
     return entityHref({
       server: this.dataServer(),
       locale: preferredLocale(this.settings.locale) as Locale,
       kind,
       id,
       returnTo,
-      ...(difficulty !== undefined
-        ? { query: { difficulty: String(difficulty) } }
-        : {}),
+      ...(difficulty !== undefined ? { query: { difficulty: String(difficulty) } } : {}),
     });
   }
   private label(key: string, fallback: string) {
@@ -1128,38 +1029,25 @@ export class CatalogScreen extends LitElement {
     return aliases[value] || value;
   }
   private localized(value: unknown): string {
-    if (typeof value === "boolean")
-      return uiText(this.settings.locale, value ? "yes" : "no");
+    if (typeof value === "boolean") return uiText(this.settings.locale, value ? "yes" : "no");
     return cleanMarkup(localizedText(value, this.settings.locale));
   }
-  private formatList(
-    values: unknown[],
-    type: Intl.ListFormatOptions["type"] = "conjunction",
-  ) {
+  private formatList(values: unknown[], type: Intl.ListFormatOptions["type"] = "conjunction") {
     return formatLocalizedList(values, this.settings.locale, type);
   }
   private displayValue(value: unknown): string {
     const localized = this.localized(value);
     if (localized) return localized;
     if (Array.isArray(value))
-      return this.formatList(
-        value.map((entry) => this.displayValue(entry)).filter(Boolean),
-        "unit",
-      );
+      return this.formatList(value.map((entry) => this.displayValue(entry)).filter(Boolean), "unit");
     if (value && typeof value === "object")
       return this.formatList(
         Object.entries(value as Item)
-          .filter(([, entry]) =>
-            ["string", "number", "boolean"].includes(typeof entry),
-          )
+          .filter(([, entry]) => ["string", "number", "boolean"].includes(typeof entry))
           .map(([key, entry]) => `${key}: ${String(entry)}`),
         "unit",
       );
-    return value === 0
-      ? "0"
-      : typeof value === "string" || typeof value === "number"
-        ? String(value)
-        : "";
+    return value === 0 ? "0" : typeof value === "string" || typeof value === "number" ? String(value) : "";
   }
   private first(item: Item, paths: string[]): unknown {
     for (const path of paths) {
@@ -1176,10 +1064,7 @@ export class CatalogScreen extends LitElement {
   private itemTitleValue(item: Item) {
     return this.profile.presentation === "song"
       ? songTitle(item, this.settings.locale)
-      : resolveLocalizedText(
-          this.first(item, this.profile.title),
-          this.settings.locale,
-        );
+      : resolveLocalizedText(this.first(item, this.profile.title), this.settings.locale);
   }
   itemTitleLanguage(item: Item) {
     return this.itemTitleValue(item).locale;
@@ -1208,8 +1093,7 @@ export class CatalogScreen extends LitElement {
   }
   private detailImage(item: Item) {
     const preferred =
-      this.profile.presentation === "member" ||
-      this.profile.presentation === "support"
+      this.profile.presentation === "member" || this.profile.presentation === "support"
         ? readPath(item, "images.full")
         : this.profile.presentation === "song"
           ? item.jacketUrl
@@ -1218,22 +1102,13 @@ export class CatalogScreen extends LitElement {
             : this.profile.presentation === "comic"
               ? item.image
               : undefined;
-    return typeof preferred === "string" && preferred
-      ? preferred
-      : this.image(item);
+    return typeof preferred === "string" && preferred ? preferred : this.image(item);
   }
   private imageFallback(item: Item) {
-    if (
-      this.profile.presentation === "song" &&
-      typeof item.jacketThumbUrl === "string"
-    )
-      return item.jacketThumbUrl;
+    if (this.profile.presentation === "song" && typeof item.jacketThumbUrl === "string") return item.jacketThumbUrl;
     return this.image(item);
   }
-  async prepareEntity(
-    payload: EntityPayload,
-    config: string = this.config,
-  ): Promise<void> {
+  async prepareEntity(payload: EntityPayload, config: string = this.config): Promise<void> {
     this.settings = JSON.parse(config || "{}") as Config;
     this.profile = profiles[this.settings.resource] ?? fallbackProfile;
     this.selectedId = String(payload.id);
@@ -1248,24 +1123,15 @@ export class CatalogScreen extends LitElement {
     this.detailAux = { ...(payload.aux || {}) };
     this.gameMarks.clear();
     for (const [logical, path] of Object.entries(payload.marks || {}))
-      this.gameMarks.set(
-        logical,
-        `/runtime/${this.dataServer()}/${path.replace(/^runtime\//u, "")}`,
-      );
+      this.gameMarks.set(logical, `/runtime/${this.dataServer()}/${path.replace(/^runtime\//u, "")}`);
     this.selected = payload.item;
     const card = ["member", "support"].includes(this.profile.presentation);
     const [skill, cards, rewards, systems] = await Promise.all([
       card ? import("./shared/skill-text") : undefined,
       card ? import("./card-detail") : undefined,
-      this.profile.presentation === "song"
-        ? import("./song-detail-rewards")
-        : undefined,
-      this.profile.presentation === "system"
-        ? import("./game-system-detail")
-        : undefined,
-      this.profile.presentation === "character"
-        ? import("./character-detail-archive")
-        : undefined,
+      this.profile.presentation === "song" ? import("./song-detail-rewards") : undefined,
+      this.profile.presentation === "system" ? import("./game-system-detail") : undefined,
+      this.profile.presentation === "character" ? import("./character-detail-archive") : undefined,
     ]);
     this.skillText = skill;
     this.cardDetail = cards;
@@ -1276,10 +1142,9 @@ export class CatalogScreen extends LitElement {
     if (this.profile.presentation === "band-item")
       this.detailLevel = Math.max(
         1,
-        ...(Array.isArray(payload.item.levels)
-          ? (payload.item.levels as Item[])
-          : []
-        ).map((row) => Number(row.level || 1)),
+        ...(Array.isArray(payload.item.levels) ? (payload.item.levels as Item[]) : []).map((row) =>
+          Number(row.level || 1),
+        ),
       );
     this.phase = "ready";
     this.detailReady = true;
@@ -1290,11 +1155,7 @@ export class CatalogScreen extends LitElement {
   get contentServer() {
     return this.dataServer();
   }
-  relatedEntityHref(
-    kind: ResourceKind,
-    id: string,
-    query?: Record<string, string>,
-  ): string {
+  relatedEntityHref(kind: ResourceKind, id: string, query?: Record<string, string>): string {
     return entityHref({
       server: this.dataServer(),
       locale: this.settings.locale as Locale,
@@ -1304,11 +1165,7 @@ export class CatalogScreen extends LitElement {
       ...(typeof window === "undefined" || !this.isConnected
         ? {}
         : {
-            returnTo: returnStateFromLocation(
-              location.pathname,
-              location.search,
-              kind,
-            ),
+            returnTo: returnStateFromLocation(location.pathname, location.search, kind),
           }),
     });
   }
@@ -1317,11 +1174,7 @@ export class CatalogScreen extends LitElement {
     this.phase = "loading";
     this.setEntityReady(false);
     const inline = readPageData<EntityPayload>(this);
-    if (
-      inline?.schema === "haneoka-entity-payload-v1" &&
-      inline.item &&
-      inline.id === this.selectedId
-    ) {
+    if (inline?.schema === "haneoka-entity-payload-v1" && inline.item && inline.id === this.selectedId) {
       try {
         await this.prepareEntity(inline, this.config);
         if (!this.isConnected || !this.catalogRequests.current(signal)) return;
@@ -1335,77 +1188,56 @@ export class CatalogScreen extends LitElement {
       return;
     }
     try {
-      if (this.profile.presentation === "character")
-        await import("./character-detail-archive");
+      if (this.profile.presentation === "character") await import("./character-detail-archive");
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
-      const needsRelations = [
-        "member",
-        "support",
-        "character",
-        "comic",
-        "stamp",
-        "song",
-        "band-item",
-      ].includes(this.profile.presentation);
-      // Character details embed the exact member/support/song tiles, so their
-      // rarity, attribute and music-type marks are required there too.
-      const needsGameMarks = [
-        "member",
-        "support",
-        "song",
-        "character",
-      ].includes(this.profile.presentation);
-      const needsItems = ["member", "support"].includes(
+      const needsRelations = ["member", "support", "character", "comic", "stamp", "song", "band-item"].includes(
         this.profile.presentation,
       );
-      const [response, characters, bands, marks, gameItems] = await Promise.all(
-        [
-          fetch(
-            this.sourceUrl(this.profile.collection || this.settings.resource),
-            {
+      // Character details embed the exact member/support/song tiles, so their
+      // rarity, attribute and music-type marks are required there too.
+      const needsGameMarks = ["member", "support", "song", "character"].includes(this.profile.presentation);
+      const needsItems = ["member", "support"].includes(this.profile.presentation);
+      const [response, characters, bands, marks, gameItems] = await Promise.all([
+        fetch(this.sourceUrl(this.profile.collection || this.settings.resource), {
+          headers: { accept: "application/json" },
+          signal,
+        }),
+        needsRelations
+          ? fetch(this.sourceUrl("characters"), {
               headers: { accept: "application/json" },
               signal,
-            },
-          ),
-          needsRelations
-            ? fetch(this.sourceUrl("characters"), {
-                headers: { accept: "application/json" },
-                signal,
-              })
-            : null,
-          needsRelations
-            ? fetch(this.sourceUrl("bands"), {
-                headers: { accept: "application/json" },
-                signal,
-              })
-            : null,
-          // Game-sprite marks and item tables are release-only projections.
-          needsGameMarks && this.settings.origin !== "bestdori"
-            ? fetch(catalogUrl("ui-marks"), {
-                headers: { accept: "application/json" },
-                signal,
-              })
-            : null,
-          needsItems && this.settings.origin !== "bestdori"
-            ? fetch(catalogUrl("items"), {
-                headers: { accept: "application/json" },
-                signal,
-              })
-            : null,
-        ],
-      );
+            })
+          : null,
+        needsRelations
+          ? fetch(this.sourceUrl("bands"), {
+              headers: { accept: "application/json" },
+              signal,
+            })
+          : null,
+        // Game-sprite marks and item tables are release-only projections.
+        needsGameMarks && this.settings.origin !== "bestdori"
+          ? fetch(catalogUrl("ui-marks"), {
+              headers: { accept: "application/json" },
+              signal,
+            })
+          : null,
+        needsItems && this.settings.origin !== "bestdori"
+          ? fetch(catalogUrl("items"), {
+              headers: { accept: "application/json" },
+              signal,
+            })
+          : null,
+      ]);
       if (!response.ok) throw new Error(String(response.status));
-      const [document, characterData, bandData, itemData, markData] =
-        await Promise.all([
-          response.json(),
-          characters?.ok ? characters.json() : [],
-          bands?.ok ? bands.json() : [],
-          gameItems?.ok ? gameItems.json() : [],
-          marks?.ok ? marks.json() : {},
-        ]);
+      const [document, characterData, bandData, itemData, markData] = await Promise.all([
+        response.json(),
+        characters?.ok ? characters.json() : [],
+        bands?.ok ? bands.json() : [],
+        gameItems?.ok ? gameItems.json() : [],
+        marks?.ok ? marks.json() : {},
+      ]);
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
-      this.catalogDocument =
-        document && typeof document === "object" ? (document as Item) : {};
+      this.catalogDocument = document && typeof document === "object" ? (document as Item) : {};
       this.items = asItems(document, this.profile.document);
       this.characters = asItems(characterData);
       this.bands = asItems(bandData);
@@ -1413,29 +1245,18 @@ export class CatalogScreen extends LitElement {
       this.resultCache = undefined;
       this.gameItems = asItems(itemData, "items");
       this.gameMarks.clear();
-      for (const [logical, path] of Object.entries(
-        markData as Record<string, string>,
-      ))
-        this.gameMarks.set(
-          logical,
-          `/runtime/${this.dataServer()}/${path.slice("runtime/".length)}`,
-        );
+      for (const [logical, path] of Object.entries(markData as Record<string, string>))
+        this.gameMarks.set(logical, `/runtime/${this.dataServer()}/${path.slice("runtime/".length)}`);
       // A rail always has a destination selected.
-      if (
-        this.hasBandRail() &&
-        !this.bands.some((band) => Number(band.bandId || 0) === this.activeBand)
-      )
+      if (this.hasBandRail() && !this.bands.some((band) => Number(band.bandId || 0) === this.activeBand))
         this.activeBand = Number(this.railBands()[0]?.bandId || 0);
       if (this.selectedId) {
-        const selected = this.items.find(
-          (item) => this.itemId(item) === this.selectedId,
-        );
+        const selected = this.items.find((item) => this.itemId(item) === this.selectedId);
         if (selected) {
           this.selected = selected;
           this.setEntityReady(false);
           void this.loadEntityDetail(selected);
-        } else if (this.settings.entityContext)
-          throw new Error("Entity is not present in this catalog release");
+        } else if (this.settings.entityContext) throw new Error("Entity is not present in this catalog release");
       }
       this.phase = "ready";
       this.restoreCollectionState();
@@ -1452,12 +1273,9 @@ export class CatalogScreen extends LitElement {
    */
   private collectionProvision?: Promise<void>;
   private ensureCollection(): Promise<void> {
-    this.collectionProvision ??= fetch(
-      this.sourceUrl(this.profile.collection || this.settings.resource),
-      {
-        headers: { accept: "application/json" },
-      },
-    )
+    this.collectionProvision ??= fetch(this.sourceUrl(this.profile.collection || this.settings.resource), {
+      headers: { accept: "application/json" },
+    })
       .then(async (response) => {
         if (!response.ok) return;
         const items = asItems(await response.json(), this.profile.document);
@@ -1473,19 +1291,12 @@ export class CatalogScreen extends LitElement {
   private deferredProvision = new Map<string, Promise<void>>();
   requestDeferred(key: string) {
     const source = this.payload?.deferred?.[key];
-    if (
-      !source ||
-      Object.hasOwn(this.detailAux, key) ||
-      this.deferredProvision.has(key)
-    )
-      return;
+    if (!source || Object.hasOwn(this.detailAux, key) || this.deferredProvision.has(key)) return;
     const id = this.selectedId;
     const pending = fetch(source.url, {
       headers: { accept: "application/json" },
     })
-      .then(async (response) =>
-        response.ok ? ((await response.json()) as unknown) : {},
-      )
+      .then(async (response) => (response.ok ? ((await response.json()) as unknown) : {}))
       .catch(() => ({}))
       .then((value) => {
         if (this.selectedId !== id) return;
@@ -1516,22 +1327,13 @@ export class CatalogScreen extends LitElement {
     const bandRail = this.hasBandRail();
     if (bandRail) set("band", String(this.activeBand), "0");
     else params.delete("band");
-    for (const key of [
-      "character",
-      "collectionBand",
-      "type",
-      "rarity",
-      "category",
-      "status",
-      "kind",
-    ]) {
+    for (const key of ["character", "collectionBand", "type", "rarity", "category", "status", "kind"]) {
       const publicKey =
         key === "collectionBand"
           ? bandRail
             ? "collectionBand"
             : "band"
-          : key === "type" &&
-              ["member", "support"].includes(this.profile.presentation)
+          : key === "type" && ["member", "support"].includes(this.profile.presentation)
             ? "cardType"
             : key === "type" && this.profile.presentation === "song"
               ? "musicType"
@@ -1543,18 +1345,13 @@ export class CatalogScreen extends LitElement {
         key === "type" ? "musicType" : "",
       ]))
         if (candidate) params.delete(candidate);
-      for (const value of this.facets[key] || [])
-        params.append(publicKey, value);
+      for (const value of this.facets[key] || []) params.append(publicKey, value);
     }
     for (const key of EXTRA_FILTERS) {
       params.delete(key);
       for (const value of this.facets[key] || []) params.append(key, value);
     }
-    history.replaceState(
-      history.state,
-      "",
-      `${location.pathname}${params.size ? `?${params}` : ""}`,
-    );
+    history.replaceState(history.state, "", `${location.pathname}${params.size ? `?${params}` : ""}`);
   }
   /**
    * The rows this screen is showing, and the population they came from.
@@ -1575,15 +1372,10 @@ export class CatalogScreen extends LitElement {
       this.activeBand,
       this.settings.locale,
       this.selectedSongDifficulty,
-      this.settings.resource === "song-meta"
-        ? `${this.metaMode}|${this.metaTier}|${this.metaBand}`
-        : "",
+      this.settings.resource === "song-meta" ? `${this.metaMode}|${this.metaTier}|${this.metaBand}` : "",
       JSON.stringify(this.facets),
     ].join("\u0000");
-    if (
-      this.resultCache?.key === key &&
-      this.resultCache.items.length <= this.expandedItems().length
-    )
+    if (this.resultCache?.key === key && this.resultCache.items.length <= this.expandedItems().length)
       return this.resultCache;
     const value = this.computeResults();
     this.resultCache = { key, ...value };
@@ -1603,13 +1395,10 @@ export class CatalogScreen extends LitElement {
   private expandedCache?: { source: Item[]; rows: Item[] };
   private expandedItems(): Item[] {
     if (!this.profile.perDifficulty) return this.items;
-    if (this.expandedCache?.source === this.items)
-      return this.expandedCache.rows;
+    if (this.expandedCache?.source === this.items) return this.expandedCache.rows;
     const rows: Item[] = [];
     for (const song of this.items) {
-      const difficulties = Array.isArray(song.difficulty)
-        ? (song.difficulty as Item[])
-        : [];
+      const difficulties = Array.isArray(song.difficulty) ? (song.difficulty as Item[]) : [];
       if (!difficulties.length) continue;
       const haystack = `${this.itemId(song)} ${this.itemTitle(song)} ${this.secondary(song)} ${JSON.stringify(song)}`;
       difficulties.forEach((row, index) => {
@@ -1649,20 +1438,14 @@ export class CatalogScreen extends LitElement {
       const left = this.sortValue(a);
       const right = this.sortValue(b);
       const leftNumber = Array.isArray(left) ? Number(left[0]) : Number(left);
-      const rightNumber = Array.isArray(right)
-        ? Number(right[0])
-        : Number(right);
+      const rightNumber = Array.isArray(right) ? Number(right[0]) : Number(right);
       const comparison =
         Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
           ? leftNumber - rightNumber
-          : this.displayValue(left).localeCompare(
-              this.displayValue(right),
-              this.settings.locale,
-              {
-                numeric: true,
-                sensitivity: "base",
-              },
-            );
+          : this.displayValue(left).localeCompare(this.displayValue(right), this.settings.locale, {
+              numeric: true,
+              sensitivity: "base",
+            });
       const tie = this.itemId(a).localeCompare(this.itemId(b), "en", {
         numeric: true,
         sensitivity: "base",
@@ -1672,21 +1455,15 @@ export class CatalogScreen extends LitElement {
     return { items, source: source.length };
   }
   private releaseTimestamp(item: Item) {
-    const value =
-      item.releasedAt ?? item.publishedAt ?? item.publicStartAt ?? item.startAt;
-    if (Array.isArray(value))
-      return Number(value.find((entry) => Number(entry) > 0) || 0);
+    const value = item.releasedAt ?? item.publishedAt ?? item.publicStartAt ?? item.startAt;
+    if (Array.isArray(value)) return Number(value.find((entry) => Number(entry) > 0) || 0);
     return Number(value || 0);
   }
   /** A rotating entry is in one of three states, measured against the wall clock. */
   private entryState(item: Item): "ongoing" | "upcoming" | "ended" {
     const now = Date.now();
     const value = (source: unknown) =>
-      Number(
-        (Array.isArray(source)
-          ? source.find((entry) => Number(entry) > 0)
-          : source) || 0,
-      );
+      Number((Array.isArray(source) ? source.find((entry) => Number(entry) > 0) : source) || 0);
     const start = value(item.startAt);
     const end = value(item.endAt);
     if (start && start > now) return "upcoming";
@@ -1696,11 +1473,7 @@ export class CatalogScreen extends LitElement {
   /** A sticker whose acquisition window has closed is retired, for good. */
   private isRetired(item: Item) {
     const value = item.closedAt;
-    const closed = Number(
-      (Array.isArray(value)
-        ? value.find((entry) => Number(entry) > 0)
-        : value) || 0,
-    );
+    const closed = Number((Array.isArray(value) ? value.find((entry) => Number(entry) > 0) : value) || 0);
     return closed > 0 && closed < Date.now();
   }
   /** The shop row's price, as one line of text. */
@@ -1729,8 +1502,7 @@ export class CatalogScreen extends LitElement {
           `
         : `${amount} ${this.localized(payment.currency)}`;
     }
-    if (payment.storePurchase)
-      return this.label("inAppPurchase", "In-app purchase");
+    if (payment.storePurchase) return this.label("inAppPurchase", "In-app purchase");
     return this.systemStatusLabel(item);
   }
   systemStatusLabel(item: Item) {
@@ -1738,65 +1510,40 @@ export class CatalogScreen extends LitElement {
     const start = this.release(item.startAt);
     const end = this.release(item.endAt);
     if (state === "upcoming")
-      return start
-        ? `${this.label("starts", "Starts")} · ${start}`
-        : this.label("upcoming", "Upcoming");
+      return start ? `${this.label("starts", "Starts")} · ${start}` : this.label("upcoming", "Upcoming");
     if (state === "ended") return this.label("ended", "Ended");
-    return end
-      ? `${this.label("ends", "Ends")} · ${end}`
-      : this.label("ongoing", "Ongoing");
+    return end ? `${this.label("ends", "Ends")} · ${end}` : this.label("ongoing", "Ongoing");
   }
   entryKindLabel(item: Item) {
     const kind = String(item.kind || "");
-    return kind
-      ? this.label(kind, kind.replace(/([a-z])([A-Z])/g, "$1 $2"))
-      : "";
+    return kind ? this.label(kind, kind.replace(/([a-z])([A-Z])/g, "$1 $2")) : "";
   }
   private resolvedSkillName(item: Item, key: string) {
-    const skills =
-      item.resolvedSkills && typeof item.resolvedSkills === "object"
-        ? (item.resolvedSkills as Item)
-        : {};
+    const skills = item.resolvedSkills && typeof item.resolvedSkills === "object" ? (item.resolvedSkills as Item) : {};
     const raw = skills[key];
-    const skill = Array.isArray(raw)
-      ? (raw[0] as Item | undefined)
-      : (raw as Item | undefined);
-    return (
-      this.localized(skill?.skillName) || this.displayValue(skill?.id) || ""
-    );
+    const skill = Array.isArray(raw) ? (raw[0] as Item | undefined) : (raw as Item | undefined);
+    return this.localized(skill?.skillName) || this.displayValue(skill?.id) || "";
   }
   private songMetaValue(item: Item, key: string) {
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
-    const rows = Array.isArray(item.difficulty)
-      ? (item.difficulty as Item[])
-      : [];
+    const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
     const index = this.profile.perDifficulty
       ? Math.max(0, Number(item.__difficultyIndex ?? 0))
-      : rows.findIndex(
-          (row, index) =>
-            difficultyKey(row, index) === this.selectedSongDifficulty,
-        );
+      : rows.findIndex((row, index) => difficultyKey(row, index) === this.selectedSongDifficulty);
     const difficulty = song?.[String(index)] as Item | undefined;
     const chart = difficulty?.chart as Item | undefined;
     if (!chart) return Number.NaN;
-    if (key === "bpm")
-      return Number(chart.firstBpm ?? chart.minBpm ?? chart.maxBpm);
-    if (key === "n")
-      return Number(chart.n ?? chart.noteCount ?? chart.canonicalNoteCount);
+    if (key === "bpm") return Number(chart.firstBpm ?? chart.minBpm ?? chart.maxBpm);
+    if (key === "n") return Number(chart.n ?? chart.noteCount ?? chart.canonicalNoteCount);
     if (this.settings.resource === "song-meta" && this.metaMode === "gekisou") {
       const gekisou = (difficulty?.gekisou as Item | undefined) || {};
       if (key === "score") return Number(gekisou.score ?? Number.NaN);
       if (key === "eff") return Number(gekisou.eff ?? Number.NaN);
-      if (key === "justable")
-        return Number(gekisou.justableTotal ?? Number.NaN);
-      if (key === "justableRate")
-        return Number(gekisou.justableRate ?? Number.NaN);
+      if (key === "justable") return Number(gekisou.justableTotal ?? Number.NaN);
+      if (key === "justableRate") return Number(gekisou.justableRate ?? Number.NaN);
       if (key === "luck")
         return Number(
-          (Array.isArray(gekisou.segments)
-            ? (gekisou.segments as Item[])
-            : []
-          ).reduce(
+          (Array.isArray(gekisou.segments) ? (gekisou.segments as Item[]) : []).reduce(
             (total, segment) => total + Number(segment.luckExpected || 0),
             0,
           ) || Number.NaN,
@@ -1807,8 +1554,7 @@ export class CatalogScreen extends LitElement {
         (chart.profiles as Record<string, Item> | undefined)?.[
           this.metaTier === "band" ? `band:${this.metaBand}` : "current"
         ] || {};
-      if (key === "score" || key === "eff" || key === "sr")
-        return Number(profile[key] ?? chart[key]);
+      if (key === "score" || key === "eff" || key === "sr") return Number(profile[key] ?? chart[key]);
     }
     return Number(chart[key]);
   }
@@ -1829,84 +1575,43 @@ export class CatalogScreen extends LitElement {
   private sortValue(item: Item): unknown {
     if (this.sort === "id") return this.itemId(item);
     if (this.sort === "title") return this.itemTitle(item);
-    if (this.sort === "character")
-      return Number(item.characterId || this.itemCharacterIds(item)[0] || 0);
+    if (this.sort === "character") return Number(item.characterId || this.itemCharacterIds(item)[0] || 0);
     if (this.sort === "characters") return this.itemCharacterIds(item)[0] || 0;
     if (this.sort === "band")
       return this.profile.presentation === "song"
         ? this.itemArtist(item)
         : Number(item.bandId || this.itemBandIds(item)[0] || 0);
-    if (this.sort === "cardType" || this.sort === "musicType")
-      return Number(item[this.sort] || 0);
-    if (
-      this.sort === "performance" ||
-      this.sort === "technique" ||
-      this.sort === "visual"
-    )
+    if (this.sort === "cardType" || this.sort === "musicType") return Number(item[this.sort] || 0);
+    if (this.sort === "performance" || this.sort === "technique" || this.sort === "visual")
       return this.stat(item, this.sort);
     if (this.sort === "total") return this.total(item);
-    if (this.sort === "leaderSkill")
-      return this.resolvedSkillName(item, "leader");
+    if (this.sort === "leaderSkill") return this.resolvedSkillName(item, "leader");
     if (this.sort === "liveSkill") return this.resolvedSkillName(item, "live");
-    if (this.sort === "supportSkill")
-      return this.resolvedSkillName(item, "support");
+    if (this.sort === "supportSkill") return this.resolvedSkillName(item, "support");
     if (this.sort === "gekisouSkill")
-      return this.resolvedSkillName(
-        item,
-        this.profile.presentation === "support" ? "gekisouSupport" : "gekisou",
-      );
-    if (this.sort === "type")
-      return this.localized(item.type ?? item.itemTypeName);
+      return this.resolvedSkillName(item, this.profile.presentation === "support" ? "gekisouSupport" : "gekisou");
+    if (this.sort === "type") return this.localized(item.type ?? item.itemTypeName);
     if (this.sort === "release") return this.releaseTimestamp(item);
     if (this.sort === "availability") {
       // Ending soonest leads; standing offers follow, newest ids first.
-      const end = Number(
-        (Array.isArray(item.endAt)
-          ? item.endAt.find((entry) => Number(entry) > 0)
-          : item.endAt) || 0,
-      );
+      const end = Number((Array.isArray(item.endAt) ? item.endAt.find((entry) => Number(entry) > 0) : item.endAt) || 0);
       if (end) return end;
-      return (
-        Number.MAX_SAFE_INTEGER -
-        Number(this.itemId(item).replace(/\D/g, "")) * 1000
-      );
+      return Number.MAX_SAFE_INTEGER - Number(this.itemId(item).replace(/\D/g, "")) * 1000;
     }
     if (this.sort === "subtitle") return this.localized(item.subTitle);
     if (this.sort === "category")
-      return Number(
-        (Array.isArray(item.musicCategories) ? item.musicCategories[0] : 99) ||
-          99,
-      );
+      return Number((Array.isArray(item.musicCategories) ? item.musicCategories[0] : 99) || 99);
     if (this.sort === "lyrics") return this.localized(item.lyricist);
     if (this.sort === "arrangement") return this.localized(item.arranger);
-    if (
-      [
-        "time",
-        "score",
-        "eff",
-        "bpm",
-        "n",
-        "nps",
-        "sr",
-        "justable",
-        "justableRate",
-        "luck",
-      ].includes(this.sort)
-    )
+    if (["time", "score", "eff", "bpm", "n", "nps", "sr", "justable", "justableRate", "luck"].includes(this.sort))
       return this.songMetaValue(item, this.sort);
     if (this.sort === "level") {
-      const rows = Array.isArray(item.difficulty)
-        ? (item.difficulty as Item[])
-        : [];
+      const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
       const row = this.profile.perDifficulty ? rows[0] : rows[3];
-      return Number(
-        row?.sortLevel ?? row?.displayLevel ?? row?.playLevel ?? -1,
-      );
+      return Number(row?.sortLevel ?? row?.displayLevel ?? row?.playLevel ?? -1);
     }
-    if (this.sort === "levels")
-      return Array.isArray(item.levels) ? item.levels.length : 0;
-    if (this.sort === "order")
-      return Number(item.displayOrder ?? item.order ?? 0);
+    if (this.sort === "levels") return Array.isArray(item.levels) ? item.levels.length : 0;
+    if (this.sort === "order") return Number(item.displayOrder ?? item.order ?? 0);
     return this.displayValue(readPath(item, this.sort));
   }
   private ensureSongMeta() {
@@ -1953,13 +1658,8 @@ export class CatalogScreen extends LitElement {
     ];
   }
   private itemBandIds(item: Item) {
-    const direct = Array.isArray(item.bandIds)
-      ? item.bandIds.map(Number)
-      : item.bandId
-        ? [Number(item.bandId)]
-        : [];
-    if (this.profile.presentation === "song")
-      return [...new Set(direct.filter(Boolean))];
+    const direct = Array.isArray(item.bandIds) ? item.bandIds.map(Number) : item.bandId ? [Number(item.bandId)] : [];
+    if (this.profile.presentation === "song") return [...new Set(direct.filter(Boolean))];
     return [
       ...new Set([
         ...direct,
@@ -1971,9 +1671,7 @@ export class CatalogScreen extends LitElement {
   }
   private creditKey(value: unknown) {
     const values = Array.isArray(value) ? value : [value];
-    return String(
-      values.find((entry) => typeof entry === "string" && entry.trim()) || "",
-    ).normalize("NFKC");
+    return String(values.find((entry) => typeof entry === "string" && entry.trim()) || "").normalize("NFKC");
   }
   /**
    * One facet value per credited person, read from the current language's
@@ -1986,10 +1684,7 @@ export class CatalogScreen extends LitElement {
    * ("アイナ・ジ・エンド"), not a join, and stays whole too.
    */
   private creditMembers(value: unknown): string[] {
-    const text = resolveLocalizedText(
-      value,
-      this.settings.locale,
-    ).text.normalize("NFKC");
+    const text = resolveLocalizedText(value, this.settings.locale).text.normalize("NFKC");
     if (!text) return [];
     const members: string[] = [];
     const push = (part: string) => {
@@ -2010,17 +1705,13 @@ export class CatalogScreen extends LitElement {
   }
   itemArtistContent(item: Item) {
     for (const value of [item.artistName, item.bandName])
-      if (this.localized(value))
-        return localizedContent(value, this.settings.locale);
+      if (this.localized(value)) return localizedContent(value, this.settings.locale);
     return localizedList(
       this.itemBandIds(item).map((id) => this.band(id)?.bandName),
       this.settings.locale,
     );
   }
-  private tileDescriptionContent(
-    item: Item,
-    kind: Presentation = this.profile.presentation,
-  ) {
+  private tileDescriptionContent(item: Item, kind: Presentation = this.profile.presentation) {
     if (kind === "song") return this.itemArtistContent(item);
     if (kind === "member" || kind === "support") {
       const characters = asItems(item.characterDetails);
@@ -2046,121 +1737,69 @@ export class CatalogScreen extends LitElement {
     if (key === "character") return this.itemCharacterIds(item).map(String);
     if (this.profile.presentation === "system") {
       if (key === "status") return [this.entryState(item)];
-      if (key === "kind")
-        return String(item.kind || "") ? [String(item.kind)] : [];
-      if (key === "category")
-        return String(item.category || "") ? [String(item.category)] : [];
+      if (key === "kind") return String(item.kind || "") ? [String(item.kind)] : [];
+      if (key === "category") return String(item.category || "") ? [String(item.category)] : [];
     }
     if (key === "collectionBand") {
       const ids = this.itemBandIds(item).map(String);
-      const credit = String(
-        item.artistId || this.creditKey(item.artistName || item.bandName),
-      );
+      const credit = String(item.artistId || this.creditKey(item.artistName || item.bandName));
       return ids.length ? ids : credit ? [`credit:${credit}`] : [];
     }
-    if (key === "type")
-      return [
-        String(item.cardType ?? item.musicType ?? item.itemTypeName ?? ""),
-      ].filter(Boolean);
-    if (key === "category")
-      return (
-        Array.isArray(item.musicCategories) ? item.musicCategories : []
-      ).map(String);
+    if (key === "type") return [String(item.cardType ?? item.musicType ?? item.itemTypeName ?? "")].filter(Boolean);
+    if (key === "category") return (Array.isArray(item.musicCategories) ? item.musicCategories : []).map(String);
     if (key === "difficulty")
-      return (
-        Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : []
-      ).map((row) => String(row.difficultyName ?? row.difficulty));
+      return (Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : []).map((row) =>
+        String(row.difficultyName ?? row.difficulty),
+      );
     if (key === "audio") return [item.musicUrl ? "yes" : "no"];
     if (key === "artwork") return [this.image(item) ? "yes" : "no"];
-    if (key === "video")
-      return [
-        item.mvUrl || (Array.isArray(item.videoIds) && item.videoIds.length)
-          ? "yes"
-          : "no",
-      ];
+    if (key === "video") return [item.mvUrl || (Array.isArray(item.videoIds) && item.videoIds.length) ? "yes" : "no"];
     if (key === "skill")
       return Object.entries((item.resolvedSkills as Item) || {})
         .filter(([, value]) => Boolean(value))
         .map(([role]) => role);
-    if (key === "birthdayMonth")
-      return [String((item.birthday as Item | undefined)?.month || "")].filter(
-        Boolean,
-      );
-    const field =
-      key === "lyrics" ? "lyricist" : key === "arrangement" ? "arranger" : key;
-    if (key === "composer" || key === "lyrics" || key === "arrangement")
-      return this.creditMembers(item[field]);
-    if (["school", "part"].includes(key))
-      return [this.creditKey(item[field])].filter(Boolean);
+    if (key === "birthdayMonth") return [String((item.birthday as Item | undefined)?.month || "")].filter(Boolean);
+    const field = key === "lyrics" ? "lyricist" : key === "arrangement" ? "arranger" : key;
+    if (key === "composer" || key === "lyrics" || key === "arrangement") return this.creditMembers(item[field]);
+    if (["school", "part"].includes(key)) return [this.creditKey(item[field])].filter(Boolean);
     return item[key] == null ? [] : [String(item[key])];
   }
   private rangeValues(item: Item, key: string): number[] {
     if (key === "Total") return [this.total(item)].filter((value) => value > 0);
-    const difficulties = (
-      Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : []
-    ).filter(
+    const difficulties = (Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : []).filter(
       (row) =>
         !this.facets.difficulty?.length ||
-        this.facets.difficulty.includes(
-          String(row.difficultyName ?? row.difficulty),
-        ),
+        this.facets.difficulty.includes(String(row.difficultyName ?? row.difficulty)),
     );
     if (key === "Level" || key === "Notes")
       return difficulties
-        .map((row) =>
-          Number(
-            key === "Level"
-              ? (row.displayLevel ?? row.playLevel ?? row.sortLevel)
-              : row.noteCount,
-          ),
-        )
+        .map((row) => Number(key === "Level" ? (row.displayLevel ?? row.playLevel ?? row.sortLevel) : row.noteCount))
         .filter(Number.isFinite);
-    const value = Number(
-      this.songMetaValue(item, key === "Time" ? "time" : "bpm"),
-    );
+    const value = Number(this.songMetaValue(item, key === "Time" ? "time" : "bpm"));
     return value > 0 ? [value] : [];
   }
   private matchesFacets(item: Item, omitted = "") {
     for (const [key, values] of Object.entries(this.facets)) {
-      if (
-        !values.length ||
-        key === omitted ||
-        /^(min|max|releaseFrom|releaseTo)/.test(key)
-      )
-        continue;
-      if (!this.facetValues(item, key).some((value) => values.includes(value)))
-        return false;
+      if (!values.length || key === omitted || /^(min|max|releaseFrom|releaseTo)/.test(key)) continue;
+      if (!this.facetValues(item, key).some((value) => values.includes(value))) return false;
     }
     const chartRanges = [
       ["Level", "displayLevel", "playLevel"],
       ["Notes", "noteCount", "noteCount"],
     ];
-    if (
-      chartRanges.some(
-        ([key]) =>
-          this.facets[`min${key}`]?.length || this.facets[`max${key}`]?.length,
-      )
-    ) {
-      const charts = Array.isArray(item.difficulty)
-        ? (item.difficulty as Item[])
-        : [];
+    if (chartRanges.some(([key]) => this.facets[`min${key}`]?.length || this.facets[`max${key}`]?.length)) {
+      const charts = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
       if (
         !charts.some(
           (row) =>
             (!this.facets.difficulty?.length ||
-              this.facets.difficulty.includes(
-                String(row.difficultyName ?? row.difficulty),
-              )) &&
+              this.facets.difficulty.includes(String(row.difficultyName ?? row.difficulty))) &&
             chartRanges.every(([key, field, fallback]) => {
               const min = this.facets[`min${key}`]?.[0],
                 max = this.facets[`max${key}`]?.[0];
               if (!min && !max) return true;
               const value = Number(row[field] ?? row[fallback]);
-              return (
-                Number.isFinite(value) &&
-                (!min || value >= Number(min)) &&
-                (!max || value <= Number(max))
-              );
+              return Number.isFinite(value) && (!min || value >= Number(min)) && (!max || value <= Number(max));
             }),
         )
       )
@@ -2171,10 +1810,7 @@ export class CatalogScreen extends LitElement {
         max = this.facets[`max${key}`]?.[0];
       if (!min && !max) continue;
       if (
-        !this.rangeValues(item, key).some(
-          (value) =>
-            (!min || value >= Number(min)) && (!max || value <= Number(max)),
-        )
+        !this.rangeValues(item, key).some((value) => (!min || value >= Number(min)) && (!max || value <= Number(max)))
       )
         return false;
     }
@@ -2195,8 +1831,7 @@ export class CatalogScreen extends LitElement {
   private facetGroups() {
     const population = this.expandedItems();
     let groups =
-      this.facetCache?.items === population &&
-      this.facetCache.locale === this.settings.locale
+      this.facetCache?.items === population && this.facetCache.locale === this.settings.locale
         ? this.facetCache.groups
         : undefined;
     if (!groups) {
@@ -2212,13 +1847,10 @@ export class CatalogScreen extends LitElement {
       for (const item of population) {
         if (
           !this.matchesFacets(item, group.key) ||
-          (this.hasBandRail() &&
-            this.activeBand &&
-            Number(item.bandId) !== this.activeBand)
+          (this.hasBandRail() && this.activeBand && Number(item.bandId) !== this.activeBand)
         )
           continue;
-        for (const value of new Set(this.facetValues(item, group.key)))
-          counts.set(value, (counts.get(value) || 0) + 1);
+        for (const value of new Set(this.facetValues(item, group.key))) counts.set(value, (counts.get(value) || 0) + 1);
       }
       return {
         ...group,
@@ -2246,8 +1878,7 @@ export class CatalogScreen extends LitElement {
     const tally = (values: (item: Item) => unknown[]) => {
       const counts = new Map<string, number>();
       for (const item of this.expandedItems())
-        for (const value of new Set(values(item).map(String)))
-          counts.set(value, (counts.get(value) || 0) + 1);
+        for (const value of new Set(values(item).map(String))) counts.set(value, (counts.get(value) || 0) + 1);
       return counts;
     };
     // Collections that span every band filter on it. The two rosters do not:
@@ -2261,15 +1892,9 @@ export class CatalogScreen extends LitElement {
         options: [...counts.keys()].map((value) => ({
           value,
           label: value.startsWith("credit:")
-            ? this.itemArtist(
-                this.items.find((item) =>
-                  this.facetValues(item, "collectionBand").includes(value),
-                ) || {},
-              )
+            ? this.itemArtist(this.items.find((item) => this.facetValues(item, "collectionBand").includes(value)) || {})
             : this.bandName(Number(value)),
-          image: value.startsWith("credit:")
-            ? ""
-            : String(this.band(Number(value))?.icon || ""),
+          image: value.startsWith("credit:") ? "" : String(this.band(Number(value))?.icon || ""),
           count: counts.get(value),
         })),
       });
@@ -2305,9 +1930,7 @@ export class CatalogScreen extends LitElement {
     }
     if (["member", "support", "song", "item"].includes(kind)) {
       const counts = tally((item) => {
-        const value = String(
-          item.cardType ?? item.musicType ?? item.itemTypeName ?? "",
-        );
+        const value = String(item.cardType ?? item.musicType ?? item.itemTypeName ?? "");
         return value ? [value] : [];
       });
       groups.push({
@@ -2322,16 +1945,13 @@ export class CatalogScreen extends LitElement {
                   kind === "song" ? { musicType: value } : { cardType: value },
                   kind === "song" ? "musicType" : "cardType",
                 ),
-          image:
-            kind === "item" ? "" : this.attributeMark(value, kind === "song"),
+          image: kind === "item" ? "" : this.attributeMark(value, kind === "song"),
           count: counts.get(value),
         })),
       });
     }
     if (kind === "song") {
-      const counts = tally((item) =>
-        Array.isArray(item.musicCategories) ? item.musicCategories : [],
-      );
+      const counts = tally((item) => (Array.isArray(item.musicCategories) ? item.musicCategories : []));
       groups.push({
         key: "category",
         label: this.label("genre", "Genre"),
@@ -2340,25 +1960,14 @@ export class CatalogScreen extends LitElement {
           .sort((a, b) => Number(a) - Number(b))
           .map((value) => ({
             value,
-            label: this.fieldValue(
-              { musicCategories: [Number(value)] },
-              "musicCategories",
-            ),
+            label: this.fieldValue({ musicCategories: [Number(value)] }, "musicCategories"),
             count: counts.get(value),
           })),
       });
     }
     const fields =
       kind === "song"
-        ? [
-            "difficulty",
-            "composer",
-            "lyrics",
-            "arrangement",
-            "audio",
-            "video",
-            "artwork",
-          ]
+        ? ["difficulty", "composer", "lyrics", "arrangement", "audio", "video", "artwork"]
         : ["member", "support"].includes(kind)
           ? ["skill", "artwork"]
           : kind === "character"
@@ -2367,11 +1976,7 @@ export class CatalogScreen extends LitElement {
               ? []
               : ["artwork"];
     if (kind === "system") {
-      const keys = [
-        "status",
-        "kind",
-        ...(this.settings.resource === "gacha" ? ["category"] : []),
-      ];
+      const keys = ["status", "kind", ...(this.settings.resource === "gacha" ? ["category"] : [])];
       for (const key of keys) {
         const counts = tally((item) => this.facetValues(item, key));
         const labels: Record<string, string> = {
@@ -2389,9 +1994,7 @@ export class CatalogScreen extends LitElement {
           label: this.detailLabel(key === "kind" ? "type" : key),
           options: [...counts.keys()].map((value) => ({
             value,
-            label:
-              labels[value] ||
-              this.label(value, value.replace(/([a-z])([A-Z])/g, "$1 $2")),
+            label: labels[value] || this.label(value, value.replace(/([a-z])([A-Z])/g, "$1 $2")),
             count: counts.get(value),
           })),
         });
@@ -2402,23 +2005,16 @@ export class CatalogScreen extends LitElement {
       const ids = new Map<string, number>();
       if (key === "difficulty") {
         for (const item of this.items) {
-          for (const row of (Array.isArray(item.difficulty)
-            ? item.difficulty
-            : []) as Item[]) {
+          for (const row of (Array.isArray(item.difficulty) ? item.difficulty : []) as Item[]) {
             const id = Number(row.difficulty);
-            if (Number.isFinite(id))
-              ids.set(String(row.difficultyName ?? row.difficulty), id);
+            if (Number.isFinite(id)) ids.set(String(row.difficultyName ?? row.difficulty), id);
           }
         }
       }
       // Person names have no natural order; the most credited writer leads.
       const members = [...counts.keys()].filter(Boolean);
       if (key === "composer" || key === "lyrics" || key === "arrangement")
-        members.sort(
-          (a, b) =>
-            (counts.get(b) || 0) - (counts.get(a) || 0) ||
-            a.localeCompare(b, this.settings.locale),
-        );
+        members.sort((a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b, this.settings.locale));
       groups.push({
         key,
         label:
@@ -2430,9 +2026,7 @@ export class CatalogScreen extends LitElement {
         options: members.map((value) => ({
           value,
           id: ids.get(value),
-          label: ["yes", "no"].includes(value)
-            ? uiText(this.settings.locale, value)
-            : this.label(value, value),
+          label: ["yes", "no"].includes(value) ? uiText(this.settings.locale, value) : this.label(value, value),
           count: counts.get(value),
         })),
       });
@@ -2443,9 +2037,7 @@ export class CatalogScreen extends LitElement {
     const current = this.facets[key] || [];
     this.facets = {
       ...this.facets,
-      [key]: current.includes(value)
-        ? current.filter((entry) => entry !== value)
-        : [...current, value],
+      [key]: current.includes(value) ? current.filter((entry) => entry !== value) : [...current, value],
     };
     this.syncUrl();
   }
@@ -2475,15 +2067,10 @@ export class CatalogScreen extends LitElement {
     return String(band?.icon || "");
   }
   private bandName(id: number) {
-    return (
-      this.localized(this.band(id)?.bandName) ||
-      (id ? `${this.label("band", "Band")} ${id}` : "—")
-    );
+    return this.localized(this.band(id)?.bandName) || (id ? `${this.label("band", "Band")} ${id}` : "—");
   }
   private release(value: unknown) {
-    const raw = Array.isArray(value)
-      ? value.find((entry) => Number(entry) > 0)
-      : value;
+    const raw = Array.isArray(value) ? value.find((entry) => Number(entry) > 0) : value;
     // Game-side instants render with seconds in the viewer's timezone.
     return gameDateTime(this.settings.locale, Number(raw || 0));
   }
@@ -2514,9 +2101,7 @@ export class CatalogScreen extends LitElement {
     const label = aliases[key] || key;
     return this.label(
       label,
-      label
-        .replace(/([a-z])([A-Z])/g, "$1 $2")
-        .replace(/^./, (value) => value.toUpperCase()),
+      label.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (value) => value.toUpperCase()),
     );
   }
   private rarityMark(value: unknown) {
@@ -2528,9 +2113,7 @@ export class CatalogScreen extends LitElement {
       "20": "BD",
     };
     const rarity = name[String(value || "")];
-    return rarity
-      ? this.gameMarks.get(`RarityIconCenter_${rarity}.png`) || ""
-      : "";
+    return rarity ? this.gameMarks.get(`RarityIconCenter_${rarity}.png`) || "" : "";
   }
   private attributeMark(value: unknown, live = false) {
     const id = Number(value || 0);
@@ -2543,34 +2126,18 @@ export class CatalogScreen extends LitElement {
     };
     const names = live ? `sp_icon_live_music_type_${id}.png` : cardTypes[id];
     const fallback = cardTypes[id];
-    return (
-      (names && this.gameMarks.get(names)) ||
-      (live && fallback && this.gameMarks.get(fallback)) ||
-      ""
-    );
+    return (names && this.gameMarks.get(names)) || (live && fallback && this.gameMarks.get(fallback)) || "";
   }
   private fieldValue(item: Item, key: string) {
     const raw = readPath(item, key);
     if (key === "kind") return this.entryKindLabel(item);
     if (key === "characterId") return this.characterName(Number(raw || 0));
-    if (
-      key === "characterIds" ||
-      key === "characters" ||
-      key === "vocalCharacterIds"
-    )
-      return this.formatList(
-        (Array.isArray(raw) ? raw : [])
-          .map(Number)
-          .map((id) => this.characterName(id)),
-      );
+    if (key === "characterIds" || key === "characters" || key === "vocalCharacterIds")
+      return this.formatList((Array.isArray(raw) ? raw : []).map(Number).map((id) => this.characterName(id)));
     if (key === "bandId")
-      return this.profile.presentation === "song"
-        ? this.itemArtist(item)
-        : this.bandName(Number(raw || 0));
+      return this.profile.presentation === "song" ? this.itemArtist(item) : this.bandName(Number(raw || 0));
     if (key === "rankUpItemId") {
-      const gameItem = this.gameItems.find(
-        (entry) => Number(entry.itemId) === Number(raw || 0),
-      );
+      const gameItem = this.gameItems.find((entry) => Number(entry.itemId) === Number(raw || 0));
       return this.localized(gameItem?.name) || "—";
     }
     if (key === "musicCategories") {
@@ -2584,18 +2151,9 @@ export class CatalogScreen extends LitElement {
       );
     }
     if (key === "rarity")
-      return (
-        (
-          { 2: "R", 3: "SR", 4: "SSR", 10: "EX", 20: "BD" } as Record<
-            number,
-            string
-          >
-        )[Number(raw || 0)] || ""
-      );
+      return ({ 2: "R", 3: "SR", 4: "SSR", 10: "EX", 20: "BD" } as Record<number, string>)[Number(raw || 0)] || "";
     if (key === "cardType" || key === "musicType") {
-      const name =
-        ["", "red", "blue", "green", "yellow", "purple"][Number(raw || 0)] ||
-        "";
+      const name = ["", "red", "blue", "green", "yellow", "purple"][Number(raw || 0)] || "";
       return name ? this.label(name, name) : "";
     }
     if (key === "type" || key === "category") {
@@ -2613,10 +2171,7 @@ export class CatalogScreen extends LitElement {
     return Number(readPath(item, `stat.${key}`) || readPath(item, key) || 0);
   }
   private total(item: Item) {
-    return ["performance", "technique", "visual"].reduce(
-      (sum, key) => sum + this.stat(item, key),
-      0,
-    );
+    return ["performance", "technique", "visual"].reduce((sum, key) => sum + this.stat(item, key), 0);
   }
   private characterAvatars(ids: number[], supplemental: Item[] = []) {
     const visible = [...new Set(ids)].slice(0, 5);
@@ -2624,17 +2179,10 @@ export class CatalogScreen extends LitElement {
       <span class="avatar-stack">
         ${visible.map((id) => {
           const character = this.character(id, supplemental);
-          const source = String(
-            character?.faceImage || character?.thumbnailImage || "",
-          );
+          const source = String(character?.faceImage || character?.thumbnailImage || "");
           return source
             ? html`
-                <img
-                  src=${source}
-                  alt=${this.characterName(id, supplemental)}
-                  loading="lazy"
-                  decoding="async"
-                />
+                <img src=${source} alt=${this.characterName(id, supplemental)} loading="lazy" decoding="async" />
               `
             : nothing;
         })}
@@ -2644,37 +2192,29 @@ export class CatalogScreen extends LitElement {
   private secondary(item: Item) {
     const kind = this.profile.presentation;
     if (["member", "support"].includes(kind))
-      return this.formatList(
-        this.itemCharacterIds(item).map((id) => this.characterName(id)),
-      );
+      return this.formatList(this.itemCharacterIds(item).map((id) => this.characterName(id)));
     if (kind === "character") return this.bandName(Number(item.bandId || 0));
     if (kind === "band-item") return this.bandName(Number(item.bandId || 0));
     if (kind === "song") return this.itemArtist(item);
     if (kind === "comic")
       return this.formatList(
-        (Array.isArray(item.characters) ? item.characters : [])
-          .map(Number)
-          .map((id) => this.characterName(id)),
+        (Array.isArray(item.characters) ? item.characters : []).map(Number).map((id) => this.characterName(id)),
       );
     if (kind === "stamp") {
       const base =
-        this.settings.resource === "stickers" &&
-        this.plainGameText(item.description)
+        this.settings.resource === "stickers" && this.plainGameText(item.description)
           ? this.plainGameText(item.description)
           : this.formatList(
               (Array.isArray(item.characterIds) ? item.characterIds : [])
                 .map(Number)
                 .map((id) => this.characterName(id)),
             );
-      return this.isRetired(item) && base
-        ? `${base} · ${this.label("retired", "Retired")}`
-        : base;
+      return this.isRetired(item) && base ? `${base} · ${this.label("retired", "Retired")}` : base;
     }
     if (kind === "item") return String(item.itemTypeName || "");
     if (kind === "background") return this.plainGameText(item.description);
     if (kind === "system") {
-      if (this.settings.resource === "challenge")
-        return this.localized(item.band);
+      if (this.settings.resource === "challenge") return this.localized(item.band);
       if (this.settings.resource === "shop") return this.shopPriceLabel(item);
       return this.systemStatusLabel(item);
     }
@@ -2693,14 +2233,9 @@ export class CatalogScreen extends LitElement {
    */
   private tileDescription(item: Item) {
     const kind = this.profile.presentation;
-    if (kind === "item")
-      return this.plainGameText(item.description) || this.secondary(item);
+    if (kind === "item") return this.plainGameText(item.description) || this.secondary(item);
     if (kind === "band")
-      return (
-        this.plainGameText(item.description) ||
-        this.localized(item.englishName) ||
-        this.localized(item.shortName)
-      );
+      return this.plainGameText(item.description) || this.localized(item.englishName) || this.localized(item.shortName);
     return this.secondary(item);
   }
   private tileAdornment(
@@ -2708,8 +2243,7 @@ export class CatalogScreen extends LitElement {
     ids: number[],
     kind: Presentation = this.profile.presentation,
   ): GridIdentityAdornment {
-    if ((kind === "comic" || kind === "stamp") && ids.length)
-      return this.characterAvatars(ids);
+    if ((kind === "comic" || kind === "stamp") && ids.length) return this.characterAvatars(ids);
     if (kind === "song" && this.bandIcon(Number(item.bandId || 0)))
       return html`
         <img
@@ -2725,36 +2259,21 @@ export class CatalogScreen extends LitElement {
     return nothing;
   }
   private async open(item: Item) {
-    if (
-      this.selected === item &&
-      this.selectedId === this.itemId(item) &&
-      this.selected
-    )
-      return;
+    if (this.selected === item && this.selectedId === this.itemId(item) && this.selected) return;
     const id = this.itemId(item);
     // A meta row identifies as `<musicId>-<difficulty>`, which has no page of
     // its own: its canonical entity is the song it belongs to.
-    const songId = this.profile.perDifficulty
-      ? String(item.musicId || "") || id
-      : id;
+    const songId = this.profile.perDifficulty ? String(item.musicId || "") || id : id;
     const rowDifficulty = Number(item.__difficultyIndex);
     const canonical = this.entityLink(
       songId,
-      this.profile.perDifficulty &&
-        Number.isFinite(rowDifficulty) &&
-        rowDifficulty >= 0
-        ? rowDifficulty
-        : undefined,
+      this.profile.perDifficulty && Number.isFinite(rowDifficulty) && rowDifficulty >= 0 ? rowDifficulty : undefined,
     );
     if (canonical) {
       if (this.pendingNavigation) return;
       const kind = this.canonicalKind();
       if (!kind) return;
-      const returnTo = returnStateFromLocation(
-        location.pathname,
-        location.search,
-        kind,
-      );
+      const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
       this.captureCollectionState(returnTo, id);
       this.pendingNavigation = canonical;
       try {
@@ -2773,16 +2292,9 @@ export class CatalogScreen extends LitElement {
     this.detailAux = {};
     this.sim = null;
     this.activeMedia = "full";
-    const difficulties = Array.isArray(item.difficulty)
-      ? (item.difficulty as Item[])
-      : [];
-    const preferred = difficulties.findIndex(
-      (row, index) => difficultyKey(row, index) === this.selectedSongDifficulty,
-    );
-    this.detailDifficulty =
-      preferred >= 0
-        ? preferred
-        : Math.min(3, Math.max(0, difficulties.length - 1));
+    const difficulties = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
+    const preferred = difficulties.findIndex((row, index) => difficultyKey(row, index) === this.selectedSongDifficulty);
+    this.detailDifficulty = preferred >= 0 ? preferred : Math.min(3, Math.max(0, difficulties.length - 1));
     // A meta row opens the song it belongs to, on that row's own difficulty.
     if (this.profile.perDifficulty) {
       const index = Number(item.__difficultyIndex);
@@ -2828,20 +2340,16 @@ export class CatalogScreen extends LitElement {
           this.songMeta = {};
         },
       );
-      void Promise.all([rewards, this.songMetaProvision]).then(() =>
-        this.requestUpdate(),
-      );
+      void Promise.all([rewards, this.songMetaProvision]).then(() => this.requestUpdate());
     }
-    const payload =
-      this.payload && String(this.payload.id) === id ? this.payload : undefined;
+    const payload = this.payload && String(this.payload.id) === id ? this.payload : undefined;
     if (payload) {
       // The build already merged summary and detail; the page is readable now.
       this.selected = payload.item;
       loadedActualDetail = true;
       if (this.settings.chartPage) {
         await this.ensureChartPlayer();
-        if (!this.detailRequests.current(signal) || this.selectedId !== id)
-          return;
+        if (!this.detailRequests.current(signal) || this.selectedId !== id) return;
       }
       this.setEntityReady(true);
     } else
@@ -2857,15 +2365,8 @@ export class CatalogScreen extends LitElement {
         );
         if (response.ok) {
           const value = (await response.json()) as unknown;
-          const detail =
-            value && typeof value === "object" && !Array.isArray(value)
-              ? (value as Item)
-              : {};
-          if (
-            Object.keys(detail).length &&
-            this.detailRequests.current(signal) &&
-            this.selectedId === id
-          ) {
+          const detail = value && typeof value === "object" && !Array.isArray(value) ? (value as Item) : {};
+          if (Object.keys(detail).length && this.detailRequests.current(signal) && this.selectedId === id) {
             this.selected = {
               ...summary,
               ...detail,
@@ -2878,11 +2379,7 @@ export class CatalogScreen extends LitElement {
               // Loading the chart player yields to a dynamic import. The route
               // may have changed while it was loading, so do not let this old
               // entity continuation reveal stale content on the new selection.
-              if (
-                !this.detailRequests.current(signal) ||
-                this.selectedId !== id
-              )
-                return;
+              if (!this.detailRequests.current(signal) || this.selectedId !== id) return;
             }
             this.setEntityReady(true);
           }
@@ -2898,90 +2395,64 @@ export class CatalogScreen extends LitElement {
     const views: string[] = [];
     if (!payload) {
       if (this.profile.presentation === "member")
-        views.push(
-          "member-card-levels",
-          "member-card-awake-resources",
-          "skill-level-resources",
-        );
-      if (this.profile.presentation === "support")
-        views.push("support-card-levels", "skill-level-resources");
-      if (this.profile.presentation === "band-item")
-        views.push("skill-level-resources");
+        views.push("member-card-levels", "member-card-awake-resources", "skill-level-resources");
+      if (this.profile.presentation === "support") views.push("support-card-levels", "skill-level-resources");
+      if (this.profile.presentation === "band-item") views.push("skill-level-resources");
     }
     const relations = this.profile.presentation === "character";
     if (relations) void import("./character-detail-archive");
     const card = ["member", "support"].includes(this.profile.presentation);
     try {
-      const [
-        viewResults,
-        relationResults,
-        progression,
-        skillReference,
-        skillText,
-        cardDetail,
-        gameSystemDetail,
-      ] = await Promise.all([
-        Promise.all(
-          views.map(async (view) => {
-            const response = await fetch(
-              catalogUrl(`progression/views/${view}`),
-              { signal },
-            );
-            return [view, response.ok ? await response.json() : []] as const;
-          }),
-        ),
-        relations && !payload
-          ? Promise.all(
-              [
-                "characters",
-                "cards",
-                "support-cards",
-                "stamps",
-                "songs",
-                "live2d",
-                "stories",
-                "voices",
-                "friendships",
-                "character-missions",
-              ].map(async (resource) => {
-                const response = await fetch(
-                  resource === "voices"
-                    ? catalogUrl("voices/relations/character", id)
-                    : catalogUrl(resource),
-                  { signal },
-                );
-                const value = response.ok ? await response.json() : {};
-                return [
-                  resource,
-                  resource === "voices" ? { entries: value } : value,
-                ] as const;
-              }),
-            )
-          : [],
-        card && !payload
-          ? fetch(catalogUrl("progression"), { signal }).then(
-              async (response) => (response.ok ? await response.json() : {}),
-            )
-          : {},
-        card && !payload
-          ? fetch(catalogUrl("skill-reference"), { signal }).then(
-              async (response) => (response.ok ? await response.json() : {}),
-            )
-          : {},
-        card ? import("./shared/skill-text") : undefined,
-        card ? import("./card-detail") : undefined,
-        this.profile.presentation === "system"
-          ? import("./game-system-detail")
-          : undefined,
-      ]);
+      const [viewResults, relationResults, progression, skillReference, skillText, cardDetail, gameSystemDetail] =
+        await Promise.all([
+          Promise.all(
+            views.map(async (view) => {
+              const response = await fetch(catalogUrl(`progression/views/${view}`), { signal });
+              return [view, response.ok ? await response.json() : []] as const;
+            }),
+          ),
+          relations && !payload
+            ? Promise.all(
+                [
+                  "characters",
+                  "cards",
+                  "support-cards",
+                  "stamps",
+                  "songs",
+                  "live2d",
+                  "stories",
+                  "voices",
+                  "friendships",
+                  "character-missions",
+                ].map(async (resource) => {
+                  const response = await fetch(
+                    resource === "voices" ? catalogUrl("voices/relations/character", id) : catalogUrl(resource),
+                    { signal },
+                  );
+                  const value = response.ok ? await response.json() : {};
+                  return [resource, resource === "voices" ? { entries: value } : value] as const;
+                }),
+              )
+            : [],
+          card && !payload
+            ? fetch(catalogUrl("progression"), { signal }).then(async (response) =>
+                response.ok ? await response.json() : {},
+              )
+            : {},
+          card && !payload
+            ? fetch(catalogUrl("skill-reference"), { signal }).then(async (response) =>
+                response.ok ? await response.json() : {},
+              )
+            : {},
+          card ? import("./shared/skill-text") : undefined,
+          card ? import("./card-detail") : undefined,
+          this.profile.presentation === "system" ? import("./game-system-detail") : undefined,
+        ]);
       if (this.detailRequests.current(signal) && this.selectedId === id) {
         this.skillText = skillText;
         this.cardDetail = cardDetail;
         this.gameSystemDetail = gameSystemDetail;
-        this.gameSystemDetail?.initializeGameSystemDetail(
-          this as unknown as Record<string, unknown>,
-          summary,
-        );
+        this.gameSystemDetail?.initializeGameSystemDetail(this as unknown as Record<string, unknown>, summary);
         this.detailAux = payload
           ? { ...(payload.aux || {}) }
           : {
@@ -2989,43 +2460,29 @@ export class CatalogScreen extends LitElement {
               progression,
               "skill-reference": skillReference,
             };
-        const levelView =
-          this.profile.presentation === "support"
-            ? "support-card-levels"
-            : "member-card-levels";
+        const levelView = this.profile.presentation === "support" ? "support-card-levels" : "member-card-levels";
         const levelGroup = Number(
           this.profile.presentation === "support"
             ? this.selected?.supportCardLevelGroup
             : this.selected?.memberCardLevelGroup,
         );
-        const levels = asItems(this.detailAux[levelView]).filter(
-          (row) => Number(row.group) === levelGroup,
-        );
-        if (levels.length)
-          this.detailLevel = Math.max(
-            ...levels.map((row) => Number(row.level || 1)),
-          );
+        const levels = asItems(this.detailAux[levelView]).filter((row) => Number(row.group) === levelGroup);
+        if (levels.length) this.detailLevel = Math.max(...levels.map((row) => Number(row.level || 1)));
         if (this.profile.presentation === "band-item")
           this.detailLevel = Math.max(
             1,
-            ...(Array.isArray(this.selected?.levels)
-              ? (this.selected.levels as Item[])
-              : []
-            ).map((row) => Number(row.level || 1)),
+            ...(Array.isArray(this.selected?.levels) ? (this.selected.levels as Item[]) : []).map((row) =>
+              Number(row.level || 1),
+            ),
           );
         this.initializeCardDetailState(this.selected || summary);
         this.restoreDetailQuery();
-        if (["member", "support"].includes(this.profile.presentation))
-          this.persistCardDetailQuery();
+        if (["member", "support"].includes(this.profile.presentation)) this.persistCardDetailQuery();
         else
           this.setDetailQueries({
             media: this.activeMedia,
-            ...(this.profile.presentation === "song"
-              ? { difficulty: this.detailDifficulty }
-              : {}),
-            ...(this.profile.presentation === "band-item"
-              ? { level: this.detailLevel }
-              : {}),
+            ...(this.profile.presentation === "song" ? { difficulty: this.detailDifficulty } : {}),
+            ...(this.profile.presentation === "band-item" ? { level: this.detailLevel } : {}),
           });
       }
     } catch {
@@ -3053,18 +2510,14 @@ export class CatalogScreen extends LitElement {
       "gekisouLevel",
       "section",
     ].forEach((key) => params.delete(key));
-    closeDetailLocation(
-      `${location.pathname}${params.size ? `?${params}` : ""}`,
-    );
+    closeDetailLocation(`${location.pathname}${params.size ? `?${params}` : ""}`);
   }
   private setDetailQuery(key: string, value: string | number) {
     this.setDetailQueries({ [key]: value });
   }
   private setDetailQueries(values: Record<string, string | number>) {
     const params = new URLSearchParams(location.search);
-    Object.entries(values).forEach(([key, value]) =>
-      params.set(key, String(value)),
-    );
+    Object.entries(values).forEach(([key, value]) => params.set(key, String(value)));
     history.replaceState(history.state, "", `${location.pathname}?${params}`);
   }
   private restoreDetailQuery() {
@@ -3100,9 +2553,7 @@ export class CatalogScreen extends LitElement {
     const kind = this.profile.presentation;
     if (this.settings.entityContext) {
       if (this.selected && this.detailReady)
-        return this.settings.chartPage
-          ? this.renderChartPage(this.selected)
-          : this.renderDetail(this.selected);
+        return this.settings.chartPage ? this.renderChartPage(this.selected) : this.renderDetail(this.selected);
       if (this.phase === "error")
         return errorState(
           this.label("unavailable", "Unavailable"),
@@ -3112,10 +2563,7 @@ export class CatalogScreen extends LitElement {
       // Keep the primary prerendered view until its controller is ready.
       return nothing;
     }
-    const appliedCount = Object.values(this.facets).reduce(
-      (sum, values) => sum + values.length,
-      0,
-    );
+    const appliedCount = Object.values(this.facets).reduce((sum, values) => sum + values.length, 0);
     const shown = this.phase === "ready" ? items.length : null;
     return html`
       ${renderBrowse({
@@ -3125,10 +2573,7 @@ export class CatalogScreen extends LitElement {
         // collection legible: the number alone never said what was hidden.
         count: {
           value: shown,
-          label:
-            shown !== null && shown !== source
-              ? `/ ${source.toLocaleString()}`
-              : "",
+          label: shown !== null && shown !== source ? `/ ${source.toLocaleString()}` : "",
         },
         rail: this.hasBandRail()
           ? {
@@ -3148,10 +2593,7 @@ export class CatalogScreen extends LitElement {
               },
             }
           : undefined,
-        heading:
-          this.hasBandRail() && this.activeBand
-            ? { title: this.bandName(this.activeBand) }
-            : undefined,
+        heading: this.hasBandRail() && this.activeBand ? { title: this.bandName(this.activeBand) } : undefined,
         controls: this.renderBarControls(items),
         modes: this.renderBarModes(),
         applied: appliedCount || this.query ? this.renderApplied() : undefined,
@@ -3182,9 +2624,7 @@ export class CatalogScreen extends LitElement {
   /** Only bands the collection actually has entries for. */
   private railBands(): Item[] {
     if (this.profile.presentation === "character") return this.bands;
-    const available = new Set(
-      this.items.map((item) => Number(item.bandId || 0)).filter(Boolean),
-    );
+    const available = new Set(this.items.map((item) => Number(item.bandId || 0)).filter(Boolean));
     return this.bands.filter((band) => available.has(Number(band.bandId || 0)));
   }
   /**
@@ -3194,10 +2634,7 @@ export class CatalogScreen extends LitElement {
    * own controls depended on which component rendered first.
    */
   private renderBarControls(items: Item[]) {
-    const first =
-      this.profile.presentation === "song"
-        ? items.find((item) => item.musicUrl)
-        : undefined;
+    const first = this.profile.presentation === "song" ? items.find((item) => item.musicUrl) : undefined;
     return html`
       ${
         this.profile.presentation === "song"
@@ -3206,11 +2643,7 @@ export class CatalogScreen extends LitElement {
               icon: "playlist_play",
               disabled: !first,
               onClick: () => {
-                if (first)
-                  void this.toggleSong(
-                    this.itemId(first),
-                    String(first.musicUrl),
-                  );
+                if (first) void this.toggleSong(this.itemId(first), String(first.musicUrl));
               },
             })
           : nothing
@@ -3273,14 +2706,9 @@ export class CatalogScreen extends LitElement {
         band: Number(band.bandId),
       })),
     ];
-    const current =
-      this.metaTier === "band" ? `band:${this.metaBand}` : this.metaTier;
+    const current = this.metaTier === "band" ? `band:${this.metaBand}` : this.metaTier;
     return html`
-      <div
-        class="character-pair__bands"
-        role="group"
-        aria-label=${this.label("metaTier", "Reference tier")}
-      >
+      <div class="character-pair__bands" role="group" aria-label=${this.label("metaTier", "Reference tier")}>
         ${options.map(
           (option) => html`
             <button
@@ -3292,7 +2720,9 @@ export class CatalogScreen extends LitElement {
             >
               ${
                 option.image
-                  ? html` <img src=${option.image} alt=${option.label} /> `
+                  ? html`
+                      <img src=${option.image} alt=${option.label} />
+                    `
                   : option.label
               }
             </button>
@@ -3347,58 +2777,37 @@ export class CatalogScreen extends LitElement {
       (this.facets[group.key] || []).flatMap((value) => {
         const option = group.options.find((entry) => entry.value === value);
         return option
-          ? [
-              inputChip(`${group.label}: ${option.label}`, remove, () =>
-                this.toggleFacet(group.key, value),
-              ),
-            ]
+          ? [inputChip(`${group.label}: ${option.label}`, remove, () => this.toggleFacet(group.key, value))]
           : [];
       }),
     );
-    for (const key of EXTRA_FILTERS.filter((key) =>
-      /^(min|max|release)/.test(key),
-    )) {
+    for (const key of EXTRA_FILTERS.filter((key) => /^(min|max|release)/.test(key))) {
       const value = this.facets[key]?.[0];
       if (!value) continue;
-      const field = key.startsWith("release")
-        ? "release"
-        : key.replace(/^(min|max)/, "").toLowerCase();
-      const bound =
-        key.startsWith("min") || key.endsWith("From") ? "minimum" : "maximum";
+      const field = key.startsWith("release") ? "release" : key.replace(/^(min|max)/, "").toLowerCase();
+      const bound = key.startsWith("min") || key.endsWith("From") ? "minimum" : "maximum";
       chips.push(
-        inputChip(
-          `${this.detailLabel(field)} · ${uiText(this.settings.locale, bound)}: ${value}`,
-          remove,
-          () => {
-            this.facets = { ...this.facets, [key]: [] };
-            this.syncUrl();
-          },
-        ),
+        inputChip(`${this.detailLabel(field)} · ${uiText(this.settings.locale, bound)}: ${value}`, remove, () => {
+          this.facets = { ...this.facets, [key]: [] };
+          this.syncUrl();
+        }),
       );
     }
     const hasAny = chips.length > 0 || Boolean(this.query);
     return html`
       ${
         this.query
-          ? inputChip(
-              `${this.label("search", "Search")}: ${this.query}`,
-              remove,
-              () => {
-                this.query = "";
-                this.syncUrl();
-              },
-            )
+          ? inputChip(`${this.label("search", "Search")}: ${this.query}`, remove, () => {
+              this.query = "";
+              this.syncUrl();
+            })
           : nothing
       }
       ${chips}
       ${
         hasAny
           ? html`
-              <button
-                class="button button--text"
-                type="button"
-                @click=${() => this.reset()}
-              >
+              <button class="button button--text" type="button" @click=${() => this.reset()}>
                 ${this.label("reset", "Reset")}
               </button>
             `
@@ -3416,19 +2825,11 @@ export class CatalogScreen extends LitElement {
           label=${this.label("search", "Search")}
           .value=${this.query}
           @input=${(event: Event) => {
-            this.query = String(
-              (event.target as HTMLElement & { value?: string }).value || "",
-            );
+            this.query = String((event.target as HTMLElement & { value?: string }).value || "");
             this.syncUrl();
           }}
         >
-          <svg
-            slot="leading-icon"
-            class="material-icon"
-            width="20"
-            height="20"
-            aria-hidden="true"
-          >
+          <svg slot="leading-icon" class="material-icon" width="20" height="20" aria-hidden="true">
             <use href="/icons.svg#search"></use>
           </svg>
         </md-outlined-text-field>
@@ -3445,9 +2846,7 @@ export class CatalogScreen extends LitElement {
           : [["Total", "total"]]
         : []
       )
-        .filter(([key]) =>
-          this.items.some((item) => this.rangeValues(item, key).length),
-        )
+        .filter(([key]) => this.items.some((item) => this.rangeValues(item, key).length))
         .map(([key, label]) =>
           filterGroup(
             this.detailLabel(label),
@@ -3463,8 +2862,7 @@ export class CatalogScreen extends LitElement {
                         step="any"
                         .value=${this.facets[`${bound}${key}`]?.[0] || ""}
                         @input=${(event: Event) => {
-                          const value = (event.target as HTMLInputElement)
-                            .value;
+                          const value = (event.target as HTMLInputElement).value;
                           this.facets = {
                             ...this.facets,
                             [`${bound}${key}`]: value ? [value] : [],
@@ -3515,8 +2913,7 @@ export class CatalogScreen extends LitElement {
               value=${this.sort}
               @change=${(event: Event) => {
                 this.sort = String(
-                  (event.target as HTMLElement & { value?: string }).value ||
-                    this.profile.defaultSort,
+                  (event.target as HTMLElement & { value?: string }).value || this.profile.defaultSort,
                 );
                 this.ensureSongMeta();
                 this.syncUrl();
@@ -3524,20 +2921,14 @@ export class CatalogScreen extends LitElement {
             >
               ${this.sortOptions().map(
                 (option) => html`
-                  <md-select-option
-                    value=${option.value}
-                    ?selected=${this.sort === option.value}
-                  >
+                  <md-select-option value=${option.value} ?selected=${this.sort === option.value}>
                     <div slot="headline">${option.label}</div>
                   </md-select-option>
                 `,
               )}
             </md-outlined-select>
             ${iconButton({
-              label: this.label(
-                this.order === "asc" ? "ascending" : "descending",
-                this.order,
-              ),
+              label: this.label(this.order === "asc" ? "ascending" : "descending", this.order),
               icon: this.order === "asc" ? "arrow_upward" : "arrow_downward",
               variant: "outlined",
               onClick: () => {
@@ -3680,25 +3071,16 @@ export class CatalogScreen extends LitElement {
   }
   private renderContent(items: Item[]) {
     const kind = this.profile.presentation;
-    if (this.phase === "loading")
-      return loadingState(this.label("loading", "Loading"));
+    if (this.phase === "loading") return loadingState(this.label("loading", "Loading"));
     if (this.phase === "error")
-      return errorState(
-        this.label("unavailable", "Unavailable"),
-        this.label("retry", "Retry"),
-        () => void this.load(),
-      );
+      return errorState(this.label("unavailable", "Unavailable"), this.label("retry", "Retry"), () => void this.load());
     if (!items.length)
       return emptyState({
         title: this.label("empty", "No results"),
         icon: "search_off",
         action: this.items.length
           ? html`
-              <button
-                class="button button--tonal"
-                type="button"
-                @click=${() => this.reset()}
-              >
+              <button class="button button--tonal" type="button" @click=${() => this.reset()}>
                 ${this.label("reset", "Reset")}
               </button>
             `
@@ -3722,9 +3104,7 @@ export class CatalogScreen extends LitElement {
               })),
             )
           : html`
-              <div class=${`collection collection--${kind}`}>
-                ${items.map((item) => this.renderTile(item))}
-              </div>
+              <div class=${`collection collection--${kind}`}>${items.map((item) => this.renderTile(item))}</div>
             `;
     return collection;
   }
@@ -3734,9 +3114,7 @@ export class CatalogScreen extends LitElement {
     const name = this.first(item, ["prefix", "cardName", "name"]);
     const resolved = resolveLocalizedText(name, this.settings.locale);
     const title = cleanMarkup(resolved.text) || "—";
-    const image = this.imageSource(
-      this.first(item, ["images.thumbnail", "thumbnail", "image"]),
-    );
+    const image = this.imageSource(this.first(item, ["images.thumbnail", "thumbnail", "image"]));
     const attribute = this.attributeMark(item.cardType);
     const rarity = this.rarityMark(item.rarity);
     return {
@@ -3759,9 +3137,7 @@ export class CatalogScreen extends LitElement {
               label: this.fieldValue(item, "cardType"),
             }
           : null,
-        rarity
-          ? { at: "end", image: rarity, label: this.fieldValue(item, "rarity") }
-          : null,
+        rarity ? { at: "end", image: rarity, label: this.fieldValue(item, "rarity") } : null,
       ],
     };
   }
@@ -3775,22 +3151,12 @@ export class CatalogScreen extends LitElement {
           locale: this.settings.locale,
           title: (entry) => songTitle(entry, this.settings.locale),
           image: (entry) =>
-            this.imageSource(
-              this.first(entry, [
-                "jacketUrl",
-                "jacketThumbUrl",
-                "jacket",
-                "thumbnail",
-                "image",
-              ]),
-            ),
+            this.imageSource(this.first(entry, ["jacketUrl", "jacketThumbUrl", "jacket", "thumbnail", "image"])),
           artist: (entry) => this.itemArtistContent(entry),
           bandIcon: (entry) =>
-            this.bandIcon(Number(entry.bandId || 0)) ||
-            String((entry.bandDetails as Item | undefined)?.icon || ""),
+            this.bandIcon(Number(entry.bandId || 0)) || String((entry.bandDetails as Item | undefined)?.icon || ""),
           imageForLocale: (source) => this.imageForLocale(source),
-          attributeMark: (entry) =>
-            liveMusicTypeMark(this.gameMarks, entry.musicType),
+          attributeMark: (entry) => liveMusicTypeMark(this.gameMarks, entry.musicType),
           attributeLabel: (entry) => this.fieldValue(entry, "musicType"),
         },
         "",
@@ -3864,10 +3230,7 @@ export class CatalogScreen extends LitElement {
       onOpen,
       itemId: this.itemId(item),
       onImageError: this.imageError,
-      style:
-        kind === "band"
-          ? `--entity-accent:${String(item.color || "var(--md-sys-color-primary)")}`
-          : undefined,
+      style: kind === "band" ? `--entity-accent:${String(item.color || "var(--md-sys-color-primary)")}` : undefined,
       marks: [
         attribute
           ? {
@@ -3883,9 +3246,7 @@ export class CatalogScreen extends LitElement {
               accent: "var(--md-sys-color-error)",
             }
           : null,
-        kind === "stamp" &&
-        this.settings.resource === "stickers" &&
-        this.isRetired(item)
+        kind === "stamp" && this.settings.resource === "stickers" && this.isRetired(item)
           ? {
               at: "bottom-end" as const,
               text: this.label("retired", "Retired"),
@@ -3897,9 +3258,7 @@ export class CatalogScreen extends LitElement {
   }
   private async toggleSong(id: string, url: string) {
     const { AudioDock } = await import("./runtime/audio-dock");
-    let dock = document.querySelector("audio-dock") as InstanceType<
-      typeof AudioDock
-    > | null;
+    let dock = document.querySelector("audio-dock") as InstanceType<typeof AudioDock> | null;
     if (!dock) {
       dock = new AudioDock();
       dock.setAttribute("data-astro-transition-persist", "haneoka-audio");
@@ -3929,20 +3288,14 @@ export class CatalogScreen extends LitElement {
     );
   }
   private detailMediaItems(item: Item) {
-    const portraits =
-      this.profile.presentation === "character"
-        ? CHARACTER_ART[Number(item.characterId)]
-        : undefined;
+    const portraits = this.profile.presentation === "character" ? CHARACTER_ART[Number(item.characterId)] : undefined;
     if (portraits?.length)
       return portraits.map((portrait, index) => ({
         ...portrait,
         id: `visual${index + 1}`,
         label: `${uiText(this.settings.locale, "portrait")} ${String(index + 1).padStart(2, "0")}`,
       }));
-    const images =
-      item.images && typeof item.images === "object"
-        ? (item.images as Item)
-        : {};
+    const images = item.images && typeof item.images === "object" ? (item.images as Item) : {};
     const candidates: Array<{
       id: string;
       label: string;
@@ -4028,10 +3381,7 @@ export class CatalogScreen extends LitElement {
                   : []),
               ];
     const seen = new Set<string>();
-    const imageVariants = (item.imageVariants || {}) as Record<
-      string,
-      Record<string, string>
-    >;
+    const imageVariants = (item.imageVariants || {}) as Record<string, Record<string, string>>;
     const languages = ["ja", "en", "zh-Hant", "zh-Hans", "ko"];
     const languageNames = new Intl.DisplayNames([this.settings.locale], {
       type: "language",
@@ -4064,15 +3414,11 @@ export class CatalogScreen extends LitElement {
   }
   private renderDetailLeading(item: Item) {
     const characterIds = this.itemCharacterIds(item);
-    const character = this.character(
-      characterIds[0] || Number(item.characterId || 0),
-    );
+    const character = this.character(characterIds[0] || Number(item.characterId || 0));
     const band = this.band(Number(item.bandId || character?.bandId || 0));
     const card = ["member", "support"].includes(this.profile.presentation);
     const rarity = card ? this.rarityMark(item.rarity) : "";
-    const attribute = ["member", "support", "song"].includes(
-      this.profile.presentation,
-    )
+    const attribute = ["member", "support", "song"].includes(this.profile.presentation)
       ? this.attributeMark(
           this.profile.presentation === "song" ? item.musicType : item.cardType,
           this.profile.presentation === "song",
@@ -4080,10 +3426,7 @@ export class CatalogScreen extends LitElement {
       : "";
     const entity = String(
       this.profile.presentation === "song"
-        ? this.bandLogo(Number(item.bandId || 0)) ||
-            band?.logo ||
-            band?.icon ||
-            ""
+        ? this.bandLogo(Number(item.bandId || 0)) || band?.logo || band?.icon || ""
         : (card ? "" : character?.faceImage) || band?.logo || band?.icon || "",
     );
     return html`
@@ -4093,11 +3436,7 @@ export class CatalogScreen extends LitElement {
             ? this.characterAvatars(characterIds)
             : entity
               ? html`
-                  <img
-                    class="detail-header-entity"
-                    src=${this.imageForLocale(entity)}
-                    alt=${this.secondary(item)}
-                  />
+                  <img class="detail-header-entity" src=${this.imageForLocale(entity)} alt=${this.secondary(item)} />
                 `
               : nothing
         }${
@@ -4130,12 +3469,8 @@ export class CatalogScreen extends LitElement {
     const params = new URLSearchParams(location.search);
     params.set("chartDifficulty", key);
     if (this.selected) {
-      const rows = Array.isArray(this.selected.difficulty)
-        ? (this.selected.difficulty as Item[])
-        : [];
-      const index = rows.findIndex(
-        (row, index) => difficultyKey(row, index) === key,
-      );
+      const rows = Array.isArray(this.selected.difficulty) ? (this.selected.difficulty as Item[]) : [];
+      const index = rows.findIndex((row, index) => difficultyKey(row, index) === key);
       if (index >= 0) {
         this.detailDifficulty = index;
         params.set("difficulty", String(index));
@@ -4144,23 +3479,19 @@ export class CatalogScreen extends LitElement {
     history.replaceState(history.state, "", `${location.pathname}?${params}`);
   }
   private chartRow(item: Item) {
-    const rows = Array.isArray(item.difficulty)
-      ? (item.difficulty as Item[])
-      : [];
+    const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
     return rows[this.detailDifficulty] || rows.find((row) => row.file) || {};
   }
   private songChartMeta(item: Item) {
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
-    const difficulty = song?.[String(this.detailDifficulty)] as
-      Item | undefined;
+    const difficulty = song?.[String(this.detailDifficulty)] as Item | undefined;
     return (difficulty?.chart as Item | undefined) || {};
   }
   /** Song-level gekisou mission pattern merged with the selected difficulty's
    * per-segment metrics (both live in the song-meta entry). */
   private songGekisouMeta(item: Item) {
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
-    const difficulty = song?.[String(this.detailDifficulty)] as
-      Item | undefined;
+    const difficulty = song?.[String(this.detailDifficulty)] as Item | undefined;
     return {
       ...((song?.gekisou as Item | undefined) || {}),
       ...((difficulty?.gekisou as Item | undefined) || {}),
@@ -4168,50 +3499,36 @@ export class CatalogScreen extends LitElement {
   }
   private sonolusUrl(item: Item) {
     if (this.profile.presentation !== "song") return "";
-    const rows = Array.isArray(item.difficulty)
-      ? (item.difficulty as Item[])
-      : [];
-    const selectedDetail =
-      this.selected && this.itemId(item) === this.itemId(this.selected);
+    const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
+    const selectedDetail = this.selected && this.itemId(item) === this.itemId(this.selected);
     const row = this.profile.perDifficulty
       ? rows[0]
       : selectedDetail
         ? this.chartRow(item)
-        : rows.find(
-            (row, index) =>
-              difficultyKey(row, index) === this.selectedSongDifficulty,
-          ) || rows.find((row) => row.file);
+        : rows.find((row, index) => difficultyKey(row, index) === this.selectedSongDifficulty) ||
+          rows.find((row) => row.file);
     if (!row?.file) return "";
     const difficulty = difficultyKey(row, rows.indexOf(row));
-    const source =
-      this.settings.origin === "bestdori" ? "gbp" : this.dataServer();
+    const source = this.settings.origin === "bestdori" ? "gbp" : this.dataServer();
     return `${SONOLUS_SERVER_LINK}/levels/${encodeURIComponent(releaseChartLevelName(source, String(Number(item.musicId || 0)), difficulty))}`;
   }
   private chartPageTitle(item: Item) {
     const chart = this.chartRow(item);
     const difficulty = String(chart.difficultyName || "").trim();
     const level = chart.displayLevel ?? chart.playLevel ?? chart.sortLevel;
-    const suffix = [
-      difficulty && difficulty.toUpperCase(),
-      level == null ? "" : String(level),
-    ]
+    const suffix = [difficulty && difficulty.toUpperCase(), level == null ? "" : String(level)]
       .filter(Boolean)
       .join(" ");
-    return suffix
-      ? `${this.itemTitle(item)} — ${suffix}`
-      : this.itemTitle(item);
+    return suffix ? `${this.itemTitle(item)} — ${suffix}` : this.itemTitle(item);
   }
   private ensureChartPlayer() {
-    return (this.chartPlayerProvision ??=
-      import("./runtime/chart-simulator").then(() => undefined));
+    return (this.chartPlayerProvision ??= import("./runtime/chart-simulator").then(() => undefined));
   }
   private chartPageHref(item: Item) {
     // A meta row identifies as `<musicId>-<difficulty>`; the chart page is
     // the owning song's.
     const fallback = this.itemId(item);
-    const id = this.profile.perDifficulty
-      ? String(item.musicId || fallback)
-      : fallback;
+    const id = this.profile.perDifficulty ? String(item.musicId || fallback) : fallback;
     const server = this.dataServer();
     const locale = preferredLocale(this.settings.locale) as Locale;
     const target = new URL(chartPath({ server, locale, id }), location.href);
@@ -4235,11 +3552,7 @@ export class CatalogScreen extends LitElement {
     return `${target.pathname}${target.search}`;
   }
   private async openChart() {
-    if (
-      this.settings.entityContext &&
-      this.settings.origin !== "bestdori" &&
-      !this.settings.chartPage
-    ) {
+    if (this.settings.entityContext && this.settings.origin !== "bestdori" && !this.settings.chartPage) {
       await navigateDetailPage(this.chartPageHref(this.selected || {}), "push");
       return;
     }
@@ -4261,13 +3574,9 @@ export class CatalogScreen extends LitElement {
       void this.open(item).then(() => this.openChart());
       return;
     }
-    const rows = Array.isArray(item.difficulty)
-      ? (item.difficulty as Item[])
-      : [];
+    const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
     const own = Number(item.__difficultyIndex);
-    const preferred = rows.findIndex(
-      (row, index) => difficultyKey(row, index) === this.selectedSongDifficulty,
-    );
+    const preferred = rows.findIndex((row, index) => difficultyKey(row, index) === this.selectedSongDifficulty);
     // A meta row speaks for its own difficulty; the songs table keeps the
     // difficulty the catalogue picker has selected.
     this.detailDifficulty =
@@ -4276,11 +3585,7 @@ export class CatalogScreen extends LitElement {
         : preferred >= 0
           ? preferred
           : Math.min(3, Math.max(0, rows.length - 1));
-    const returnTo = returnStateFromLocation(
-      location.pathname,
-      location.search,
-      kind,
-    );
+    const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
     const href = this.chartPageHref(item);
     this.captureCollectionState(returnTo, this.itemId(item));
     this.pendingNavigation = href;
@@ -4289,9 +3594,9 @@ export class CatalogScreen extends LitElement {
     });
   }
   private async downloadChartImage(item: Item) {
-    const simulator = this.querySelector<
-      HTMLElement & { downloadOverview: (meta: unknown) => Promise<void> }
-    >("chart-simulator");
+    const simulator = this.querySelector<HTMLElement & { downloadOverview: (meta: unknown) => Promise<void> }>(
+      "chart-simulator",
+    );
     if (!simulator) return;
     const chart = this.chartRow(item);
     const chartMeta = this.songChartMeta(item);
@@ -4308,42 +3613,24 @@ export class CatalogScreen extends LitElement {
       const first = number(chartMeta.firstBpm) ?? number(chartMeta.minBpm);
       const max = number(chartMeta.maxBpm);
       if (!first) return undefined;
-      return max && max !== first
-        ? `${Math.round(first)}–${Math.round(max)}`
-        : `${Math.round(first)}`;
+      return max && max !== first ? `${Math.round(first)}–${Math.round(max)}` : `${Math.round(first)}`;
     })();
     const percent = (value: unknown) => {
       const parsed = number(value);
       return parsed === undefined ? undefined : `${Math.round(parsed * 100)}%`;
     };
-    const stat = (
-      id: "time" | "bpm" | "nps" | undefined,
-      label: string,
-      value: string | undefined,
-    ) => ({
+    const stat = (id: "time" | "bpm" | "nps" | undefined, label: string, value: string | undefined) => ({
       id,
       label,
       value: value && value !== "—" ? value : "—",
     });
     const stats = [
-      stat(
-        undefined,
-        this.label("n", "Notes"),
-        number(chart.noteCount)?.toLocaleString(),
-      ),
+      stat(undefined, this.label("n", "Notes"), number(chart.noteCount)?.toLocaleString()),
       stat("time", this.label("time", "Time"), duration(chartMeta.time)),
       stat("bpm", this.label("bpm", "BPM"), bpm),
       stat("nps", this.label("nps", "NPS"), number(chartMeta.nps)?.toFixed(2)),
-      stat(
-        undefined,
-        this.label("score", "Score"),
-        number(chartMeta.score)?.toFixed(2),
-      ),
-      stat(
-        undefined,
-        this.label("eff", "Efficiency"),
-        number(chartMeta.eff)?.toFixed(2),
-      ),
+      stat(undefined, this.label("score", "Score"), number(chartMeta.score)?.toFixed(2)),
+      stat(undefined, this.label("eff", "Efficiency"), number(chartMeta.eff)?.toFixed(2)),
       stat(undefined, this.label("sr", "Skill ratio"), percent(chartMeta.sr)),
     ];
     const bandId = Number(item.bandId || 0);
@@ -4370,8 +3657,7 @@ export class CatalogScreen extends LitElement {
       // Text resolution, not itemArtistContent: the canvas needs a string,
       // and a Lit template would serialize as "[object Object]".
       artist: this.itemArtist(item) !== "—" ? this.itemArtist(item) : undefined,
-      jacketUrl:
-        typeof item.jacketUrl === "string" ? item.jacketUrl : undefined,
+      jacketUrl: typeof item.jacketUrl === "string" ? item.jacketUrl : undefined,
       attributeIconUrl: this.attributeMark(item.musicType, true) || undefined,
       bandIconUrl: this.bandIcon(bandId) || undefined,
       bandName: this.bandName(bandId) || undefined,
@@ -4413,9 +3699,7 @@ export class CatalogScreen extends LitElement {
                   aria-label=${this.playingSong === id ? this.label("pause", "Pause") : this.label("play", "Play")}
                 >
                   <svg class="material-icon" width="21" height="21">
-                    <use
-                      href=${this.playingSong === id ? "/icons.svg#pause" : "/icons.svg#play_arrow"}
-                    ></use>
+                    <use href=${this.playingSong === id ? "/icons.svg#pause" : "/icons.svg#play_arrow"}></use>
                   </svg>
                 </button>
               `
@@ -4423,11 +3707,7 @@ export class CatalogScreen extends LitElement {
         }${
           chart.file
             ? html`
-                <button
-                  class="icon-button"
-                  @click=${this.openChart}
-                  aria-label=${this.label("chart", "Chart")}
-                >
+                <button class="icon-button" @click=${this.openChart} aria-label=${this.label("chart", "Chart")}>
                   <svg class="material-icon" width="21" height="21">
                     <use href="/icons.svg#sports_esports"></use>
                   </svg>
@@ -4437,18 +3717,8 @@ export class CatalogScreen extends LitElement {
         }${
           sonolus
             ? html`
-                <a
-                  class="icon-button"
-                  href=${sonolus}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Sonolus"
-                >
-                  <img
-                    class="sonolus-icon"
-                    src="/images/sonolus-icon.png"
-                    alt=""
-                  />
+                <a class="icon-button" href=${sonolus} target="_blank" rel="noopener noreferrer" aria-label="Sonolus">
+                  <img class="sonolus-icon" src="/images/sonolus-icon.png" alt="" />
                 </a>
               `
             : nothing
@@ -4519,9 +3789,7 @@ export class CatalogScreen extends LitElement {
   renderDetailMedia(item: Item) {
     const media = this.detailMediaItems(item);
     if (!media.length) return nothing;
-    const localeTag =
-      { "zh-TW": "zh-Hant", "zh-CN": "zh-Hans" }[this.settings.locale] ||
-      this.settings.locale;
+    const localeTag = { "zh-TW": "zh-Hant", "zh-CN": "zh-Hans" }[this.settings.locale] || this.settings.locale;
     const active =
       this.activeMedia === "full"
         ? media.find((entry) => entry.id === `full:${localeTag}`)?.id ||
@@ -4554,22 +3822,11 @@ export class CatalogScreen extends LitElement {
   /** Animated member cards: the gacha movie as one seamless gallery entry. */
   private cardMovieGalleryEntries(item: Item) {
     if (this.profile.presentation !== "member") return [];
-    const movies =
-      item.movies && typeof item.movies === "object"
-        ? (item.movies as Item)
-        : {};
-    const images =
-      item.images && typeof item.images === "object"
-        ? (item.images as Item)
-        : {};
-    const background =
-      typeof images.background === "string" ? images.background : undefined;
+    const movies = item.movies && typeof item.movies === "object" ? (item.movies as Item) : {};
+    const images = item.images && typeof item.images === "object" ? (item.images as Item) : {};
+    const background = typeof images.background === "string" ? images.background : undefined;
     const poster =
-      typeof images.thumbnail === "string"
-        ? images.thumbnail
-        : typeof images.full === "string"
-          ? images.full
-          : "";
+      typeof images.thumbnail === "string" ? images.thumbnail : typeof images.full === "string" ? images.full : "";
     const url = (key: string) => {
       const value = movies[key] as Item | undefined;
       return typeof value?.playableUrl === "string" ? value.playableUrl : "";
@@ -4596,37 +3853,24 @@ export class CatalogScreen extends LitElement {
   /** The still's own animated mode: the showcase loop over the card background. */
   private cardAnimatedOverlay(item: Item) {
     if (this.profile.presentation !== "member") return undefined;
-    const movies =
-      item.movies && typeof item.movies === "object"
-        ? (item.movies as Item)
-        : {};
-    const images =
-      item.images && typeof item.images === "object"
-        ? (item.images as Item)
-        : {};
+    const movies = item.movies && typeof item.movies === "object" ? (item.movies as Item) : {};
+    const images = item.images && typeof item.images === "object" ? (item.images as Item) : {};
     const loop = movies.showcaseLoop as Item | undefined;
     const url = typeof loop?.playableUrl === "string" ? loop.playableUrl : "";
-    const background =
-      typeof images.background === "string" ? images.background : undefined;
+    const background = typeof images.background === "string" ? images.background : undefined;
     return url ? { url, background } : undefined;
   }
   progressionRows(key: string) {
     const document = (this.detailAux.progression as Item | undefined) || {};
-    return asItems(document[key]).map(
-      (row) => ((row.raw as Item | undefined) || row) as Item,
-    );
+    return asItems(document[key]).map((row) => ((row.raw as Item | undefined) || row) as Item);
   }
   itemsFrom(value: unknown) {
     return asItems(value);
   }
   private uniqueNumbers(values: unknown[]) {
-    return [
-      ...new Set(
-        values
-          .map(Number)
-          .filter((value) => Number.isFinite(value) && value > 0),
-      ),
-    ].sort((a, b) => a - b);
+    return [...new Set(values.map(Number).filter((value) => Number.isFinite(value) && value > 0))].sort(
+      (a, b) => a - b,
+    );
   }
   private cardControlData(item: Item) {
     return (
@@ -4654,18 +3898,11 @@ export class CatalogScreen extends LitElement {
   private renderCardRelations(item: Item) {
     return this.cardDetail?.renderCardRelations(this, item) ?? nothing;
   }
-  renderCardCosts(
-    item: Item,
-    data: ReturnType<CatalogScreen["cardControlData"]>,
-  ) {
-    const piece = this.gameItems.find(
-      (entry) => Number(entry.itemId) === Number(item.rankUpItemId),
-    );
+  renderCardCosts(item: Item, data: ReturnType<CatalogScreen["cardControlData"]>) {
+    const piece = this.gameItems.find((entry) => Number(entry.itemId) === Number(item.rankUpItemId));
     if (data.support) {
       const rows = data.supportRankRows.filter(
-        (row: Item) =>
-          Number(row._rank) === this.detailRank &&
-          Number(row._requiredRankUpItemCount) > 0,
+        (row: Item) => Number(row._rank) === this.detailRank && Number(row._requiredRankUpItemCount) > 0,
       );
       return piece
         ? this.renderCostList(
@@ -4678,16 +3915,13 @@ export class CatalogScreen extends LitElement {
           )
         : nothing;
     }
-    const trainingRows = asItems(
-      this.detailAux["member-card-awake-resources"],
-    ).filter(
+    const trainingRows = asItems(this.detailAux["member-card-awake-resources"]).filter(
       (row) =>
         Number(row.group) === Number(item.memberCardAwakeResourceGroup) &&
         Number(row.awakeCount) === this.detailTraining,
     );
     const ranks = data.rankRows.filter(
-      (row: Item) =>
-        Number(row._rank) > 1 && Number(row._rank) === this.detailAwakening,
+      (row: Item) => Number(row._rank) > 1 && Number(row._rank) === this.detailAwakening,
     );
     return html`
       <div class="card-costs">
@@ -4724,9 +3958,7 @@ export class CatalogScreen extends LitElement {
           .map((row) => {
             const item = row.item as Item | undefined;
             return {
-              name:
-                this.localized(item?.name) ||
-                this.label("required", "Required"),
+              name: this.localized(item?.name) || this.label("required", "Required"),
               count: Number(row.count || 0),
               image: String(item?.image || ""),
             };
@@ -4737,21 +3969,11 @@ export class CatalogScreen extends LitElement {
   private skillDescription(skill: Item, requestedLevel?: number) {
     const raw = localizedText(skill.description, this.settings.locale);
     if (!raw || !this.skillText) return "";
-    const effects = Array.isArray(skill.effects)
-      ? (skill.effects as Item[])
-      : [];
-    const reference = this.skillText.buildSkillReferenceIndex(
-      this.detailAux["skill-reference"] || {},
-    );
-    const selected = this.skillText.resolveSkillLevelEffects(
-      effects,
-      reference,
-      requestedLevel,
-    ).effects;
+    const effects = Array.isArray(skill.effects) ? (skill.effects as Item[]) : [];
+    const reference = this.skillText.buildSkillReferenceIndex(this.detailAux["skill-reference"] || {});
+    const selected = this.skillText.resolveSkillLevelEffects(effects, reference, requestedLevel).effects;
     return this.skillText.stripSkillDescriptionMarkup(
-      this.skillText.resolveSkillDescription(raw, selected, (value) =>
-        this.localized(value),
-      ),
+      this.skillText.resolveSkillDescription(raw, selected, (value) => this.localized(value)),
     );
   }
   private skillLevel(group: string, item: Item) {
@@ -4760,14 +3982,9 @@ export class CatalogScreen extends LitElement {
     if (group === "gekisou") return this.detailGekisouLevel;
     if (group === "leader")
       return Number(
-        data.rankRows.find(
-          (row: Item) => Number(row._rank) === this.detailAwakening,
-        )?._leaderSkillLevel || 1,
+        data.rankRows.find((row: Item) => Number(row._rank) === this.detailAwakening)?._leaderSkillLevel || 1,
       );
-    const rank =
-      data.supportRankRows.find(
-        (row: Item) => Number(row._rank) === this.detailRank,
-      ) || {};
+    const rank = data.supportRankRows.find((row: Item) => Number(row._rank) === this.detailRank) || {};
     return Number(
       group === "gekisouSupport"
         ? rank._gekisouSupportSkillLevel || this.detailRank
@@ -4785,10 +4002,7 @@ export class CatalogScreen extends LitElement {
     if (!resourceGroup) return nothing;
     const level = this.skillLevel(group, item);
     const rows = asItems(this.detailAux["skill-level-resources"])
-      .filter(
-        (row) =>
-          Number(row.group) === resourceGroup && Number(row.level) === level,
-      )
+      .filter((row) => Number(row.group) === resourceGroup && Number(row.level) === level)
       .map((row) => ({ level: row.level, count: row.count, item: row.item }));
     return this.renderCostList(this.label("required", "Required"), rows);
   }
@@ -4796,10 +4010,7 @@ export class CatalogScreen extends LitElement {
     this.characterSection = section;
     this.setDetailQuery("section", section);
   }
-  private renderCharacterArchive(
-    item: Item,
-    fields: Array<{ key: string; value: string }>,
-  ) {
+  private renderCharacterArchive(item: Item, fields: Array<{ key: string; value: string }>) {
     return html`
       <character-detail-archive
         .controller=${this}
@@ -4812,25 +4023,15 @@ export class CatalogScreen extends LitElement {
   }
   /** The subject's identity colour: character, band, or the band it belongs to. */
   private detailAccent(item: Item) {
-    const character = this.character(
-      this.itemCharacterIds(item)[0] || Number(item.characterId || 0),
-    );
+    const character = this.character(this.itemCharacterIds(item)[0] || Number(item.characterId || 0));
     const bandId = Number(item.bandId || character?.bandId || 0);
     return String(
-      item.colorCode ||
-        item.color ||
-        character?.colorCode ||
-        this.band(bandId)?.color ||
-        "var(--md-sys-color-primary)",
+      item.colorCode || item.color || character?.colorCode || this.band(bandId)?.color || "var(--md-sys-color-primary)",
     );
   }
   private renderDetail(item: Item) {
     const fields = this.profile.detail.flatMap((key) => {
-      if (
-        ["member", "support"].includes(this.profile.presentation) &&
-        key.startsWith("stat.")
-      )
-        return [];
+      if (["member", "support"].includes(this.profile.presentation) && key.startsWith("stat.")) return [];
       if (key === "characterIds") {
         const names = this.formatList(
           this.itemCharacterIds(item)
@@ -4842,49 +4043,27 @@ export class CatalogScreen extends LitElement {
       const value = this.fieldValue(item, key);
       return value ? [{ key, value }] : [];
     });
-    const skillOrder = [
-      "leader",
-      "live",
-      "gekisou",
-      "support",
-      "gekisouSupport",
-    ];
+    const skillOrder = ["leader", "live", "gekisou", "support", "gekisouSupport"];
     const skills = (
-      item.resolvedSkills && typeof item.resolvedSkills === "object"
-        ? Object.entries(item.resolvedSkills as Item)
-        : []
-    ).sort(
-      (left, right) =>
-        skillOrder.indexOf(left[0]) - skillOrder.indexOf(right[0]),
-    );
-    const difficulty = Array.isArray(item.difficulty)
-      ? (item.difficulty as Item[])
-      : [];
-    const bandLevels = Array.isArray(item.levels)
-      ? (item.levels as Item[])
-      : [];
-    const bandEffects = Array.isArray(item.effects)
-      ? (item.effects as Item[])
-      : [];
+      item.resolvedSkills && typeof item.resolvedSkills === "object" ? Object.entries(item.resolvedSkills as Item) : []
+    ).sort((left, right) => skillOrder.indexOf(left[0]) - skillOrder.indexOf(right[0]));
+    const difficulty = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
+    const bandLevels = Array.isArray(item.levels) ? (item.levels as Item[]) : [];
+    const bandEffects = Array.isArray(item.effects) ? (item.effects as Item[]) : [];
     const bandLevelValues = this.uniqueNumbers([
       ...bandLevels.map((row) => row.level),
       ...bandEffects.map((row) => row.level),
     ]);
-    const bandResourceRows = asItems(
-      this.detailAux["skill-level-resources"],
-    ).filter((row) => Number(row.group) === Number(item.resourceGroupId || 0));
+    const bandResourceRows = asItems(this.detailAux["skill-level-resources"]).filter(
+      (row) => Number(row.group) === Number(item.resourceGroupId || 0),
+    );
     const chart = this.chartRow(item);
     const songMeta = this.songChartMeta(item);
     const songGekisou = this.songGekisouMeta(item);
     const videos =
       item.musicVideos && typeof item.musicVideos === "object"
-        ? Object.values(item.musicVideos as Item).filter(
-            (value): value is Item =>
-              Boolean(
-                value &&
-                typeof value === "object" &&
-                (value as Item).playableUrl,
-              ),
+        ? Object.values(item.musicVideos as Item).filter((value): value is Item =>
+            Boolean(value && typeof value === "object" && (value as Item).playableUrl),
           )
         : item.mvUrl
           ? [{ playableUrl: item.mvUrl, title: "MV" }]
@@ -4901,32 +4080,22 @@ export class CatalogScreen extends LitElement {
         id: `detail-${this.itemId(item)}`,
         title: this.itemTitle(item),
         titleLanguage: this.itemTitleLanguage(item),
-        subtitle:
-          this.profile.presentation === "song"
-            ? this.itemArtistContent(item)
-            : this.secondary(item),
+        subtitle: this.profile.presentation === "song" ? this.itemArtistContent(item) : this.secondary(item),
         backLabel: this.label("close", "Close"),
         onClose: () => this.close(),
         leading: this.renderDetailLeading(item),
         actions: this.renderDetailActions(item),
         body: detailLayout(
-          this.profile.presentation === "character"
-            ? nothing
-            : this.renderDetailMedia(item),
+          this.profile.presentation === "character" ? nothing : this.renderDetailMedia(item),
           html`
             ${
               this.profile.presentation === "character"
                 ? this.renderCharacterArchive(item, fields)
                 : this.localized(item.description) &&
-                    !["item", "band-item"].includes(
-                      this.profile.presentation,
-                    ) &&
+                    !["item", "band-item"].includes(this.profile.presentation) &&
                     this.settings.resource !== "events"
                   ? html`
-                      <p
-                        class="detail-description"
-                        lang=${this.localizedLanguage(item.description)}
-                      >
+                      <p class="detail-description" lang=${this.localizedLanguage(item.description)}>
                         ${this.localized(item.description)}
                       </p>
                     `
@@ -4946,12 +4115,9 @@ export class CatalogScreen extends LitElement {
                           ({ key, value }) => html`
                             <div>
                               <dt>${this.detailLabel(key)}</dt>
-                              <dd
-                                lang=${this.localizedLanguage(readPath(item, key))}
-                              >
+                              <dd lang=${this.localizedLanguage(readPath(item, key))}>
                                 ${
-                                  key === "rarity" &&
-                                  this.rarityMark(item.rarity)
+                                  key === "rarity" && this.rarityMark(item.rarity)
                                     ? html`
                                         <img
                                           class="detail-fact-mark detail-fact-mark--rarity"
@@ -4959,8 +4125,7 @@ export class CatalogScreen extends LitElement {
                                           alt=${value}
                                         />
                                       `
-                                    : key === "cardType" &&
-                                        this.attributeMark(item.cardType)
+                                    : key === "cardType" && this.attributeMark(item.cardType)
                                       ? html`
                                           <img
                                             class="detail-fact-mark"
@@ -4980,10 +4145,8 @@ export class CatalogScreen extends LitElement {
             }
             ${
               this.profile.presentation === "system"
-                ? (this.gameSystemDetail?.renderGameSystemDetail(
-                    this as unknown as Record<string, unknown>,
-                    item,
-                  ) ?? nothing)
+                ? (this.gameSystemDetail?.renderGameSystemDetail(this as unknown as Record<string, unknown>, item) ??
+                  nothing)
                 : nothing
             }
             ${
@@ -4999,23 +4162,17 @@ export class CatalogScreen extends LitElement {
                     detailLabel: (key) => this.detailLabel(key),
                     fieldValue: (source, key) => this.fieldValue(source, key),
                     selectDifficulty: (index) => {
-                      this.selectSongDifficulty(
-                        difficultyKey(difficulty[index] || {}, index),
-                      );
+                      this.selectSongDifficulty(difficultyKey(difficulty[index] || {}, index));
                     },
                   }) ?? nothing)
                 : nothing
             }
             ${
-              this.profile.presentation === "item" &&
-              this.localized(item.description)
+              this.profile.presentation === "item" && this.localized(item.description)
                 ? html`
                     <section class="detail-section">
                       ${renderDetailSectionHeading(this.label("content", "Content"), "content")}
-                      <p
-                        class="detail-description"
-                        lang=${this.localizedLanguage(item.description)}
-                      >
+                      <p class="detail-description" lang=${this.localizedLanguage(item.description)}>
                         ${this.localized(item.description)}
                       </p>
                     </section>
@@ -5028,55 +4185,40 @@ export class CatalogScreen extends LitElement {
                     <section class="detail-section">
                       ${renderDetailSectionHeading(this.label("skills", "Skills"), "skills")}
                       ${skills.flatMap(([group, value]) =>
-                        (Array.isArray(value) ? value : [value])
-                          .filter(Boolean)
-                          .map(
-                            (skill) => html`
-                              <div class="skill-row">
-                                ${
-                                (skill as Item).icon
-                                  ? html`
-                                      <img
-                                        src=${String((skill as Item).icon)}
-                                        alt=""
-                                      />
-                                    `
-                                  : nothing
-                              }
-                                <span>
-                                  <small
-                                    >${this.label(`${group}Skill`, group)}</small
-                                  >
-                                  <strong
-                                    lang=${this.localizedLanguage((skill as Item).skillName)}
-                                  >
-                                    ${this.localized((skill as Item).skillName) || group}
-                                  </strong>
-                                  ${
-                                  this.skillDescription(
-                                    skill as Item,
-                                    this.skillLevel(group, item),
-                                  )
+                        (Array.isArray(value) ? value : [value]).filter(Boolean).map(
+                          (skill) => html`
+                            <div class="skill-row">
+                              ${
+                                  (skill as Item).icon
                                     ? html`
-                                        <p
-                                          lang=${this.localizedLanguage((skill as Item).description)}
-                                        >
-                                          ${this.skillDescription(skill as Item, this.skillLevel(group, item))}
-                                        </p>
+                                        <img src=${String((skill as Item).icon)} alt="" />
                                       `
                                     : nothing
-                                }${this.renderSkillCost(group, item)}
-                                </span>
-                              </div>
-                            `,
-                          ),
+                                }
+                              <span>
+                                <small>${this.label(`${group}Skill`, group)}</small>
+                                <strong lang=${this.localizedLanguage((skill as Item).skillName)}>
+                                  ${this.localized((skill as Item).skillName) || group}
+                                </strong>
+                                ${
+                                    this.skillDescription(skill as Item, this.skillLevel(group, item))
+                                      ? html`
+                                          <p lang=${this.localizedLanguage((skill as Item).description)}>
+                                            ${this.skillDescription(skill as Item, this.skillLevel(group, item))}
+                                          </p>
+                                        `
+                                      : nothing
+                                  }${this.renderSkillCost(group, item)}
+                              </span>
+                            </div>
+                          `,
+                        ),
                       )}
                     </section>
                   `
                 : nothing
             }${
-              this.profile.presentation === "band-item" &&
-              bandLevelValues.length
+              this.profile.presentation === "band-item" && bandLevelValues.length
                 ? html`
                     <section class="detail-section band-item-level-detail">
                       ${renderDetailSectionHeading(this.label("effectsByLevel", "Effects by level"), "effects")}
@@ -5085,20 +4227,14 @@ export class CatalogScreen extends LitElement {
                           label=${this.label("level", "Level")}
                           .value=${String(this.detailLevel)}
                           @change=${(event: Event) => {
-                            this.detailLevel = Number(
-                              (event.target as HTMLElement & { value: string })
-                                .value,
-                            );
+                            this.detailLevel = Number((event.target as HTMLElement & { value: string }).value);
                             this.setDetailQuery("level", this.detailLevel);
                           }}
                         >
                           ${bandLevelValues.map(
                             (level) => html`
                               <md-select-option value=${String(level)}>
-                                <span slot="headline"
-                                  >Lv.${Math.max(0, level - 1)} →
-                                  Lv.${level}</span
-                                >
+                                <span slot="headline">Lv.${Math.max(0, level - 1)} → Lv.${level}</span>
                               </md-select-option>
                             `,
                           )}
@@ -5108,9 +4244,7 @@ export class CatalogScreen extends LitElement {
                         </p>
                         ${this.renderCostList(
                           this.label("required", "Required"),
-                          bandResourceRows.filter(
-                            (row) => Number(row.level) === this.detailLevel,
-                          ),
+                          bandResourceRows.filter((row) => Number(row.level) === this.detailLevel),
                         )}
                       </div>
                     </section>
@@ -5139,13 +4273,8 @@ export class CatalogScreen extends LitElement {
                         )}
                       </div>
                       <div class="song-difficulty-meta">
-                        <span
-                          >${String(chart.difficultyName || "").toUpperCase()}</span
-                        >
-                        <b
-                          >${Number(chart.noteCount || 0).toLocaleString()}
-                          ${this.label("notes", "notes")}</b
-                        >
+                        <span>${String(chart.difficultyName || "").toUpperCase()}</span>
+                        <b>${Number(chart.noteCount || 0).toLocaleString()} ${this.label("notes", "notes")}</b>
                       </div>
                     </section>
                   `
@@ -5153,9 +4282,7 @@ export class CatalogScreen extends LitElement {
             }${this.renderSongRewards(item)}${
               videos.length
                 ? html`
-                    <section
-                      class="detail-section song-detail-section detail-media-controls song-detail-mv-section"
-                    >
+                    <section class="detail-section song-detail-section detail-media-controls song-detail-mv-section">
                       ${renderDetailSectionHeading(this.label("mv", "MV"), "media", { count: videos.length })}
                       ${
                         videos.length > 1
@@ -5180,11 +4307,7 @@ export class CatalogScreen extends LitElement {
                           : nothing
                       }
                       <div class="song-detail-mv__stage">
-                        <img
-                          class="song-detail-mv__poster"
-                          src=${String(item.jacketUrl || "")}
-                          alt=""
-                        />
+                        <img class="song-detail-mv__poster" src=${String(item.jacketUrl || "")} alt="" />
                         <video
                           class=${this.detailVideoPlaying ? "is-visible" : ""}
                           controls
@@ -5202,17 +4325,13 @@ export class CatalogScreen extends LitElement {
                                   class="icon-button song-detail-mv__play"
                                   aria-label=${`${this.label("play", "Play")} ${this.label("mv", "MV")}`}
                                   @click=${(event: Event) => {
-                                    const stage = (
-                                      event.currentTarget as HTMLElement
-                                    ).closest(".song-detail-mv__stage");
+                                    const stage = (event.currentTarget as HTMLElement).closest(
+                                      ".song-detail-mv__stage",
+                                    );
                                     void stage?.querySelector("video")?.play();
                                   }}
                                 >
-                                  <svg
-                                    class="material-icon"
-                                    width="24"
-                                    height="24"
-                                  >
+                                  <svg class="material-icon" width="24" height="24">
                                     <use href="/icons.svg#play_arrow"></use>
                                   </svg>
                                 </button>
@@ -5223,14 +4342,11 @@ export class CatalogScreen extends LitElement {
                   `
                 : nothing
             }${
-              this.profile.presentation === "support" &&
-              this.localized(item.diary)
+              this.profile.presentation === "support" && this.localized(item.diary)
                 ? html`
                     <section class="detail-section">
                       ${renderDetailSectionHeading(this.label("diary", "Diary"), "diary")}
-                      <p class="detail-long-copy">
-                        ${this.localized(item.diary)}
-                      </p>
+                      <p class="detail-long-copy">${this.localized(item.diary)}</p>
                     </section>
                   `
                 : nothing
@@ -5249,17 +4365,13 @@ export class CatalogScreen extends LitElement {
                 tabindex="-1"
               >
                 <header>
-                  <button
-                    class="icon-button"
-                    @click=${() => (this.chartOpen = false)}
-                  >
+                  <button class="icon-button" @click=${() => (this.chartOpen = false)}>
                     <svg class="material-icon" width="24" height="24">
                       <use href="/icons.svg#close"></use>
                     </svg>
                   </button>
                   <strong>
-                    ${this.itemTitle(item)} —
-                    ${String(chart.difficultyName || "").toUpperCase()}
+                    ${this.itemTitle(item)} — ${String(chart.difficultyName || "").toUpperCase()}
                     ${chart.displayLevel || ""}
                   </strong>
                   <button
@@ -5323,28 +4435,22 @@ export class CatalogScreen extends LitElement {
   private renderExtendedDetail(item: Item) {
     if (this.profile.presentation === "band-item") return nothing;
     if (this.profile.presentation === "item") {
-      const rewards = Object.entries(
-        (this.catalogDocument.rewards as Item | undefined) || {},
-      ).flatMap(([source, value]) =>
-        (Array.isArray(value) ? (value as Item[]) : [])
-          .filter(
-            (reward) =>
-              (reward.resourceTypeName === "Item" ||
-                Number(reward.resourceType) === 1) &&
-              Number(reward.resourceId) === Number(item.itemId),
-          )
-          .map((reward) => ({ source, reward })),
+      const rewards = Object.entries((this.catalogDocument.rewards as Item | undefined) || {}).flatMap(
+        ([source, value]) =>
+          (Array.isArray(value) ? (value as Item[]) : [])
+            .filter(
+              (reward) =>
+                (reward.resourceTypeName === "Item" || Number(reward.resourceType) === 1) &&
+                Number(reward.resourceId) === Number(item.itemId),
+            )
+            .map((reward) => ({ source, reward })),
       );
       return rewards.length
         ? html`
             <section class="detail-section">
-              ${renderDetailSectionHeading(
-                this.label("rewards", "Rewards"),
-                "rewards",
-                {
-                  count: rewards.length,
-                },
-              )}
+              ${renderDetailSectionHeading(this.label("rewards", "Rewards"), "rewards", {
+                count: rewards.length,
+              })}
               <div class="reference-list">
                 ${rewards.map(
                   ({ source, reward }) => html`
@@ -5353,16 +4459,12 @@ export class CatalogScreen extends LitElement {
                         <use href="/icons.svg#redeem"></use>
                       </svg>
                       <span>
-                        <strong
-                          >${source.replace(/^Master/u, "").replace(/([a-z])([A-Z])/g, "$1 $2")}</strong
-                        >
+                        <strong>${source.replace(/^Master/u, "").replace(/([a-z])([A-Z])/g, "$1 $2")}</strong>
                         <small>
                           ${this.localized((reward.resolved as Item | undefined)?.name) || String(reward.resourceTypeName || "Reward")}
                         </small>
                       </span>
-                      <b
-                        >${reward.resourceCount ? `×${Number(reward.resourceCount).toLocaleString()}` : ""}</b
-                      >
+                      <b>${reward.resourceCount ? `×${Number(reward.resourceCount).toLocaleString()}` : ""}</b>
                     </div>
                   `,
                 )}
@@ -5409,8 +4511,7 @@ export class CatalogScreen extends LitElement {
     };
     return route === "songs"
       ? songTitle(item, this.settings.locale).text
-      : this.localized(this.first(item, paths[route] || ["name", "title"])) ||
-          "—";
+      : this.localized(this.first(item, paths[route] || ["name", "title"])) || "—";
   }
   imageForRelated(item: Item, route: string) {
     return this.relatedImageCandidates(item, route)[0] || "";
@@ -5423,12 +4524,7 @@ export class CatalogScreen extends LitElement {
       songs: ["jacketThumbUrl", "jacketUrl"],
       // Match the Live2D catalogue: rendered model preview first, identity art
       // only when that preview is unavailable.
-      live2d: [
-        "preview.image",
-        "preview.runtime",
-        "thumbnailImage",
-        "faceImage",
-      ],
+      live2d: ["preview.image", "preview.runtime", "thumbnailImage", "faceImage"],
       stories: ["image", "banner"],
     };
     const sources = (paths[route] || ["image"]).flatMap((path) => {
