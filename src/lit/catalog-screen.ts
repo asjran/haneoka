@@ -3328,10 +3328,11 @@ export class CatalogScreen extends LitElement {
     // difficulty the pane has open.
     const row = this.profile.perDifficulty ? rows[0] : this.chartRow(item);
     const difficulty = String(row.difficultyName || "").toLowerCase();
-    if (!row.file || !["easy", "normal", "hard", "expert", "master"].includes(difficulty)) return "";
+    if (!row.file || !["easy", "normal", "hard", "expert", "special", "master"].includes(difficulty)) return "";
     const server = this.dataServer();
     const song = String(Number(item.musicId || 0));
-    return `${SONOLUS_SERVER_LINK}/levels/${releaseChartLevelName(server, song, difficulty)}`;
+    const source = this.settings.origin === "bestdori" ? "gbp" : server;
+    return `${SONOLUS_SERVER_LINK}/levels/${encodeURIComponent(releaseChartLevelName(source, song, difficulty))}`;
   }
   private chartPageTitle(item: Item) {
     const chart = this.chartRow(item);

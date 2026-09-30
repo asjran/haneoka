@@ -22,6 +22,7 @@ const LOCALE_INDEX: Readonly<Record<CatalogLocale, number>> = Object.freeze({
   ko: 4,
 });
 const DIFFICULTIES = ["easy", "normal", "hard", "expert", "special", "master"] as const;
+const SONOLUS_NAME_PART = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/u;
 
 const randomSearch: JsonObject = Object.freeze({
   type: "random",
@@ -30,6 +31,51 @@ const randomSearch: JsonObject = Object.freeze({
   requireConfirmation: false,
   options: [],
 });
+
+function sonolusNamePart(value: string | number, label: string): string {
+  const part = String(value).trim();
+  if (!SONOLUS_NAME_PART.test(part)) throw new TypeError(`Invalid Sonolus ${label}: ${part}`);
+  return part;
+}
+
+export function sonolusSourceRoot(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new TypeError("Sonolus source must be an absolute URL");
+  }
+  if (!(url.protocol === "http:" || url.protocol === "https:")) {
+    throw new TypeError("Sonolus source must use HTTP(S)");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new TypeError("Sonolus source must be an HTTP(S) server address without credentials, query or fragment");
+  }
+  return url.toString().replace(/\/+$/u, "");
+}
+
+export function sonolusLevelName(server: string, musicId: string | number, difficulty: string): string {
+  const id = String(musicId).trim();
+  if (!/^\d{1,16}$/u.test(id)) throw new TypeError(`Invalid Sonolus music ID: ${id}`);
+  const level = difficulty.trim().toLocaleLowerCase("en-US");
+  const name = `#haneoka-${sonolusNamePart(server, "server")}-${id}-${sonolusNamePart(level, "difficulty")}`;
+  if (name.length > 255) throw new TypeError("Sonolus level name is too long");
+  return name;
+}
+
+export function sonolusPlaylistName(server: string, stableId: string | number, difficulty?: string): string {
+  const suffix =
+    difficulty === undefined ? "" : `-${sonolusNamePart(difficulty.trim().toLocaleLowerCase("en-US"), "difficulty")}`;
+  const name = `#haneoka-${sonolusNamePart(server, "server")}-${sonolusNamePart(stableId, "playlist ID")}${suffix}`;
+  if (name.length > 255) throw new TypeError("Sonolus playlist name is too long");
+  return name;
+}
+
+export function sonolusServerFromLevelName(name: string): string | null {
+  const match = /^#haneoka-(.+)-(\d+)-[A-Za-z0-9][A-Za-z0-9._~-]*$/u.exec(name);
+  const server = match?.[1];
+  return server && SONOLUS_NAME_PART.test(server) ? server : null;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,8 +98,19 @@ function jsonObject(value: unknown): JsonObject | null {
   return isObject(value) && Object.values(value).every(isJsonValue) ? (value as JsonObject) : null;
 }
 
-function localizedText(value: unknown, locales: readonly CatalogLocale[]): string {
+function localizedText(
+  value: unknown,
+  locales: readonly CatalogLocale[],
+  encodeText?: CatalogProjectionOptions["encodeText"],
+): string {
   if (typeof value === "string") return value.trim();
+  if (encodeText && (Array.isArray(value) || isObject(value))) {
+    const entries = Array.isArray(value)
+      ? DEFAULT_LOCALES.map((locale) => [locale, value[LOCALE_INDEX[locale]]] as const)
+      : Object.entries(value);
+    const labels = Object.fromEntries(entries.filter(([, text]) => typeof text === "string" && Boolean(text.trim())));
+    if (Object.keys(labels).length) return encodeText(labels, locales[0] ?? "en");
+  }
   if (Array.isArray(value)) {
     for (const locale of locales) {
       const candidate = value[LOCALE_INDEX[locale]];
@@ -131,11 +188,11 @@ function publishedAt(value: unknown): number {
   return 0;
 }
 
-function bandNames(value: unknown, locales: readonly CatalogLocale[]): Map<string, string> {
-  const result = new Map<string, string>();
+function bandNames(value: unknown): Map<string, unknown> {
+  const result = new Map<string, unknown>();
   for (const [key, band] of recordEntries(value)) {
     const id = typeof band.bandId === "number" || typeof band.bandId === "string" ? String(band.bandId) : key;
-    const name = localizedText(band.bandName ?? band.name, locales);
+    const name = band.bandName ?? band.name;
     if (name) result.set(id, name);
   }
   return result;
@@ -143,9 +200,16 @@ function bandNames(value: unknown, locales: readonly CatalogLocale[]): Map<strin
 
 function songArtists(
   song: Record<string, unknown>,
-  bands: ReadonlyMap<string, string>,
+  bands: ReadonlyMap<string, unknown>,
   locales: readonly CatalogLocale[],
+  encodeText?: CatalogProjectionOptions["encodeText"],
 ): string {
+  if (encodeText) {
+    const labels = Object.fromEntries(
+      DEFAULT_LOCALES.map((locale) => [locale, songArtists(song, bands, [locale, ...locales])]),
+    );
+    return encodeText(labels, locales[0] ?? "en");
+  }
   const ids = new Set<string>();
   if (typeof song.bandId === "number" || typeof song.bandId === "string") ids.add(String(song.bandId));
   for (const value of [song.bandIds, song.bandIDs]) {
@@ -153,7 +217,7 @@ function songArtists(
     for (const id of value) if (typeof id === "number" || typeof id === "string") ids.add(String(id));
   }
   const names = [...ids].flatMap((id) => {
-    const name = bands.get(id);
+    const name = localizedText(bands.get(id), locales);
     return name ? [name] : [];
   });
   if (names.length) return [...new Set(names)].join(" / ");
@@ -174,13 +238,13 @@ function projectedTags(base: JsonValue | undefined, difficulty: string): JsonVal
   return [...tags, { title: difficulty } as JsonObject];
 }
 
-function projectedSource(value: JsonValue, source: string): JsonValue {
-  if (Array.isArray(value)) return value.map((entry) => projectedSource(entry, source));
+function projectedSource(value: JsonValue, source: string, previousSource: string | undefined): JsonValue {
+  if (Array.isArray(value)) return value.map((entry) => projectedSource(entry, source, previousSource));
   if (value === null || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [
       key,
-      key === "source" && typeof entry === "string" ? source : projectedSource(entry, source),
+      key === "source" && entry === previousSource ? source : projectedSource(entry, source, previousSource),
     ]),
   );
 }
@@ -190,7 +254,11 @@ export function projectLevelItem(
   metadata: ChartDescriptor & { data: JsonObject; sonolusBaseUrl?: string },
 ): SonolusLevelItem {
   const projectedBase = metadata.sonolusBaseUrl
-    ? (projectedSource(base, metadata.sonolusBaseUrl) as SonolusLevelItem)
+    ? (projectedSource(
+        base,
+        sonolusSourceRoot(metadata.sonolusBaseUrl),
+        typeof base.source === "string" ? base.source : undefined,
+      ) as SonolusLevelItem)
     : base;
   const cover = metadata.coverUrl
     ? { ...(jsonObject(projectedBase.cover) ?? {}), url: metadata.coverUrl }
@@ -202,7 +270,8 @@ export function projectLevelItem(
     rating: metadata.rating,
     title: metadata.title,
     artists: metadata.artists,
-    author: metadata.artists,
+    author: metadata.author ?? metadata.artists,
+    ...(metadata.sonolusBaseUrl ? { source: sonolusSourceRoot(metadata.sonolusBaseUrl) } : {}),
     data: metadata.data,
     tags: projectedTags(projectedBase.tags, metadata.difficulty),
   };
@@ -217,7 +286,7 @@ export function projectCatalogCharts(
   options: CatalogProjectionOptions = {},
 ): CatalogProjectionResult {
   const locales = options.localeOrder?.length ? options.localeOrder : DEFAULT_LOCALES;
-  const names = bandNames(bands, locales);
+  const names = bandNames(bands);
   const charts: ChartDescriptor[] = [];
   const invalidChartNames: string[] = [];
   const makeName = options.levelName ?? ((songId: string, difficulty: string) => `chart-${songId}-${difficulty}`);
@@ -228,8 +297,9 @@ export function projectCatalogCharts(
   for (const [catalogId, song] of recordEntries(songs)) {
     const rawSongId = song.musicId;
     const songId = typeof rawSongId === "number" || typeof rawSongId === "string" ? String(rawSongId) : catalogId;
-    const title = localizedText(song.musicTitle ?? song.title, locales) || `Song ${songId}`;
-    const artists = songArtists(song, names, locales);
+    const title = localizedText(song.musicTitle ?? song.title, locales, options.encodeText) || `Song ${songId}`;
+    const author = songArtists(song, names, locales);
+    const artists = options.encodeText ? songArtists(song, names, locales, options.encodeText) : author;
     const difficulties = Array.isArray(song.difficulty) ? song.difficulty : [];
     for (const [index, rawDifficulty] of difficulties.entries()) {
       if (!isObject(rawDifficulty)) continue;
@@ -246,6 +316,7 @@ export function projectCatalogCharts(
       const bgmUrl = absoluteUrl(song.musicUrl, options.mediaBaseUrl);
       const metadata = {
         artists,
+        ...(options.encodeText ? { author } : {}),
         dataId,
         difficulty,
         name,
@@ -457,8 +528,8 @@ export function projectServerInfo(options: { banner?: JsonObject } = {}): JsonOb
     buttons: [
       { type: "playlist" },
       { type: "level" },
-      { type: "playlist", title: "Bestdori Playlists", infoType: "bestdori" },
-      { type: "level", title: "Bestdori Levels", infoType: "bestdori" },
+      { type: "playlist", title: "GBP Playlists", infoType: "bestdori" },
+      { type: "level", title: "GBP Charts", infoType: "bestdori" },
       { type: "skin" },
       { type: "background" },
       { type: "effect" },

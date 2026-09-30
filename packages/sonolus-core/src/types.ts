@@ -43,6 +43,7 @@ export interface SonolusPlaylistItem extends JsonObject {
 
 export interface ChartDescriptor {
   artists: string;
+  author?: string;
   bgmUrl?: string;
   coverUrl?: string;
   dataId: string;
@@ -104,6 +105,7 @@ export interface CatalogProjectionOptions {
   levelName?: (songId: string, difficulty: string) => string;
   localeOrder?: readonly CatalogLocale[];
   mediaBaseUrl?: string;
+  encodeText?: (labels: Readonly<Record<string, string>>, fallbackLocale: string) => string;
 }
 
 export type CatalogLocale = "en" | "ja" | "ko" | "zh-CN" | "zh-TW";

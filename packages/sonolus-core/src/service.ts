@@ -11,6 +11,9 @@ import {
   projectRandomLevelInfo,
   projectRandomLevelList,
   projectServerInfo,
+  sonolusPlaylistName,
+  sonolusServerFromLevelName,
+  sonolusSourceRoot,
 } from "./projection.js";
 import type {
   ChartCatalogProvider,
@@ -28,7 +31,7 @@ const LEVEL_PAGE_SIZE = 20;
 const DEFAULT_PREPARE_CONCURRENCY = 4;
 const MAX_PREPARE_CONCURRENCY = 16;
 const SHA1_PATTERN = /^[a-f0-9]{40}$/u;
-const LEVEL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,254}$/u;
+const LEVEL_NAME_PATTERN = /^(?:[A-Za-z0-9][A-Za-z0-9._~-]{0,254}|#[A-Za-z0-9][A-Za-z0-9._~-]{0,253})$/u;
 const DIFFICULTY_ORDER: Readonly<Record<string, number>> = Object.freeze({
   master: 0,
   special: 1,
@@ -102,7 +105,7 @@ export type SonolusLevelRouteResult = SonolusLevelDocumentRouteResult | SonolusL
 function levelDataUrl(name: string, hash: string, baseUrl: string | undefined): string {
   const pathname = `/sonolus/levels/${encodeURIComponent(name)}/data/${hash}`;
   if (!baseUrl) return pathname;
-  return new URL(pathname, baseUrl).toString();
+  return new URL(pathname.slice(1), `${sonolusSourceRoot(baseUrl)}/`).toString();
 }
 
 function preparationConcurrency(value: number | undefined): number {
@@ -183,14 +186,22 @@ function groupedPlaylists(
 ): PlaylistDescriptor[] {
   const groups = new Map<string, ChartDescriptor[]>();
   for (const chart of charts) {
-    const group = groups.get(chart.songId);
+    const server = sonolusServerFromLevelName(chart.name);
+    const key = server ? `${server}:${chart.songId}` : chart.songId;
+    const group = groups.get(key);
     if (group) group.push(chart);
-    else groups.set(chart.songId, [chart]);
+    else groups.set(key, [chart]);
   }
-  return [...groups.entries()].map(([songId, grouped]) => {
+  return [...groups.values()].map((grouped) => {
     const first = grouped[0];
-    if (!first) throw new Error(`Sonolus playlist is missing its first chart: ${songId}`);
-    const name = playlistName ? playlistName(songId) : `playlist-${songId}`;
+    if (!first) throw new Error("Sonolus playlist is missing its first chart");
+    const songId = first.songId;
+    const inferredServer = sonolusServerFromLevelName(first.name);
+    const name = playlistName
+      ? playlistName(songId)
+      : inferredServer
+        ? sonolusPlaylistName(inferredServer, songId)
+        : `playlist-${songId}`;
     if (!LEVEL_NAME_PATTERN.test(name)) throw new Error(`Invalid Sonolus playlist name: ${name}`);
     const orderedCharts = [...grouped].sort(
       (left, right) => difficultyOrder(left.difficulty) - difficultyOrder(right.difficulty),

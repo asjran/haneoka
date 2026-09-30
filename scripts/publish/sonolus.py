@@ -14,6 +14,7 @@ overwrites the previous objects.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -27,9 +28,13 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from publish.r2 import R2Store  # noqa: E402
+from core.hashes import sha256_file  # noqa: E402
 
 SONOLUS_PREFIX = "sonolus"
-DEFAULT_PAYLOAD_DIR = Path(__file__).resolve().parents[2] / "data" / "sonolus" / "current" / "sonolus"
+SONOLUS_REVISION_KEY = "operation/sonolus/revision.json"
+DEFAULT_PAYLOAD_DIR = (
+    Path(__file__).resolve().parents[2] / "data" / "sonolus" / "current" / "sonolus"
+)
 
 _REPOSITORY_PREFIX = f"{SONOLUS_PREFIX}/repository/"
 _LICENSES_PREFIX = f"{SONOLUS_PREFIX}/licenses/"
@@ -58,10 +63,25 @@ def publish_sonolus_payload(store: R2Store, payload_dir: Path) -> dict:
     if not payload_dir.is_dir():
         raise FileNotFoundError(f"Sonolus payload directory not found: {payload_dir}")
     files = sorted(path for path in payload_dir.rglob("*") if path.is_file())
+    digest = hashlib.sha256()
     for path in files:
+        relative = path.relative_to(payload_dir).as_posix()
+        digest.update(f"{relative}\0{sha256_file(path)}\n".encode("utf-8"))
+    # Referenced bytes reach the repository before their item documents.
+    for path in sorted(
+        files,
+        key=lambda path: (path.relative_to(payload_dir).parts[0] != "repository", path),
+    ):
         key = f"{SONOLUS_PREFIX}/{path.relative_to(payload_dir).as_posix()}"
         store.upload_path(path, key, _content_type(key))
-    return {"bucket": store.bucket, "prefix": f"{SONOLUS_PREFIX}/", "objects": len(files)}
+    revision = digest.hexdigest()
+    store.put_json(SONOLUS_REVISION_KEY, {"revision": revision}, "private, no-store")
+    return {
+        "bucket": store.bucket,
+        "prefix": f"{SONOLUS_PREFIX}/",
+        "objects": len(files),
+        "revision": revision,
+    }
 
 
 def _store(r2_bucket: str | None, concurrency: int) -> R2Store:
@@ -85,7 +105,9 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, default=16)
     args = parser.parse_args()
 
-    result = publish_sonolus_payload(_store(args.r2_bucket, args.concurrency), args.payload_dir)
+    result = publish_sonolus_payload(
+        _store(args.r2_bucket, args.concurrency), args.payload_dir
+    )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 

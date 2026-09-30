@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { buildNativeNoteSkinPacks, decodeRgba8Png, encodeRgba8Png } from "./pack-original-note-skins.ts";
 import { NATIVE_EFFECT_WIDTHS, compileNativeParticles } from "./native-particles/compile.ts";
+import { buildPresentationThumbnails } from "./presentation-thumbnails.ts";
 import { OUR_NOTES_NOTE_SE_GROUP_IDS } from "@haneoka/cassiopeia-plugin-our-notes";
 import { resolveSonolusReleaseWorkspace } from "../src/server/releaseWorkspace.ts";
 import { validateSonolusInputProvenance } from "../src/server/sonolusProvenance.ts";
@@ -202,6 +203,7 @@ writeFileSync(
     2,
   ),
 );
+buildPresentationThumbnails(out);
 console.log(
   `compiled native Sonolus particles: ${compiled.effects.length} effects, ` +
     `${compiled.atlas.sprites.length} sprites (${compiled.atlas.width}x${compiled.atlas.height})`,

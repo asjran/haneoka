@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1920" height="320" viewBox="0 0 1920 320">
+  <defs>
+    <linearGradient id="edges">
+      <stop offset="0" stop-color="white" stop-opacity="0"/>
+      <stop offset="0.004" stop-color="white" stop-opacity="0"/>
+      <stop offset="0.16" stop-color="white"/>
+      <stop offset="0.84" stop-color="white"/>
+      <stop offset="0.996" stop-color="white" stop-opacity="0"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="artEdges">
+      <stop offset="0" stop-color="white" stop-opacity="0"/>
+      <stop offset="0.06" stop-color="white"/>
+      <stop offset="0.94" stop-color="white"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="fade"><rect width="1920" height="320" fill="url(#edges)"/></mask>
+    <mask id="artFade"><rect x="320" width="1280" height="320" fill="url(#artEdges)"/></mask>
+    <filter id="backdrop" x="-10%" y="-50%" width="120%" height="200%">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+  </defs>
+  <g mask="url(#fade)">
+    <image xlink:href="server-banner-art.png" x="-64" y="-100" width="2048" height="512" preserveAspectRatio="xMidYMid slice" filter="url(#backdrop)"/>
+    <rect width="1920" height="320" fill="#14131d" opacity="0.24"/>
+    <image xlink:href="server-banner-art.png" x="320" y="0" width="1280" height="320" preserveAspectRatio="xMidYMid meet" mask="url(#artFade)"/>
+  </g>
+</svg>

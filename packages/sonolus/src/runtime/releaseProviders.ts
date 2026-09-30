@@ -1,5 +1,6 @@
 import {
   projectCatalogCharts,
+  sonolusLevelName,
   type CatalogLocale,
   type ChartCatalogProvider,
   type ChartCatalogSnapshot,
@@ -14,6 +15,7 @@ import {
 } from "@haneoka/sonolus-core";
 import { chartToLevelData } from "@haneoka/cassiopeia-plugin-sonolus";
 import { convertChartAsync } from "@haneoka/cassiopeia-plugin-sonolus";
+import { encodeSonolusLocalizedText } from "../sonolusLocalization.js";
 
 const DEFAULT_MAX_CACHE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_CHART_BYTES = 4 * 1024 * 1024;
@@ -138,12 +140,8 @@ export function releaseChartLevelName(releaseServer: string, songId: string | nu
   if (typeof releaseServer !== "string" || !RELEASE_SERVER_PATTERN.test(releaseServer)) {
     throw new TypeError("Invalid release server");
   }
-  const id = String(songId).trim();
-  if (!/^\d{1,16}$/u.test(id)) throw new TypeError("Invalid song ID");
   if (typeof difficulty !== "string") throw new TypeError("Invalid Sonolus difficulty");
-  const level = difficulty.toLowerCase();
-  if (!["easy", "normal", "hard", "expert", "master", "special"].includes(level)) throw new TypeError("Invalid Sonolus difficulty");
-  return `${releaseServer}_${id}_${level}`;
+  return sonolusLevelName(releaseServer, songId, difficulty);
 }
 
 /** Encodes an immutable release and its release-relative chart source path. */
@@ -194,6 +192,7 @@ export class ReleaseChartCatalogProvider implements ChartCatalogProvider {
     if (songs === null || bands === null) throw new Error("Release is missing songs or bands catalog data");
     const release = releaseChartProvenance(this.#options.release);
     const projection = projectCatalogCharts(songs, bands, {
+      encodeText: encodeSonolusLocalizedText,
       ...(this.#options.localeOrder ? { localeOrder: this.#options.localeOrder } : {}),
       ...(this.#options.mediaBaseUrl ? { mediaBaseUrl: this.#options.mediaBaseUrl } : {}),
       chartDataId: (_songId, _difficulty, rawDifficulty) => {

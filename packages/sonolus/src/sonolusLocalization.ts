@@ -1,4 +1,6 @@
-export type SonolusLocalization = "en" | "ja" | "ko" | "zhs" | "zht";
+import { TextFunction } from "@sonolus/core";
+
+export type SonolusLocalization = string;
 
 export type SonolusLocalizedLabels = Readonly<Record<string, string>>;
 
@@ -83,23 +85,93 @@ export function createOurNotesSonolusItemLabels(
   return Object.freeze(itemLabels);
 }
 
-function localeFor(value: string | null | undefined): SonolusLocalization {
-  switch (value) {
+function sonolusLocaleFor(value: string): SonolusLocalization | undefined {
+  const normalized = value.trim().toLowerCase();
+  switch (normalized) {
+    case "en":
     case "ja":
     case "ko":
     case "zhs":
     case "zht":
-    case "en":
-      return value;
+      return normalized;
+  }
+
+  let locale: Intl.Locale;
+  try {
+    locale = new Intl.Locale(value);
+  } catch {
+    return undefined;
+  }
+
+  switch (locale.language) {
+    case "zh": {
+      const script = locale.script?.toLowerCase();
+      const region = locale.region?.toUpperCase();
+      if (script === "hans") return "zhs";
+      if (script === "hant") return "zht";
+      if (script === "hans" || region === "CN" || region === "SG" || region === "MY") return "zhs";
+      if (script === "hant" || region === "TW" || region === "HK" || region === "MO") return "zht";
+      return locale.maximize().script === "Hant" ? "zht" : "zhs";
+    }
     default:
-      return "en";
+      return locale.language;
   }
 }
 
-function labelFor(labels: SonolusLocalizedLabels, locale: SonolusLocalization): string {
-  const key = locale === "zhs" ? "zh-CN" : locale === "zht" ? "zh-TW" : locale;
-  return labels[key] ?? labels.en ?? Object.values(labels)[0] ?? "";
+function localeFor(value: string | null | undefined): SonolusLocalization {
+  return value === null || value === undefined ? "en" : (sonolusLocaleFor(value) ?? "en");
 }
+
+function normalizeSonolusLabels(labels: SonolusLocalizedLabels): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  for (const [label, value] of Object.entries(labels)) {
+    if (typeof value !== "string") throw new Error(`Invalid localized text for ${label}`);
+    const locale = sonolusLocaleFor(label);
+    if (locale !== undefined && !(locale in normalized)) normalized[locale] = value;
+  }
+  return normalized;
+}
+
+/**
+ * Encodes localized text using Sonolus 1.1.3+'s `##LOCALIZE` text function.
+ * BCP47 labels are projected to the Sonolus locale codes used by this server.
+ * The fallback locale is emitted first because the protocol uses the first
+ * language when the player's language is absent. JSON.stringify supplies the
+ * protocol's JSON quoting for quotes, newlines, backslashes, and controls.
+ */
+export function encodeSonolusLocalizedText(
+  labels: SonolusLocalizedLabels,
+  fallbackLocale: string | null | undefined = "en",
+): string {
+  const normalized = normalizeSonolusLabels(labels);
+  const entries = Object.entries(normalized) as Array<[string, string]>;
+  if (!entries.length) throw new Error("Localized text has no supported Sonolus locale");
+
+  const fallback = fallbackLocale === null ? undefined : sonolusLocaleFor(fallbackLocale ?? "en");
+  if (fallbackLocale !== null && fallback === undefined) {
+    throw new Error(`Unsupported Sonolus fallback locale: ${fallbackLocale}`);
+  }
+  if (fallback !== undefined) {
+    const index = entries.findIndex(([locale]) => locale === fallback);
+    if (index > 0) {
+      const [entry] = entries.splice(index, 1);
+      entries.unshift(entry);
+    }
+  }
+
+  return `${TextFunction.Localize}:${JSON.stringify(Object.fromEntries(entries))}`;
+}
+
+const CLIENT_LABELS: Readonly<Record<string, SonolusLocalizedLabels>> = {
+  "GBP Charts": { en: "GBP Charts", ja: "GBP 譜面", "zh-CN": "GBP 谱面", "zh-TW": "GBP 譜面", ko: "GBP 채보" },
+  "GBP Playlists": {
+    en: "GBP Playlists",
+    ja: "GBP プレイリスト",
+    "zh-CN": "GBP 歌单",
+    "zh-TW": "GBP 歌單",
+    ko: "GBP 플레이리스트",
+  },
+};
 
 /**
  * Localizes Sonolus JSON without introducing protocol-unsupported title
@@ -124,8 +196,8 @@ export function localizeSonolusDocument(
     const name = result.name;
     const title = result.title;
     if (typeof title === "string") {
-      const itemLabel = typeof name === "string" ? itemLabels[name] : undefined;
-      if (itemLabel) result.title = labelFor(itemLabel, locale);
+      const itemLabel = (typeof name === "string" ? itemLabels[name] : undefined) ?? CLIENT_LABELS[title];
+      if (itemLabel) result.title = encodeSonolusLocalizedText(itemLabel, locale);
     }
     return result;
   };

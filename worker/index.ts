@@ -19,7 +19,12 @@ import { handleModerationQueue, reconcileModerationState } from "./moderation";
 import { handleProfileRequest } from "./profile";
 import { handlePublicProfileRequest } from "./public-profile";
 import { cleanupCommunityUploads, handleUploadRequest } from "./uploads";
-import { projectCatalogCharts, SonolusLevelService } from "@haneoka/sonolus-core";
+import {
+  projectCatalogCharts,
+  sonolusLevelName,
+  sonolusPlaylistName,
+  SonolusLevelService,
+} from "@haneoka/sonolus-core";
 import {
   OUR_NOTES_LANE_SKIN_NAMES,
   OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
@@ -40,6 +45,7 @@ import {
 } from "../src/lib/resource-route";
 import {
   createOurNotesSonolusItemLabels,
+  encodeSonolusLocalizedText,
   localizeSonolusDocument,
   parseReleaseChartDataId,
   ReleaseChartCatalogProvider,
@@ -2231,8 +2237,8 @@ async function handleArtifact(
 }
 
 const BESTDORI_SONOLUS_DATA_ID = /^bestdori:(\d+):(easy|normal|hard|expert|special)$/u;
-const BESTDORI_SONOLUS_LEVEL_PREFIX = "/sonolus/levels/bestdori-level-";
-const BESTDORI_SONOLUS_PLAYLIST_PREFIX = "/sonolus/playlists/bestdori-playlist-";
+const BESTDORI_SONOLUS_LEVEL_PREFIX = `/sonolus/levels/${encodeURIComponent("#haneoka-gbp-")}`;
+const BESTDORI_SONOLUS_PLAYLIST_PREFIX = `/sonolus/playlists/${encodeURIComponent("#haneoka-gbp-")}`;
 
 function compareSonolusReleases(left: Release, right: Release): number {
   const server = left.server.localeCompare(right.server, "en");
@@ -2315,8 +2321,9 @@ function bestdoriSonolusCatalogProvider(upstreamBase: string | undefined, revisi
     async load() {
       const { bands, songs } = await loadBestdoriSonolusCatalog(upstreamBase);
       const projection = projectCatalogCharts(songs, bands, {
+        encodeText: encodeSonolusLocalizedText,
         chartDataId: (songId, difficulty) => `bestdori:${songId}:${difficulty}`,
-        levelName: (songId, difficulty) => `bestdori-level-${songId}-${difficulty}`,
+        levelName: (songId, difficulty) => sonolusLevelName("gbp", songId, difficulty),
         mediaBaseUrl: "https://haneoka.org",
       });
       if (projection.invalidChartNames.length) {
@@ -2443,7 +2450,16 @@ async function handleSonolus(
   if (!canonicalRelease) {
     return new Response(JSON.stringify({ message: "Not found" }), { status: 404, headers: SONOLUS_JSON_HEADERS });
   }
-  const ourNotesRevision = ourNotesSonolusRevision(releases);
+  const payloadState = await readR2Json(env, "operation/sonolus/revision.json");
+  const payloadRevision =
+    payloadState &&
+    typeof payloadState === "object" &&
+    !Array.isArray(payloadState) &&
+    typeof payloadState.revision === "string" &&
+    /^[a-f0-9]{64}$/u.test(payloadState.revision)
+      ? payloadState.revision
+      : "unversioned";
+  const ourNotesRevision = `identity-text-v1:${payloadRevision}:${ourNotesSonolusRevision(releases)}`;
   const revision = isBestdoriCatalog
     ? `${ourNotesRevision}:${bestdoriSonolusRevision(Date.now(), env.BESTDORI_UPSTREAM_BASE)}`
     : ourNotesRevision;
@@ -2467,9 +2483,9 @@ async function handleSonolus(
       dataProvider,
       ...(isBestdoriCatalog
         ? {
-            levelInfoTitle: "Bestdori Levels",
-            playlistInfoTitle: "Bestdori Playlists",
-            playlistName: (songId: string) => `bestdori-playlist-${songId}`,
+            levelInfoTitle: "GBP Charts",
+            playlistInfoTitle: "GBP Playlists",
+            playlistName: (songId: string) => sonolusPlaylistName("gbp", songId),
             quickSearchValues: "source=bestdori",
           }
         : {}),
@@ -2484,6 +2500,7 @@ async function handleSonolus(
       },
       revision,
       searchParams: assetUrl.searchParams,
+      sonolusBaseUrl: `https://${CANONICAL_HOST}`,
       ...(serverBanner ? { serverBanner } : {}),
     });
     if (projected) {

@@ -18,6 +18,7 @@ import type {
   SkinItem,
   Srl,
 } from "@sonolus/core";
+import { sonolusLevelName, sonolusPlaylistName, sonolusSourceRoot } from "@haneoka/sonolus-core";
 import {
   OUR_NOTES_LANE_SKIN_NAMES,
   OUR_NOTES_NOTE_SE_GROUP_IDS,
@@ -32,6 +33,7 @@ import { resolveLocalReleaseFile, resolveSonolusReleaseWorkspace } from "./relea
 import { validateSonolusInputProvenance } from "./sonolusProvenance";
 import {
   createOurNotesSonolusItemLabels,
+  encodeSonolusLocalizedText,
   OUR_NOTES_SONOLUS_ITEM_NAMES,
   type SonolusLocalizedLabels,
 } from "../sonolusLocalization";
@@ -54,7 +56,7 @@ const outRoot = resolve(
 const finalSonolusRoot = resolve(outRoot, "sonolus");
 const stagedSonolusRoot = resolve(outRoot, `.sonolus-build-${process.pid}`);
 const repoRoot = resolve(stagedSonolusRoot, "repository");
-const address = process.env.SONOLUS_ADDRESS || "https://haneoka.org/sonolus";
+const address = sonolusSourceRoot(process.env.SONOLUS_ADDRESS || "https://haneoka.org");
 const haneokaBase = process.env.SONOLUS_HANEOKA_BASE || "https://haneoka.org";
 const releaseServer = process.env.RELEASE_SERVER || "intl";
 const workspace = resolveSonolusReleaseWorkspace(releaseServer, root);
@@ -414,11 +416,10 @@ function itemBase<TVersion extends SonolusItem["version"]>(
   };
 }
 
-function nativeEnglishTitle(labels: Readonly<Record<string, SonolusLocalizedLabels>>, itemName: string): string {
+function nativeTitle(labels: Readonly<Record<string, SonolusLocalizedLabels>>, itemName: string): string {
   const label = labels[itemName];
-  const title = label?.en;
-  if (!title) throw new Error(`Native label source has no English title for ${itemName}`);
-  return title;
+  if (!label) throw new Error(`Missing native title for ${itemName}`);
+  return encodeSonolusLocalizedText(label);
 }
 
 function assertItemVersions(type: SonolusItemType, items: readonly SonolusItem[]) {
@@ -521,10 +522,8 @@ async function main() {
   ).map((skinId) => {
     const name = OUR_NOTES_SONOLUS_ITEM_NAMES.skins[skinId];
     return {
-      ...itemBase(name, SONOLUS_ITEM_VERSIONS.skin, nativeEnglishTitle(nativeLabels, name), "Our Notes", "haneoka"),
-      // No native preview image is published yet; do not use a whole atlas as
-      // a misleading thumbnail.
-      thumbnail: emptySrl,
+      ...itemBase(name, SONOLUS_ITEM_VERSIONS.skin, nativeTitle(nativeLabels, name), "Our Notes", "haneoka"),
+      thumbnail: addFile(requireFile(resolve(resourceDir, "skins", skinId, "thumbnail.png"))),
       data: addFile(requireFile(resolve(resourceDir, "skins", skinId, "skin.data"))),
       texture: addFile(requireFile(resolve(resourceDir, "skins", skinId, "skin.texture.png"))),
     };
@@ -535,11 +534,11 @@ async function main() {
     ...itemBase(
       OUR_NOTES_SONOLUS_ITEM_NAMES.particle,
       SONOLUS_ITEM_VERSIONS.particle,
-      nativeEnglishTitle(nativeLabels, OUR_NOTES_SONOLUS_ITEM_NAMES.particle),
+      nativeTitle(nativeLabels, OUR_NOTES_SONOLUS_ITEM_NAMES.particle),
       "Our Notes",
       "haneoka",
     ),
-    thumbnail: emptySrl,
+    thumbnail: addFile(requireFile(resolve(resourceDir, "particle.thumbnail.png"))),
     data: addFile(requireFile(resolve(resourceDir, "particle.data"))),
     texture: addFile(requireFile(resolve(resourceDir, "particle.texture.png"))),
   };
@@ -547,7 +546,7 @@ async function main() {
     const name = OUR_NOTES_SONOLUS_ITEM_NAMES.effects[group];
     const effectResourceDir = resolve(resourceDir, "effects", String(group));
     return {
-      ...itemBase(name, SONOLUS_ITEM_VERSIONS.effect, nativeEnglishTitle(nativeLabels, name), "Our Notes", "haneoka"),
+      ...itemBase(name, SONOLUS_ITEM_VERSIONS.effect, nativeTitle(nativeLabels, name), "Our Notes", "haneoka"),
       thumbnail: emptySrl,
       data: addFile(requireFile(resolve(effectResourceDir, "effect.data"))),
       audio: addFile(requireFile(resolve(effectResourceDir, "effect.audio"))),
@@ -559,13 +558,7 @@ async function main() {
     const name = OUR_NOTES_SONOLUS_ITEM_NAMES.stages[stageId];
     const image = `/assets/${releaseServer}/Assets/AddressableResources/Band/${stageId}/live_stage/lightweight_background.png`;
     return {
-      ...itemBase(
-        name,
-        SONOLUS_ITEM_VERSIONS.background,
-        nativeEnglishTitle(nativeLabels, name),
-        "BanG Dream!",
-        "haneoka",
-      ),
+      ...itemBase(name, SONOLUS_ITEM_VERSIONS.background, nativeTitle(nativeLabels, name), "BanG Dream!", "haneoka"),
       thumbnail: externalSrl(image),
       data: addJson({ aspectRatio: 1536 / 1212, fit: "cover", color: "#03030a" }),
       image: externalSrl(image),
@@ -577,13 +570,7 @@ async function main() {
   const backgroundMyGO = backgroundItems[1];
   if (!backgroundMyGO) throw new Error("Native background item list is missing stage 1");
   const engine: EngineItem = {
-    ...itemBase(
-      "ourNotes",
-      SONOLUS_ITEM_VERSIONS.engine,
-      nativeEnglishTitle(nativeLabels, OUR_NOTES_SONOLUS_ITEM_NAMES.skins.skin001),
-      "BanG Dream!",
-      "haneoka",
-    ),
+    ...itemBase("ourNotes", SONOLUS_ITEM_VERSIONS.engine, "Our Notes", "BanG Dream!", "haneoka"),
     skin,
     background: backgroundMyGO,
     effect,
@@ -601,6 +588,7 @@ async function main() {
   // entirely in engine-only mode and keep just the engine + presentation items.
   const levels: LevelItem[] = [];
   const levelsByMusicId = new Map<number, LevelItem[]>();
+  const levelMusicId = new Map<string, number>();
   const levelPublishedAt = new Map<string, number>();
   const songPublishedAt = new Map<number, number>();
 
@@ -624,7 +612,7 @@ async function main() {
         const difficulty =
           diff.difficultyName?.toLocaleLowerCase("en-US") || difficultyNames[index] || `difficulty-${index}`;
         const item: LevelItem = {
-          name: `ourNotes-${song.musicId}-${difficulty}`,
+          name: sonolusLevelName(releaseServer, song.musicId, difficulty),
           source: address,
           version: SONOLUS_ITEM_VERSIONS.level,
           rating: Number(diff.playLevel || diff.displayLevel || 0),
@@ -642,6 +630,7 @@ async function main() {
           data: addJson(levelData),
         };
         levels.push(item);
+        levelMusicId.set(item.name, song.musicId);
         const songLevels = levelsByMusicId.get(song.musicId);
         if (songLevels) songLevels.push(item);
         else levelsByMusicId.set(song.musicId, [item]);
@@ -659,7 +648,7 @@ async function main() {
   const latestLevels = [...levels].sort((left, right) => {
     const published = (levelPublishedAt.get(right.name) ?? 0) - (levelPublishedAt.get(left.name) ?? 0);
     if (published) return published;
-    const songId = Number(right.name.split("-")[1]) - Number(left.name.split("-")[1]);
+    const songId = (levelMusicId.get(right.name) ?? 0) - (levelMusicId.get(left.name) ?? 0);
     return songId || difficultyOrder(left) - difficultyOrder(right);
   });
   const playlists: PlaylistItem[] = [...levelsByMusicId.entries()]
@@ -674,7 +663,7 @@ async function main() {
       return [
         {
           ...itemBase(
-            `playlist-${musicId}`,
+            sonolusPlaylistName(releaseServer, musicId),
             SONOLUS_ITEM_VERSIONS.playlist,
             primary.title,
             primary.artists,
