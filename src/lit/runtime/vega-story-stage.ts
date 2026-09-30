@@ -141,7 +141,7 @@ export class VegaStoryStage extends LitElement {
   private transportFrame = 0;
   private scrubbing = false;
   private resumeAfterScrub = false;
-  private pausedBeforeScrub = false;
+  private transportSeekRevision = 0;
   private viewportFullscreen: ViewportFullscreenController;
   private transportVisibility = new PlaybackControlsController((snapshot) => {
     this.transportCollapsed = snapshot.collapsed;
@@ -515,7 +515,7 @@ export class VegaStoryStage extends LitElement {
       setBgmVolume: (value) => this.handle?.shell?.setSetting("bgmVolume", value),
       setAutoPlayDelaySeconds: (value) => this.handle?.shell?.setSetting("autoDelay", value),
       setTextSize: (value) => this.handle?.shell?.setSetting("textSize", value),
-      seekProgress: (value) => this.seekTransportRatio(value),
+      seekProgress: (value) => void this.commitTransportSeek(value * this.maximum),
       skipCurrentVideo: () => this.handle?.player.skipCurrentVideo(),
       toggleFullscreen: () => void this.toggleFullscreen(),
     };
@@ -585,7 +585,7 @@ export class VegaStoryStage extends LitElement {
   private previewTransportSeek(ordinal: number) {
     const handle = this.handle;
     if (!handle) return;
-    this.started = true;
+    this.transportSeekRevision++;
     const player = handle.player;
     const maximum = Math.max(1, this.maximum);
     const value = Math.max(0, Math.min(maximum, Math.round(ordinal)));
@@ -594,7 +594,6 @@ export class VegaStoryStage extends LitElement {
     this.transportVisibility.setScrubbing(true);
     if (!wasScrubbing) {
       this.resumeAfterScrub = player.state.playing && !player.state.paused;
-      this.pausedBeforeScrub = player.state.paused;
     }
     player.pause();
     this.ordinal = value;
@@ -604,25 +603,31 @@ export class VegaStoryStage extends LitElement {
   private async commitTransportSeek(ordinal: number) {
     const handle = this.handle;
     if (!handle) return;
-    this.started = true;
     const player = handle.player;
+    const revision = ++this.transportSeekRevision;
+    // A change-only interaction has the same ownership as a pointer preview.
+    if (!this.scrubbing) {
+      this.resumeAfterScrub = player.state.playing && !player.state.paused;
+      this.scrubbing = true;
+      this.transportVisibility.setScrubbing(true);
+      player.pause();
+    }
     const maximum = Math.max(1, this.maximum);
     const value = Math.max(0, Math.min(maximum, Math.round(ordinal)));
     try {
       await player.seekTo(player.resolveSeekRatio(value / maximum), { resume: false });
-      if (this.handle !== handle || !this.isConnected) return;
+      if (this.handle !== handle || !this.isConnected || revision !== this.transportSeekRevision) return;
     } catch (error) {
       // Malformed/unavailable targets are a no-op: keep the last reachable
       // line instead of surfacing an error panel during playback.
-      if (this.handle !== handle || !this.isConnected) return;
+      if (this.handle !== handle || !this.isConnected || revision !== this.transportSeekRevision) return;
       console.warn("[vega-story] transport seek failed; keeping the current line", error);
     }
-    if (player.state.ready && (!handle.shell || handle.shell.snapshot().screen === "game")) {
-      if (!this.pausedBeforeScrub) player.resume();
-      if (this.resumeAfterScrub) void player.play().catch(() => undefined);
+    if (this.resumeAfterScrub && player.state.ready && (!handle.shell || handle.shell.snapshot().screen === "game")) {
+      player.resume();
+      void player.play().catch(() => undefined);
     }
     this.resumeAfterScrub = false;
-    this.pausedBeforeScrub = false;
     this.scrubbing = false;
     this.transportVisibility.setScrubbing(false);
   }
@@ -691,6 +696,9 @@ export class VegaStoryStage extends LitElement {
   }
 
   private async disposePlayer() {
+    this.transportSeekRevision++;
+    this.scrubbing = false;
+    this.resumeAfterScrub = false;
     cancelAnimationFrame(this.transportFrame);
     this.stopBootStateObserver();
     this.stopCompletionObserver?.();
