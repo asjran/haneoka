@@ -26,6 +26,19 @@
 .detail-section--flush {
   padding-inline: 0;
 }
+.detail-columns {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--detail-column-min, 300px)), 1fr));
+  align-items: start;
+  gap: 16px;
+}
+.detail-columns--cards {
+  --detail-column-min: 360px;
+}
+.detail-columns > * {
+  min-width: 0;
+}
 .detail-section-title {
   display: flex;
   min-width: 0;
@@ -106,6 +119,13 @@
 .spec-list--numeric dd {
   font-variant-numeric: tabular-nums;
 }
+.spec-list--trailing:has(> div) {
+  gap: 12px;
+}
+.spec-list--trailing > div {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+}
 .spec-list--split:has(> div) {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: 20px 24px;
@@ -160,6 +180,36 @@
 }
 .detail-object > span > small {
   display: block;
+}
+.detail-object > .detail-object__artwork {
+  flex: 0 0 72px;
+  width: 72px;
+}
+.detail-object > .detail-object__artwork.tile--member {
+  flex-basis: 54px;
+  width: 54px;
+}
+.detail-object__artwork > .tile__media {
+  border-radius: var(--md-sys-shape-corner-small);
+}
+.detail-object__artwork .tile__mark--start {
+  top: 4px;
+  left: 4px;
+}
+.detail-object__artwork .tile__mark--end {
+  top: 4px;
+  right: 4px;
+}
+.detail-object__artwork .tile__mark--image > img {
+  width: 16px;
+  height: 16px;
+}
+.detail-object > .detail-object__copy {
+  padding: 0;
+  gap: 4px;
+}
+.detail-object__copy > .tile__subtitle {
+  display: flex;
 }
 a.detail-object {
   border-radius: 12px;

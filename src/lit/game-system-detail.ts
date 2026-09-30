@@ -22,7 +22,7 @@ import {
 } from "../lib/shop-currency";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
 import { icon } from "./ui/icon";
-import { tile, type TileMark } from "./ui/tile";
+import { tile, tileMedia, type TileMark } from "./ui/tile";
 import { nextImageCandidate } from "./ui/lazy-images";
 import { episodeArtwork } from "../lib/story-artwork";
 import { storyTile } from "./shared/story-tile";
@@ -201,21 +201,25 @@ function cardTileKind(item: Item): CardTileKind | "" {
       : "";
 }
 
+function rewardCardOptions(c: Controller, reward: Item, kind: CardTileKind) {
+  return c.cardTileOptions(
+    {
+      ...reward,
+      [kind === "support" ? "supportCardId" : "cardId"]:
+        reward[kind === "support" ? "supportCardId" : "cardId"] ?? reward.resourceId,
+      prefix: reward.prefix || reward.name,
+      cardName: reward.cardName || reward.secondary,
+      images: reward.images || { thumbnail: reward.image },
+    },
+    kind,
+  );
+}
+
 function gachaRewardTile(c: Controller, reward: Item, extraMarks: TileMark[] = [], subtitle = "") {
   const kind = cardTileKind(reward);
   const href = canonicalHref(c, String(reward.href || ""));
   if (kind && typeof c.cardTileOptions === "function") {
-    const options = c.cardTileOptions(
-      {
-        ...reward,
-        [kind === "support" ? "supportCardId" : "cardId"]:
-          reward[kind === "support" ? "supportCardId" : "cardId"] ?? reward.resourceId,
-        prefix: reward.prefix || reward.name,
-        cardName: reward.cardName || reward.secondary,
-        images: reward.images || { thumbnail: reward.image },
-      },
-      kind,
-    );
+    const options = rewardCardOptions(c, reward, kind);
     return tile({ ...options, href: href || undefined, marks: [...(options.marks || []), ...extraMarks] });
   }
   const title = c.localized(reward.name) || c.label("reward", "Reward");
@@ -235,7 +239,7 @@ function gachaRewardTile(c: Controller, reward: Item, extraMarks: TileMark[] = [
 /** Use each resource's catalog tile and collection sizing wherever it is linked. */
 function renderRewardGrid(c: Controller, rewards: Item[], marks: (reward: Item) => TileMark[] = () => []) {
   return html`
-    <div class="stack">
+    <div class="detail-columns detail-columns--cards">
       ${(["member", "support", "item"] as const).map((kind) => {
         const entries = rewards.filter((reward) => (cardTileKind(reward) || "item") === kind);
         if (!entries.length) return nothing;
@@ -864,13 +868,40 @@ function eventRewardCondition(c: Controller, row: Item): string {
 }
 
 /** One resource with its quantity and authored probability. */
-function eventRewardRow(c: Controller, row: Item, quantity = true) {
+function eventRewardRow(c: Controller, row: Item, quantity = true, compactIdentity = false) {
   const reward = eventRewardValue(row);
   const name = c.localized(reward.name) || c.label("rewardUnavailable", "Reward unavailable");
   const secondary = c.localized(reward.secondary);
   const count = Number(reward.count ?? row.resourceCount ?? 1);
   const probability = eventRaw(row)._probability;
   const href = canonicalHref(c, String(reward.href || ""));
+  const kind = cardTileKind(reward);
+  if (compactIdentity && kind) {
+    const options = rewardCardOptions(c, reward, kind);
+    const content = html`
+      <span class=${`detail-object__artwork tile--${kind}`}>${tileMedia(options)}</span>
+      <span class="tile__identity detail-object__copy" title=${[name, secondary].filter(Boolean).join(" · ")}>
+        <strong class="tile__title" lang=${options.titleLanguage || nothing}>${options.title}</strong>
+        <small class="tile__subtitle">
+          ${options.adornment || nothing}
+          <span>${options.subtitle}</span>
+        </small>
+      </span>
+    `;
+    return html`
+      <li>
+        ${
+          href
+            ? html`
+                <a class="detail-object" href=${href}>${content}</a>
+              `
+            : html`
+                <div class="detail-object">${content}</div>
+              `
+        }
+      </li>
+    `;
+  }
   const body = html`
     ${
       reward.image
@@ -879,11 +910,25 @@ function eventRewardRow(c: Controller, row: Item, quantity = true) {
           `
         : icon("redeem", 24)
     }
-    <span lang=${c.localizedLanguage(reward.name) || nothing}>
-      ${name}${
+    <span
+      title=${compactIdentity ? [name, secondary].filter(Boolean).join(" · ") : nothing}
+      lang=${c.localizedLanguage(reward.name) || nothing}
+    >
+      ${
+        compactIdentity
+          ? html`
+              <span class="clamp-2">${name}</span>
+            `
+          : name
+      }${
         secondary && secondary !== name
           ? html`
-              <small class="detail-copy" lang=${c.localizedLanguage(reward.secondary) || nothing}>${secondary}</small>
+              <small
+                class=${compactIdentity ? "detail-copy truncate" : "detail-copy"}
+                lang=${c.localizedLanguage(reward.secondary) || nothing}
+              >
+                ${secondary}
+              </small>
             `
           : nothing
       }
@@ -1091,6 +1136,24 @@ function renderEventStory(c: Controller, item: Item) {
     <section class="detail-section">
       ${renderDetailSectionHeading(c.label("eventStory", "Event story"), "stories", { count: episodes.length })}
       ${
+        story.banner || story.image
+          ? html`
+              <div class="collection collection--story">
+                ${tile({
+                  kind: "story",
+                  title: c.localized(story.chapterName) || c.localized(item.title),
+                  titleLanguage: c.localizedLanguage(story.chapterName),
+                  label: c.localized(story.chapterName) || c.localized(item.title),
+                  image: String(story.banner || story.image),
+                  aspectRatio: "16 / 9",
+                  fit: "contain",
+                  href: c.resourceHref(`/catalog/stories/event?chapter=${story.chapterId}`),
+                })}
+              </div>
+            `
+          : nothing
+      }
+      ${
         c.plainGameText(story.description) && c.plainGameText(story.description) !== c.plainGameText(item.description)
           ? html`
               <p class="detail-copy" lang=${c.localizedLanguage(story.description) || nothing}>
@@ -1225,7 +1288,7 @@ function renderEventRankings(c: Controller, item: Item) {
   return html`
     <section class="detail-section">
       ${renderDetailSectionHeading(c.label("eventLiveRewards", "Live rewards"), "rewards")}
-      <div class="stack">
+      <div class="detail-columns">
         ${["live", "challenge"].map((kind) => {
           const entries = rows.filter((row) => row.kind === kind);
           if (!entries.length) return nothing;
@@ -1234,21 +1297,49 @@ function renderEventRankings(c: Controller, item: Item) {
               <h4 class="md-title-small md-on-surface-variant">
                 ${c.label(kind === "live" ? "liveRanking" : "challengeRanking", kind === "live" ? "Live" : "Challenge live")}
               </h4>
-              <dl class="spec-list spec-list--numeric">
+              <ul class="song-reward-list">
                 ${entries.map(
                   (row) => html`
-                    <div>
-                      <dt>${EVENT_SCORE_RANK_NAMES[Number(row.scoreRank)] || "—"}</dt>
-                      <dd class="cluster">
+                    <li>
+                      <img
+                        src=${`/assets/${c.dataServer()}/Assets/AddressableResources/UI/Texture/BandRank/ImgScorerank_${EVENT_SCORE_RANK_NAMES[Number(row.scoreRank)]}.png`}
+                        alt=${EVENT_SCORE_RANK_NAMES[Number(row.scoreRank)] || "—"}
+                        loading="lazy"
+                        decoding="async"
+                      />
+                      <span class="song-reward-list__condition">
                         <strong>${eventPoints(c, row.pointValue)}</strong>
-                        <ul class="detail-object-list">
-                          ${eventRows(row.rewards).map((reward) => eventRewardRow(c, reward))}
-                        </ul>
-                      </dd>
-                    </div>
+                      </span>
+                      <div class="stack stack--tight">
+                        ${eventRows(row.rewards).map((row) => {
+                          const reward = eventRewardValue(row);
+                          const body = html`
+                            ${
+                              reward.image
+                                ? html`
+                                    <img src=${String(reward.image)} alt="" loading="lazy" decoding="async" />
+                                  `
+                                : nothing
+                            }
+                            <span lang=${c.localizedLanguage(reward.name) || nothing}>
+                              ${c.localized(reward.name)}
+                              <b>×${eventNumber(c, reward.count ?? row.resourceCount ?? 1)}</b>
+                            </span>
+                          `;
+                          const href = canonicalHref(c, String(reward.href || ""));
+                          return href
+                            ? html`
+                                <a class="song-reward-value" href=${href}>${body}</a>
+                              `
+                            : html`
+                                <span class="song-reward-value">${body}</span>
+                              `;
+                        })}
+                      </div>
+                    </li>
                   `,
                 )}
-              </dl>
+              </ul>
             </div>
           `;
         })}
@@ -1263,7 +1354,7 @@ function renderEventEffects(c: Controller, item: Item) {
   const levels = [...new Set(effects.flatMap((effect) => eventRows(effect.perRank).map((value) => Number(value.rank))))]
     .filter((value) => Number.isInteger(value) && value >= 1 && value <= 5)
     .sort((left, right) => left - right);
-  const rank = levels.includes(Number(c.eventBonusRank)) ? Number(c.eventBonusRank) : levels[0] || 1;
+  const rank = levels.includes(Number(c.eventBonusRank)) ? Number(c.eventBonusRank) : levels.at(-1) || 5;
   const targetKey = (row: Item) => {
     const raw = eventRaw(row);
     return [
@@ -1299,7 +1390,7 @@ function renderEventEffects(c: Controller, item: Item) {
         },
         (value) => eventText(c, "eventRankN", "Rank {rank}", { rank: value }),
       )}
-      <div class="stack">
+      <div class="detail-columns">
         ${[2, 3].map((type) => {
           const entries = [...groups.values()].filter(
             (group) => Number(group[0].resourceTypeConstraint ?? eventRaw(group[0])._resourceTypeConstraint) === type,
@@ -1310,7 +1401,7 @@ function renderEventEffects(c: Controller, item: Item) {
               <h4 class="md-title-small md-on-surface-variant">
                 ${c.label(type === 2 ? "memberCards" : "supportCards", type === 2 ? "Member cards" : "Support cards")}
               </h4>
-              <dl class="spec-list">
+              <dl class="spec-list spec-list--trailing">
                 ${entries.map((group) => {
                   const first = group[0];
                   const cardType = Number(first.cardType ?? eventRaw(first)._cardType);
@@ -1341,7 +1432,7 @@ function renderEventEffects(c: Controller, item: Item) {
                     <div>
                       <dt>
                         <ul class="detail-object-list">
-                          ${(targets.length ? targets : [fallback]).map((target) => eventRewardRow(c, target, false))}
+                          ${(targets.length ? targets : [fallback]).map((target) => eventRewardRow(c, target, false, true))}
                         </ul>
                       </dt>
                       <dd class="cluster">
@@ -1413,8 +1504,8 @@ export function renderGameSystemDetail(c: Controller, item: Item) {
   switch (resource) {
     case "events":
       return html`
-        ${renderRotatingOverview(c, item)} ${renderEventPickups(c, item)} ${renderEventEffects(c, item)}
-        ${renderEventSong(c, item)} ${renderEventStory(c, item)} ${renderEventRecruitments(c, item)}
+        ${renderRotatingOverview(c, item)} ${renderEventRecruitments(c, item)} ${renderEventPickups(c, item)}
+        ${renderEventEffects(c, item)} ${renderEventSong(c, item)} ${renderEventStory(c, item)}
         ${renderEventRankings(c, item)} ${renderEventRewards(c, item)} ${renderEventMissions(c, item)}
         ${
           !item.story &&
@@ -1482,7 +1573,7 @@ export function initializeGameSystemDetail(c: Controller, item: Item) {
   )[0];
   c.gachaOption = preferred ? gachaOptionKey(item, preferred) : "";
   c.fx = null;
-  c.eventBonusRank = 1;
+  c.eventBonusRank = 5;
   // Cash shop entries boot the rate fetch that fills the per-currency
   // conversions; the rates land as one shared session fetch.
   const payment = (item.payment || {}) as Item;

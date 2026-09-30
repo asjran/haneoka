@@ -1841,7 +1841,7 @@ async function handleCatalogStorageApi(
       } else {
         if (resourceName === "events") {
           const artworkUrl = new URL(request.url);
-          artworkUrl.searchParams.set("__event_artwork", "1");
+          artworkUrl.searchParams.set("__event_artwork", "2");
           cacheSource = new Request(artworkUrl, request);
         }
         producer = async () => {

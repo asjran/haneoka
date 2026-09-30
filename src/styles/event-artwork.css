@@ -1,4 +1,4 @@
-@layer components {
+@layer patterns {
   .event-artwork {
     position: absolute;
     inset: 0;
@@ -10,7 +10,8 @@
     object-fit: cover;
     object-position: 30% 35%;
   }
-  .event-artwork__logo {
+  .event-artwork__logo,
+  .event-artwork > .event-artwork__logo.is-loaded {
     position: absolute;
     top: 50%;
     right: 4%;

@@ -149,6 +149,7 @@ export function parseResourceRoute(pathname: string): ResourceRoute | undefined 
   if (parts.length !== 3 && parts.length !== 4 && parts.length !== 5) return undefined;
   const [server, locale, kind, encodedId, child] = parts;
   if (!isReleaseServer(server) || !isLocale(locale) || !isResourceKind(kind)) return undefined;
+  if (kind === "events" && encodedId === "tracker") return undefined;
   if (parts.length === 5 && !(kind === "songs" && (child === "chart" || child === "ranking"))) return undefined;
   if (encodedId === undefined) return { server, locale, kind };
   try {
@@ -225,6 +226,7 @@ export function legacyEntityRoute(
   const parts = pathname.replace(/^\/+|\/+$/gu, "").split("/");
   const locale = parts[0];
   if (!isLocale(locale) || parts[1] !== "catalog") return undefined;
+  if (parts[2] === "events" && parts[3] === "tracker") return undefined;
 
   let kind: ResourceKind | undefined;
   let id: string | undefined;

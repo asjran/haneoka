@@ -191,23 +191,40 @@ export function renderSongRewards({ item, chart, server, label, localized }: Son
   const combo = Object.entries(comboRewards)
     .filter(([difficulty]) => !active || difficulty.toLowerCase() === active)
     .flatMap(([, value]) => (Array.isArray(value) ? (value as Item[]) : []));
+  const scoreRankIds = [
+    ...new Set([
+      ...ranks.map((rank) => Number(rank.scoreRank)),
+      ...scoreRewards.map((reward) => Number(reward.liveScoreRank)),
+    ]),
+  ].sort((a, b) => a - b);
+  const renderReward = (reward: Item) => {
+    const value = rewardValue(reward);
+    const image = value.image
+      ? html`
+          <img src=${value.image} alt="" />
+        `
+      : nothing;
+    return html`
+      <span class="song-reward-value">
+        ${image}
+        <span>
+          ${value.name}
+          <b>×${value.count}</b>
+        </span>
+      </span>
+    `;
+  };
   const comboPercentages = [25, 50, 75, 100];
   return html`
     <section class="detail-section song-detail-section song-rewards-section">
       ${renderDetailSectionHeading(label("rewards", "Rewards"), "rewards", {
         count: ranks.length + scoreRewards.length + combo.length,
       })}
-      <div class="song-detail-section__body">
-        <h3 class="song-detail-subheading">${label("score", "Score")}</h3>
-        <ul class="song-reward-list">
-          ${[
-            ...new Set([
-              ...ranks.map((rank) => Number(rank.scoreRank)),
-              ...scoreRewards.map((reward) => Number(reward.liveScoreRank)),
-            ]),
-          ]
-            .sort((a, b) => a - b)
-            .map((rankId) => {
+      <div class="song-detail-section__body detail-columns">
+        <div class="stack stack--tight">
+          <h3 class="song-detail-subheading">${label("score", "Score")}</h3>
+          <ul class="song-reward-list">
+            ${scoreRankIds.map((rankId) => {
               const rankName = names[rankId] || "—";
               const rank = ranks.find((entry) => Number(entry.scoreRank) === rankId);
               const rewards = scoreRewards.filter((entry) => Number(entry.liveScoreRank) === rankId);
@@ -218,61 +235,45 @@ export function renderSongRewards({ item, chart, server, label, localized }: Son
                     <strong>${rank ? Number(rank.requiredScore || 0).toLocaleString() : rankName}</strong>
                     <small>${label("score", "Score")}</small>
                   </span>
-                  <div>
-                    ${rewards.map((reward) => {
-                      const value = rewardValue(reward);
-                      return html`
-                        <span class="song-reward-value">
-                          ${
-                            value.image
-                              ? html`
-                                  <img src=${value.image} alt="" />
-                                `
-                              : nothing
-                          }
-                          <span>
-                            ${value.name}
-                            <b>×${value.count}</b>
-                          </span>
-                        </span>
-                      `;
-                    })}
-                  </div>
+                  <div>${rewards.map(renderReward)}</div>
                 </li>
               `;
             })}
-        </ul>
-        <h3 class="song-detail-subheading">${label("combo", "Combo")}</h3>
-        <ul class="song-reward-list song-combo-list">
-          ${combo.map((reward) => {
-            const value = rewardValue(reward);
-            const percentage = comboPercentages[Number(reward.comboRateType || 0)] || 0;
-            const count =
-              Number(reward.comboCount || 0) ||
-              (percentage && Number(chart.noteCount) ? Math.ceil((Number(chart.noteCount) * percentage) / 100) : 0);
-            return html`
-              <li>
-                <span class="song-reward-list__condition">
-                  <strong>${percentage === 100 ? "FULL COMBO" : `${percentage}%`}</strong>
-                  <small>${count ? count.toLocaleString() : "—"} ${label("notes", "notes")}</small>
-                </span>
-                <span class="song-reward-value">
-                  ${
-                    value.image
-                      ? html`
-                          <img src=${value.image} alt="" />
-                        `
-                      : nothing
-                  }
-                  <span>
-                    ${value.name}
-                    <b>×${value.count}</b>
+          </ul>
+        </div>
+        <div class="stack stack--tight">
+          <h3 class="song-detail-subheading">${label("combo", "Combo")}</h3>
+          <ul class="song-reward-list song-combo-list">
+            ${combo.map((reward) => {
+              const value = rewardValue(reward);
+              const percentage = comboPercentages[Number(reward.comboRateType || 0)] || 0;
+              const count =
+                Number(reward.comboCount || 0) ||
+                (percentage && Number(chart.noteCount) ? Math.ceil((Number(chart.noteCount) * percentage) / 100) : 0);
+              return html`
+                <li>
+                  <span class="song-reward-list__condition">
+                    <strong>${percentage === 100 ? "FULL COMBO" : `${percentage}%`}</strong>
+                    <small>${count ? count.toLocaleString() : "—"} ${label("notes", "notes")}</small>
                   </span>
-                </span>
-              </li>
-            `;
-          })}
-        </ul>
+                  <span class="song-reward-value">
+                    ${
+                      value.image
+                        ? html`
+                            <img src=${value.image} alt="" />
+                          `
+                        : nothing
+                    }
+                    <span>
+                      ${value.name}
+                      <b>×${value.count}</b>
+                    </span>
+                  </span>
+                </li>
+              `;
+            })}
+          </ul>
+        </div>
       </div>
     </section>
   `;

@@ -100,15 +100,8 @@ export function mediaAspectRatio(width: unknown, height: unknown): number | unde
     : undefined;
 }
 
-export function tile(options: TileOptions): TemplateResult {
-  const classes = [
-    "tile",
-    "tile--interactive",
-    options.kind ? `tile--${options.kind}` : "",
-    options.selected ? "is-selected" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+/** Artwork and native marks shared by grid tiles and compact identity rows. */
+export function tileMedia(options: TileOptions): TemplateResult {
   const width = Number(options.width);
   const height = Number(options.height);
   const dimensionRatio = mediaAspectRatio(width, height);
@@ -119,7 +112,7 @@ export function tile(options: TileOptions): TemplateResult {
   // a literal tag name: static templates lose their event-part wiring when the
   // bundler splits the lit modules across chunks in a different order, which
   // silently left every tile unclickable in production builds.
-  const media = html`
+  return html`
     <span
       class=${`tile__media media-loading ${options.fit ? `tile__media--${options.fit}` : ""}`}
       style=${mediaStyle || nothing}
@@ -165,6 +158,20 @@ export function tile(options: TileOptions): TemplateResult {
           : nothing,
       )}
     </span>
+  `;
+}
+
+export function tile(options: TileOptions): TemplateResult {
+  const classes = [
+    "tile",
+    "tile--interactive",
+    options.kind ? `tile--${options.kind}` : "",
+    options.selected ? "is-selected" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const media = html`
+    ${tileMedia(options)}
     <span class="tile__identity">
       <strong class="tile__title" lang=${options.titleLanguage || nothing}>${options.title}</strong>
       ${

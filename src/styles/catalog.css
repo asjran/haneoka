@@ -195,7 +195,7 @@
   }
   .song-reward-list > li {
     display: grid;
-    grid-template-columns: 36px minmax(90px, 1fr) minmax(0, 1.3fr);
+    grid-template-columns: 28px minmax(80px, max-content) minmax(0, 1fr);
     gap: 12px;
     align-items: center;
     min-height: 64px;
@@ -224,10 +224,11 @@
     display: flex;
     gap: 8px;
     align-items: center;
+    justify-content: flex-start;
     font: 400 14px/20px var(--app-font);
   }
   .song-combo-list > li {
-    grid-template-columns: minmax(90px, 1fr) minmax(0, 1.3fr);
+    grid-template-columns: minmax(90px, max-content) minmax(0, 1fr);
   }
   /* ---------- detail description (ported) ---------- */
   .detail-description {

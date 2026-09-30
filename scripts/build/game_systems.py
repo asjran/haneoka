@@ -805,6 +805,7 @@ def _events(
             data.text(row.get("_nameTextId")),
             kind="game-event",
             image=_event_cover_image(data, documents, row, story_chapter_id),
+            backgroundImage=_asset(data, f"Image/Event/{row.get('_backgroundAsset')}"),
             logo=_asset(data, f"Image/Event/{row.get('_logoAsset')}"),
             description=data.text(row.get("_descriptionTextId")),
             start_at=stamp(row.get("_startAt")),

@@ -1,6 +1,6 @@
 type Row = Record<string, unknown>;
 
-/** Backfill title logos from the entity shards of releases with older indexes. */
+/** Backfill the event illustration and title logo from complete entity records. */
 export async function eventArtworkIndex(
   document: Row,
   shardFor: (id: string) => string,
@@ -13,7 +13,8 @@ export async function eventArtworkIndex(
   for (const [id, value] of Object.entries(output)) {
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const row = value as Row;
-    if (typeof row.logo === "string" && row.logo) continue;
+    if (typeof row.logo === "string" && row.logo && typeof row.backgroundImage === "string" && row.backgroundImage)
+      continue;
     const shard = shardFor(id);
     const group = groups.get(shard) || [];
     group.push([id, row]);
@@ -24,8 +25,14 @@ export async function eventArtworkIndex(
     for (const [id, row] of group) {
       const entity = shard?.[id];
       if (!entity || typeof entity !== "object" || Array.isArray(entity)) continue;
-      const logo = (entity as Row).logo;
-      if (typeof logo === "string" && logo) output[id] = { ...row, logo };
+      const source = entity as Row;
+      const logo = source.logo;
+      const backgroundImage = source.backgroundImage || source.image;
+      output[id] = {
+        ...row,
+        ...(typeof logo === "string" && logo ? { logo } : {}),
+        ...(typeof backgroundImage === "string" && backgroundImage ? { backgroundImage } : {}),
+      };
     }
   }
   return { ...document, entries: output };

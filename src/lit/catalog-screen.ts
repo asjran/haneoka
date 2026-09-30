@@ -1,6 +1,7 @@
 import {gekisouMissionIcons} from "../lib/gekisou";
 import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { readPageData } from "../lib/page-data";
+import { eventArtworkIndex } from "../lib/event-artwork-index";
 import { releaseChartLevelName } from "@haneoka/sonolus";
 import { navigationDocumentUrl } from "../lib/document-url";
 import { localizedContent, localizedList } from "./ui/localized-content";
@@ -505,7 +506,7 @@ export class CatalogScreen extends LitElement {
   /** Gacha simulator session for the open detail; owned here so the module stays stateless. */
   declare sim: import("./game-system-detail").GachaSimState | null;
   declare gachaOption: string;
-  eventBonusRank = 1;
+  eventBonusRank = 5;
   /** Real-time FX session for the open shop detail; owned here like sim. */
   declare fx: import("./game-system-detail").ShopFxState | null;
   private paneFocus = new PaneFocus();
@@ -1209,8 +1210,29 @@ export class CatalogScreen extends LitElement {
         marks?.ok ? marks.json() : {},
       ]);
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
-      this.catalogDocument = document && typeof document === "object" ? (document as Item) : {};
-      this.items = asItems(document, this.profile.document);
+      let collectionDocument = document && typeof document === "object" ? (document as Item) : {};
+      if (this.settings.resource === "events" && this.settings.origin !== "bestdori") {
+        const ids = Object.keys((collectionDocument.entries || {}) as Item);
+        const batches = new Map(ids.map((id, index) => [id, Math.floor(index / 32)]));
+        collectionDocument = await eventArtworkIndex(
+          collectionDocument,
+          (id) => String(batches.get(id)),
+          async (id) => {
+            const url = new URL(this.sourceUrl("events"), location.origin);
+            for (const key of ids.slice((batches.get(id) || 0) * 32, ((batches.get(id) || 0) + 1) * 32))
+              url.searchParams.append("id", key);
+            try {
+              const batch = await fetchJson<{ items: Item }>(url.pathname + url.search, { signal });
+              return batch.items;
+            } catch {
+              return null;
+            }
+          },
+        );
+      }
+      if (!this.isConnected || !this.catalogRequests.current(signal)) return;
+      this.catalogDocument = collectionDocument;
+      this.items = asItems(collectionDocument, this.profile.document);
       this.characters = asItems(characterData);
       this.bands = asItems(bandData);
       this.facetCache = undefined;
@@ -3112,7 +3134,10 @@ export class CatalogScreen extends LitElement {
       image,
       imageFallback: this.imageFallback(item),
       media:
-        this.settings.resource === "events" && item.logo ? eventArtwork(image, String(item.logo), title) : undefined,
+        this.settings.resource === "events" && item.logo
+          ? eventArtwork(String(item.backgroundImage || image), String(item.logo), title)
+          : undefined,
+      aspectRatio: this.settings.resource === "events" ? "16 / 9" : undefined,
       placeholder: kind === "band-item" ? icon("piano", 32) : icon("image", 32),
       // Source art is heterogeneous across the catalogue. A stable media
       // box keeps the grid rhythmic, while contain preserves the source when
