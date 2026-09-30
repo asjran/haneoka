@@ -3,6 +3,7 @@ import { t } from "../i18n/messages";
 import { resolveLocalizedText } from "./localized-text";
 import { disambiguateTitles } from "./title-disambiguation";
 import { formatMoney, moneyName, shopPriceEntries } from "./shop-currency";
+import { resourcePath } from "./resource-route";
 import {
   asRecord,
   fetchOptionalStaticCatalog,
@@ -361,6 +362,17 @@ function catalogImage(kind: SearchableCatalogPage["kind"], value: RecordValue): 
   return typeof image === "string" ? image : "";
 }
 
+function isStaticEntityId(definition: CollectionDefinition, id: string, server: ReleaseServer): boolean {
+  if (/^\d+$/u.test(id)) return true;
+  if (definition.collection !== "passes") return false;
+  try {
+    resourcePath({ server, locale: LOCALES[0], kind: "passes", id });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const RARITY_LABELS: Record<number, string> = { 2: "R", 3: "SR", 4: "SSR", 10: "EX", 20: "BD" };
 const KIND_LABEL_KEYS: Record<string, string> = {
   gameEvent: "game-event",
@@ -587,7 +599,7 @@ async function buildSearchableCatalogPages(server: ReleaseServer): Promise<Searc
   const built = collections.flatMap(({ definition, records: entries }) =>
     entries.flatMap(([key, value]) => {
       const id = recordId(value, key, definition.resource);
-      if (!/^\d+$/u.test(id)) return [];
+      if (!isStaticEntityId(definition, id, server)) return [];
       const ids = characterIds(value);
       const titles = Object.fromEntries(
         LOCALES.map((locale) => [locale, text(value[definition.titleField], locale) || id]),

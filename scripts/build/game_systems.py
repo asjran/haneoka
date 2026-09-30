@@ -35,6 +35,17 @@ def _localized_name(value: Any) -> list[str]:
     return [str(value or ""), "", "", "", ""]
 
 
+def _master_row(data: Any, table: str, identity: int) -> dict[str, Any] | None:
+    return next(
+        (
+            row
+            for row in data.rows(table)
+            if _number(row, "_id") == identity
+        ),
+        None,
+    )
+
+
 def _resource(
     data: Any,
     documents: dict[str, Any],
@@ -93,6 +104,31 @@ def _resource(
         )
         name = data.text(gacha.get("_nameTextId")) if gacha else None
         image = None
+    elif resource_type == 6:
+        source = _master_row(data, "MasterMonthlyPass", resource_id)
+        name = data.text(source.get("_nameTextId")) if source else None
+        image = (
+            _asset(data, f"Shop/Pass/Banner/{resource_id:05d}")
+            if source
+            else None
+        )
+        route = f"/catalog/passes?entry=monthly-{resource_id}" if source else ""
+    elif resource_type == 10:
+        source = _master_row(data, "MasterSeasonPass", resource_id)
+        name = data.text(source.get("_nameTextId")) if source else None
+        image = (
+            _asset(data, f"SeasonPass/Banner/{source.get('_bannerAsset') or ''}")
+            if source
+            else None
+        )
+        route = f"/catalog/passes?entry=season-{resource_id}" if source else ""
+    elif resource_type == 17:
+        source = _master_row(data, "MasterDegree", resource_id)
+        name = data.text(source.get("_nameTextId")) if source else None
+        image = _asset(data, source.get("_imagePath")) if source else None
+        # Degree is a native reward object without a registered public
+        # catalogue collection. Keep its source-backed label and art without
+        # inventing a noncanonical route.
     else:
         name = None
         image = None
