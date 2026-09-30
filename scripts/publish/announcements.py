@@ -6,7 +6,6 @@ import argparse
 import shutil
 import sys
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -29,11 +28,6 @@ from publish.r2 import IMMUTABLE_CACHE, R2Store
 
 OPERATION_PREFIX = "operation"
 SNAPSHOT_CACHE = "public, max-age=60, must-revalidate"
-
-
-@dataclass(frozen=True)
-class _BucketConfig:
-    r2_bucket: str
 
 
 def _media_key(server: str, filename: str) -> str:
@@ -118,13 +112,10 @@ def publish_announcements(
             "preserved": isinstance(previous, dict),
             "snapshotKey": snapshot_key,
             "error": type(exc).__name__,
+            "reason": str(exc),
         }
     finally:
         shutil.rmtree(temporary_root, ignore_errors=True)
-
-
-def _store(config: ServerConfig, concurrency: int) -> R2Store:
-    return R2Store(config, concurrency)
 
 
 def main() -> int:
@@ -138,7 +129,7 @@ def main() -> int:
     args = parser.parse_args()
     config = load_server_config(args.server)
     result = publish_announcements(
-        _store(config, args.concurrency),
+        R2Store(config, args.concurrency),
         config,
         base_url=args.base_url,
         work_dir=args.work_dir,

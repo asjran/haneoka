@@ -1,0 +1,72 @@
+name: Refresh announcements
+
+on:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: Game server
+        type: choice
+        required: true
+        default: jp
+        options: [jp, intl]
+      github_environment:
+        description: GitHub environment
+        type: string
+        required: false
+  workflow_call:
+    inputs:
+      server:
+        type: string
+        required: true
+      github_environment:
+        type: string
+        required: true
+    secrets:
+      cloudflare_account_id:
+        required: true
+      r2_access_key_id:
+        required: true
+      r2_secret_access_key:
+        required: true
+      resource_cdn_authorization:
+        required: false
+      jp_version_subscription:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: announcements-${{ inputs.server }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.github_environment || format('resource-{0}', inputs.server) }}
+    env:
+      RESOURCE_SERVER: ${{ inputs.server }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.cloudflare_account_id || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.r2_access_key_id || secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.r2_secret_access_key || secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_EC2_METADATA_DISABLED: "true"
+      PYTHONPATH: scripts
+      RESOURCE_CDN_AUTHORIZATION: ${{ secrets.resource_cdn_authorization || secrets.RESOURCE_CDN_AUTHORIZATION }}
+      JP_VERSION_SUBSCRIPTION: ${{ secrets.jp_version_subscription || secrets.JP_VERSION_SUBSCRIPTION }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-resource-pipeline
+      - name: Start JP API egress
+        if: startsWith(inputs.server, 'jp') && env.JP_VERSION_SUBSCRIPTION != ''
+        uses: ./.github/actions/setup-jp-api-egress
+        with:
+          subscription_url: ${{ env.JP_VERSION_SUBSCRIPTION }}
+      - name: Refresh announcement snapshot
+        run: |
+          if ! jq -e '.announcements.endpoint // empty' "scripts/config/servers/$RESOURCE_SERVER.json" > /dev/null; then
+            echo "No announcement endpoint is configured for $RESOURCE_SERVER"
+            exit 0
+          fi
+          python scripts/publish/announcements.py --server "$RESOURCE_SERVER" --concurrency 16

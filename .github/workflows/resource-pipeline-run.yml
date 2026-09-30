@@ -87,59 +87,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-resource-pipeline
-      - name: Start JP version egress proxy
-        # The JP version API refuses overseas datacenter ranges (GitHub
-        # runners among them) while JP proxy nodes pass. This local mihomo
-        # carries ONLY the two version-discovery requests (a few KB per run);
-        # CDN downloads, R2 uploads, and GitHub access stay direct.
+      - name: Start JP API egress proxy
         if: startsWith(inputs.server, 'jp') && env.JP_VERSION_SUBSCRIPTION != ''
-        run: |
-          set -euo pipefail
-          dir="$RUNNER_TEMP/jp-proxy"
-          mkdir -p "$dir/providers"
-          curl --fail --location --retry 3 --max-time 60 \
-            -A "clash.meta/1.19.0" \
-            -o "$dir/providers/sub.yaml" \
-            "$JP_VERSION_SUBSCRIPTION"
-          cat > "$dir/config.yaml" <<'YAML'
-          mixed-port: 7899
-          mode: rule
-          log-level: warning
-          ipv6: false
-          proxy-providers:
-            sub:
-              type: file
-              path: ./providers/sub.yaml
-              health-check:
-                enable: false
-          proxy-groups:
-            - name: JP-EGRESS
-              type: select
-              use: [sub]
-              filter: "JP"
-              exclude-filter: "(?i)\\[v6\\]"
-          rules:
-            - MATCH,JP-EGRESS
-          YAML
-          curl --fail --location --retry 3 --max-time 180 \
-            -o "$RUNNER_TEMP/mihomo.gz" \
-            "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.31/mihomo-linux-amd64-v1-v1.19.31.gz"
-          echo "d4304c546c3cddcb6fafd4b4fddb0ba1a95ffa36606fda56d75db2e59ad24114  $RUNNER_TEMP/mihomo.gz" | sha256sum -c -
-          gunzip -c "$RUNNER_TEMP/mihomo.gz" > "$RUNNER_TEMP/mihomo"
-          chmod +x "$RUNNER_TEMP/mihomo"
-          nohup "$RUNNER_TEMP/mihomo" -d "$dir" > "$dir/mihomo.log" 2>&1 &
-          for attempt in $(seq 1 30); do
-            if curl -sS --max-time 5 -x http://127.0.0.1:7899 -o /dev/null \
-                "https://www.gstatic.com/generate_204"; then
-              echo "JP version egress proxy ready (attempt $attempt)"
-              echo "JP_VERSION_PROXY=http://127.0.0.1:7899" >> "$GITHUB_ENV"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "JP version egress proxy failed to become ready" >&2
-          cat "$dir/mihomo.log" >&2 || true
-          exit 1
+        uses: ./.github/actions/setup-jp-api-egress
+        with:
+          subscription_url: ${{ env.JP_VERSION_SUBSCRIPTION }}
       - name: Materialize source input
         id: source_input
         run: |
@@ -857,25 +809,18 @@ jobs:
 
   announcements:
     name: Refresh operational announcements
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
     permissions:
       contents: read
-    environment:
-      name: ${{ inputs.github_environment }}
-    env:
-      RESOURCE_CDN_AUTHORIZATION: ${{ secrets.RESOURCE_CDN_AUTHORIZATION || secrets.resource_cdn_authorization }}
-      JP_VERSION_SUBSCRIPTION: ${{ secrets.jp_version_subscription }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-resource-pipeline
-      - name: Refresh announcement snapshot
-        run: |
-          if ! jq -e '.announcements.endpoint // empty' "scripts/config/servers/$RESOURCE_SERVER.json" > /dev/null; then
-            echo "No announcement endpoint is configured for $RESOURCE_SERVER"
-            exit 0
-          fi
-          python scripts/publish/announcements.py --server "$RESOURCE_SERVER" --concurrency 16
+    uses: ./.github/workflows/announcements.yml
+    with:
+      server: ${{ inputs.server }}
+      github_environment: ${{ inputs.github_environment }}
+    secrets:
+      cloudflare_account_id: ${{ secrets.cloudflare_account_id }}
+      r2_access_key_id: ${{ secrets.r2_access_key_id }}
+      r2_secret_access_key: ${{ secrets.r2_secret_access_key }}
+      resource_cdn_authorization: ${{ secrets.resource_cdn_authorization }}
+      jp_version_subscription: ${{ secrets.jp_version_subscription }}
 
   cleanup:
     name: Remove private R2 build stages

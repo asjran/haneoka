@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import subprocess
 from pathlib import Path
 
 from core.config import ServerConfig
@@ -13,6 +14,7 @@ from core.manifests import stable_json
 
 
 IGNORED_PARTS = {".venv", "__pycache__", "dist", "node_modules", "worker-assets"}
+OPERATIONAL_INPUTS = {"scripts/build/announcements.py"}
 BUILD_INPUTS = (
     "scripts/pipeline.py",
     "scripts/build",
@@ -36,11 +38,16 @@ def _files(root: Path) -> list[Path]:
             files.add(candidate)
             continue
         for current, directories, names in os.walk(candidate):
-            directories[:] = sorted(value for value in directories if value not in IGNORED_PARTS)
+            directories[:] = sorted(
+                value for value in directories if value not in IGNORED_PARTS
+            )
             for name in sorted(names):
                 file = Path(current) / name
-                if file.suffix != ".pyc" and not any(part in IGNORED_PARTS for part in file.relative_to(root).parts):
-                    files.add(file)
+                if file.suffix != ".pyc" and not any(
+                    part in IGNORED_PARTS for part in file.relative_to(root).parts
+                ):
+                    if file.relative_to(root).as_posix() not in OPERATIONAL_INPUTS:
+                        files.add(file)
     return sorted(files)
 
 
@@ -58,13 +65,47 @@ def _output_configuration(config: ServerConfig) -> dict[str, object]:
 
 def build_fingerprint(project_root: Path, config: ServerConfig) -> str:
     files = _files(project_root)
-    payload = "".join(f"{file.relative_to(project_root).as_posix()}:{sha256_file(file)}\n" for file in files)
+    payload = "".join(
+        f"{file.relative_to(project_root).as_posix()}:{sha256_file(file)}\n"
+        for file in files
+    )
     external_lock = project_root / "config/external-repositories.lock.json"
-    chart_repositories = ("cassiopeia", "cassiopeia-plugin-our-notes", "cassiopeia-plugin-sonolus")
+    chart_repositories = (
+        "cassiopeia",
+        "cassiopeia-plugin-our-notes",
+        "cassiopeia-plugin-sonolus",
+    )
     external_inputs: dict[str, str] = {}
     if external_lock.is_file():
         locked = json.loads(external_lock.read_text(encoding="utf-8"))
         repositories = {entry["name"]: entry for entry in locked["repositories"]}
-        external_inputs = {name: repositories[name]["commit"] for name in chart_repositories}
-    configuration = stable_json({**_output_configuration(config), "chartRepositories": external_inputs})
+        external_inputs = {
+            name: repositories[name]["commit"] for name in chart_repositories
+        }
+    elif (project_root / ".git").exists():
+        entries = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(project_root),
+                "ls-tree",
+                "HEAD",
+                "--",
+                *(f".dependencies/{name}" for name in chart_repositories),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        for entry in entries:
+            metadata, path = entry.split("\t", 1)
+            mode, kind, revision = metadata.split()
+            if mode != "160000" or kind != "commit":
+                raise ValueError(f"chart dependency is not a Git submodule: {path}")
+            external_inputs[path.removeprefix(".dependencies/")] = revision
+        if set(external_inputs) != set(chart_repositories):
+            raise ValueError("chart dependency Git submodule pins are incomplete")
+    configuration = stable_json(
+        {**_output_configuration(config), "chartRepositories": external_inputs}
+    )
     return sha256_bytes(f"{PIPELINE_CONTRACT}\n{configuration}{payload}")

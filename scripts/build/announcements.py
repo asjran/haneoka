@@ -217,7 +217,7 @@ def _parse_header_blocks(data: bytes) -> dict[str, str]:
     status_line = next(
         (
             line
-            for block in blocks
+            for block in reversed(blocks)
             for line in block.splitlines()
             if line.startswith("HTTP/")
         ),
@@ -268,6 +268,8 @@ def _grpc_body(
     payload: bytes,
     platform_header: dict[str, str],
     attempts: int = len(RETRY_DELAYS),
+    *,
+    proxy: str | None = None,
 ) -> bytes:
     header_arguments = [
         argument
@@ -291,6 +293,8 @@ def _grpc_body(
         GRPC_USER_AGENT,
         *header_arguments,
     ]
+    if proxy:
+        command_prefix.extend(["--proxy", proxy])
     frame = b"\x00" + len(payload).to_bytes(4, "big") + payload
     last_error: RuntimeError | None = None
     for delay in RETRY_DELAYS[: max(1, attempts)]:
@@ -394,10 +398,16 @@ def _source_language(server: str, title: str, html: str) -> str | None:
 
 
 def _fetch_announcement_html(
-    endpoint: str, announcement_id: int, platform_header: dict[str, str]
+    endpoint: str,
+    announcement_id: int,
+    platform_header: dict[str, str],
+    proxy: str | None = None,
 ) -> str:
     body = _grpc_body(
-        endpoint + GET_PATH, _request_id_payload(announcement_id), platform_header
+        endpoint + GET_PATH,
+        _request_id_payload(announcement_id),
+        platform_header,
+        proxy=proxy,
     )
     outer = _decode_fields(body)
     entry_bytes = _first(outer, 1)
@@ -540,6 +550,7 @@ def collect_announcements(
     if not endpoint:
         raise ValueError(f"no announcements endpoint for {config.id}")
     platform_header = {"x-platform": config.platform} if config.platform else {}
+    proxy = proxy_from_env(config.version_proxy_env)
     authorization = _fresh_credential(config)
     allowed_hosts = frozenset(
         host
@@ -550,7 +561,9 @@ def collect_announcements(
         )
         if (host := urllib.parse.urlsplit(value).hostname)
     )
-    entries = _decode_fields(_grpc_body(endpoint + LIST_PATH, b"", platform_header))
+    entries = _decode_fields(
+        _grpc_body(endpoint + LIST_PATH, b"", platform_header, proxy=proxy)
+    )
     raw_entries = [
         _decode_fields(item) for item in entries.get(1, []) if isinstance(item, bytes)
     ][:MAX_ANNOUNCEMENTS]
@@ -573,7 +586,11 @@ def collect_announcements(
     with ThreadPoolExecutor(max_workers=ANNOUNCEMENT_CONCURRENCY) as pool:
         detail_futures = {
             pool.submit(
-                _fetch_announcement_html, endpoint, int(entry["id"]), platform_header
+                _fetch_announcement_html,
+                endpoint,
+                int(entry["id"]),
+                platform_header,
+                proxy,
             ): int(entry["id"])
             for entry in announcements
         }
