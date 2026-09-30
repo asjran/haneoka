@@ -544,12 +544,21 @@ def _download(
 
 
 def _resolve_catalog_version(
-    config: ServerConfig, floor: str, scratch: Path, *, unity_version: str
+    config: ServerConfig,
+    floor: str,
+    scratch: Path,
+    *,
+    unity_version: str,
+    master_resource_version: str = "",
 ) -> str:
     """Resolve the newest catalog version published at or above ``floor``.
 
     Versioned-catalog CDNs (e.g. intl-cbt) publish ``catalog_{version}.hash`` with
     no version pointer, so the live version has to be discovered by probing.
+
+    The live Master resource version is also probed as a candidate when it is a
+    four-part numeric version. Every accepted candidate has both its ``.hash``
+    and ``.bin`` successfully downloaded.
 
     The build (4th) component is a contiguous hotfix counter within a line and is
     walked upward from the floor — this tracks every hot-update, the common case
@@ -574,17 +583,29 @@ def _resolve_catalog_version(
 
     def exists(version_tuple: tuple[int, ...]) -> bool:
         candidate = ".".join(str(component) for component in version_tuple)
-        probe = scratch / f".probe_catalog_{candidate}.hash"
-        hit = _download(
-            f"{config.remote_root}/catalog_{candidate}.hash",
-            probe,
-            config,
-            unity_version=unity_version,
-            missing_ok=True,
-            quiet=True,
-        )
-        probe.unlink(missing_ok=True)
-        return hit
+        hash_probe = scratch / f".probe_catalog_{candidate}.hash"
+        catalog_probe = scratch / f".probe_catalog_{candidate}.bin"
+        try:
+            if not _download(
+                f"{config.remote_root}/catalog_{candidate}.hash",
+                hash_probe,
+                config,
+                unity_version=unity_version,
+                missing_ok=True,
+                quiet=True,
+            ):
+                return False
+            return _download(
+                f"{config.remote_root}/catalog_{candidate}.bin",
+                catalog_probe,
+                config,
+                unity_version=unity_version,
+                missing_ok=True,
+                quiet=True,
+            )
+        finally:
+            hash_probe.unlink(missing_ok=True)
+            catalog_probe.unlink(missing_ok=True)
 
     def line_max(major: int, minor: int, patch: int, start_build: int) -> int | None:
         # Highest build on a line walking upward from start_build. Returns None
@@ -608,6 +629,20 @@ def _resolve_catalog_version(
     build = line_max(base[0], base[1], base[2], base[3])
     if build is not None:
         best = (base[0], base[1], base[2], build)
+
+    if re.fullmatch(r"\d+(?:\.\d+){3}", master_resource_version):
+        try:
+            master_candidate = tuple(
+                int(part) for part in master_resource_version.split(".")
+            )
+        except ValueError:
+            master_candidate = None
+        if (
+            master_candidate is not None
+            and master_candidate > best
+            and exists(master_candidate)
+        ):
+            best = master_candidate
 
     # Probe each higher dimension at build 0 (patch, then minor, then major),
     # drilling into the build dimension on any line the CDN publishes.
@@ -717,6 +752,7 @@ class CatalogResolution:
     asset_dir: str = ""
     server_version: dict[str, str] | None = None
     authorization: str = ""
+    master_version: tuple[str, str] | None = None
 
 
 def _resolve_catalogs(
@@ -747,6 +783,7 @@ def _resolve_catalogs(
     asset_dir = ""
     server_version: dict[str, str] | None = None
     discovered_authorization = ""
+    master_version: tuple[str, str] | None = None
     if catalog_entries:
         _primary_locale, catalog_path = catalog_entries[0]
         catalog_sha = sha256_file(catalog_path)
@@ -813,8 +850,23 @@ def _resolve_catalogs(
             "platformHash": version_info.platform_hash,
         }
     elif config.catalog_version:
+        if (
+            re.fullmatch(r"\d+(?:\.\d+){3}", config.catalog_version)
+            and config.master_remote_root
+            and config.master_version_endpoint
+            and not config.offline
+        ):
+            master_version = discover_master_version(
+                config.master_version_endpoint,
+                skip_resolution_check=config.skip_public_resolution_check,
+                proxy=proxy_from_env(config.version_proxy_env),
+            )
         catalog_version = _resolve_catalog_version(
-            config, config.catalog_version, scratch, unity_version=unity_version
+            config,
+            config.catalog_version,
+            scratch,
+            unity_version=unity_version,
+            master_resource_version=master_version[1] if master_version else "",
         )
         server_version = {"version": catalog_version}
         if not config.remote_root:
@@ -887,6 +939,7 @@ def _resolve_catalogs(
         asset_dir=asset_dir,
         server_version=server_version,
         authorization=discovered_authorization,
+        master_version=master_version,
     )
 
 
@@ -942,14 +995,21 @@ class MasterResolution:
         }
 
 
-def _resolve_master(config: ServerConfig, scratch: Path, authorization: str = "") -> MasterResolution | None:
+def _resolve_master(
+    config: ServerConfig,
+    scratch: Path,
+    authorization: str = "",
+    master_version: tuple[str, str] | None = None,
+) -> MasterResolution | None:
     if not config.master_remote_root or config.offline:
         return None
-    version, resource_version = discover_master_version(
-        config.master_version_endpoint,
-        skip_resolution_check=config.skip_public_resolution_check,
-        proxy=proxy_from_env(config.version_proxy_env),
-    )
+    if master_version is None:
+        master_version = discover_master_version(
+            config.master_version_endpoint,
+            skip_resolution_check=config.skip_public_resolution_check,
+            proxy=proxy_from_env(config.version_proxy_env),
+        )
+    version, resource_version = master_version
     if (
         len(version) > 128
         or not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", version)
@@ -1035,7 +1095,9 @@ def probe_source_identity(
     with tempfile.TemporaryDirectory(prefix="haneoka-identity-") as temporary:
         scratch = Path(temporary)
         resolution = _resolve_catalogs(config, scratch, config.unity_version, None)
-        master = _resolve_master(config, scratch, resolution.authorization)
+        master = _resolve_master(
+            config, scratch, resolution.authorization, resolution.master_version
+        )
         _assert_master_not_ahead(master, resolution.server_version)
         identity = _catalog_identity(resolution.catalog_sha, list(resolution.extra_files))
         source_id = _source_id(version_code, package_sha, identity, master.identity if master else "")
@@ -1107,7 +1169,9 @@ def ingest_package(
         asset_dir = resolution.asset_dir
         server_version = resolution.server_version
         discovered_authorization = resolution.authorization
-        master = _resolve_master(config, scratch, discovered_authorization)
+        master = _resolve_master(
+            config, scratch, discovered_authorization, resolution.master_version
+        )
         _assert_master_not_ahead(master, server_version)
 
         version = package_metadata["versionCode"] or "unknown"
