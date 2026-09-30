@@ -163,10 +163,10 @@ export function encodeSonolusLocalizedText(
 }
 
 const CLIENT_LABELS: Readonly<Record<string, SonolusLocalizedLabels>> = {
-  "GBP Charts": { en: "GBP Charts", ja: "GBP 譜面", "zh-CN": "GBP 谱面", "zh-TW": "GBP 譜面", ko: "GBP 채보" },
+  "GBP Charts": { en: "GBP Charts", ja: "ガルパ譜面", "zh-CN": "GBP 谱面", "zh-TW": "GBP 譜面", ko: "GBP 채보" },
   "GBP Playlists": {
     en: "GBP Playlists",
-    ja: "GBP プレイリスト",
+    ja: "ガルパプレイリスト",
     "zh-CN": "GBP 歌单",
     "zh-TW": "GBP 歌單",
     ko: "GBP 플레이리스트",

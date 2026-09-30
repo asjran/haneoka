@@ -2237,8 +2237,8 @@ async function handleArtifact(
 }
 
 const BESTDORI_SONOLUS_DATA_ID = /^bestdori:(\d+):(easy|normal|hard|expert|special)$/u;
-const BESTDORI_SONOLUS_LEVEL_PREFIX = `/sonolus/levels/${encodeURIComponent("#haneoka-gbp-")}`;
-const BESTDORI_SONOLUS_PLAYLIST_PREFIX = `/sonolus/playlists/${encodeURIComponent("#haneoka-gbp-")}`;
+const BESTDORI_SONOLUS_LEVEL_PREFIX = "/sonolus/levels/haneoka-gbp-";
+const BESTDORI_SONOLUS_PLAYLIST_PREFIX = "/sonolus/playlists/haneoka-gbp-";
 
 function compareSonolusReleases(left: Release, right: Release): number {
   const server = left.server.localeCompare(right.server, "en");
@@ -2459,7 +2459,7 @@ async function handleSonolus(
     /^[a-f0-9]{64}$/u.test(payloadState.revision)
       ? payloadState.revision
       : "unversioned";
-  const ourNotesRevision = `identity-text-v1:${payloadRevision}:${ourNotesSonolusRevision(releases)}`;
+  const ourNotesRevision = `identity-text-v2:${payloadRevision}:${ourNotesSonolusRevision(releases)}`;
   const revision = isBestdoriCatalog
     ? `${ourNotesRevision}:${bestdoriSonolusRevision(Date.now(), env.BESTDORI_UPSTREAM_BASE)}`
     : ourNotesRevision;

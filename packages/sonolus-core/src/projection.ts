@@ -58,7 +58,7 @@ export function sonolusLevelName(server: string, musicId: string | number, diffi
   const id = String(musicId).trim();
   if (!/^\d{1,16}$/u.test(id)) throw new TypeError(`Invalid Sonolus music ID: ${id}`);
   const level = difficulty.trim().toLocaleLowerCase("en-US");
-  const name = `#haneoka-${sonolusNamePart(server, "server")}-${id}-${sonolusNamePart(level, "difficulty")}`;
+  const name = `haneoka-${sonolusNamePart(server, "server")}-${id}-${sonolusNamePart(level, "difficulty")}`;
   if (name.length > 255) throw new TypeError("Sonolus level name is too long");
   return name;
 }
@@ -66,13 +66,13 @@ export function sonolusLevelName(server: string, musicId: string | number, diffi
 export function sonolusPlaylistName(server: string, stableId: string | number, difficulty?: string): string {
   const suffix =
     difficulty === undefined ? "" : `-${sonolusNamePart(difficulty.trim().toLocaleLowerCase("en-US"), "difficulty")}`;
-  const name = `#haneoka-${sonolusNamePart(server, "server")}-${sonolusNamePart(stableId, "playlist ID")}${suffix}`;
+  const name = `haneoka-${sonolusNamePart(server, "server")}-${sonolusNamePart(stableId, "playlist ID")}${suffix}`;
   if (name.length > 255) throw new TypeError("Sonolus playlist name is too long");
   return name;
 }
 
 export function sonolusServerFromLevelName(name: string): string | null {
-  const match = /^#haneoka-(.+)-(\d+)-[A-Za-z0-9][A-Za-z0-9._~-]*$/u.exec(name);
+  const match = /^haneoka-(.+)-(\d+)-[A-Za-z0-9][A-Za-z0-9._~-]*$/u.exec(name);
   const server = match?.[1];
   return server && SONOLUS_NAME_PART.test(server) ? server : null;
 }
