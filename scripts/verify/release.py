@@ -49,7 +49,7 @@ from core.storage import (
 
 FORBIDDEN_SEGMENTS = {"legacy", "_unity"}
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
-KTX2_MAGIC = b"\xABKTX 20\xBB\r\n\x1A\n"
+KTX2_MAGIC = b"\xabKTX 20\xbb\r\n\x1a\n"
 KTX2_ASTC_6X6_UNORM = 165
 KTX2_BC7_UNORM = 145
 KTX2_HEADER_BYTES = 104
@@ -109,7 +109,10 @@ def describe_release(root: Path, server: str, source_id: str) -> dict[str, Any]:
 def write_release_manifest(root: Path, server: str, source_id: str) -> dict[str, Any]:
     manifest = describe_release(root, server, source_id)
     write_json(root / "release.json", manifest, pretty=True)
-    write_json(root / RELEASE_IDENTITY_FILENAME, release_identity_descriptor(server, manifest["releaseId"], manifest))
+    write_json(
+        root / RELEASE_IDENTITY_FILENAME,
+        release_identity_descriptor(server, manifest["releaseId"], manifest),
+    )
     return manifest
 
 
@@ -131,7 +134,10 @@ def write_release_identity_files(
         "totalBytes": sum(item["bytes"] for item in entries),
     }
     write_json(root / "release.json", manifest, pretty=True)
-    write_json(root / RELEASE_IDENTITY_FILENAME, release_identity_descriptor(server, manifest["releaseId"], manifest))
+    write_json(
+        root / RELEASE_IDENTITY_FILENAME,
+        release_identity_descriptor(server, manifest["releaseId"], manifest),
+    )
     return manifest
 
 
@@ -289,7 +295,9 @@ def _validate_zlib_level(
                     output = decoder.decompress(pending, limit)
                     produced += len(output)
                     if produced > expected_uncompressed:
-                        raise ValueError("KTX2 zlib level exceeds declared uncompressed size")
+                        raise ValueError(
+                            "KTX2 zlib level exceeds declared uncompressed size"
+                        )
                     if decoder.unused_data:
                         raise ValueError("KTX2 zlib level has trailing bytes")
                     pending = decoder.unconsumed_tail
@@ -329,7 +337,9 @@ def _native_variant_file_errors(
     try:
         document = read_json(metadata_file)
     except Exception as error:
-        return [f"invalid Live2D metadata while checking native texture variants: {error}"]
+        return [
+            f"invalid Live2D metadata while checking native texture variants: {error}"
+        ]
     if not isinstance(document, dict):
         return ["Live2D metadata must be an object"]
     models = document.get("models")
@@ -339,7 +349,46 @@ def _native_variant_file_errors(
     # Header/index validation is cached by release path.  In particular, do
     # not read the compressed multi-megabyte level again for a second metadata
     # reference or for a second model that happens to share an artifact.
-    validated_paths: dict[str, tuple[int, int, int, int, int, int, int, int, int, int, int, int] | None] = {}
+    validated_paths: dict[str, tuple[int, ...] | None] = {}
+
+    def container_flip_y(file: Path, header: bytes) -> bool:
+        offset = int.from_bytes(header[56:60], "little")
+        length = int.from_bytes(header[60:64], "little")
+        if not length:
+            return False
+        if (
+            offset < KTX2_HEADER_BYTES
+            or length > 65536
+            or offset + length > file.stat().st_size
+        ):
+            raise ValueError("KTX2 metadata range is invalid")
+        with file.open("rb") as stream:
+            stream.seek(offset)
+            metadata = stream.read(length)
+        orientation = "rd"
+        cursor = 0
+        seen_orientation = False
+        while cursor < length:
+            if cursor + 4 > length:
+                raise ValueError("KTX2 metadata entry is truncated")
+            size = int.from_bytes(metadata[cursor : cursor + 4], "little")
+            cursor += 4
+            if not size or cursor + size > length:
+                raise ValueError("KTX2 metadata entry length is invalid")
+            key, separator, value = metadata[cursor : cursor + size].partition(b"\0")
+            if not separator:
+                raise ValueError("KTX2 metadata key is invalid")
+            if key == b"KTXorientation":
+                if seen_orientation:
+                    raise ValueError("KTX2 orientation is repeated")
+                seen_orientation = True
+                orientation = value.rstrip(b"\0").decode("ascii")
+            cursor += (size + 3) & ~3
+            if cursor > length:
+                raise ValueError("KTX2 metadata padding is truncated")
+        if orientation not in {"ru", "rd"}:
+            raise ValueError("KTX2 orientation is unsupported")
+        return orientation == "ru"
 
     def validate_container(
         source_path: str,
@@ -361,11 +410,17 @@ def _native_variant_file_errors(
             return
         byte_length = variant.get("byteLength")
         if source_file.stat().st_size != byte_length:
-            errors.append(f"{location}.byteLength does not match release file: {source_path}")
+            errors.append(
+                f"{location}.byteLength does not match release file: {source_path}"
+            )
         if source_entry.get("bytes") != byte_length:
-            errors.append(f"{location}.byteLength does not match release manifest: {source_path}")
+            errors.append(
+                f"{location}.byteLength does not match release manifest: {source_path}"
+            )
         if source_entry.get("sha256") != variant.get("sha256"):
-            errors.append(f"{location}.sha256 does not match release manifest: {source_path}")
+            errors.append(
+                f"{location}.sha256 does not match release manifest: {source_path}"
+            )
         format_name = variant.get("format")
         width_value = variant.get("width")
         height_value = variant.get("height")
@@ -383,14 +438,20 @@ def _native_variant_file_errors(
         if source_path not in validated_paths:
             cached = None
             if source_file.suffix.casefold() != ".ktx2":
-                errors.append(f"{location}.source has unsupported container suffix: {source_path}")
+                errors.append(
+                    f"{location}.source has unsupported container suffix: {source_path}"
+                )
             elif source_file.stat().st_size < KTX2_HEADER_BYTES:
-                errors.append(f"{location}.source is a truncated KTX2 container: {source_path}")
+                errors.append(
+                    f"{location}.source is a truncated KTX2 container: {source_path}"
+                )
             else:
                 with source_file.open("rb") as stream:
                     header = stream.read(KTX2_HEADER_BYTES)
                 if len(header) < KTX2_HEADER_BYTES or header[:12] != KTX2_MAGIC:
-                    errors.append(f"{location}.source is not a KTX2 container: {source_path}")
+                    errors.append(
+                        f"{location}.source is not a KTX2 container: {source_path}"
+                    )
                 else:
                     cached = (
                         int.from_bytes(header[12:16], "little"),
@@ -422,15 +483,31 @@ def _native_variant_file_errors(
                         uncompressed,
                     ) = cached
                     if type_size != 1:
-                        errors.append(f"{location}.source KTX2 typeSize must be 1: {source_path}")
+                        errors.append(
+                            f"{location}.source KTX2 typeSize must be 1: {source_path}"
+                        )
                     if pixel_depth != 0 or layer_count != 0 or face_count != 1:
                         errors.append(
                             f"{location}.source KTX2 must describe one 2D non-array, non-cubemap texture: {source_path}"
                         )
                     if levels != 1:
-                        errors.append(f"{location}.source KTX2 must contain one level: {source_path}")
-                    if offset < KTX2_HEADER_BYTES or length <= 0 or offset + length > source_file.stat().st_size:
-                        errors.append(f"{location}.source KTX2 level-0 range is invalid: {source_path}")
+                        errors.append(
+                            f"{location}.source KTX2 must contain one level: {source_path}"
+                        )
+                    if (
+                        offset < KTX2_HEADER_BYTES
+                        or length <= 0
+                        or offset + length > source_file.stat().st_size
+                    ):
+                        errors.append(
+                            f"{location}.source KTX2 level-0 range is invalid: {source_path}"
+                        )
+                    try:
+                        flip_y = container_flip_y(source_file, header)
+                        cached += (int(flip_y),)
+                    except (ValueError, UnicodeDecodeError) as error:
+                        errors.append(f"{location}.source {error}: {source_path}")
+                        cached = None
             validated_paths[source_path] = cached
         if cached is not None:
             (
@@ -446,8 +523,15 @@ def _native_variant_file_errors(
                 offset,
                 length,
                 uncompressed,
+                flip_y,
             ) = cached
-            expected_vk = KTX2_ASTC_6X6_UNORM if format_name == "astc6x6" else KTX2_BC7_UNORM
+            if variant.get("flipY") is not bool(flip_y):
+                errors.append(
+                    f"{location}.flipY does not match KTX2 orientation: {source_path}"
+                )
+            expected_vk = (
+                KTX2_ASTC_6X6_UNORM if format_name == "astc6x6" else KTX2_BC7_UNORM
+            )
             expected_scheme = 0 if format_name == "astc6x6" else 3
             expected_uncompressed = (
                 ((width_value + 5) // 6) * ((height_value + 5) // 6) * 16
@@ -455,13 +539,21 @@ def _native_variant_file_errors(
                 else ((width_value + 3) // 4) * ((height_value + 3) // 4) * 16
             )
             if vk_format != expected_vk:
-                errors.append(f"{location}.source KTX2 vkFormat does not match {format_name}: {source_path}")
+                errors.append(
+                    f"{location}.source KTX2 vkFormat does not match {format_name}: {source_path}"
+                )
             if scheme != expected_scheme:
-                errors.append(f"{location}.source KTX2 supercompression does not match {format_name}: {source_path}")
+                errors.append(
+                    f"{location}.source KTX2 supercompression does not match {format_name}: {source_path}"
+                )
             if uncompressed != expected_uncompressed:
-                errors.append(f"{location}.source KTX2 level size does not match dimensions: {source_path}")
+                errors.append(
+                    f"{location}.source KTX2 level size does not match dimensions: {source_path}"
+                )
             if format_name == "astc6x6" and length != expected_uncompressed:
-                errors.append(f"{location}.source ASTC level-0 size is invalid: {source_path}")
+                errors.append(
+                    f"{location}.source ASTC level-0 size is invalid: {source_path}"
+                )
             if (
                 format_name == "bc7"
                 and scheme == 3
@@ -481,7 +573,9 @@ def _native_variant_file_errors(
                         f"{location}.source BC7 zlib level is invalid: {error}: {source_path}"
                     )
             if (width, height) != (variant.get("width"), variant.get("height")):
-                errors.append(f"{location}.source KTX2 dimensions do not match metadata: {source_path}")
+                errors.append(
+                    f"{location}.source KTX2 dimensions do not match metadata: {source_path}"
+                )
 
     for model_key, model in models.items():
         location = f"metadata/live2d.json.models[{model_key!r}]"
@@ -509,10 +603,18 @@ def _native_variant_file_errors(
             texture_index = variant.get("textureIndex")
             format_name = variant.get("format")
             identity = (
-                texture_index if isinstance(texture_index, int) and not isinstance(texture_index, bool) else -1,
+                texture_index
+                if isinstance(texture_index, int)
+                and not isinstance(texture_index, bool)
+                else -1,
                 str(format_name),
             )
-            if not isinstance(texture_index, int) or isinstance(texture_index, bool) or texture_index < 0 or texture_index >= len(textures):
+            if (
+                not isinstance(texture_index, int)
+                or isinstance(texture_index, bool)
+                or texture_index < 0
+                or texture_index >= len(textures)
+            ):
                 errors.append(f"{item_location}.textureIndex is invalid")
             if format_name not in {"astc6x6", "bc7"}:
                 errors.append(f"{item_location}.format must be astc6x6 or bc7")
@@ -520,27 +622,38 @@ def _native_variant_file_errors(
                 errors.append(f"{item_location} duplicates textureIndex/format")
             else:
                 seen.add(identity)
-            if isinstance(texture_index, int) and 0 <= texture_index < len(textures) and variant.get("texture") != textures[texture_index]:
-                errors.append(f"{item_location}.texture does not match runtime.textures[{texture_index}]")
+            if (
+                isinstance(texture_index, int)
+                and 0 <= texture_index < len(textures)
+                and variant.get("texture") != textures[texture_index]
+            ):
+                errors.append(
+                    f"{item_location}.texture does not match runtime.textures[{texture_index}]"
+                )
             if variant.get("container") != "ktx2":
                 errors.append(f"{item_location}.container must be ktx2")
             for field in ("width", "height", "byteLength"):
                 value = variant.get(field)
                 if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                     errors.append(f"{item_location}.{field} is invalid")
-            expected_flip = format_name == "bc7"
-            if variant.get("flipY") is not expected_flip:
-                errors.append(f"{item_location}.flipY does not match {format_name}")
+            if not isinstance(variant.get("flipY"), bool):
+                errors.append(f"{item_location}.flipY must be a boolean")
             for field in ("sha256", "sourceTextureSha256"):
-                if not isinstance(variant.get(field), str) or not SHA256.fullmatch(variant[field]):
+                if not isinstance(variant.get(field), str) or not SHA256.fullmatch(
+                    variant[field]
+                ):
                     errors.append(f"{item_location}.{field} is invalid")
             if "cacheKey" in variant and (
                 not isinstance(variant.get("cacheKey"), str)
                 or not SHA256.fullmatch(variant["cacheKey"])
             ):
                 errors.append(f"{item_location}.cacheKey is invalid")
-            texture_path, texture_error = _variant_release_path(variant.get("texture"), server)
-            source_path, source_error = _variant_release_path(variant.get("source"), server)
+            texture_path, texture_error = _variant_release_path(
+                variant.get("texture"), server
+            )
+            source_path, source_error = _variant_release_path(
+                variant.get("source"), server
+            )
             if texture_error:
                 errors.append(f"{item_location}.texture: {texture_error}")
             if source_error:
@@ -548,11 +661,19 @@ def _native_variant_file_errors(
             if texture_path is None or source_path is None:
                 continue
             if texture_path not in declared:
-                errors.append(f"{item_location}.texture is absent from release: {texture_path}")
-            elif manifest_entries.get(texture_path, {}).get("sha256") != variant.get("sourceTextureSha256"):
-                errors.append(f"{item_location}.sourceTextureSha256 does not match canonical PNG: {texture_path}")
+                errors.append(
+                    f"{item_location}.texture is absent from release: {texture_path}"
+                )
+            elif manifest_entries.get(texture_path, {}).get("sha256") != variant.get(
+                "sourceTextureSha256"
+            ):
+                errors.append(
+                    f"{item_location}.sourceTextureSha256 does not match canonical PNG: {texture_path}"
+                )
             if not source_path.startswith("runtime/live2d/"):
-                errors.append(f"{item_location}.source is outside runtime/live2d: {source_path}")
+                errors.append(
+                    f"{item_location}.source is outside runtime/live2d: {source_path}"
+                )
             validate_container(source_path, variant, item_location)
     return errors
 
@@ -583,8 +704,7 @@ def _partition_errors(
     if (
         not isinstance(shards, list)
         or any(
-            not isinstance(shard, str)
-            or not re.fullmatch(r"[a-f0-9]{2}", shard)
+            not isinstance(shard, str) or not re.fullmatch(r"[a-f0-9]{2}", shard)
             for shard in shards
         )
         or shards != sorted(set(shards))
@@ -626,14 +746,20 @@ def _partition_errors(
             if relation_value_mode == "records":
                 if not isinstance(value, dict):
                     errors.append(f"{label} relation value must be an object: {key}")
-                elif any(not valid_catalog_route_key(identifier) for identifier in value):
-                    errors.append(f"{label} relation contains an invalid entity id: {key}")
+                elif any(
+                    not valid_catalog_route_key(identifier) for identifier in value
+                ):
+                    errors.append(
+                        f"{label} relation contains an invalid entity id: {key}"
+                    )
                 else:
                     related_ids = list(value)
             elif relation_value_mode == "ids":
                 if (
                     not isinstance(value, list)
-                    or any(not valid_catalog_route_key(identifier) for identifier in value)
+                    or any(
+                        not valid_catalog_route_key(identifier) for identifier in value
+                    )
                     or value != sorted(set(value))
                 ):
                     errors.append(f"{label} relation id list is invalid: {key}")
@@ -824,7 +950,9 @@ def _anon_tokyo_index_errors(
         for table, count in source_table_counts.items():
             source_table = source_tables.get(table)
             rows = source_table.get("rows") if isinstance(source_table, dict) else None
-            fields = source_table.get("fields") if isinstance(source_table, dict) else None
+            fields = (
+                source_table.get("fields") if isinstance(source_table, dict) else None
+            )
             if (
                 not isinstance(table, str)
                 or not table.startswith("MasterAT")
@@ -953,9 +1081,7 @@ def _spine_index_errors(
         or set(unavailable_order) != set(unavailable)
     ):
         errors.append("spine unavailable model order is invalid")
-    allowed_summary_fields = set(
-        RESOURCE_SPECS["spine"].projection.include or ()
-    )
+    allowed_summary_fields = set(RESOURCE_SPECS["spine"].projection.include or ())
     for identity, model in models.items():
         if (
             not isinstance(identity, str)
@@ -1020,7 +1146,9 @@ def _catalog_storage_errors(
             "shards": CATALOG_PARTITION_SHARDS,
         }
     ):
-        errors.append("catalog storage manifest identity or partition contract is invalid")
+        errors.append(
+            "catalog storage manifest identity or partition contract is invalid"
+        )
     resources = manifest.get("resources")
     required_resource_set = frozenset(CATALOG_REQUIRED_RESOURCES)
     optional_resource_set = frozenset(CATALOG_OPTIONAL_RESOURCES)
@@ -1045,19 +1173,21 @@ def _catalog_storage_errors(
         dependencies = descriptor.get("dependencies")
         index_path = f"api/v1/catalog/{resource}/index.json"
         storage_paths.add(index_path)
-        expected_kind = "document" if RESOURCE_SPECS[resource].collection is None else "collection"
+        expected_kind = (
+            "document" if RESOURCE_SPECS[resource].collection is None else "collection"
+        )
         if kind != expected_kind:
             errors.append(f"catalog resource has an invalid kind: {resource}")
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             errors.append(f"catalog resource has an invalid count: {resource}")
         else:
             counts[resource] = count
-        if (
-            dependencies != list(RESOURCE_SPECS[resource].dependencies)
-        ):
+        if dependencies != list(RESOURCE_SPECS[resource].dependencies):
             errors.append(f"catalog resource has invalid dependencies: {resource}")
         if descriptor.get("index") != index_path or index_path not in declared:
-            errors.append(f"catalog resource index is missing or non-canonical: {resource}")
+            errors.append(
+                f"catalog resource index is missing or non-canonical: {resource}"
+            )
         if resource == "story-assets" and index_path in declared:
             try:
                 story_assets_index = read_json(root / index_path)
@@ -1095,20 +1225,24 @@ def _catalog_storage_errors(
                     or provenance.get("server") != server
                     or provenance.get("sourceId") != source_id
                 ):
-                    errors.append("catalog provenance identity does not match the release")
+                    errors.append(
+                        "catalog provenance identity does not match the release"
+                    )
         entities = descriptor.get("entities")
         if kind == "collection" and count and entities is None:
             errors.append(f"catalog resource entities are missing: {resource}")
         if kind == "document" and entities is not None:
             errors.append(f"catalog document must not declare entities: {resource}")
         if entities is not None:
-            partition_errors, partition_count, _, partition_paths, entity_keys = _partition_errors(
-                root,
-                declared,
-                entities,
-                f"api/v1/catalog/{resource}/entities/",
-                f"catalog {resource} entities",
-                catalog_route_keys=True,
+            partition_errors, partition_count, _, partition_paths, entity_keys = (
+                _partition_errors(
+                    root,
+                    declared,
+                    entities,
+                    f"api/v1/catalog/{resource}/entities/",
+                    f"catalog {resource} entities",
+                    catalog_route_keys=True,
+                )
             )
             errors.extend(partition_errors)
             storage_paths.update(partition_paths)
@@ -1135,15 +1269,15 @@ def _catalog_storage_errors(
             or _catalog_nested(index_document, view.collection) is not None
         }
         if set(views) != set(expected_views):
-            errors.append(f"catalog resource views do not match the registry: {resource}")
+            errors.append(
+                f"catalog resource views do not match the registry: {resource}"
+            )
         for view_name, view_descriptor in views.items():
             view = expected_views.get(view_name)
             if view is None or not isinstance(view_descriptor, dict):
                 errors.append(f"catalog {resource}/{view_name} view is invalid")
                 continue
-            view_index_path = (
-                f"api/v1/catalog/{resource}/views/{view_name}/index.json"
-            )
+            view_index_path = f"api/v1/catalog/{resource}/views/{view_name}/index.json"
             storage_paths.add(view_index_path)
             if (
                 view_descriptor.get("index") != view_index_path
@@ -1154,22 +1288,24 @@ def _catalog_storage_errors(
                 errors.append(
                     f"catalog {resource}/{view_name} view contract is non-canonical"
                 )
-            view_partition_errors, view_count, _, view_partition_paths, view_entity_keys = (
-                _partition_errors(
-                    root,
-                    declared,
-                    view_descriptor.get("entities"),
-                    f"api/v1/catalog/{resource}/views/{view_name}/entities/",
-                    f"catalog {resource}/{view_name} view entities",
-                    catalog_route_keys=True,
-                )
+            (
+                view_partition_errors,
+                view_count,
+                _,
+                view_partition_paths,
+                view_entity_keys,
+            ) = _partition_errors(
+                root,
+                declared,
+                view_descriptor.get("entities"),
+                f"api/v1/catalog/{resource}/views/{view_name}/entities/",
+                f"catalog {resource}/{view_name} view entities",
+                catalog_route_keys=True,
             )
             errors.extend(view_partition_errors)
             storage_paths.update(view_partition_paths)
             if view_descriptor.get("count") != view_count:
-                errors.append(
-                    f"catalog {resource}/{view_name} view count mismatch"
-                )
+                errors.append(f"catalog {resource}/{view_name} view count mismatch")
             if view_index_path in declared:
                 try:
                     view_index = read_json(root / view_index_path)
@@ -1191,11 +1327,17 @@ def _catalog_storage_errors(
         if not isinstance(relations, dict):
             errors.append(f"catalog resource relations must be an object: {resource}")
             continue
-        expected_relations = {relation.name for relation in RESOURCE_SPECS[resource].relations}
+        expected_relations = {
+            relation.name for relation in RESOURCE_SPECS[resource].relations
+        }
         if set(relations) != expected_relations:
-            errors.append(f"catalog resource relations do not match the registry: {resource}")
+            errors.append(
+                f"catalog resource relations do not match the registry: {resource}"
+            )
         for relation, relation_descriptor in relations.items():
-            if not isinstance(relation, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", relation):
+            if not isinstance(relation, str) or not re.fullmatch(
+                r"[a-z][a-z0-9-]*", relation
+            ):
                 errors.append(f"catalog {resource} has an invalid relation name")
                 continue
             expected_relation = next(
@@ -1212,7 +1354,9 @@ def _catalog_storage_errors(
                 else None
             )
             if expected_relation is None or value_mode != expected_relation.value_mode:
-                errors.append(f"catalog {resource}/{relation} relation value mode is invalid")
+                errors.append(
+                    f"catalog {resource}/{relation} relation value mode is invalid"
+                )
             partition_errors, _, nested_count, partition_paths, _ = _partition_errors(
                 root,
                 declared,
@@ -1220,7 +1364,9 @@ def _catalog_storage_errors(
                 f"api/v1/catalog/{resource}/relations/{relation}/",
                 f"catalog {resource}/{relation} relation",
                 catalog_route_keys=True,
-                relation_value_mode=value_mode if value_mode in {"ids", "records"} else None,
+                relation_value_mode=value_mode
+                if value_mode in {"ids", "records"}
+                else None,
                 entity_keys=entity_keys,
             )
             errors.extend(partition_errors)
@@ -1229,7 +1375,9 @@ def _catalog_storage_errors(
                 isinstance(relation_descriptor, dict)
                 and relation_descriptor.get("entityCount") != nested_count
             ):
-                errors.append(f"catalog {resource}/{relation} relation entity count mismatch")
+                errors.append(
+                    f"catalog {resource}/{relation} relation entity count mismatch"
+                )
     if summary_path not in declared:
         errors.append("catalog summary is absent from release manifest")
     else:
@@ -1314,11 +1462,17 @@ def _source_index_storage_errors(
         if key == "sources" and manifest.get("sourceCount") != (
             descriptor.get("count") if isinstance(descriptor, dict) else None
         ):
-            errors.append("split source-index sourceCount does not match its source records")
+            errors.append(
+                "split source-index sourceCount does not match its source records"
+            )
     if "metadata/source-index.json" in declared:
-        errors.append("monolithic release source-index must not coexist with split storage")
+        errors.append(
+            "monolithic release source-index must not coexist with split storage"
+        )
     actual_storage_paths = {
-        relative for relative in declared if relative.startswith("metadata/source-index/")
+        relative
+        for relative in declared
+        if relative.startswith("metadata/source-index/")
     }
     if actual_storage_paths != storage_paths:
         missing = sorted(storage_paths - actual_storage_paths)
@@ -1356,7 +1510,9 @@ def verify_release(
     if manifest.get("server") != server or manifest.get("releaseId") != release_id:
         errors.append("release identity mismatch")
     try:
-        if read_json(layout.root / RELEASE_IDENTITY_FILENAME) != release_identity_descriptor(server, release_id, manifest):
+        if read_json(
+            layout.root / RELEASE_IDENTITY_FILENAME
+        ) != release_identity_descriptor(server, release_id, manifest):
             errors.append("release descriptor identity mismatch")
     except (OSError, ValueError) as error:
         errors.append(f"invalid release identity descriptor: {error}")
@@ -1426,11 +1582,16 @@ def verify_release(
         file = layout.root.joinpath(*relative.split("/"))
         if not file.is_file():
             base_entry = base_entries.get(relative)
-            if base_entry is not None and expected_hash is not None and expected_bytes is not None:
+            if (
+                base_entry is not None
+                and expected_hash is not None
+                and expected_bytes is not None
+            ):
                 if (
                     str(base_entry.get("sha256")) == expected_hash
                     and int(base_entry.get("bytes", -1)) == expected_bytes
-                    and str(base_entry.get("mediaType") or "") == (expected_media_type or "")
+                    and str(base_entry.get("mediaType") or "")
+                    == (expected_media_type or "")
                     and str(base_entry.get("role") or "") == str(role or "")
                 ):
                     verified_absent.add(relative)
@@ -1575,7 +1736,9 @@ def _promote_prepared(staging: Path, manifest: dict[str, Any]) -> dict[str, Any]
         if existing != manifest:
             raise FileExistsError(f"release id collision: {target}")
         descriptor_path = target / RELEASE_IDENTITY_FILENAME
-        descriptor = release_identity_descriptor(server, manifest["releaseId"], manifest)
+        descriptor = release_identity_descriptor(
+            server, manifest["releaseId"], manifest
+        )
         if descriptor_path.exists() and read_json(descriptor_path) != descriptor:
             raise FileExistsError(f"release identity collision: {descriptor_path}")
         if not descriptor_path.exists():
