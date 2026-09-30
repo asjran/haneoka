@@ -29,6 +29,22 @@
   },
   "masterVersionEndpoint": "https://l14-prod-hk-all-gs-sirius.gamerfusiontech.com/app.masterdata.MasterdataService/Version",
   "announcements": {
-    "endpoint": "https://l14-prod-hk-all-gs-sirius.gamerfusiontech.com"
+    "endpoint": "https://l14-prod-hk-all-gs-sirius.gamerfusiontech.com",
+    "serverList": {
+      "regions": {
+        "TW/HK/MO": {
+          "id": "tw-hk-mo",
+          "language": "zh-Hant"
+        },
+        "EN Region": {
+          "id": "en",
+          "language": "en"
+        },
+        "Korea": {
+          "id": "kr",
+          "language": "ko"
+        }
+      }
+    }
   }
 }

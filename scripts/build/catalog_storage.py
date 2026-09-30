@@ -600,7 +600,7 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
             (("id",),),
             projection=ProjectionSpec(
                 include=(
-                    "id", "title", "kind", "image", "description", "startAt", "endAt", "featured", "category",
+                    "id", "title", "kind", "image", "logo", "description", "startAt", "endAt", "featured", "category",
                     "limited", "recurring", "premium", "comeback", "rank", "goal", "group", "missionType",
                     "durationDays", "displayCondition", "bands", "band", "songHref",
                     "displayOrder", "displayType", "contentId", "href", "payment",

@@ -1,5 +1,5 @@
 import "@material/web/progress/linear-progress.js";
-import { LitElement, html, nothing } from "lit";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
 import { live } from "lit/directives/live.js";
 import { clientText } from "../i18n/client";
 import { preferredLocale, fetchJson, JsonResponseError } from "./shared/catalog";
@@ -17,14 +17,16 @@ import { resourcePath } from "../lib/resource-route";
 import type { RankingCardCatalog, RankingCardArtwork } from "../lib/game-records";
 import { emptyState, errorState, loadingState } from "./ui/state";
 import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
-import jpFlag from "circle-flags/flags/jp.svg?url";
-import hkFlag from "circle-flags/flags/hk.svg?url";
-import gbFlag from "circle-flags/flags/gb.svg?url";
-import krFlag from "circle-flags/flags/kr.svg?url";
+import {
+  GAME_RECORDS_REGIONS as REGIONS,
+  defaultGameRecordsRegion as defaultRegion,
+  gameRecordsRegionPicker,
+  moenotesBrand,
+} from "./shared/game-records";
 
 import type {
   GameRecordsRegion,
-  SongRankingDto,
+  GameRankingDto,
   SongRankingRowDto,
   PlayerProfileDto,
   GameRecordsErrorDto,
@@ -43,26 +45,18 @@ interface RankingCache {
 }
 
 const CACHE_TTL = 5 * 60 * 1000;
-const REGIONS: ReadonlyArray<{ value: Region; key: string; flag: string }> = [
-  { value: "jp", key: "regionJp", flag: jpFlag },
-  { value: "tw", key: "regionTw", flag: hkFlag },
-  { value: "en", key: "regionEn", flag: gbFlag },
-  { value: "kr", key: "regionKr", flag: krFlag },
-];
 let pageAppBarOwnerSequence = 0;
-
-const defaultRegion = (server: ReleaseServer, locale: string): Region => {
-  if (server === "jp" || server === "jp-cbt") return "jp";
-  if (locale === "en") return "en";
-  if (locale === "ko") return "kr";
-  return "tw";
-};
 
 export class SongRanking extends LitElement {
   static properties = {
     locale: { type: String },
     server: { type: String },
     songId: { type: String, attribute: "song-id" },
+    rankingEndpoint: { type: String, attribute: "ranking-endpoint" },
+    embedded: { type: Boolean },
+    points: { type: Boolean },
+    rankingTitle: { type: String, attribute: "ranking-title" },
+    cardCatalogData: { attribute: false },
     region: { state: true },
     view: { state: true },
     phase: { state: true },
@@ -76,6 +70,11 @@ export class SongRanking extends LitElement {
   declare locale: string;
   declare server: ReleaseServer;
   declare songId: string;
+  declare rankingEndpoint: string;
+  declare embedded: boolean;
+  declare points: boolean;
+  declare rankingTitle: string;
+  declare cardCatalogData: Partial<Record<"jp" | "intl", RankingCardCatalog>> | undefined;
   declare region: Region;
   declare view: View;
   declare phase: Phase;
@@ -89,7 +88,7 @@ export class SongRanking extends LitElement {
   private profileRequests = new RequestScope();
   private lifetime?: AbortController;
   private cardCatalogs: Partial<Record<"jp" | "intl", RankingCardCatalog>> = {};
-  private cache = new Map<Region, RankingCache>();
+  private cache = new Map<string, RankingCache>();
   private selectedEntry: RankingEntry | null = null;
   private rankingFailure: GameRecordsErrorDto["error"] | null = null;
   private retryAt = 0;
@@ -106,6 +105,10 @@ export class SongRanking extends LitElement {
     this.locale = "en";
     this.server = "intl";
     this.songId = "";
+    this.rankingEndpoint = "";
+    this.embedded = false;
+    this.points = false;
+    this.rankingTitle = "";
     this.region = "tw";
     this.view = "ranking";
     this.phase = "idle";
@@ -117,11 +120,12 @@ export class SongRanking extends LitElement {
   }
 
   private initializePage() {
-    this.cardCatalogs = readPageData<typeof this.cardCatalogs>(this) || this.cardCatalogs;
+    this.cardCatalogs = this.cardCatalogData || readPageData<typeof this.cardCatalogs>(this) || this.cardCatalogs;
     const requested = navigationDocumentUrl().searchParams.get("region");
-    this.region = REGIONS.some((option) => option.value === requested)
-      ? (requested as Region)
-      : defaultRegion(this.server, this.locale);
+    if (!this.embedded)
+      this.region = REGIONS.some((option) => option.value === requested)
+        ? (requested as Region)
+        : defaultRegion(this.server, this.locale);
     this.phase = "loading";
     void this.loadRanking(this.region, true);
   }
@@ -159,25 +163,31 @@ export class SongRanking extends LitElement {
   }
 
   private rankingUrl(region: Region) {
-    return `/api/v1/game/records/${region}/songs/${encodeURIComponent(this.songId)}/ranking`;
+    return this.rankingEndpoint || `/api/v1/game/records/${region}/songs/${encodeURIComponent(this.songId)}/ranking`;
   }
 
   private profileUrl(region: Region, profileId: string) {
     return `/api/v1/game/records/${region}/players/${encodeURIComponent(profileId)}`;
   }
 
-  private currentRanking(signal: AbortSignal, region: Region) {
-    return this.isConnected && this.region === region && this.rankingRequests.current(signal);
+  private currentRanking(signal: AbortSignal, region: Region, endpoint: string) {
+    return (
+      this.isConnected &&
+      this.region === region &&
+      this.rankingUrl(region) === endpoint &&
+      this.rankingRequests.current(signal)
+    );
   }
 
   private async loadRanking(region: Region, force = false) {
-    const cached = this.cache.get(region);
+    const cached = this.cache.get(this.rankingUrl(region));
     if (!force && cached && Date.now() - cached.storedAt < CACHE_TTL) {
       this.rows = cached.rows;
       this.phase = "ready";
       this.stale = cached.stale;
       return;
     }
+    const endpoint = this.rankingUrl(region);
     const signal = this.rankingRequests.begin();
     this.rankingFailure = null;
     this.retryAt = 0;
@@ -185,25 +195,26 @@ export class SongRanking extends LitElement {
     this.phase = "loading";
     this.stale = Boolean(cached);
     try {
-      const value = await fetchJson<SongRankingDto>(this.rankingUrl(region), {
+      const value = await fetchJson<GameRankingDto>(endpoint, {
         signal,
         cache: "no-store",
         credentials: "same-origin",
         headers: { accept: "application/json" },
       });
-      if (!this.currentRanking(signal, region)) return;
+      if (!this.currentRanking(signal, region, endpoint)) return;
       const entry = {
         rows: value.rows.slice(0, 100),
         storedAt: Date.now(),
         reportedAt: value.fetchedAtMs ?? 0,
         stale: value.stale,
       };
-      this.cache.set(region, entry);
+      this.cache.set(endpoint, entry);
+      if (this.cache.size > 16) this.cache.delete(this.cache.keys().next().value!);
       this.rows = entry.rows;
       this.phase = "ready";
       this.stale = entry.stale;
     } catch (error) {
-      if (!this.currentRanking(signal, region)) return;
+      if (!this.currentRanking(signal, region, endpoint)) return;
       if (error instanceof JsonResponseError) {
         const failure = (error.body as GameRecordsErrorDto | null)?.error;
         if (failure && typeof failure.kind === "string") this.rankingFailure = failure;
@@ -235,7 +246,7 @@ export class SongRanking extends LitElement {
     this.profilePhase = "idle";
     this.expanded = false;
     this.rankingRequests.cancel();
-    const cached = this.cache.get(region);
+    const cached = this.cache.get(this.rankingUrl(region));
     this.rows = cached?.rows || [];
     this.stale = cached ? cached.stale : false;
     this.phase = cached && Date.now() - cached.storedAt < CACHE_TTL ? "ready" : "loading";
@@ -297,7 +308,7 @@ export class SongRanking extends LitElement {
   }
 
   private formatTime(region: Region) {
-    const cached = this.cache.get(region);
+    const cached = this.cache.get(this.rankingUrl(region));
     const value = cached?.reportedAt || 0;
     if (!value) return "";
     return new Intl.DateTimeFormat(this.locale, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value));
@@ -353,30 +364,7 @@ export class SongRanking extends LitElement {
 
   private renderPageActions() {
     return html`
-      <div
-        class="settings-options song-ranking__regions"
-        role="radiogroup"
-        aria-label=${this.label("region", "Ranking region")}
-      >
-        ${REGIONS.map(
-          (option) => html`
-            <label class="settings-option" title=${this.label(option.key, option.value)}>
-              <input
-                type="radio"
-                name="ranking-region"
-                value=${option.value}
-                .checked=${this.region === option.value}
-                aria-label=${this.label(option.key, option.value)}
-                @change=${() => this.selectRegion(option.value)}
-              />
-              <span class="settings-option__face" aria-hidden="true">
-                <span class="settings-option__image"><img src=${option.flag} width="28" height="28" alt="" /></span>
-              </span>
-              <span class="settings-option__tooltip" aria-hidden="true">${this.label(option.key, option.value)}</span>
-            </label>
-          `,
-        )}
-      </div>
+      ${gameRecordsRegionPicker(this.locale, this.region, (region) => this.selectRegion(region))}
       ${iconButton({ label: this.label("refresh", "Refresh ranking"), icon: "refresh", disabled: this.phase === "loading" || Date.now() < this.retryAt, onClick: () => this.refresh() })}
     `;
   }
@@ -522,7 +510,7 @@ export class SongRanking extends LitElement {
     `;
     return html`
       <li class="song-ranking__entry">
-        <div class="song-ranking__row">
+        <div class=${`song-ranking__row${this.points ? " song-ranking__row--points" : ""}`}>
           <span class="song-ranking__rank" aria-label=${`${this.label("rank", "Rank")} ${entry.rank}`}>
             ${entry.rank}
           </span>
@@ -576,7 +564,7 @@ export class SongRanking extends LitElement {
           }
           <span
             class="song-ranking__score"
-            aria-label=${`${this.label("score", "Score")} ${this.formatScore(entry.score)}`}
+            aria-label=${`${this.points ? this.label("points", "Points") : this.label("score", "Score")} ${this.formatScore(entry.score)}`}
           >
             <strong>${this.formatScore(entry.score)}</strong>
             ${
@@ -587,8 +575,12 @@ export class SongRanking extends LitElement {
                 : nothing
             }
           </span>
-          <span class="song-ranking__deck-preview" aria-label=${this.label("cards", "Cards")}>
-            ${entry.cards.map(
+          ${
+            this.points
+              ? nothing
+              : html`
+                  <span class="song-ranking__deck-preview" aria-label=${this.label("cards", "Cards")}>
+                    ${entry.cards.map(
               (card) => html`
                 <span class="song-ranking__deck-slot">
                   ${this.renderCard(card)}${
@@ -604,13 +596,15 @@ export class SongRanking extends LitElement {
                 </span>
               `,
             )}
-          </span>
+                  </span>
+                `
+          }
         </div>
       </li>
     `;
   }
   private renderRanking() {
-    const cached = this.cache.get(this.region);
+    const cached = this.cache.get(this.rankingUrl(this.region));
     const visible = this.rows.slice(0, this.expanded ? 100 : 20);
     const showMore = this.rows.length > 20 && !this.expanded;
     const failed = this.rankingFailure?.kind;
@@ -644,31 +638,7 @@ export class SongRanking extends LitElement {
                 `
               : nothing
           }
-          <a
-            class="song-ranking__brand"
-            href="https://bdon.moe/"
-            target="_blank"
-            rel="noopener"
-            aria-label="Moenotes"
-            title="Moenotes"
-          >
-            <img
-              class="song-ranking__brand-light"
-              src="https://bdon.moe/assets/brand/moenotes-signature.svg"
-              width="104"
-              height="40"
-              alt="Moenotes"
-              decoding="async"
-            />
-            <img
-              class="song-ranking__brand-dark"
-              src="https://bdon.moe/assets/brand/moenotes-signature-light.svg"
-              width="104"
-              height="40"
-              alt="Moenotes"
-              decoding="async"
-            />
-          </a>
+          ${this.embedded ? nothing : moenotesBrand()}
         </div>
         ${
           this.phase === "error" && !this.rows.length
@@ -696,7 +666,10 @@ export class SongRanking extends LitElement {
                           `
                         : nothing
                     }
-                    <ol class="song-ranking__list" aria-label=${this.label("title", "Song ranking")}>
+                    <ol
+                      class="song-ranking__list"
+                      aria-label=${this.rankingTitle || this.label("title", "Song ranking")}
+                    >
                       ${visible.map((entry) => this.renderRow(entry))}
                     </ol>
                     ${
@@ -794,14 +767,33 @@ export class SongRanking extends LitElement {
     `;
   }
 
-  updated() {
-    this.syncPageChrome();
+  updated(changed: PropertyValues) {
+    if (changed.has("cardCatalogData") && this.cardCatalogData) this.cardCatalogs = this.cardCatalogData;
+    if (
+      this.embedded &&
+      ((changed.has("rankingEndpoint") && changed.get("rankingEndpoint") !== undefined) ||
+        (changed.has("region") && changed.get("region") !== undefined))
+    ) {
+      this.rankingRequests.cancel();
+      this.profileRequests.cancel();
+      this.profile = null;
+      this.selectedEntry = null;
+      this.view = "ranking";
+      this.expanded = false;
+      this.rows = [];
+      void this.loadRanking(this.region, true);
+    }
+    if (!this.embedded) this.syncPageChrome();
+  }
+
+  public refreshRanking() {
+    if (this.view === "ranking") this.refresh();
   }
 
   render() {
     const loading = this.view === "ranking" ? this.phase === "loading" : this.profilePhase === "loading";
     return html`
-      <section class="song-ranking-page" aria-label=${this.label("title", "Song ranking")}>
+      <section class="song-ranking-page" aria-label=${this.rankingTitle || this.label("title", "Song ranking")}>
         <div class="song-ranking__progress" aria-hidden=${loading ? nothing : "true"}>
           ${
             loading
@@ -814,6 +806,15 @@ export class SongRanking extends LitElement {
               : nothing
           }
         </div>
+        ${
+          this.embedded && this.view === "profile"
+            ? html`
+                <button class="button button--text" type="button" @click=${() => this.backToRanking()}>
+                  ${icon("arrow_back", 18)}${this.label("back", "Back")}
+                </button>
+              `
+            : nothing
+        }
         ${this.view === "profile" ? this.renderProfile() : this.renderRanking()}
       </section>
     `;

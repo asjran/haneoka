@@ -20,22 +20,26 @@ from pathlib import Path
 from typing import Any
 from PIL import Image
 
-from core.config import ServerConfig, load_server_config
-from core.manifests import write_json
-from core.paths import build_layout
+from core.config import AnnouncementRegion, ServerConfig, load_server_config
+from core.manifests import read_json, write_json
+from core.paths import build_layout, source_layout
 from ingest.version_api import cdn_authorization, discover_asset_version, proxy_from_env
 
 
 LIST_PATH = "/app.announcement.AnnouncementService/GetList"
 GET_PATH = "/app.announcement.AnnouncementService/Get"
+SERVER_LIST_PATH = "/app.playerlogin.PlayerLoginService/GetServerList"
 GRPC_USER_AGENT = "grpc-dotnet/2.66.0"
 ANNOUNCEMENT_SCHEMA = "haneoka-announcements-v1"
 MAX_ANNOUNCEMENTS = 100
+MAX_BOOTSTRAP_SERVERS = 100
 ANNOUNCEMENT_CONCURRENCY = 12
 MAX_GRPC_MESSAGE_BYTES = 16 * 1024 * 1024
 MAX_IMAGE_BYTES = 32 * 1024 * 1024
+REGIONAL_ANNOUNCEMENT_ID_STRIDE = 1 << 51
 RETRY_DELAYS = (0.0, 1.0, 3.0)
 PUBLIC_BASE_URL = "https://haneoka.org"
+TRUSTED_GAME_HOST_SUFFIXES = (".gamerfusiontech.com", ".bilibiligame.net")
 
 _IMAGE_TYPES = {
     "image/avif": "avif",
@@ -62,6 +66,13 @@ class MediaAsset:
 class AnnouncementCollection:
     document: dict[str, Any]
     media: tuple[MediaAsset, ...]
+
+
+@dataclass(frozen=True)
+class RegionalAnnouncementServer:
+    region: AnnouncementRegion
+    api_roots: tuple[str, ...]
+    media_hosts: frozenset[str]
 
 
 class _AnnouncementImages(HTMLParser):
@@ -541,25 +552,123 @@ def public_announcement_document(
     }
 
 
-def collect_announcements(
-    config: ServerConfig, media_root: Path
-) -> AnnouncementCollection:
-    """Fetch one server's list, details, and media with bounded concurrency."""
+def _trusted_bootstrap_urls(value: str, *, allow_path: bool) -> tuple[str, ...]:
+    urls: list[str] = []
+    for candidate in value.split("|"):
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        parsed = urllib.parse.urlsplit(candidate)
+        hostname = (parsed.hostname or "").lower().rstrip(".")
+        try:
+            port = parsed.port
+        except ValueError:
+            continue
+        decoded_path = urllib.parse.unquote(urllib.parse.unquote(parsed.path))
+        if (
+            parsed.scheme.lower() != "https"
+            or not any(
+                hostname.endswith(suffix) for suffix in TRUSTED_GAME_HOST_SUFFIXES
+            )
+            or parsed.username is not None
+            or parsed.password is not None
+            or port not in {None, 443}
+            or parsed.query
+            or parsed.fragment
+            or "\\" in decoded_path
+            or any(part in {".", ".."} for part in decoded_path.split("/"))
+            or (not allow_path and parsed.path not in {"", "/"})
+        ):
+            continue
+        urls.append(
+            urllib.parse.urlunsplit(
+                ("https", parsed.netloc, parsed.path.rstrip("/"), "", "")
+            )
+        )
+    return tuple(dict.fromkeys(urls))
 
-    endpoint = config.announcements_endpoint.rstrip("/")
-    if not endpoint:
-        raise ValueError(f"no announcements endpoint for {config.id}")
+
+def _fetch_regional_announcement_servers(
+    config: ServerConfig,
+    platform_header: dict[str, str],
+    proxy: str | None,
+    client_version: str,
+) -> tuple[RegionalAnnouncementServer, ...]:
+    if not config.announcements_regions:
+        return ()
+    if not re.fullmatch(r"[!-~]{1,128}", client_version):
+        raise ValueError("source package has an invalid versionName for server bootstrap")
+    headers = dict(platform_header)
+    headers["x-client-version"] = client_version
+    body = _grpc_body(
+        config.announcements_endpoint.rstrip("/") + SERVER_LIST_PATH,
+        b"",
+        headers,
+        proxy=proxy,
+    )
+    response = _decode_fields(body)
+    raw_servers = [
+        item for item in response.get(1, []) if isinstance(item, bytes)
+    ][:MAX_BOOTSTRAP_SERVERS]
+    requested = {
+        region.name.casefold(): region for region in config.announcements_regions
+    }
+    found: dict[str, RegionalAnnouncementServer] = {}
+    for raw_server in raw_servers:
+        fields = _decode_fields(raw_server)
+        name = _text(_first(fields, 1)).strip()
+        region = requested.get(name.casefold())
+        if region is None:
+            continue
+        if region.id in found:
+            raise ValueError(f"server list contains duplicate region {name}")
+        api_roots = _trusted_bootstrap_urls(_text(_first(fields, 3)), allow_path=False)
+        if not api_roots:
+            raise ValueError(f"server list has no trusted ApiServerRoot for {name}")
+        cdn_roots = _trusted_bootstrap_urls(_text(_first(fields, 2)), allow_path=True)
+        cdn_hosts = frozenset(
+            (urllib.parse.urlsplit(url).hostname or "").lower()
+            for url in cdn_roots
+        )
+        found[region.id] = RegionalAnnouncementServer(region, api_roots, cdn_hosts)
+    missing = [
+        region.name
+        for region in config.announcements_regions
+        if region.id not in found
+    ]
+    if missing:
+        raise ValueError(
+            f"server list is missing configured regions: {', '.join(missing)}"
+        )
+    return tuple(found[region.id] for region in config.announcements_regions)
+
+
+def _collect_from_endpoint(
+    config: ServerConfig,
+    endpoint: str,
+    media_root: Path,
+    *,
+    authorization: str,
+    extra_media_hosts: frozenset[str] = frozenset(),
+    source_region: AnnouncementRegion | None = None,
+) -> AnnouncementCollection:
+    endpoint = endpoint.rstrip("/")
     platform_header = {"x-platform": config.platform} if config.platform else {}
     proxy = proxy_from_env(config.version_proxy_env)
-    authorization = _fresh_credential(config)
     allowed_hosts = frozenset(
-        host
-        for value in (
-            config.announcements_endpoint,
-            config.remote_root,
-            config.master_remote_root,
-        )
-        if (host := urllib.parse.urlsplit(value).hostname)
+        {
+            *extra_media_hosts,
+            *(
+                host.lower()
+                for value in (
+                    endpoint,
+                    config.announcements_endpoint,
+                    config.remote_root,
+                    config.master_remote_root,
+                )
+                if (host := urllib.parse.urlsplit(value).hostname)
+            ),
+        }
     )
     entries = _decode_fields(
         _grpc_body(endpoint + LIST_PATH, b"", platform_header, proxy=proxy)
@@ -647,7 +756,7 @@ def collect_announcements(
                 asset = media_by_url.get(url)
                 if asset is not None:
                     media_by_filename[asset.filename] = asset
-        language = _source_language(
+        language = source_region.language if source_region else _source_language(
             config.id, str(announcement.get("title") or ""), html
         )
         if language:
@@ -663,6 +772,121 @@ def collect_announcements(
             announcement[field + "Height"] = asset.height
             media_by_filename[asset.filename] = asset
 
+    if source_region:
+        namespace = {"tw-hk-mo": 0, "en": 1, "kr": 2}.get(source_region.id)
+        if namespace is None:
+            raise ValueError(
+                f"unsupported regional announcement id namespace: {source_region.id}"
+            )
+        offset = namespace * REGIONAL_ANNOUNCEMENT_ID_STRIDE
+        for announcement in announcements:
+            source_id = int(announcement["id"])
+            if source_id >= REGIONAL_ANNOUNCEMENT_ID_STRIDE:
+                raise ValueError("source announcement id is too large to namespace safely")
+            announcement["sourceId"] = source_id
+            announcement["sourceRegion"] = source_region.id
+            announcement["id"] = offset + source_id
+
+    document = {
+        "schema": ANNOUNCEMENT_SCHEMA,
+        "server": config.id,
+        "available": True,
+        "fetchedAt": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+        "announcements": announcements,
+    }
+    return AnnouncementCollection(document, tuple(media_by_filename.values()))
+
+
+def package_client_version(source_manifest: Any, package_name: str) -> str:
+    """Read the installed client's versionName from its immutable source manifest."""
+
+    if not isinstance(source_manifest, dict):
+        raise ValueError("source manifest is missing or invalid")
+    package = source_manifest.get("package")
+    if not isinstance(package, dict) or package.get("packageName") != package_name:
+        raise ValueError("source manifest does not match the configured game package")
+    version_name = package.get("versionName")
+    if not isinstance(version_name, str) or not re.fullmatch(
+        r"[!-~]{1,128}", version_name
+    ):
+        raise ValueError("source package has no valid versionName")
+    return version_name
+
+
+def collect_announcements(
+    config: ServerConfig,
+    media_root: Path,
+    *,
+    client_version: str | None = None,
+) -> AnnouncementCollection:
+    """Fetch configured regions using roots discovered through client bootstrap."""
+
+    endpoint = config.announcements_endpoint.rstrip("/")
+    if not endpoint:
+        raise ValueError(f"no announcements endpoint for {config.id}")
+    platform_header = {"x-platform": config.platform} if config.platform else {}
+    proxy = proxy_from_env(config.version_proxy_env)
+    if config.announcements_regions and not client_version:
+        raise ValueError(f"no source package versionName is available for {config.id}")
+    regional_servers = _fetch_regional_announcement_servers(
+        config, platform_header, proxy, client_version or ""
+    )
+    authorization = _fresh_credential(config)
+
+    collections = (
+        []
+        if regional_servers
+        else [
+            _collect_from_endpoint(
+                config,
+                endpoint,
+                media_root,
+                authorization=authorization,
+            )
+        ]
+    )
+    for server in regional_servers:
+        last_error: Exception | None = None
+        for api_root in server.api_roots:
+            try:
+                collection = _collect_from_endpoint(
+                    config,
+                    api_root,
+                    media_root,
+                    authorization=authorization,
+                    extra_media_hosts=server.media_hosts,
+                    source_region=server.region,
+                )
+            except (OSError, RuntimeError, ValueError, urllib.error.URLError) as error:
+                last_error = error
+                continue
+            collections.append(collection)
+            break
+        else:
+            raise last_error or RuntimeError(
+                f"could not reach an announcement API root for {server.region.name}"
+            )
+
+    announcements = [
+        item
+        for collection in collections
+        for item in collection.document.get("announcements", [])
+    ]
+    if len(announcements) > MAX_ANNOUNCEMENTS:
+        announcements.sort(
+            key=lambda item: (
+                bool(item.get("pinned")),
+                int(item.get("startAt") or 0),
+                int(item.get("id") or 0),
+            ),
+            reverse=True,
+        )
+        announcements = announcements[:MAX_ANNOUNCEMENTS]
+    media_by_filename = {
+        asset.filename: asset
+        for collection in collections
+        for asset in collection.media
+    }
     document = {
         "schema": ANNOUNCEMENT_SCHEMA,
         "server": config.id,
@@ -683,7 +907,9 @@ def _unavailable_document(server: str) -> dict[str, Any]:
     }
 
 
-def build_announcements(server: str, build_id: str) -> dict[str, Any]:
+def build_announcements(
+    server: str, build_id: str, source_id: str
+) -> dict[str, Any]:
     """Build a local operational snapshot for focused pipeline runs."""
 
     config = load_server_config(server)
@@ -694,7 +920,17 @@ def build_announcements(server: str, build_id: str) -> dict[str, Any]:
     document: dict[str, Any] | None = None
     if config.announcements_endpoint:
         try:
-            collection = collect_announcements(config, media_root)
+            client_version = None
+            if config.announcements_regions:
+                source_manifest = read_json(
+                    source_layout(config.id, source_id).manifest
+                )
+                client_version = package_client_version(
+                    source_manifest, config.package_name
+                )
+            collection = collect_announcements(
+                config, media_root, client_version=client_version
+            )
             document = public_announcement_document(collection, config.id)
         except Exception as exc:  # noqa: BLE001 - auxiliary stage never blocks a release
             error = f"{type(exc).__name__}: {exc}"

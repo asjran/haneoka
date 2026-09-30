@@ -19,10 +19,12 @@ from build.announcements import (
     PUBLIC_BASE_URL,
     AnnouncementCollection,
     collect_announcements,
+    package_client_version,
     public_announcement_document,
 )
 from core.config import ServerConfig, load_server_config
 from core.manifests import stable_json
+from core.paths import safe_id
 from publish.r2 import IMMUTABLE_CACHE, R2Store
 
 
@@ -68,10 +70,26 @@ def _upload_media(
     return uploaded, reused
 
 
+def _source_client_version(
+    store: R2Store, config: ServerConfig, source_id: str | None
+) -> str:
+    if source_id is None:
+        pointer = store.get_json(f"servers/{config.id}/current.json")
+        source_id = str((pointer or {}).get("sourceId") or "")
+    if not source_id:
+        raise ValueError(f"no current package source is selected for {config.id}")
+    source_id = safe_id(source_id, "source id")
+    manifest = store.get_json(
+        f"servers/{config.id}/sources/{source_id}/source.json"
+    )
+    return package_client_version(manifest, config.package_name)
+
+
 def publish_announcements(
     store: R2Store,
     config: ServerConfig,
     *,
+    source_id: str | None = None,
     base_url: str = PUBLIC_BASE_URL,
     work_dir: Path | None = None,
 ) -> dict[str, Any]:
@@ -85,7 +103,16 @@ def publish_announcements(
         tempfile.mkdtemp(prefix=f"haneoka-announcements-{config.id}-", dir=work_dir)
     )
     try:
-        collection = collect_announcements(config, temporary_root / "media")
+        client_version = (
+            _source_client_version(store, config, source_id)
+            if config.announcements_regions
+            else None
+        )
+        collection = collect_announcements(
+            config,
+            temporary_root / "media",
+            client_version=client_version,
+        )
         document = public_announcement_document(collection, config.id, base_url)
         uploaded, reused = _upload_media(store, config.id, collection)
         # The list document is the commit point. Every referenced media object is
@@ -123,6 +150,7 @@ def main() -> int:
         description="Refresh the operational announcement snapshot without rebuilding a resource release."
     )
     parser.add_argument("--server", default="intl")
+    parser.add_argument("--source")
     parser.add_argument("--concurrency", type=int, default=16)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--base-url", default=PUBLIC_BASE_URL)
@@ -131,6 +159,7 @@ def main() -> int:
     result = publish_announcements(
         R2Store(config, args.concurrency),
         config,
+        source_id=args.source,
         base_url=args.base_url,
         work_dir=args.work_dir,
     )

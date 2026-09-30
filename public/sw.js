@@ -4,14 +4,15 @@
 // - HTML navigations: network-first with an offline fallback. This prevents a
 //   cached document from referencing a previous deployment's hashed assets.
 // - Hashed build output (/_astro/*): cache-first. URLs are immutable.
-// - Long-lived static assets (icon sprite, locale catalogs): cache-first;
-//   their HTTP cache policy already revalidates in the background.
-// - Images: cache-first with an entry cap, evicting the oldest first.
+// - Icon sprite: stale-while-revalidate with an HTTP cache validation.
+// - Current-release media: validate over the network; images retain an offline
+//   fallback with an entry cap. Stable URLs can change after a release update.
+// - Other images: cache-first with an entry cap, evicting the oldest first.
 // - Build-time entity payloads (/entity-data/v1/*): content-addressed, cache-first
 //   with an entry cap.
 // - Everything else (API, auth, worker routes): network only.
 
-const VERSION = "v5";
+const VERSION = "v6";
 const PAGES_CACHE = `haneoka.pages.${VERSION}`;
 const ASSETS_CACHE = `haneoka.assets.${VERSION}`;
 const IMAGES_CACHE = `haneoka.images.${VERSION}`;
@@ -66,7 +67,7 @@ const cacheFirst = async (request, cacheName, limit) => {
 const staleWhileRevalidate = async (event, request, cacheName, limit) => {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-  const refresh = fetch(request)
+  const refresh = fetch(request, { cache: "no-cache" })
     .then(async (response) => {
       if (response.ok) {
         await cache.put(request, response.clone());
@@ -82,13 +83,15 @@ const staleWhileRevalidate = async (event, request, cacheName, limit) => {
   return refresh;
 };
 
-const networkFirst = async (request, cacheName) => {
+const networkFirst = async (request, cacheName, limit = MAX_PAGES) => {
   const cache = await caches.open(cacheName);
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { cache: "no-cache" });
     if (response.ok) {
-      await cache.put(request, response.clone());
-      await trimCache(cacheName, MAX_PAGES);
+      await cache
+        .put(request, response.clone())
+        .then(() => trimCache(cacheName, limit))
+        .catch(() => {});
     }
     return response;
   } catch {
@@ -101,7 +104,15 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin || isNeverCached(url)) return;
+  if (url.origin !== self.location.origin) return;
+
+  // Revalidate current catalog URLs even if an earlier deployment gave the
+  // browser a fresh response. Explicit release pins keep their cache policy.
+  if (url.pathname.startsWith("/api/v1/servers/") && !url.searchParams.has("release")) {
+    event.respondWith(fetch(request, { cache: "no-cache" }));
+    return;
+  }
+  if (isNeverCached(url)) return;
 
   if (request.mode === "navigate") {
     event.respondWith(networkFirst(request, PAGES_CACHE));
@@ -119,11 +130,15 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(cacheFirst(request, DATA_CACHE, MAX_DATA));
     return;
   }
+  if (/^\/(?:assets|runtime|objects)\//.test(url.pathname)) {
+    event.respondWith(
+      request.destination === "image"
+        ? networkFirst(request, IMAGES_CACHE, MAX_IMAGES)
+        : fetch(request, { cache: "no-cache" }),
+    );
+    return;
+  }
   if (request.destination === "image") {
-    if (/^\/(?:assets|runtime|objects)\//.test(url.pathname)) {
-      event.respondWith(staleWhileRevalidate(event, request, IMAGES_CACHE, MAX_IMAGES));
-    } else {
-      event.respondWith(cacheFirst(request, IMAGES_CACHE, MAX_IMAGES));
-    }
+    event.respondWith(cacheFirst(request, IMAGES_CACHE, MAX_IMAGES));
   }
 });

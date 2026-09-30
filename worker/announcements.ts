@@ -105,6 +105,20 @@ function publicRecord(value: unknown, full: boolean): JsonObject | null {
   }
   const sourceLanguage = readString(value.sourceLanguage);
   if (sourceLanguage) record.sourceLanguage = sourceLanguage;
+  if (value.sourceRegion !== undefined || value.sourceId !== undefined) {
+    const sourceRegion = readString(value.sourceRegion);
+    const sourceId = readInteger(value.sourceId);
+    if (
+      !sourceRegion ||
+      !/^[a-z0-9-]{1,32}$/u.test(sourceRegion) ||
+      sourceId === null ||
+      sourceId < 1
+    ) {
+      return null;
+    }
+    record.sourceRegion = sourceRegion;
+    record.sourceId = sourceId;
+  }
   if (full) {
     const html = readString(value.html);
     if (html) record.html = html;

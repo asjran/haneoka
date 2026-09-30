@@ -117,6 +117,8 @@ const CATALOG_ROOT_KEYS = [
   "bandItemsPage",
   "liveMusicTypes",
   "songTypes",
+  "songRanking",
+  "eventTracker",
 ] as const;
 
 const HOME_ROOT_KEYS = [

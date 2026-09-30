@@ -808,7 +808,7 @@ def command_build_ktx2(args: argparse.Namespace) -> None:
 def command_build_announcements(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
-    _print(build_announcements(config.id, identity))
+    _print(build_announcements(config.id, identity, args.source))
 
 
 def command_build_release(args: argparse.Namespace) -> None:

@@ -32,6 +32,10 @@
 .collection--song {
   --tile-min: 160px;
 }
+.collection--story,
+.collection--system {
+  --tile-min: 260px;
+}
 .collection--comic {
   --tile-min: 240px;
 }

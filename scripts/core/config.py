@@ -16,6 +16,13 @@ HEX_64 = re.compile(r"^[a-f0-9]{64}$")
 
 
 @dataclass(frozen=True)
+class AnnouncementRegion:
+    name: str
+    id: str
+    language: str
+
+
+@dataclass(frozen=True)
 class ServerConfig:
     id: str
     package_name: str
@@ -41,6 +48,7 @@ class ServerConfig:
     master_version_endpoint: str = ""
     version_proxy_env: str = ""
     announcements_endpoint: str = ""
+    announcements_regions: tuple[AnnouncementRegion, ...] = ()
 
 
 def validate_server_id(value: str) -> str:
@@ -213,7 +221,7 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     announcements = value.get("announcements", {})
     if not isinstance(announcements, dict):
         raise ValueError(f"invalid announcements block: {file}")
-    unknown_announcements = sorted(set(announcements) - {"endpoint"})
+    unknown_announcements = sorted(set(announcements) - {"endpoint", "serverList"})
     if unknown_announcements:
         raise ValueError(
             f"unknown announcements fields in {file}: {unknown_announcements}"
@@ -221,6 +229,57 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     announcements_endpoint = str(announcements.get("endpoint", "")).strip()
     if announcements_endpoint:
         _validate_service_endpoint(announcements_endpoint, file)
+    server_list = announcements.get("serverList", {})
+    if not isinstance(server_list, dict):
+        raise ValueError(f"invalid announcements.serverList block: {file}")
+    unknown_server_list = sorted(set(server_list) - {"regions"})
+    if unknown_server_list:
+        raise ValueError(
+            f"unknown announcements.serverList fields in {file}: {unknown_server_list}"
+        )
+    announcements_regions: list[AnnouncementRegion] = []
+    region_names: set[str] = set()
+    regions_value = server_list.get("regions", {})
+    if not isinstance(regions_value, dict):
+        raise ValueError(f"invalid announcements.serverList.regions block: {file}")
+    for name, region in regions_value.items():
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or not isinstance(region, dict)
+        ):
+            raise ValueError(f"invalid announcements server region in {file}")
+        normalized_name = name.strip().casefold()
+        if normalized_name in region_names:
+            raise ValueError(f"duplicate announcements server region name: {file}")
+        region_names.add(normalized_name)
+        if set(region) != {"id", "language"}:
+            raise ValueError(f"invalid announcements server region fields in {file}")
+        region_id = region.get("id")
+        language = region.get("language")
+        if (
+            not isinstance(region_id, str)
+            or not SERVER_ID.fullmatch(region_id)
+            or not isinstance(language, str)
+            or not re.fullmatch(r"[a-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", language)
+        ):
+            raise ValueError(
+                f"invalid announcements server region id or language in {file}"
+            )
+        announcements_regions.append(
+            AnnouncementRegion(name.strip(), region_id, language)
+        )
+    if server_list:
+        if not announcements_endpoint:
+            raise ValueError(
+                f"announcements.serverList requires announcements.endpoint: {file}"
+            )
+        if not announcements_regions:
+            raise ValueError(f"announcements.serverList requires regions: {file}")
+        if len({region.id for region in announcements_regions}) != len(
+            announcements_regions
+        ):
+            raise ValueError(f"duplicate announcements server region id: {file}")
     if asset_version and not version_endpoint:
         raise ValueError(f"assetVersion requires its own endpoint: {file}")
     version_catalog_path = str(asset_version.get("catalogPath", "")).strip()
@@ -308,4 +367,5 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         master_remote_root=master_remote_root.rstrip("/"),
         master_version_endpoint=master_version_endpoint,
         announcements_endpoint=announcements_endpoint,
+        announcements_regions=tuple(announcements_regions),
     )

@@ -17,6 +17,8 @@ export interface Announcement {
   bannerWidth?: number;
   bannerHeight?: number;
   sourceLanguage?: string;
+  sourceRegion?: string;
+  sourceId?: number;
   html?: string;
 }
 export interface AnnouncementList {
@@ -92,6 +94,12 @@ const validAnnouncement = (value: unknown): value is Announcement =>
   ["bodyImage", "banner", "sourceLanguage", "html"].every(
     (key) => value[key] === undefined || typeof value[key] === "string",
   ) &&
+  ((value.sourceRegion === undefined && value.sourceId === undefined) ||
+    (typeof value.sourceRegion === "string" &&
+      /^[a-z0-9-]{1,32}$/u.test(value.sourceRegion) &&
+      typeof value.sourceId === "number" &&
+      Number.isSafeInteger(value.sourceId) &&
+      value.sourceId > 0)) &&
   (value.pinned === undefined || typeof value.pinned === "boolean");
 async function request(path: string, signal: AbortSignal): Promise<unknown> {
   const controller = new AbortController();

@@ -277,6 +277,8 @@ export function resourceCollectionHref(route: string, server: ReleaseServer, loc
     return `${target.pathname}${target.search}`;
   }
   const collection = parts[1] || "";
+  if (collection === "events" && parts[2] === "tracker" && parts.length === 3)
+    return `/${server}/${locale}/events/tracker/${source.search}`;
   if (parts.length > 2 && !(collection === "stories" || collection === "anon-tokyo")) return undefined;
   if (collection === "song-meta") {
     if (parts.length !== 2) return undefined;
@@ -335,6 +337,8 @@ export function legacyCollectionRedirectTarget(pathname: string, search = ""): s
 
   if (parts.length === 2) return `${prefix}/catalog/${suffix()}`;
   const collection = parts[2] || "";
+  if (collection === "events" && parts[3] === "tracker" && parts.length === 4)
+    return `${prefix}/events/tracker/${suffix()}`;
   if (collection === "assets") {
     const path = parts.slice(3).join("/");
     return `${prefix}/assets/${path ? `${path}/` : ""}${suffix()}`;

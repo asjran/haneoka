@@ -414,6 +414,57 @@ def _event_story(
     }
 
 
+def _event_cover_image(
+    data: Any,
+    documents: dict[str, Any],
+    event: dict[str, Any],
+    story_chapter_id: int,
+) -> str | None:
+    """Resolve the native event cover before falling back to source art.
+
+    ``MasterHomeBanner`` display type 1 is the event-title banner.  Its
+    ``_contentId`` is the owning ``MasterEvent`` id, and its ``_imageAsset``
+    points at the already-composed native banner used by the home UI.  The
+    story chapter banner is the same source-backed relation when a build has
+    the story document but not the home-banner table.
+    """
+
+    event_id = _number(event, "_id")
+    for row in sorted(
+        data.rows("MasterHomeBanner"),
+        key=lambda value: (_number(value, "_displayOrder"), _number(value, "_id")),
+        reverse=True,
+    ):
+        if (
+            _number(row, "_displayType") == 1
+            and _number(row, "_contentId") == event_id
+        ):
+            image = _asset(data, row.get("_imageAsset"))
+            if image:
+                return image
+
+    stories = documents.get("stories", {})
+    chapters = stories.get("chapters", {}) if isinstance(stories, dict) else {}
+    chapter = chapters.get(str(story_chapter_id)) if isinstance(chapters, dict) else None
+    if isinstance(chapter, dict) and chapter.get("banner"):
+        return str(chapter["banner"])
+
+    story_row = _master_row(data, "MasterStoryChapter", story_chapter_id)
+    if story_row:
+        image = _asset(
+            data,
+            f"Story/Banner/Chapter/{story_row.get('_banner') or ''}",
+        )
+        if image:
+            return image
+
+    # Older sources may not carry the home-banner relation or story chapter
+    # projection. Preserve the event's own authored art as the final fallback.
+    return _asset(data, f"Image/Event/{event.get('_backgroundAsset')}") or _asset(
+        data, event.get("_bannerAssetName") or event.get("_bannerAsset")
+    )
+
+
 def _event_support(
     data: Any,
     documents: dict[str, Any],
@@ -753,12 +804,7 @@ def _events(
             str(identity),
             data.text(row.get("_nameTextId")),
             kind="game-event",
-            # The event's own key art lives under Image/Event/<background>;
-            # the bare _bannerAsset value never resolved to a real file.
-            image=(
-                _asset(data, f"Image/Event/{row.get('_backgroundAsset')}")
-                or _asset(data, row.get("_bannerAssetName") or row.get("_bannerAsset"))
-            ),
+            image=_event_cover_image(data, documents, row, story_chapter_id),
             logo=_asset(data, f"Image/Event/{row.get('_logoAsset')}"),
             description=data.text(row.get("_descriptionTextId")),
             start_at=stamp(row.get("_startAt")),

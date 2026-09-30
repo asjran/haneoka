@@ -159,6 +159,33 @@
         "endpoint": {
           "type": "string",
           "format": "uri"
+        },
+        "serverList": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional client bootstrap used to discover announcement API roots for additional regions.",
+          "required": ["regions"],
+          "properties": {
+            "regions": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "language"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                  },
+                  "language": {
+                    "type": "string",
+                    "pattern": "^[a-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

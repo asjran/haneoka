@@ -46,6 +46,7 @@ export class ImageGallery extends LitElement {
     locale: {},
     active: {},
     title: {},
+    natural: { type: Boolean, reflect: true },
     busy: { state: true },
     error: { state: true },
     clipIndex: { state: true },
@@ -55,6 +56,7 @@ export class ImageGallery extends LitElement {
   declare locale: string;
   declare active: string;
   declare title: string;
+  declare natural: boolean;
   declare busy: boolean;
   declare error: string;
   declare clipIndex: number;
@@ -69,6 +71,7 @@ export class ImageGallery extends LitElement {
     this.locale = "ja";
     this.active = "";
     this.title = "";
+    this.natural = false;
     this.busy = false;
     this.error = "";
     this.clipIndex = 0;
@@ -161,6 +164,7 @@ export class ImageGallery extends LitElement {
         width: image.naturalWidth,
         height: image.naturalHeight,
       });
+    if (this.natural) this.requestUpdate();
   }
   private async imageData(entry: GalleryImage) {
     const cached = this.dimensions.get(entry.source);
@@ -383,6 +387,7 @@ export class ImageGallery extends LitElement {
         <div class="image-gallery__stagewrap">
           <a
             class="image-gallery__stage"
+            style=${this.natural ? `--gallery-ratio:${this.dimensions.get(active.source)?.width || active.width || 16} / ${this.dimensions.get(active.source)?.height || active.height || 9}` : nothing}
             href=${candidates[0]}
             target="_blank"
             rel="noopener"

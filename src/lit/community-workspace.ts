@@ -44,6 +44,44 @@ const feedSnapshots = new Map<
   string,
   { items: Value[]; cursor: string; scroll: number; createdAt: number; viewer: string }
 >();
+type FeedSnapshotRoute = {
+  kind: "posts" | "other";
+  scope: "all" | "latest" | "following" | "recommended" | "mine" | "bookmarked";
+  state: "active" | "archived";
+};
+type PostSnapshotMutation =
+  | { kind: "patch"; post?: Value; viewer?: Value; removeFromBookmarks?: boolean }
+  | { kind: "invalidate"; source: "pin" | "membership" };
+
+const feedSnapshotRoute = (routeUrl: string): FeedSnapshotRoute => {
+  const url = new URL(routeUrl, "https://haneoka.invalid");
+  const parts = url.pathname.split("/").filter(Boolean);
+  const communityAt = parts.indexOf("community");
+  const section = communityAt >= 0 ? parts[communityAt + 1] || "feeds" : "feeds";
+  const requestedScope = url.searchParams.get("scope");
+  const scope =
+    requestedScope === "all" ||
+    requestedScope === "latest" ||
+    requestedScope === "following" ||
+    requestedScope === "recommended" ||
+    requestedScope === "mine" ||
+    requestedScope === "bookmarked"
+      ? requestedScope
+      : section === "latest"
+        ? "latest"
+        : section === "following"
+          ? "following"
+          : section === "mine"
+            ? "mine"
+            : section === "bookmarks"
+              ? "bookmarked"
+              : "recommended";
+  return {
+    kind: ["feeds", "latest", "following", "mine", "bookmarks"].includes(section) ? "posts" : "other",
+    scope,
+    state: scope === "mine" && url.searchParams.get("state") === "archived" ? "archived" : "active",
+  };
+};
 const icon = (name: string, size = 20) => html`
   <svg class="material-icon" width=${size} height=${size}><use href=${`/icons.svg#${name}`}></use></svg>
 `;
@@ -90,6 +128,7 @@ export class CommunityWorkspace extends LitElement {
     editingComment: { state: true },
     commentBody: { state: true },
     expandedComments: { state: true },
+    replyLoading: { state: true },
   };
   declare locale: string;
   declare mode: string;
@@ -139,12 +178,14 @@ export class CommunityWorkspace extends LitElement {
   declare editingComment: string;
   declare commentBody: string;
   declare expandedComments: Set<string>;
+  declare replyLoading: Set<string>;
   private columnsObserver?: ResizeObserver;
   private placements = new Map<string, number>();
   private menuTrigger?: HTMLElement;
   private placementColumns = 0;
   private requests = new RequestScope();
   private commentsRequest = new RequestScope();
+  private replyRequests = new Map<string, RequestScope>();
   private lifetime = new AbortController();
   private uploadControllers = new Map<string, AbortController>();
   private uploadQueue: string[] = [];
@@ -208,6 +249,7 @@ export class CommunityWorkspace extends LitElement {
     this.editingComment = "";
     this.commentBody = "";
     this.expandedComments = new Set();
+    this.replyLoading = new Set();
   }
   private paneFocus = new PaneFocus();
   private undoTimer = 0;
@@ -270,7 +312,8 @@ export class CommunityWorkspace extends LitElement {
       () => (this.dialog ? (this.dialog = null) : this.filtersOpen ? (this.filtersOpen = false) : this.closePlaylist()),
     );
   }
-  disconnectedCallback() {
+  private saveFeedSnapshot = () => {
+    if (this.scrollHost && !this.scrollHost.isConnected) return;
     if (this.routeKind === "collection" && this.phase === "ready" && this.routeUrl) {
       feedSnapshots.set(this.routeUrl, {
         items: this.items,
@@ -281,11 +324,15 @@ export class CommunityWorkspace extends LitElement {
       });
       while (feedSnapshots.size > 3) feedSnapshots.delete(feedSnapshots.keys().next().value!);
     }
+  };
+  disconnectedCallback() {
+    this.saveFeedSnapshot();
     this.columnsObserver?.disconnect();
     window.clearInterval(this.relativeTimeTimer);
     this.relativeTimeTimer = undefined;
     this.requests.cancel();
     this.commentsRequest.cancel();
+    this.cancelReplyRequests();
     this.lifetime.abort();
     this.uploadControllers.forEach((controller) => controller.abort());
     this.uploadQueue = [];
@@ -317,6 +364,7 @@ export class CommunityWorkspace extends LitElement {
       }, 30_000);
     }
     this.scrollHost = this.closest<HTMLElement>(".app-shell__main") || undefined;
+    document.addEventListener("astro:before-swap", this.saveFeedSnapshot, { signal: this.lifetime.signal });
     this.columnsObserver = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width || this.clientWidth;
       this.columnCount = width < 300 ? 1 : width < 670 ? 2 : width < 1050 ? 3 : width < 1400 ? 4 : 5;
@@ -463,6 +511,11 @@ export class CommunityWorkspace extends LitElement {
   }
   private async load(append: boolean, refresh = false) {
     if (append && this.loadingMore) return;
+    if (!append && (this.routeKind === "post-detail" || this.routeKind === "post-edit")) {
+      this.commentsRequest.cancel();
+      this.commentsLoading = false;
+      this.cancelReplyRequests();
+    }
     const signal = this.requests.begin();
     const progress = beginLoading(this.label("loading", "Loading"), { signal });
     this.loadingMore = append;
@@ -487,8 +540,16 @@ export class CommunityWorkspace extends LitElement {
             signal,
           },
         );
-        if (!response.ok)
+        if (!response.ok) {
+          if (response.status === 403 || response.status === 404) {
+            this.document = null;
+            this.items = [];
+            this.phase = "error";
+            this.commentDraftOpen = false;
+            this.expandedComments = new Set();
+          }
           throw new Error(response.status === 401 ? "Sign in to view this post" : `HTTP ${response.status}`);
+        }
         const detail = (await response.json()) as Value;
         if (!this.requests.current(signal)) return;
         this.document = detail;
@@ -723,50 +784,138 @@ export class CommunityWorkspace extends LitElement {
       viewer: ((root.viewer as Value | undefined) || {}) as Value,
     };
   }
-  private updatePost(post: Value, viewer?: Value) {
+  private viewerId() {
+    return String((this.session?.user as Value | undefined)?.id || "");
+  }
+  private patchPostItems(
+    items: Value[],
+    postId: string,
+    postPatch: Value,
+    viewerPatch: Value,
+    removeFromBookmarks: boolean,
+    route: FeedSnapshotRoute,
+  ) {
+    if (removeFromBookmarks && route.scope === "bookmarked") {
+      return items.filter((item) => String(item.id) !== postId);
+    }
+    return items.map((item) =>
+      String(item.id) === postId
+        ? { ...item, ...postPatch, viewer: { ...((item.viewer as Value | undefined) || {}), ...viewerPatch } }
+        : item,
+    );
+  }
+  private patchFeedSnapshots(
+    postId: string,
+    viewerId: string,
+    postPatch: Value,
+    viewerPatch: Value,
+    removeFromBookmarks = false,
+  ) {
+    if (!viewerId) return;
+    for (const [routeUrl, snapshot] of feedSnapshots) {
+      if (snapshot.viewer !== viewerId) continue;
+      const route = feedSnapshotRoute(routeUrl);
+      if (route.kind !== "posts") continue;
+      if (!snapshot.items.some((item) => String(item.id) === postId)) {
+        if (route.scope === "bookmarked" && viewerPatch.bookmarked === true) feedSnapshots.delete(routeUrl);
+        continue;
+      }
+      snapshot.items = this.patchPostItems(snapshot.items, postId, postPatch, viewerPatch, removeFromBookmarks, route);
+    }
+  }
+  private invalidateFeedSnapshots(
+    viewerId: string,
+    shouldInvalidate: (route: FeedSnapshotRoute, items: Value[]) => boolean,
+  ) {
+    if (!viewerId) return;
+    for (const [routeUrl, snapshot] of feedSnapshots) {
+      if (snapshot.viewer !== viewerId) continue;
+      const route = feedSnapshotRoute(routeUrl);
+      if (shouldInvalidate(route, snapshot.items)) feedSnapshots.delete(routeUrl);
+    }
+  }
+  private updatePost(post: Value, viewer?: Value, viewerId = this.viewerId(), mutation?: PostSnapshotMutation) {
+    const postId = String(post.id || this.entityId);
+    if (mutation?.kind === "patch") {
+      const postPatch = mutation.post || {};
+      const viewerPatch = mutation.viewer || {};
+      this.patchFeedSnapshots(postId, viewerId, postPatch, viewerPatch, Boolean(mutation.removeFromBookmarks));
+    } else if (mutation?.kind === "invalidate") {
+      this.invalidateFeedSnapshots(viewerId, (route) => {
+        if (route.kind !== "posts") return false;
+        if (mutation.source === "pin") return ["all", "latest", "following"].includes(route.scope);
+        return route.state === "active" || (route.scope === "mine" && route.state === "archived");
+      });
+    }
+    if (
+      !this.isConnected ||
+      !["post-detail", "post-edit"].includes(this.routeKind) ||
+      this.entityId !== postId ||
+      this.viewerId() !== viewerId
+    )
+      return;
     const root = this.document || {};
     this.document = root.post ? { ...root, post, ...(viewer ? { viewer } : {}) } : post;
   }
   private togglePostReaction() {
     if (!this.requireSession()) return;
+    const { post, viewer } = this.postEnvelope();
+    const postId = String(post.id || this.entityId);
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      const { post, viewer } = this.postEnvelope();
-      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}/reaction`, {
+      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(postId)}/reaction`, {
         method: "PUT",
         body: JSON.stringify({ active: !viewer.liked }),
       });
-      this.updatePost({ ...post, likeCount: result.likeCount }, { ...viewer, liked: result.active });
+      this.updatePost({ ...post, likeCount: result.likeCount }, { ...viewer, liked: result.active }, viewerId, {
+        kind: "patch",
+        post: { likeCount: result.likeCount },
+        viewer: { liked: result.active },
+      });
     });
   }
   private toggleBookmark() {
     if (!this.requireSession()) return;
+    const { post, viewer } = this.postEnvelope();
+    const postId = String(post.id || this.entityId);
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      const { post, viewer } = this.postEnvelope();
-      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}/bookmark`, {
+      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(postId)}/bookmark`, {
         method: "PUT",
         body: JSON.stringify({ active: !viewer.bookmarked }),
       });
-      this.updatePost(post, { ...viewer, bookmarked: result.active });
+      this.updatePost(post, { ...viewer, bookmarked: result.active }, viewerId, {
+        kind: "patch",
+        viewer: { bookmarked: result.active },
+        removeFromBookmarks: !result.active,
+      });
     });
   }
   private setPinned(active: boolean) {
+    const { post, viewer } = this.postEnvelope();
+    const postId = String(post.id || this.entityId);
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      const { post, viewer } = this.postEnvelope();
-      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}/pin`, {
+      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(postId)}/pin`, {
         method: "PUT",
         body: JSON.stringify({ active, version: post.version }),
       });
-      this.updatePost((result.post as Value) || post, viewer);
+      this.updatePost((result.post as Value) || post, viewer, viewerId, { kind: "invalidate", source: "pin" });
     });
   }
   private setArchived(archived: boolean) {
+    const { post, viewer } = this.postEnvelope();
+    const postId = String(post.id || this.entityId);
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      const { post, viewer } = this.postEnvelope();
       const result = await this.request(
-        `/api/v1/community/posts/${encodeURIComponent(this.entityId)}/${archived ? "archive" : "restore"}`,
+        `/api/v1/community/posts/${encodeURIComponent(postId)}/${archived ? "archive" : "restore"}`,
         { method: "POST", body: JSON.stringify({ version: post.version }) },
       );
-      this.updatePost((result.post as Value) || post, viewer);
+      this.updatePost((result.post as Value) || post, viewer, viewerId, {
+        kind: "invalidate",
+        source: "membership",
+      });
     });
   }
   /** Deleting is destructive and irreversible from the community pages, so it
@@ -787,12 +936,18 @@ export class CommunityWorkspace extends LitElement {
     };
   }
   private reallyDeletePost() {
+    const { post } = this.postEnvelope();
+    const postId = String(post.id || this.entityId);
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      const { post } = this.postEnvelope();
-      await this.request(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}`, {
+      await this.request(`/api/v1/community/posts/${encodeURIComponent(postId)}`, {
         method: "DELETE",
         body: JSON.stringify({ version: post.version }),
       });
+      this.invalidateFeedSnapshots(
+        viewerId,
+        (route, items) => route.kind === "posts" && items.some((item) => String(item.id) === postId),
+      );
       location.assign(`${this.path("/community/mine")}?deleted=1`);
     });
   }
@@ -829,7 +984,10 @@ export class CommunityWorkspace extends LitElement {
         method: "PATCH",
         body: JSON.stringify({ body, version: comment.version }),
       });
-      this.patchComment(String(comment.id), (result.comment as Value) || comment);
+      if (result.visibilityChanged) {
+        this.patchComment(String(comment.id));
+        await this.load(false);
+      } else this.patchComment(String(comment.id), (result.comment as Value) || comment);
       this.editingComment = "";
     });
   }
@@ -971,26 +1129,46 @@ export class CommunityWorkspace extends LitElement {
   private togglePinReaction(post: Value) {
     if (!this.requireSession()) return;
     const viewer = (post.viewer as Value | undefined) || {};
+    const postId = String(post.id);
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(String(post.id))}/reaction`, {
+      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(postId)}/reaction`, {
         method: "PUT",
         body: JSON.stringify({ active: !viewer.liked }),
       });
-      this.patchPin(post, { likeCount: result.likeCount }, { liked: result.active });
+      this.patchFeedSnapshots(postId, viewerId, { likeCount: result.likeCount }, { liked: result.active });
+      if (
+        this.isConnected &&
+        this.routeKind === "collection" &&
+        feedSnapshotRoute(this.routeUrl).kind === "posts" &&
+        this.viewerId() === viewerId
+      )
+        this.patchPin(post, { likeCount: result.likeCount }, { liked: result.active });
     });
   }
   private togglePinBookmark(post: Value) {
     if (!this.requireSession()) return;
     const viewer = (post.viewer as Value | undefined) || {};
+    const postId = String(post.id);
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(String(post.id))}/bookmark`, {
+      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(postId)}/bookmark`, {
         method: "PUT",
         body: JSON.stringify({ active: !viewer.bookmarked }),
       });
-      this.patchPin(post, {}, { bookmarked: result.active });
-      this.showToast(
-        result.active ? this.label("addBookmark", "Bookmark") : this.label("removeBookmark", "Remove bookmark"),
-      );
+      this.patchFeedSnapshots(postId, viewerId, {}, { bookmarked: result.active }, !result.active);
+      if (
+        this.isConnected &&
+        this.routeKind === "collection" &&
+        feedSnapshotRoute(this.routeUrl).kind === "posts" &&
+        this.viewerId() === viewerId
+      ) {
+        if (result.active || this.mode !== "bookmarks") this.patchPin(post, {}, { bookmarked: result.active });
+        else this.items = this.items.filter((entry) => String(entry.id) !== postId);
+        this.showToast(
+          result.active ? this.label("addBookmark", "Bookmark") : this.label("removeBookmark", "Remove bookmark"),
+        );
+      }
     });
   }
   private async copyPinLink(post: Value) {
@@ -1443,20 +1621,80 @@ export class CommunityWorkspace extends LitElement {
       this.commentBody = "";
       this.replyTo = "";
       this.commentDraftOpen = false;
-      await this.refreshComments();
       const comment = result.comment as Value | undefined;
+      await this.refreshComments(false, comment ? String(comment.id) : "");
       if (comment) {
         const root = this.document || {};
         const comments = Array.isArray(root.comments) ? (root.comments as Value[]) : [];
         this.document = {
           ...root,
-          comments: comments.some((entry) => entry.id === comment.id) ? comments : [comment, ...comments],
+          comments: comments.some((entry) => entry.id === comment.id)
+            ? comments
+            : [...new Map([...comments, comment].map((entry) => [String(entry.id), entry])).values()],
           post: { ...(root.post as Value), commentCount: Number((root.post as Value)?.commentCount || 0) + 1 },
         };
       }
     });
   }
-  private async refreshComments(append = false) {
+  private cancelReplyRequests() {
+    for (const scope of this.replyRequests?.values() || []) scope.cancel();
+    this.replyRequests?.clear();
+    if (this.replyLoading?.size) this.replyLoading = new Set();
+  }
+  private async loadMoreReplies(rootId: string) {
+    if (!rootId || this.replyLoading?.has(rootId)) return;
+    const root = (this.document?.comments as Value[] | undefined)?.find((comment) => String(comment.id) === rootId);
+    const cursor = root?.replyCursor ? String(root.replyCursor) : "";
+    if (!root || !cursor) {
+      const next = new Set(this.expandedComments);
+      next.add(rootId);
+      this.expandedComments = next;
+      return;
+    }
+    const scope = this.replyRequests.get(rootId) || new RequestScope();
+    this.replyRequests.set(rootId, scope);
+    const signal = scope.begin();
+    const loading = new Set(this.replyLoading || []);
+    loading.add(rootId);
+    this.replyLoading = loading;
+    const progress = beginLoading(this.label("comments", "Comments"), { signal });
+    try {
+      const query = new URLSearchParams({
+        commentsOnly: "true",
+        commentsRoot: rootId,
+        commentsCursor: cursor,
+        commentsSort: this.commentSort,
+      });
+      const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}?${query}`, {
+        signal,
+      });
+      if (!scope.current(signal)) return;
+      const incoming = Array.isArray(result.comments) ? (result.comments as Value[]) : [];
+      const existing = Array.isArray(this.document?.comments) ? (this.document.comments as Value[]) : [];
+      const comments = [
+        ...new Map([...existing, ...incoming].map((comment) => [String(comment.id), comment])).values(),
+      ];
+      const nextRoot = comments.find((comment) => String(comment.id) === rootId) || root;
+      const replyCount = Number(result.replyCount);
+      nextRoot.replyCount = Number.isSafeInteger(replyCount) && replyCount >= 0 ? replyCount : root.replyCount;
+      nextRoot.replyCursor = result.replyCursor ? String(result.replyCursor) : null;
+      this.document = { ...this.document, comments };
+      const expanded = new Set(this.expandedComments);
+      expanded.add(rootId);
+      this.expandedComments = expanded;
+    } catch (error) {
+      if (scope.current(signal)) this.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      progress.finish();
+      if (scope.current(signal)) {
+        const next = new Set(this.replyLoading);
+        next.delete(rootId);
+        this.replyLoading = next;
+      }
+    }
+  }
+  private async refreshComments(append = false, focusedCommentId = "") {
+    this.cancelReplyRequests();
     const signal = this.commentsRequest.begin();
     this.commentsLoading = true;
     const progress = beginLoading(this.label("comments", "Comments"), { signal });
@@ -1464,6 +1702,7 @@ export class CommunityWorkspace extends LitElement {
       const query = new URLSearchParams({ commentsOnly: "true", commentsSort: this.commentSort });
       if (append && this.document?.commentsNextCursor)
         query.set("commentsCursor", String(this.document.commentsNextCursor));
+      if (focusedCommentId) query.set("commentId", focusedCommentId);
       const result = await this.request(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}?${query}`, {
         signal,
       });
@@ -1472,9 +1711,17 @@ export class CommunityWorkspace extends LitElement {
         ...(append && Array.isArray(this.document?.comments) ? (this.document.comments as Value[]) : []),
         ...(Array.isArray(result.comments) ? (result.comments as Value[]) : []),
       ];
+      const merged = new Map<string, Value>();
+      for (const comment of comments) {
+        const id = String(comment.id);
+        const previous = merged.get(id);
+        if (previous && this.expandedComments.has(id) && comment.replyCount !== undefined) {
+          merged.set(id, { ...previous, ...comment, replyCursor: previous.replyCursor });
+        } else merged.set(id, comment);
+      }
       this.document = {
         ...this.document,
-        comments: [...new Map(comments.map((comment) => [String(comment.id), comment])).values()],
+        comments: [...merged.values()],
         commentsNextCursor: result.commentsNextCursor,
       };
     } catch (error) {
@@ -2111,9 +2358,34 @@ export class CommunityWorkspace extends LitElement {
       }
       if (comment !== root) groups.get(id)!.push(comment);
     }
+    roots.sort((left, right) => {
+      if (this.commentSort === "latest") {
+        const time = Number(right.createdAt) - Number(left.createdAt);
+        if (time) return time;
+      } else {
+        const likes = Number(right.likeCount || 0) - Number(left.likeCount || 0);
+        if (likes) return likes;
+        const time = Number(right.createdAt) - Number(left.createdAt);
+        if (time) return time;
+      }
+      const a = String(left.id),
+        b = String(right.id);
+      return a < b ? 1 : a > b ? -1 : 0;
+    });
     return roots.map((root) => {
       const id = String(root.id),
-        replies = groups.get(id) || [];
+        replies = (groups.get(id) || []).sort((left, right) => {
+          const time = Number(left.createdAt) - Number(right.createdAt);
+          if (time) return time;
+          const a = String(left.id),
+            b = String(right.id);
+          return a < b ? -1 : a > b ? 1 : 0;
+        });
+      const replyCount = Number(root.replyCount);
+      const knownReplyCount = Number.isSafeInteger(replyCount) && replyCount >= 0 ? replyCount : replies.length;
+      const remainingReplies = Math.max(0, knownReplyCount - replies.length);
+      const hasMoreReplies = Boolean(root.replyCursor) || remainingReplies > 0 || replies.length > 2;
+      const loadingReplies = Boolean(this.replyLoading?.has(id));
       const visible = this.expandedComments.has(id) ? replies : replies.slice(0, 2);
       return keyed(
         id,
@@ -2130,19 +2402,67 @@ export class CommunityWorkspace extends LitElement {
                 : nothing
             }
             ${
-              replies.length > 2
+              hasMoreReplies || this.expandedComments.has(id)
                 ? html`
                     <button
                       class="button button--text community-replies-toggle"
                       aria-expanded=${this.expandedComments.has(id)}
+                      ?disabled=${loadingReplies}
                       @click=${() => {
                         const next = new Set(this.expandedComments);
-                        if (next.has(id)) next.delete(id);
-                        else next.add(id);
-                        this.expandedComments = next;
+                        if (next.has(id)) {
+                          next.delete(id);
+                          this.expandedComments = next;
+                        } else if (root.replyCursor && replies.length <= 2) {
+                          void this.loadMoreReplies(id);
+                        } else {
+                          next.add(id);
+                          this.expandedComments = next;
+                        }
                       }}
                     >
-                      ${this.expandedComments.has(id) ? this.label("collapseReplies", "Collapse replies") : this.label("expandReplies", "Show {count} more replies").replace("{count}", String(replies.length - 2))}${icon(this.expandedComments.has(id) ? "expand_less" : "expand_more", 18)}
+                      ${
+                        this.expandedComments.has(id)
+                          ? this.label("collapseReplies", "Collapse replies")
+                          : this.label("expandReplies", "Show {count} more replies").replace(
+                              "{count}",
+                              String(remainingReplies || Math.max(0, replies.length - 2)),
+                            )
+                      }${
+                        loadingReplies
+                          ? html`
+                              <md-circular-progress
+                                class="community-replies-progress"
+                                indeterminate
+                                aria-label=${this.label("loading", "Loading")}
+                              ></md-circular-progress>
+                            `
+                          : icon(this.expandedComments.has(id) ? "expand_less" : "expand_more", 18)
+                      }
+                    </button>
+                  `
+                : nothing
+            }
+            ${
+              this.expandedComments.has(id) && root.replyCursor
+                ? html`
+                    <button
+                      class="button button--text community-replies-toggle"
+                      ?disabled=${loadingReplies}
+                      @click=${() => void this.loadMoreReplies(id)}
+                    >
+                      ${this.label("expandReplies", "Show {count} more replies").replace("{count}", String(remainingReplies))}
+                      ${
+                        loadingReplies
+                          ? html`
+                              <md-circular-progress
+                                class="community-replies-progress"
+                                indeterminate
+                                aria-label=${this.label("loading", "Loading")}
+                              ></md-circular-progress>
+                            `
+                          : icon("expand_more", 18)
+                      }
                     </button>
                   `
                 : nothing
@@ -2154,6 +2474,11 @@ export class CommunityWorkspace extends LitElement {
   }
   private renderComment(comment: Value, reply = false) {
     const viewer = (comment.viewer as Value | undefined) || {};
+    const floor = Number(comment.floor);
+    const floorLabel =
+      Number.isSafeInteger(floor) && floor > 0
+        ? this.label("commentFloor", "Floor {floor}").replace("{floor}", String(floor))
+        : "";
     const name = String(
       (comment.author as Value | undefined)?.displayName || comment.authorName || this.label("member", "Member"),
     );
@@ -2176,7 +2501,16 @@ export class CommunityWorkspace extends LitElement {
                   `
                 : nothing
             }
-            ${iconButton({ icon: "more_horiz", label: this.label("commentActions", "Comment actions"), className: "community-comment__more", onClick: (event) => this.openCommentMenu(comment, event) })}
+            <span class="community-comment__actions">
+              ${
+                floorLabel
+                  ? html`
+                      <span class="community-comment__floor" aria-label=${floorLabel}>${floorLabel}</span>
+                    `
+                  : nothing
+              }
+              ${iconButton({ icon: "more_horiz", label: this.label("commentActions", "Comment actions"), className: "community-comment__more", onClick: (event) => this.openCommentMenu(comment, event) })}
+            </span>
           </header>
           ${
             this.editingComment === String(comment.id)

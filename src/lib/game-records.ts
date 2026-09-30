@@ -33,13 +33,48 @@ export interface SongRankingRowDto {
   cards: SongRankingCardDto[];
 }
 
-export interface SongRankingDto {
+export interface GameRankingDto {
   region: GameRecordsRegion;
-  musicId: number;
   fetchedAtMs: number | null;
   serverTimeMs: number | null;
   stale: boolean;
   rows: SongRankingRowDto[];
+}
+
+export interface SongRankingDto extends GameRankingDto {
+  musicId: number;
+}
+
+export interface EventChallengeDto {
+  id: string;
+  musicId: string;
+  enabled: boolean;
+  status: string;
+  startAtMs: number | null;
+  endAtMs: number | null;
+  rewardRanks: number[];
+}
+
+export interface TrackedEventDto {
+  id: string;
+  startAtMs: number | null;
+  endAtMs: number | null;
+  status: string;
+  pointRankingEnabled: boolean;
+  pointRankingStatus: string;
+  challenges: EventChallengeDto[];
+}
+
+export interface EventTrackerDto {
+  region: GameRecordsRegion;
+  event: TrackedEventDto | null;
+  fetchedAtMs: number | null;
+  stale: boolean;
+}
+
+export interface EventRankingDto extends GameRankingDto {
+  eventId: string;
+  challengeId?: string;
 }
 
 export interface PlayerProfileDto {

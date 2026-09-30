@@ -59,12 +59,6 @@
   .story-detail--page[data-view="text"] > .story-detail__body {
     overflow: visible;
   }
-  /* Story art is a wide banner, so a story tile is wider than a jacket tile.
-   Everything else about it comes from patterns/collection.css. */
-  .collection--story {
-    --tile-min: 260px;
-  }
-
   /* ==========================================================================
    Staged features
    Both are containers of game art with hit targets positioned in percentages

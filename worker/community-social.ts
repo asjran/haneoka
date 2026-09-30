@@ -140,6 +140,7 @@ interface CommentResponseRow {
   body: string;
   browserFamily: BrowserFamily | null;
   createdAt: number;
+  floor: number;
   id: string;
   ipCountryCode: string | null;
   ipRegionCode: string | null;
@@ -1044,6 +1045,7 @@ const commentValue = (row: CommentResponseRow) => ({
   likeCount: row.likeCount,
   version: row.version,
   createdAt: row.createdAt,
+  floor: row.floor,
   updatedAt: row.updatedAt,
   lastEditedAt: row.lastEditedAt,
   device: row.browserFamily || row.osFamily ? { browserFamily: row.browserFamily, osFamily: row.osFamily } : null,
@@ -1067,27 +1069,59 @@ const commentValue = (row: CommentResponseRow) => ({
 
 const readCommentResponse = async (env: Env, commentId: string, viewerId: string): Promise<CommentResponseRow | null> =>
   env.DB.prepare(
-    `SELECT comment.id, comment.body, comment.parent_id AS parentId,
-            comment.moderation_status AS moderationStatus, comment.like_count AS likeCount,
-            comment.version, comment.created_at AS createdAt, comment.updated_at AS updatedAt,
-            ${COMMENT_LAST_EDITED_AT_SELECT} AS lastEditedAt,
-            comment.ip_country_code AS ipCountryCode, comment.ip_region_code AS ipRegionCode,
-            comment.ip_region_name AS ipRegionName,
-            comment.browser_family AS browserFamily, comment.os_family AS osFamily,
-            account.id AS authorId, identity.uid AS authorUid,
-            profile.display_name AS authorName, ${avatarUrlSelect("account")} AS authorImage,
-            EXISTS(
-              SELECT 1 FROM community_comment_reaction AS reaction
-              WHERE reaction.comment_id = comment.id AND reaction.user_id = ? AND reaction.kind = 'like'
-            ) AS viewerLiked
-     FROM community_comment AS comment
-     JOIN "user" AS account ON account.id = comment.author_id
-     JOIN community_identity AS identity ON identity.user_id = comment.author_id
-     JOIN community_profile AS profile ON profile.user_id = comment.author_id
-     WHERE comment.id = ? AND profile.status <> 'deleted' AND profile.display_name IS NOT NULL
+    `WITH target_post AS (
+       SELECT post_id FROM community_comment WHERE id = ?
+     ), comment_floors AS (
+       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS floor
+       FROM community_comment
+       WHERE post_id = (SELECT post_id FROM target_post)
+     ), visible_comments AS (
+       SELECT comment.id, comment.body, comment.parent_id AS parentId,
+              comment.moderation_status AS moderationStatus, comment.like_count AS likeCount,
+              comment.version, comment.created_at AS createdAt, comment.updated_at AS updatedAt,
+              commentFloors.floor AS floor,
+              ${COMMENT_LAST_EDITED_AT_SELECT} AS lastEditedAt,
+              comment.ip_country_code AS ipCountryCode, comment.ip_region_code AS ipRegionCode,
+              comment.ip_region_name AS ipRegionName,
+              comment.browser_family AS browserFamily, comment.os_family AS osFamily,
+              account.id AS authorId, identity.uid AS authorUid,
+              profile.display_name AS authorName, ${avatarUrlSelect("account")} AS authorImage,
+              EXISTS(
+                SELECT 1 FROM community_comment_reaction AS reaction
+                WHERE reaction.comment_id = comment.id AND reaction.user_id = ? AND reaction.kind = 'like'
+              ) AS viewerLiked
+       FROM community_comment AS comment
+       JOIN comment_floors AS commentFloors ON commentFloors.id = comment.id
+       JOIN community_post AS post ON post.id = comment.post_id
+       JOIN "user" AS account ON account.id = comment.author_id
+       JOIN community_identity AS identity ON identity.user_id = comment.author_id
+       JOIN community_profile AS profile
+         ON profile.user_id = comment.author_id
+        AND profile.status <> 'deleted'
+        AND profile.display_name IS NOT NULL
+       WHERE comment.post_id = (SELECT post_id FROM target_post)
+         AND comment.deleted_at IS NULL
+         AND comment.hidden_at IS NULL
+         AND (comment.moderation_status = 'allow' OR comment.author_id = ?)
+         AND post.status = 'published'
+         AND post.deleted_at IS NULL
+         AND post.archived_at IS NULL
+         AND post.moderation_status = 'allow'
+         AND (post.visibility IN ('public', 'protected') OR post.author_id = ?)
+         AND NOT EXISTS (
+           SELECT 1 FROM community_user_block AS block
+           WHERE (block.blocker_user_id = ? AND block.blocked_user_id IN (comment.author_id, post.author_id))
+              OR (block.blocker_user_id IN (comment.author_id, post.author_id) AND block.blocked_user_id = ?)
+         )
+     ), numbered_comments AS (
+       SELECT visible_comments.*
+       FROM visible_comments
+     )
+     SELECT * FROM numbered_comments
+     WHERE id = ?
      LIMIT 1`,
   )
-    .bind(viewerId, commentId)
+    .bind(commentId, viewerId, viewerId, viewerId, viewerId, viewerId, commentId)
     .first<CommentResponseRow>();
 
 const logModerationFailure = (request: Request, commentId: string, failure: unknown): void => {
@@ -1238,11 +1272,11 @@ const patchComment = async (request: Request, env: Env, commentId: string): Prom
   } catch (failure) {
     logModerationFailure(request, commentId, failure);
     const updated = await readCommentResponse(env, commentId, viewerId);
-    if (!updated) throw new Error("The edited comment could not be read after moderation scheduling failed");
+    if (!updated) return json(request, { moderationQueued: false, comment: null, visibilityChanged: true }, 202);
     return json(request, { moderationQueued: false, comment: commentValue(updated) }, 202);
   }
   const updated = await readCommentResponse(env, commentId, viewerId);
-  if (!updated) throw new Error("The edited comment could not be read");
+  if (!updated) return json(request, { moderationQueued, comment: null, visibilityChanged: true });
   return json(request, { moderationQueued, comment: commentValue(updated) });
 };
 

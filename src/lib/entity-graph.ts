@@ -1,4 +1,4 @@
-import { gekisouMissionIcons } from "./gekisou";
+import {gekisouMissionIcons} from "./gekisou";
 /** Build-time, release-pinned data closures consumed by static and interactive entity views. */
 import {
   asRecord,
@@ -190,7 +190,7 @@ interface Graph {
   views: Record<string, Rows>;
   skillReference: RecordValue;
   songMeta: Map<string, RecordValue>;
-  missionIcons: Record<string, string>;
+  missionIcons: Record<string,string>;
   collections: Map<string, Array<[string, RecordValue]>>;
   stories: RecordValue;
   live2d: Array<[string, RecordValue]>;
@@ -240,11 +240,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     required("support-cards"),
     required("stamps"),
     required("songs?projection=4"),
-    fetchOptionalStaticCatalog(
-      "sources/Assets/AddressableResources/Live/Images/Atlas/LiveAtlas.spriteatlasv2",
-      server,
-      release,
-    ),
+    fetchOptionalStaticCatalog("sources/Assets/AddressableResources/Live/Images/Atlas/LiveAtlas.spriteatlasv2",server,release),
     required("stories?projection=4"),
     required("live2d"),
     required("friendships"),
@@ -269,7 +265,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     },
     skillReference: asRecord(skillReference) || {},
     songMeta: new Map(entries(songMeta)),
-    missionIcons: gekisouMissionIcons(missionAtlas.value, server),
+    missionIcons:gekisouMissionIcons(missionAtlas.value,server),
     collections: new Map([
       ["cards", entries(cards)],
       ["support-cards", entries(supportCards)],
@@ -297,11 +293,45 @@ function songGekisouProjection(graph: Graph, item: RecordValue, meta?: RecordVal
   const metaTypes = Array.isArray(metaGekisou.missionTypes) ? metaGekisou.missionTypes : [];
   const itemTypes = Array.isArray(itemGekisou.missionTypes) ? itemGekisou.missionTypes : [];
   const missionTypes = metaTypes.length ? metaTypes : itemTypes.length ? itemTypes : patternSource;
-  const projection: RecordValue = { ...metaGekisou, icons: graph.missionIcons };
+  const projection: RecordValue = { ...metaGekisou, icons:graph.missionIcons };
   delete projection.rankBonusTop;
   if (missionPattern.length && !Array.isArray(projection.missionPattern)) projection.missionPattern = missionPattern;
   if (missionTypes.length) projection.missionTypes = missionTypes;
   return projection;
+}
+
+function enrichCardReferences(graph: Graph, item: RecordValue): void {
+  const members = new Map(graph.collections.get("cards") || []);
+  const supports = new Map(graph.collections.get("support-cards") || []);
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const reference = asRecord(value);
+    if (!reference) return;
+    if (reference.kind === "MemberCard" || reference.kind === "SupportCard") {
+      const support = reference.kind === "SupportCard";
+      const idKey = support ? "supportCardId" : "cardId";
+      let id = String(reference[idKey] || "");
+      if (!id && typeof reference.href === "string") {
+        try {
+          const url = new URL(reference.href, "https://catalog.invalid");
+          id = url.searchParams.get(support ? "snap" : "card") || "";
+        } catch {
+          return;
+        }
+      }
+      const card = (support ? supports : members).get(id);
+      if (!card) return;
+      Object.assign(reference, pick(card, support ? SUPPORT_TILE_FIELDS : CARD_TILE_FIELDS));
+      const characterIds = characterIdsOf(card);
+      reference.characterDetails = compactCharacters(graph, new Set(characterIds));
+      return;
+    }
+    Object.values(reference).forEach(visit);
+  };
+  visit(item);
 }
 
 export function entityGraph(server: ReleaseServer): Promise<Graph> {
@@ -571,6 +601,7 @@ export async function buildEntityPayloads(
     };
     if (item.artistName === undefined) delete item.artistName;
     if (item.bandName === undefined) delete item.bandName;
+    if (resource === "gacha") enrichCardReferences(graph, item);
     const characterIds = new Set(characterIdsOf(item));
     for (const vocal of numbers(item.vocalCharacterIds)) characterIds.add(vocal);
     const bandIds = new Set([...numbers(item.bandId), ...numbers(item.bandIds)]);

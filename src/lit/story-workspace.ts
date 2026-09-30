@@ -23,7 +23,6 @@ import {
   currentReleaseServer,
   fetchJson,
   formatList,
-  gameDateTimeRange,
   localizedText,
   preferredLocale,
   recordValues,
@@ -622,14 +621,6 @@ export class StoryWorkspace extends LitElement {
     const value = this.releaseValue(item);
     return value ? new Intl.DateTimeFormat(this.locale, { dateStyle: "medium" }).format(new Date(value)) : "";
   }
-  /** The event's own window, as the game shows it on the event page. */
-  private eventWindow(event: JsonRecord) {
-    return gameDateTimeRange(
-      this.locale,
-      this.releaseValue(event),
-      Array.isArray(event.endAt) ? Number(event.endAt[0] || 0) : 0,
-    );
-  }
   private duration(item: JsonRecord) {
     const seconds = Math.round(Number(item.playTime || 0));
     return seconds ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "";
@@ -942,13 +933,12 @@ export class StoryWorkspace extends LitElement {
     // Sections whose single chapter is unnamed (friendship, home, tutorial)
     // have nothing to head: the page title already says where you are.
     if (!chapter || !title) return undefined;
-    const window = event ? this.eventWindow(event) : "";
     const description = this.text(chapter.description) || this.text(chapter.caption) || "";
     return {
       title,
       titleLanguage: resolveLocalizedText(event ? event.name : chapter.chapterName, this.locale).locale,
       supportingLanguage: resolveLocalizedText(chapter.description || chapter.caption, this.locale).locale,
-      supporting: [window, description].filter(Boolean).join(" · "),
+      supporting: description,
       image: String(chapter.icon || ""),
     };
   }
@@ -1358,14 +1348,14 @@ export class StoryWorkspace extends LitElement {
     return html`
       ${stage}
       ${
-        this.origin === "release" && this.mode === "band"
+        this.origin === "release" && (this.mode === "band" || this.mode === "event")
           ? ["bandStory", "extraStory", "perspectiveStory"].map((kind) => {
               const group = shown.filter((episode) => this.episodeGroup(episode) === kind);
               return group.length
                 ? html`
                     <section class="story-episode-group">
                       <h3>
-                        ${uiText(this.locale, kind)}
+                        ${uiText(this.locale, this.mode === "event" && kind === "bandStory" ? "eventStory" : kind)}
                         <small>${episodes.filter((episode) => this.episodeGroup(episode) === kind).length}</small>
                       </h3>
                       ${this.renderEpisodeCollection(group)}

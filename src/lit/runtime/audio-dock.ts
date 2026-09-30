@@ -1,3 +1,4 @@
+import { audioTrackKey } from "../../lib/audio-track-key";
 import { observeSongDisplay, songTitle } from "../../lib/song-display";
 import { resolveLocalizedText } from "../../lib/localized-text";
 import { LitElement, html, nothing, render } from "lit";
@@ -9,6 +10,7 @@ import { preferredLocale, uiText } from "../shared/catalog";
 
 export interface AudioTrack {
   id: string;
+  songKey?: string;
   queueId?: string;
   title: string;
   titleSource?: unknown;
@@ -39,6 +41,7 @@ const normalizedTrack = (value: AudioTrack, occurrence = 0): AudioTrack | null =
   if (!id || !url) return null;
   return {
     id,
+    songKey: audioTrackKey({ id, url, songKey: typeof value.songKey === "string" ? value.songKey : undefined }),
     queueId: value.queueId || `${id}:${occurrence}:${url}`,
     title: String(value.title || id),
     titleSource: value.titleSource,
@@ -264,6 +267,32 @@ export class AudioDock extends LitElement {
     this.currentTime = 0;
     this.duration = 0;
     await this.prepare(true);
+  }
+
+  async enqueueTrack(track: AudioTrack, playAdded = false) {
+    const requested = normalizedTrack(track, this.queue.length);
+    if (!requested) return;
+    const key = audioTrackKey(requested);
+    const existing =
+      this.track && audioTrackKey(this.track) === key
+        ? this.index
+        : this.queue.findIndex((entry) => audioTrackKey(entry) === key);
+    if (existing >= 0) {
+      const changed = this.index !== existing;
+      this.index = existing;
+      await this.prepare(changed, true);
+      this.emitState();
+      return;
+    }
+    this.queue = [...this.queue, requested];
+    if (this.index < 0) {
+      this.index = 0;
+      await this.prepare(true, playAdded);
+    } else if (playAdded) {
+      this.index = this.queue.length - 1;
+      await this.prepare(true, true);
+    } else this.persist();
+    this.emitState();
   }
 
   private restore() {
@@ -736,7 +765,7 @@ export class AudioDock extends LitElement {
                       track.cover
                         ? html`
                             <img src=${track.cover} alt="" />
-                        `
+                          `
                         : icon("queue_music", 24)
                     }
                   </span>
@@ -755,7 +784,7 @@ export class AudioDock extends LitElement {
                   ${this.playing ? icon("pause", 24) : icon("play_arrow", 24)}
                 </button>
               </div>
-          `
+            `
           : nothing,
         drawer,
       );
@@ -776,7 +805,7 @@ export class AudioDock extends LitElement {
                     track.cover
                       ? html`
                           <img src=${track.cover} alt="" />
-                      `
+                        `
                       : icon("queue_music", 24)
                   }
                 </span>
@@ -784,7 +813,7 @@ export class AudioDock extends LitElement {
                   ${this.playing ? icon("pause", 22) : icon("play_arrow", 22)}
                 </span>
               </button>
-          `
+            `
           : nothing,
         rail,
       );

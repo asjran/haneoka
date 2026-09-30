@@ -29,6 +29,12 @@
     max-height: 100%;
     object-fit: contain;
   }
+  image-gallery[natural] .image-gallery__stage {
+    height: auto;
+    min-height: 0;
+    aspect-ratio: var(--gallery-ratio, 16 / 9);
+    padding: 0;
+  }
   /* The still-stage wrapper positions the animate button against the stage
      box (the stage itself is an <a>, which cannot contain the button). */
   .image-gallery__stagewrap {

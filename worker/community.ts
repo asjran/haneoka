@@ -20,6 +20,8 @@ const COMMENT_BODY_MAX = 5_000;
 const COMMENT_HOURLY_LIMIT = 300;
 const COMMENT_DAILY_LIMIT = 2_000;
 const COMMENT_PAGE_SIZE = 50;
+const COMMENT_REPLY_PAGE_SIZE = 20;
+const COMMENT_REPLY_PREVIEW_SIZE = 2;
 const SEARCH_QUERY_MAX = 100;
 const TAG_MAX = 32;
 const TAG_LIMIT = 10;
@@ -159,6 +161,7 @@ interface PostAttachmentRow {
 interface CommentRow extends AuthorFields, DeviceFields {
   body: string;
   createdAt: number;
+  floor: number;
   id: string;
   ipCountryCode: string | null;
   ipRegionCode: string | null;
@@ -170,6 +173,13 @@ interface CommentRow extends AuthorFields, DeviceFields {
   updatedAt: number;
   version: number;
   viewerLiked: number;
+  rootId?: string;
+  rootPagePosition?: number | null;
+  rootReplyCount?: number;
+  replyPagePosition?: number;
+  hasMoreRoots?: number;
+  hasMoreReplies?: number;
+  previewPosition?: number;
 }
 
 interface CommentStatusRow {
@@ -306,7 +316,24 @@ const publicAuthoredContent = <T extends AuthorFields & DeviceFields & IpLocatio
 
 const serializeComment = (comment: CommentRow, userId: string | null) => {
   const canEdit = Boolean(userId && comment.authorId === userId);
-  const { viewerLiked, ...content } = comment;
+  const {
+    rootId,
+    viewerLiked,
+    rootPagePosition,
+    rootReplyCount,
+    replyPagePosition,
+    hasMoreRoots,
+    hasMoreReplies,
+    previewPosition,
+    ...content
+  } = comment;
+  void rootId;
+  void rootPagePosition;
+  void rootReplyCount;
+  void replyPagePosition;
+  void hasMoreRoots;
+  void hasMoreReplies;
+  void previewPosition;
   return {
     ...publicAuthoredContent(content),
     viewer: {
@@ -746,7 +773,7 @@ const postSelect = `
       FROM community_post_revision AS current_revision
       WHERE current_revision.post_id = post.id
         AND current_revision.revision_number = post.moderation_revision
-    ), post.updated_at) AS lastEditedAt,
+    ), post.created_at) AS lastEditedAt,
     (
       SELECT COUNT(*)
       FROM community_comment AS visible_comment
@@ -796,7 +823,7 @@ const postListSelect = `
       FROM community_post_revision AS current_revision
       WHERE current_revision.post_id = post.id
         AND current_revision.revision_number = post.moderation_revision
-    ), post.updated_at) AS lastEditedAt,
+    ), post.created_at) AS lastEditedAt,
     (
       SELECT COUNT(*)
       FROM community_comment AS visible_comment
@@ -1543,7 +1570,13 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
   const cursorValue = singleSearchParameter(url, "commentsCursor");
   const sortValue = singleSearchParameter(url, "commentsSort");
   const focusedCommentValue = singleSearchParameter(url, "commentId");
-  if (cursorValue === undefined || sortValue === undefined || focusedCommentValue === undefined) {
+  const commentsRootValue = singleSearchParameter(url, "commentsRoot");
+  if (
+    cursorValue === undefined ||
+    sortValue === undefined ||
+    focusedCommentValue === undefined ||
+    commentsRootValue === undefined
+  ) {
     return error(request, 400, "duplicate_query_parameter", "Comment query parameters may only be sent once");
   }
   const focusedCommentId =
@@ -1551,13 +1584,18 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
   if (focusedCommentId === undefined) {
     return error(request, 400, "invalid_comment_id", "commentId must be a valid comment identifier");
   }
+  const commentsRootId =
+    commentsRootValue === null || UUID_PATTERN.test(commentsRootValue) ? commentsRootValue : undefined;
+  if (commentsRootId === undefined) {
+    return error(request, 400, "invalid_comments_root", "commentsRoot must be a valid comment identifier");
+  }
   const cursor = decodeCursor(cursorValue);
   if (cursorValue && !cursor) return error(request, 400, "invalid_cursor", "The comments cursor is invalid");
   const commentsSort: CommentSort = sortValue === null || sortValue === "hot" ? "hot" : "latest";
   if (sortValue !== null && sortValue !== "hot" && sortValue !== "latest") {
     return error(request, 400, "invalid_comment_sort", "commentsSort must be hot or latest");
   }
-  if (commentsSort === "hot" && cursor && cursor.rankScore === undefined) {
+  if (commentsRootId === null && commentsSort === "hot" && cursor && cursor.rankScore === undefined) {
     return error(request, 400, "invalid_cursor", "The hot-comment cursor is invalid");
   }
   const commentModerationSql = userId
@@ -1613,26 +1651,53 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
     )`);
     commentBindings.push(userId, userId, userId);
   }
-  const focusedCommentWhere = [...commentWhere];
-  const focusedCommentBindings = [...commentBindings];
-  if (cursor) {
-    if (commentsSort === "hot") {
-      commentWhere.push(`(
-        comment.like_count < ?
-        OR (comment.like_count = ? AND (
-          comment.created_at < ? OR (comment.created_at = ? AND comment.id < ?)
-        ))
-      )`);
-      commentBindings.push(cursor.rankScore ?? 0, cursor.rankScore ?? 0, cursor.createdAt, cursor.createdAt, cursor.id);
-    } else {
-      commentWhere.push("(comment.created_at < ? OR (comment.created_at = ? AND comment.id < ?))");
-      commentBindings.push(cursor.createdAt, cursor.createdAt, cursor.id);
-    }
-  }
-  const commentOrder =
+  const rootOrder =
     commentsSort === "hot"
-      ? "comment.like_count DESC, comment.created_at DESC, comment.id DESC"
-      : "comment.created_at DESC, comment.id DESC";
+      ? "root_comments.likeCount DESC, root_comments.createdAt DESC, root_comments.id DESC"
+      : "root_comments.createdAt DESC, root_comments.id DESC";
+  const rootCursorWhere = cursor
+    ? commentsSort === "hot"
+      ? `WHERE root_comments.likeCount < ?
+           OR (root_comments.likeCount = ? AND (
+             root_comments.createdAt < ? OR (root_comments.createdAt = ? AND root_comments.id < ?)
+           ))`
+      : `WHERE root_comments.createdAt < ?
+           OR (root_comments.createdAt = ? AND root_comments.id < ?)`
+    : "";
+  const rootCursorBindings: BindValue[] = cursor
+    ? commentsSort === "hot"
+      ? [cursor.rankScore ?? 0, cursor.rankScore ?? 0, cursor.createdAt, cursor.createdAt, cursor.id]
+      : [cursor.createdAt, cursor.createdAt, cursor.id]
+    : [];
+  const replyCursorWhere = cursor
+    ? `WHERE reply_candidates.createdAt > ?
+         OR (reply_candidates.createdAt = ? AND reply_candidates.id > ?)`
+    : "";
+  const replyCursorBindings: BindValue[] = cursor ? [cursor.createdAt, cursor.createdAt, cursor.id] : [];
+  const visibleMembershipBindings: BindValue[] = [id, ...commentModerationValues];
+  if (userId) visibleMembershipBindings.push(userId, userId, userId);
+  const effectiveParentIdSelect = `CASE
+    WHEN comment.parent_id IS NULL THEN NULL
+    WHEN EXISTS (
+      SELECT 1
+      FROM visible_members AS visible_parent
+      WHERE visible_parent.id = comment.parent_id
+    ) THEN comment.parent_id
+    ELSE NULL
+  END`;
+  const visibleMembershipSelect = `SELECT
+       comment.id,
+       comment.parent_id AS parentId,
+       comment.created_at AS createdAt,
+       comment.like_count AS likeCount
+     FROM community_comment AS comment
+     JOIN "user" AS author ON author.id = comment.author_id
+     JOIN community_identity AS author_identity ON author_identity.user_id = comment.author_id
+     JOIN community_profile AS author_profile
+       ON author_profile.user_id = comment.author_id
+      AND author_profile.status <> 'deleted'
+      AND author_profile.display_name IS NOT NULL
+     WHERE ${commentWhere.join(" AND ")}`;
   const commentSelect = `SELECT
        comment.id,
        comment.body,
@@ -1644,7 +1709,8 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
        comment.browser_family AS browserFamily,
        comment.os_family AS osFamily,
        comment.moderation_status AS moderationStatus,
-       ${visibleParentIdSelect} AS parentId,
+       ${effectiveParentIdSelect} AS parentId,
+       commentFloors.floor AS floor,
        comment.created_at AS createdAt,
        comment.updated_at AS updatedAt,
        ${COMMENT_LAST_EDITED_AT_SELECT} AS lastEditedAt,
@@ -1654,34 +1720,241 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
        author_profile.display_name AS authorName,
        ${avatarUrlSelect("author")} AS authorImage
      FROM community_comment AS comment
+     JOIN comment_floors AS commentFloors ON commentFloors.id = comment.id
      JOIN "user" AS author ON author.id = comment.author_id
      JOIN community_identity AS author_identity ON author_identity.user_id = comment.author_id
      JOIN community_profile AS author_profile
        ON author_profile.user_id = comment.author_id
       AND author_profile.status <> 'deleted'
       AND author_profile.display_name IS NOT NULL`;
-  const commentsStatement = env.DB.prepare(
-    `${commentSelect}
-     WHERE ${commentWhere.join(" AND ")}
-     ORDER BY ${commentOrder}
-     LIMIT ?`,
-  ).bind(...commentBindings, COMMENT_PAGE_SIZE + 1);
-  const commentsResult = await commentsStatement.all<CommentRow>();
-  const hasMoreComments = commentsResult.results.length > COMMENT_PAGE_SIZE;
-  const pageComments = hasMoreComments ? commentsResult.results.slice(0, COMMENT_PAGE_SIZE) : commentsResult.results;
-  const lastComment = pageComments.at(-1);
-  const comments = [...pageComments];
-  if (focusedCommentId && !comments.some((comment) => comment.id === focusedCommentId)) {
-    const focusedComment = await env.DB.prepare(
-      `${commentSelect}
-       WHERE ${focusedCommentWhere.join(" AND ")} AND comment.id = ?
-       LIMIT 1`,
-    )
-      .bind(...focusedCommentBindings, focusedCommentId)
-      .first<CommentRow>();
-    if (focusedComment) comments.push(focusedComment);
+  const commentsResult =
+    commentsRootId !== null
+      ? await env.DB.prepare(
+          `WITH RECURSIVE comment_floors AS (
+             SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS floor
+             FROM community_comment
+             WHERE post_id = ?
+           ), visible_members AS MATERIALIZED (
+             ${visibleMembershipSelect}
+           ), comment_roots(id, rootId) AS (
+             SELECT member.id, member.id
+             FROM visible_members AS member
+             WHERE member.parentId IS NULL
+                OR NOT EXISTS (
+                  SELECT 1 FROM visible_members AS visible_parent
+                  WHERE visible_parent.id = member.parentId
+                )
+             UNION ALL
+             SELECT child.id, parent.rootId
+             FROM comment_roots AS parent
+             JOIN community_comment AS child_row ON child_row.parent_id = parent.id
+             JOIN visible_members AS child ON child.id = child_row.id
+           ), reply_counts AS (
+             SELECT rootId, COUNT(*) - 1 AS replyCount
+             FROM comment_roots
+             GROUP BY rootId
+           ), reply_target AS (
+             SELECT rootId
+             FROM comment_roots
+             WHERE id = ? AND id = rootId
+           ), reply_candidates AS (
+             SELECT comment_roots.id, comment_roots.rootId, visible_members.createdAt
+             FROM comment_roots
+             JOIN visible_members ON visible_members.id = comment_roots.id
+             JOIN reply_target ON reply_target.rootId = comment_roots.rootId
+             WHERE comment_roots.id <> comment_roots.rootId
+           ), reply_page AS (
+             SELECT reply_candidates.*,
+                    ROW_NUMBER() OVER (ORDER BY reply_candidates.createdAt ASC, reply_candidates.id ASC) AS pagePosition
+             FROM reply_candidates
+             ${replyCursorWhere}
+             ORDER BY reply_candidates.createdAt ASC, reply_candidates.id ASC
+             LIMIT ?
+           ), hydrated_comments AS (
+             ${commentSelect}
+             WHERE comment.id IN (
+               SELECT id FROM reply_page WHERE pagePosition <= ${COMMENT_REPLY_PAGE_SIZE}
+             ) AND ${commentWhere.join(" AND ")}
+           )
+           SELECT hydrated_comments.*,
+                  comment_roots.rootId,
+                  reply_counts.replyCount AS rootReplyCount,
+                  reply_page.pagePosition AS replyPagePosition,
+                  EXISTS (
+                    SELECT 1 FROM reply_page
+                    WHERE pagePosition > ${COMMENT_REPLY_PAGE_SIZE}
+                  ) AS hasMoreReplies
+           FROM hydrated_comments
+           JOIN comment_roots ON comment_roots.id = hydrated_comments.id
+           JOIN reply_page ON reply_page.id = hydrated_comments.id
+           JOIN reply_counts ON reply_counts.rootId = comment_roots.rootId
+           ORDER BY reply_page.pagePosition ASC`,
+        )
+          .bind(
+            id,
+            ...visibleMembershipBindings,
+            commentsRootId,
+            ...replyCursorBindings,
+            COMMENT_REPLY_PAGE_SIZE + 1,
+            ...commentBindings,
+          )
+          .all<CommentRow>()
+      : await env.DB.prepare(
+          `WITH RECURSIVE comment_floors AS (
+             SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS floor
+             FROM community_comment
+             WHERE post_id = ?
+           ), visible_members AS MATERIALIZED (
+             ${visibleMembershipSelect}
+           ), comment_roots(id, rootId) AS (
+             SELECT member.id, member.id
+             FROM visible_members AS member
+             WHERE member.parentId IS NULL
+                OR NOT EXISTS (
+                  SELECT 1 FROM visible_members AS visible_parent
+                  WHERE visible_parent.id = member.parentId
+                )
+             UNION ALL
+             SELECT child.id, parent.rootId
+             FROM comment_roots AS parent
+             JOIN community_comment AS child_row ON child_row.parent_id = parent.id
+             JOIN visible_members AS child ON child.id = child_row.id
+           ), root_comments AS (
+             SELECT member.id, member.likeCount, member.createdAt
+             FROM visible_members AS member
+             JOIN comment_roots ON comment_roots.id = member.id
+             WHERE member.id = comment_roots.rootId
+           ), reply_counts AS (
+             SELECT rootId, COUNT(*) - 1 AS replyCount
+             FROM comment_roots
+             GROUP BY rootId
+           ), selected_roots AS (
+             SELECT root_comments.id, root_comments.likeCount, root_comments.createdAt,
+                    ROW_NUMBER() OVER (ORDER BY ${rootOrder}) AS pagePosition
+             FROM root_comments
+             ${rootCursorWhere}
+             ORDER BY ${rootOrder}
+             LIMIT ?
+           ), page_roots AS (
+             SELECT * FROM selected_roots
+             WHERE pagePosition <= ${COMMENT_PAGE_SIZE}
+           ), focused_chain(id) AS (
+             SELECT id
+             FROM visible_members
+             WHERE id = ?
+             UNION ALL
+             SELECT parent.id
+             FROM focused_chain AS chain
+             JOIN visible_members AS child ON child.id = chain.id
+             JOIN visible_members AS parent ON parent.id = child.parentId
+           ), focused_root_ids AS (
+             SELECT DISTINCT comment_roots.rootId
+             FROM focused_chain
+             JOIN comment_roots ON comment_roots.id = focused_chain.id
+           ), preview_roots AS (
+             SELECT id FROM page_roots
+             UNION
+             SELECT rootId FROM focused_root_ids
+           ), reply_previews AS (
+             SELECT descendants.id, descendants.rootId, descendant_member.createdAt,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY descendants.rootId
+                      ORDER BY descendant_member.createdAt ASC, descendants.id ASC
+                    ) AS previewPosition
+             FROM comment_roots AS descendants
+             JOIN visible_members AS descendant_member ON descendant_member.id = descendants.id
+             JOIN preview_roots ON preview_roots.id = descendants.rootId
+             WHERE descendants.id <> descendants.rootId
+           ), selected_ids(id) AS (
+             SELECT id FROM page_roots
+             UNION
+             SELECT id FROM reply_previews
+             WHERE previewPosition <= ${COMMENT_REPLY_PREVIEW_SIZE}
+             UNION
+             SELECT id FROM focused_chain
+           ), hydrated_comments AS (
+             ${commentSelect}
+             WHERE comment.id IN (SELECT id FROM selected_ids)
+               AND ${commentWhere.join(" AND ")}
+           )
+           SELECT hydrated_comments.*,
+                  comment_roots.rootId,
+                  page_roots.pagePosition AS rootPagePosition,
+                  reply_counts.replyCount AS rootReplyCount,
+                  reply_previews.previewPosition,
+                  EXISTS (
+                    SELECT 1 FROM selected_roots
+                    WHERE pagePosition > ${COMMENT_PAGE_SIZE}
+                  ) AS hasMoreRoots
+           FROM hydrated_comments
+           JOIN comment_roots ON comment_roots.id = hydrated_comments.id
+           LEFT JOIN page_roots ON page_roots.id = comment_roots.rootId
+           JOIN reply_counts ON reply_counts.rootId = comment_roots.rootId
+           LEFT JOIN reply_previews ON reply_previews.id = comment_roots.id
+           ORDER BY
+             CASE WHEN page_roots.pagePosition IS NULL THEN 1 ELSE 0 END ASC,
+             page_roots.pagePosition ASC,
+             hydrated_comments.createdAt ASC,
+             hydrated_comments.id ASC`,
+        )
+          .bind(
+            id,
+            ...visibleMembershipBindings,
+            ...rootCursorBindings,
+            COMMENT_PAGE_SIZE + 1,
+            focusedCommentId,
+            ...commentBindings,
+          )
+          .all<CommentRow>();
+
+  if (commentsRootId !== null) {
+    const replyRows = commentsResult.results;
+    const lastReply = replyRows.at(-1);
+    const hasMoreReplies = replyRows.some((comment) => comment.hasMoreReplies === 1);
+    const replyCount = Number(replyRows[0]?.rootReplyCount || 0);
+    return json(request, {
+      comments: replyRows.map((comment) => serializeComment(comment, userId)),
+      commentsNextCursor: null,
+      commentsSort,
+      replyCount,
+      replyCursor:
+        hasMoreReplies && lastReply ? encodeCursor({ createdAt: lastReply.createdAt, id: lastReply.id }) : null,
+    });
   }
-  const publicComments = comments.map((comment) => serializeComment(comment, userId));
+
+  const rootRows = commentsResult.results.filter(
+    (comment) =>
+      comment.rootId === comment.id && comment.rootPagePosition !== null && comment.rootPagePosition !== undefined,
+  );
+  const pageRootRows = [...rootRows].sort(
+    (left, right) => Number(left.rootPagePosition) - Number(right.rootPagePosition),
+  );
+  const lastComment = pageRootRows.at(-1);
+  const hasMoreComments = commentsResult.results.some((comment) => comment.hasMoreRoots === 1);
+  const previewsByRoot = new Map<string, CommentRow[]>();
+  for (const comment of commentsResult.results) {
+    if (comment.rootId === undefined || typeof comment.previewPosition !== "number") continue;
+    const previews = previewsByRoot.get(comment.rootId);
+    if (previews) previews.push(comment);
+    else previewsByRoot.set(comment.rootId, [comment]);
+  }
+  for (const previews of previewsByRoot.values())
+    previews.sort((left, right) => left.previewPosition! - right.previewPosition!);
+  const publicComments = commentsResult.results.map((comment) => {
+    const value = serializeComment(comment, userId);
+    if (comment.rootId !== comment.id) return value;
+    const replyCount = Number(comment.rootReplyCount || 0);
+    const previews = previewsByRoot.get(comment.id) || [];
+    const lastPreview = previews.at(-1);
+    return {
+      ...value,
+      replyCount,
+      replyCursor:
+        replyCount > previews.length && lastPreview
+          ? encodeCursor({ createdAt: lastPreview.createdAt, id: lastPreview.id })
+          : null,
+    };
+  });
   const commentResponse = {
     comments: publicComments,
     commentsNextCursor:
@@ -2373,12 +2646,23 @@ const createComment = async (request: Request, env: Env, postId: string): Promis
   )
     .bind(id)
     .first<CommentStatusRow>();
+  const commentFloor = await env.DB.prepare(
+    `WITH comment_floors AS (
+       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS floor
+       FROM community_comment
+       WHERE post_id = ?
+     )
+     SELECT floor FROM comment_floors WHERE id = ? LIMIT 1`,
+  )
+    .bind(postId, id)
+    .first<{ floor: number }>();
   return json(
     request,
     {
       comment: serializeComment(
         {
           ...comment,
+          floor: commentFloor?.floor ?? 1,
           moderationStatus: moderated?.moderationStatus ?? comment.moderationStatus,
         },
         session.user.id,

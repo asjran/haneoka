@@ -5,6 +5,7 @@ import CatalogIndexPage from "./pages/CatalogIndexPage.astro";
 import AboutPage from "./pages/AboutPage.astro";
 import LegalPage from "./pages/LegalPage.astro";
 import NoticePage from "./pages/NoticePage.astro";
+import EventTrackerPage from "./pages/EventTrackerPage.astro";
 import { catalogConfig } from "../config/catalog-labels";
 import type { RouteDefinition } from "../config/routes";
 import { LOCALES, type Locale } from "../i18n/locales";
@@ -69,6 +70,7 @@ const canonicalRoute = explicitCanonicalRoute ?? (server ? resourceCollectionHre
     )}
     {entry.kind === "tgw-card" && <tgw-card-workspace locale={locale}></tgw-card-workspace>}
     {entry.kind === "missions" && <mission-workspace locale={locale}></mission-workspace>}
+    {entry.kind === "event-tracker" && <EventTrackerPage locale={locale} server={server} />}
   </AppShell>
 </Base>
 <script>

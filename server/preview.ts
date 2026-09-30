@@ -23,6 +23,7 @@ import {
 } from "@haneoka/sonolus";
 import { localReleaseFile, releaseWorkspace, type ReleaseWorkspace } from "./releaseWorkspace.ts";
 import { announcementDocumentRequest, rewriteAnnouncementDocument } from "../src/lib/announcement-document.ts";
+import { eventArtworkIndex } from "../src/lib/event-artwork-index.ts";
 import {
   isReleaseServer,
   legacyEntityRedirectTarget,
@@ -113,7 +114,6 @@ const BESTDORI_SONOLUS_PLAYLIST_PREFIX = "/sonolus/playlists/bestdori-playlist-"
 // Our Notes release URL, including when a future Our Notes server is named jp.
 const BESTDORI_RAW_MIRROR_PREFIX = "/_internal/providers/garupa/bestdori/raw";
 const bestdoriRawPathPattern = /^\/(?:api(?:\/|$)|assets\/(?:jp|en|tw|cn|kr)(?:\/|$)|res(?:\/|$))/u;
-const previewRuntimePathPattern = /^(?:previews\/live2d\/|spine-previews\/)/u;
 const proxyExcludedHeaders = new Set([
   "connection",
   "content-encoding",
@@ -678,17 +678,17 @@ function sendCatalogStorageFile(
 ): boolean {
   const file = catalogStorageFile(workspace, releasePath);
   if (!file) return false;
-  sendFile(req, res, file, undefined, releaseResponseHeaders(workspace));
+  sendFile(req, res, file, "public, max-age=0, must-revalidate", releaseResponseHeaders(workspace));
   return true;
 }
 
-function serveCatalogStorageApi(
+async function serveCatalogStorageApi(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
   workspace: Readonly<ReleaseWorkspace>,
   tail: readonly string[],
-): boolean {
+): Promise<boolean> {
   const manifest = catalogStorageManifest(workspace);
   const manifestResources = manifest.resources;
   if (!isJsonObject(manifestResources)) throw new Error("Catalog storage resources are invalid");
@@ -719,6 +719,16 @@ function serveCatalogStorageApi(
         writeJson(400, { error: { code: "invalid_batch", message: "Catalog batch contains an invalid entity id" } });
       } else {
         writeJson(200, catalogBatchValue(workspace, resource.entities, ids));
+      }
+    } else if (resourceName === "events") {
+      const index = localReleaseJson(workspace, String(resource.index));
+      if (!isJsonObject(index)) {
+        writeJson(502, { error: { code: "catalog_missing", message: "Catalog index is missing" } });
+      } else {
+        const projected = await eventArtworkIndex(index, fnv1a32Shard, async (id) =>
+          catalogShardDocument(workspace, resource.entities, id),
+        );
+        writeJson(200, projected as JsonObject);
       }
     } else if (!sendCatalogStorageFile(req, res, workspace, resource.index)) {
       writeJson(502, { error: { code: "catalog_missing", message: "Catalog index is missing" } });
@@ -1449,14 +1459,14 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         return;
       }
       if (projections[0] === "identity") {
-        releaseJson(res, 200, releaseIdentity(workspace), workspace, "public, max-age=30, must-revalidate");
+        releaseJson(res, 200, releaseIdentity(workspace), workspace);
         return;
       }
       sendFile(
         req,
         res,
         path.join(workspace.releaseRoot, "release.json"),
-        undefined,
+        "public, max-age=0, must-revalidate",
         releaseResponseHeaders(workspace),
       );
       return;
@@ -1479,13 +1489,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         )
           projected[logical] = value.path;
       }
-      json(
-        res,
-        200,
-        projected,
-        "public, max-age=86400, stale-while-revalidate=604800",
-        releaseResponseHeaders(workspace),
-      );
+      json(res, 200, projected, "public, max-age=0, must-revalidate", releaseResponseHeaders(workspace));
       return;
     }
     if (tail[0] === "sources" && tail[1] === "tree" && tail.length === 2) {
@@ -1511,7 +1515,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       return;
     }
 
-    serveCatalogStorageApi(req, res, url, workspace, tail);
+    await serveCatalogStorageApi(req, res, url, workspace, tail);
     return;
   }
 
@@ -1534,12 +1538,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
           .find((candidate): candidate is string => Boolean(candidate && fs.existsSync(candidate))) || null
       : null;
     if (file && fs.existsSync(file)) {
-      // Preview paths are stable across release-pointer updates. Make a local
-      // browser revalidate them instead of retaining an older render for a week.
-      const mediaPath = media[3] ?? "";
-      const cache =
-        media[1] === "runtime" && previewRuntimePathPattern.test(mediaPath) ? "no-cache" : "public, max-age=604800";
-      sendFile(req, res, file, cache);
+      // Current-release media keeps a stable URL when the pointer changes.
+      sendFile(req, res, file, "public, max-age=0, must-revalidate");
     } else {
       json(res, 404, { error: { code: "not_found", message: "Object not found" } });
     }

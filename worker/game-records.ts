@@ -13,6 +13,8 @@ import type {
   SongRankingRowDto,
   SongRankingDto,
   PlayerProfileDto,
+  EventTrackerDto,
+  EventRankingDto,
 } from "../src/lib/game-records";
 
 type JsonObject = Record<string, unknown>;
@@ -235,12 +237,14 @@ const normalizeRanking = (
   region: GameRecordsRegion,
   musicId: number,
   response: Response,
+  responseOrder = false,
 ): SongRankingDto => {
   const root = asObject(value);
   if (!Array.isArray(root.players)) throw new RequestFailure(502, "upstream");
   const rows = root.players
     .map((player, index) => normalizeRankingRow(player, index))
     .sort((left, right) => {
+      if (responseOrder) return left.sourceIndex - right.sourceIndex;
       if (left.score === null && right.score === null) return left.sourceIndex - right.sourceIndex;
       if (left.score === null) return 1;
       if (right.score === null) return -1;
@@ -249,9 +253,9 @@ const normalizeRanking = (
   let previousScore: number | null = null;
   let previousRank = 0;
   rows.forEach((row, index) => {
-    const tied = row.score !== null && row.score === previousScore;
+    const tied = !responseOrder && row.score !== null && row.score === previousScore;
     row.rank = tied ? previousRank : index + 1;
-    row.tied = tied || (row.score !== null && rows[index + 1]?.score === row.score);
+    row.tied = !responseOrder && (tied || (row.score !== null && rows[index + 1]?.score === row.score));
     previousScore = row.score;
     previousRank = row.rank;
   });
@@ -262,6 +266,103 @@ const normalizeRanking = (
     serverTimeMs: headerEpochMillis(response.headers, "X-Server-Time"),
     stale: response.headers.get("X-Stale") === "1" || response.headers.get("X-Refreshing") === "1",
     rows: rows.map(({ sourceIndex: _sourceIndex, ...row }) => row),
+  };
+};
+
+const decimalId = (value: unknown): string | null => {
+  const id = typeof value === "string" ? value : Number.isSafeInteger(value) ? String(value) : "";
+  return /^[1-9][0-9]{0,18}$/u.test(id) ? id : null;
+};
+
+const normalizeTrackedEvent = (value: unknown, region: GameRecordsRegion, response: Response): EventTrackerDto => {
+  const event = asObject(value);
+  const id = decimalId(event.eventId);
+  if (!id) throw new RequestFailure(502, "upstream");
+  const points = asObject(event.pointRanking);
+  return {
+    region,
+    fetchedAtMs: headerEpochMillis(response.headers, "X-Fetched-At") ?? epochMillis(event.lastFetchedAt),
+    stale: event.stale === true || response.headers.get("X-Stale") === "1",
+    event: {
+      id,
+      startAtMs: epochMillis(event.startAt),
+      endAtMs: epochMillis(event.endAt),
+      status: textOrNull(event.eventStatus) || "unknown",
+      pointRankingEnabled:
+        typeof points.enabled === "boolean"
+          ? points.enabled
+          : event.rankingDisabled !== true && event.collectStatus !== "disabled",
+      pointRankingStatus: textOrNull(points.collectStatus) || textOrNull(event.collectStatus) || "unknown",
+      challenges: asArray(event.challengeRankings).flatMap((value) => {
+        const challenge = asObject(value);
+        const challengeId = decimalId(challenge.challengeMusicId);
+        const musicId = decimalId(challenge.musicId);
+        if (!challengeId || !musicId) return [];
+        return [
+          {
+            id: challengeId,
+            musicId,
+            enabled: challenge.rankingEnabled === true,
+            status: textOrNull(challenge.collectStatus) || "unknown",
+            startAtMs: epochMillis(challenge.effectiveStartAt) ?? epochMillis(event.startAt),
+            endAtMs: epochMillis(challenge.effectiveEndAt) ?? epochMillis(event.endAt),
+            rewardRanks: [
+              ...new Set(
+                asArray(challenge.rewardBands).flatMap((band) => {
+                  const rank = safeInteger(asObject(band).rankEnd);
+                  return rank !== null && rank > 0 ? [rank] : [];
+                }),
+              ),
+            ].sort((a, b) => a - b),
+          },
+        ];
+      }),
+    },
+  };
+};
+
+const normalizeEventPoints = (
+  value: unknown,
+  region: GameRecordsRegion,
+  eventId: string,
+  response: Response,
+): EventRankingDto => {
+  const root = asObject(value);
+  if (!Array.isArray(root.rows)) throw new RequestFailure(502, "upstream");
+  const rows = root.rows
+    .flatMap((value) => {
+      const entry = asObject(value);
+      const rank = safeInteger(entry.rank);
+      const score = finiteNumber(entry.point);
+      if (rank === null || rank < 1 || score === null || score < 0) return [];
+      const profile = asObject(entry.profile);
+      return [
+        {
+          rank,
+          tied: entry.dup === true,
+          score,
+          playerId: textOrNull(profile.id),
+          profileId: textOrNull(profile.profileId),
+          name: textOrNull(profile.name) || "",
+          rankExp: null,
+          favoriteMemberCardId: null,
+          deckId: null,
+          deckName: null,
+          totalPower: null,
+          profileCard: null,
+          cards: [],
+        },
+      ];
+    })
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 100);
+  return {
+    region,
+    eventId,
+    rows,
+    fetchedAtMs: epochMillis(root.updatedAt) ?? headerEpochMillis(response.headers, "X-Fetched-At"),
+    serverTimeMs: headerEpochMillis(response.headers, "X-Server-Time"),
+    stale: root.stale === true || response.headers.get("X-Stale") === "1",
   };
 };
 
@@ -378,6 +479,41 @@ export async function handleGameRecordsApi(
   url: URL,
 ): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const currentEvent = new RegExp(`^${GAME_RECORDS_API_PREFIX}/([^/]+)/events/current$`).exec(url.pathname);
+  const challengeRanking = new RegExp(
+    `^${GAME_RECORDS_API_PREFIX}/([^/]+)/events/([^/]+)/challenges/([^/]+)/ranking$`,
+  ).exec(url.pathname);
+  const pointRanking = new RegExp(`^${GAME_RECORDS_API_PREFIX}/([^/]+)/events/([^/]+)/latest$`).exec(url.pathname);
+  const eventRoute = currentEvent || challengeRanking || pointRanking;
+  if (eventRoute) {
+    const region = eventRoute[1]!;
+    if (!isRegion(region)) return errorResponse(request, 404, "not_found");
+    if (currentEvent)
+      return serveCached(request, ctx, async () => {
+        try {
+          const upstream = await upstreamJson(`${RANKING_ORIGIN}/api/v1/${region}/events/current`);
+          return { body: JSON.stringify(normalizeTrackedEvent(upstream.value, region, upstream.response)) };
+        } catch (error) {
+          if (error instanceof RequestFailure && error.status === 404) {
+            return {
+              body: JSON.stringify({ region, event: null, fetchedAtMs: null, stale: false } satisfies EventTrackerDto),
+            };
+          }
+          throw error;
+        }
+      });
+    const eventId = decimalId(eventRoute[2]);
+    const challengeId = challengeRanking ? decimalId(challengeRanking[3]) : null;
+    if (!eventId || (challengeRanking && !challengeId)) return errorResponse(request, 400, "invalid_request");
+    return serveCached(request, ctx, async () => {
+      const path = challengeRanking ? `challenges/${challengeId}/ranking` : "latest";
+      const upstream = await upstreamJson(`${RANKING_ORIGIN}/api/v1/${region}/events/${eventId}/${path}`);
+      if (!challengeRanking)
+        return { body: JSON.stringify(normalizeEventPoints(upstream.value, region, eventId, upstream.response)) };
+      const { musicId: _musicId, ...ranking } = normalizeRanking(upstream.value, region, 0, upstream.response, true);
+      return { body: JSON.stringify({ ...ranking, eventId, challengeId: challengeId! } satisfies EventRankingDto) };
+    });
+  }
   const ranking = new RegExp(`^${GAME_RECORDS_API_PREFIX}/([^/]+)/songs/([^/]+)/ranking$`).exec(url.pathname);
   const profile = new RegExp(`^${GAME_RECORDS_API_PREFIX}/([^/]+)/players/([^/]+)$`).exec(url.pathname);
   if (!ranking && !profile) return null;

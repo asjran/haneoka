@@ -1,0 +1,34 @@
+---
+import type { Locale } from "../../i18n/locales";
+import type { ReleaseServer } from "../../lib/release-server";
+import { rankingCardCatalog } from "../../lib/ranking-card-catalog";
+import { entityGraph } from "../../lib/entity-graph";
+import { serializePageData } from "../../lib/page-data";
+import "../../lit/event-tracker";
+import "../../styles/song-ranking.css";
+
+const { locale, server = "intl" } = Astro.props as { locale: Locale; server?: ReleaseServer };
+const [intl, jp] = await Promise.all([rankingCardCatalog("intl"), rankingCardCatalog("jp")]);
+const musicTypeMarks = Object.fromEntries(
+  await Promise.all(
+    (["intl", "jp"] as const).map(async (source) => {
+      const graph = await entityGraph(source);
+      return [
+        source,
+        Object.fromEntries(
+          Object.entries(graph.marks)
+            .filter(([name]) => /^(?:sp_icon_live_music_type_\d+|CardType-(?:Red|Blue|Green|Yellow|Purple))\.png$/u.test(name))
+            .map(([name, path]) => [name, `/runtime/${source}/${path.replace(/^runtime\//u, "")}`]),
+        ),
+      ];
+    }),
+  ),
+);
+const dataId = `event-tracker-cards-${server}`;
+---
+
+<event-tracker locale={locale} server={server} data-page-data={dataId}></event-tracker>
+<script is:inline type="application/json" id={dataId} set:html={serializePageData({ intl, jp, musicTypeMarks })}></script>
+<script>
+  import "../../lit/event-tracker";
+</script>

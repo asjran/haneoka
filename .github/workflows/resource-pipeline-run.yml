@@ -809,12 +809,14 @@ jobs:
 
   announcements:
     name: Refresh operational announcements
+    needs: [prepare]
     permissions:
       contents: read
     uses: ./.github/workflows/announcements.yml
     with:
       server: ${{ inputs.server }}
       github_environment: ${{ inputs.github_environment }}
+      source_id: ${{ needs.prepare.outputs.source_id }}
     secrets:
       cloudflare_account_id: ${{ secrets.cloudflare_account_id }}
       r2_access_key_id: ${{ secrets.r2_access_key_id }}

@@ -87,11 +87,12 @@ const sections: NavSection[] = [
     items: [
       { route: "/catalog/songs", icon: "library_music", label: "songs" },
       { route: "/catalog/song-meta", icon: "monitoring", label: "songMeta" },
+      { route: "/catalog/events", icon: "event", label: "events" },
+      { route: "/catalog/events/tracker", icon: "leaderboard", label: "eventTracker.title" },
       { route: "/catalog/characters", icon: "group", label: "characters" },
       { route: "/catalog/member-cards", icon: "style", label: "memberCards" },
       { route: "/catalog/support-cards", icon: "collections", label: "supportCards" },
       { route: "/catalog/comics", icon: "menu_book", label: "comics" },
-      { route: "/catalog/events", icon: "event", label: "events" },
       { route: "/catalog/real-lives", icon: "festival", label: "realLives" },
       { route: "/catalog/gacha", icon: "redeem", label: "gacha" },
       { route: "/catalog/login-campaigns", icon: "event_available", label: "loginCampaigns" },
@@ -226,7 +227,10 @@ export const CATALOG_HUB: Array<NavItem & { resource?: string; countKey?: string
 ];
 
 export const isRouteActive = (target: string, route: string) =>
-  target === "/" ? route === "/" : route === target || route.startsWith(`${target}/`);
+  target === "/"
+    ? route === "/"
+    : (route === target || route.startsWith(`${target}/`)) &&
+      !(target === "/catalog/events" && route.startsWith("/catalog/events/tracker"));
 
 export const isDestinationActive = (destination: PrimaryDestination, route: string) =>
   destination.match.some((prefix) => isRouteActive(prefix, route)) &&

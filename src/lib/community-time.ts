@@ -21,13 +21,13 @@ export const communityTimestamp = (value: unknown): number | null => {
 };
 
 /**
- * The API's lastEditedAt field is a SQL fallback for unedited records. A
- * version change is authoritative; otherwise require a strictly later time
+ * The API's lastEditedAt field is a SQL fallback for unedited records. The
+ * content revision timestamp is authoritative; require a strictly later time
  * so a createdAt/default timestamp alias cannot produce a false edit marker.
+ * The record version is deliberately excluded because state actions also
+ * advance it.
  */
 export const isEdited = (record: CommunityRecord): boolean => {
-  const version = Number(record.version);
-  if (Number.isFinite(version) && version >= 2) return true;
   const createdAt = communityTimestamp(record.createdAt);
   const lastEditedAt = communityTimestamp(record.lastEditedAt);
   return createdAt !== null && lastEditedAt !== null && lastEditedAt > createdAt;

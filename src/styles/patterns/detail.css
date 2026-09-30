@@ -129,6 +129,9 @@
 .detail-object-list {
   display: grid;
   gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .detail-object {
   display: flex;
@@ -151,8 +154,12 @@
   font: 500 14px/20px var(--app-font);
 }
 .detail-object > strong {
+  flex: 0 0 auto;
   font: 600 15px/24px var(--app-font);
   font-variant-numeric: tabular-nums;
+}
+.detail-object > span > small {
+  display: block;
 }
 a.detail-object {
   border-radius: 12px;

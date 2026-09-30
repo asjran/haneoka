@@ -12,6 +12,7 @@ import {
   loadBestdoriSonolusChartText,
 } from "./bestdori";
 import { handleGameRecordsApi } from "./game-records";
+import { eventArtworkIndex } from "../src/lib/event-artwork-index";
 import { handleCommunityRequest } from "./community";
 import { handleCommunityActivityRequest } from "./community-activity";
 import { handleAnnouncementsRequest } from "./announcements";
@@ -236,10 +237,10 @@ const POINTER_CACHE_LIMIT = 128;
 // Structured catalogue documents are snapshot-oriented and shared by the
 // Garupa playlist and catalog APIs. The edge caches them under a
 // release-scoped key (a promoted release invalidates them immediately), but
-// the URLs themselves are stable, so the browser policy must stay short:
-// five minutes bounds how long a newly promoted catalog can go unseen.
+// the URLs themselves are stable, so browsers validate them on every load.
+// Edge freshness is independent of the browser policy.
 const API_CACHE_TTL = 86_400;
-const CATALOG_API_CACHE_CONTROL = "public, max-age=300, must-revalidate";
+const CATALOG_API_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 // The release registry changes only when staff activate, retire, or rename an
 // Our Notes resource server. Treat it like other directory data: fresh daily,
 // while a background refresh absorbs an administrative change without making
@@ -772,14 +773,8 @@ function parseRange(value: string | null, size: number): RangeResult {
 
 const cacheControlFor = (contentType: string): string =>
   contentType.includes("json")
-    ? // JSON documents resolve through the current release pointer at stable
-      // URLs; keep the browser window short for the same reason as
-      // CATALOG_API_CACHE_CONTROL above.
-      "public, max-age=300, must-revalidate"
+    ? "public, max-age=300, must-revalidate"
     : "public, max-age=604800, stale-while-revalidate=2592000";
-
-const isModelPreviewMedia = (tree: string, relative: string): boolean =>
-  tree === "runtime" && /^(?:previews\/live2d\/|spine-previews\/)/u.test(relative);
 
 async function serveR2Object(
   env: Env,
@@ -872,16 +867,20 @@ async function edgeCached(
   const lookup = new Request(request.url, { method: "GET", headers });
   const hit = await caches.default.match(lookup);
   if (hit) {
+    const responseHeaders = new Headers(hit.headers);
+    if (cacheControl) responseHeaders.set("Cache-Control", cacheControl);
     const etag = hit.headers.get("ETag");
     if (etag && etagMatches(request.headers.get("If-None-Match"), etag)) {
       if (hit.body) ctx.waitUntil(hit.body.cancel());
-      return new Response(null, { status: 304, headers: hit.headers });
+      return new Response(null, { status: 304, headers: responseHeaders });
     }
     if (request.method === "HEAD") {
       if (hit.body) ctx.waitUntil(hit.body.cancel());
-      return new Response(null, { status: hit.status, headers: hit.headers });
+      return new Response(null, { status: hit.status, headers: responseHeaders });
     }
-    return hit;
+    return cacheControl
+      ? new Response(hit.body, { status: hit.status, statusText: hit.statusText, headers: responseHeaders })
+      : hit;
   }
   const response = await producer();
   if (request.method === "HEAD") return response;
@@ -908,7 +907,7 @@ async function edgeCached(
     const cacheResponseHeaders = new Headers(cached.headers);
     cacheResponseHeaders.set(
       "Cache-Control",
-      cacheControl || cached.headers.get("Cache-Control") || `public, max-age=${ttl}`,
+      cacheControl ? `public, max-age=${ttl}` : cached.headers.get("Cache-Control") || `public, max-age=${ttl}`,
     );
     cacheResponseHeaders.delete("Content-Range");
     const stored = new Response(cached.body, { status: 200, headers: cacheResponseHeaders });
@@ -1840,7 +1839,22 @@ async function handleCatalogStorageApi(
         cacheSource = canonicalCatalogBatchRequest(request, ids);
         producer = () => catalogBatch(env, request, release, resource.entities, ids);
       } else {
+        if (resourceName === "events") {
+          const artworkUrl = new URL(request.url);
+          artworkUrl.searchParams.set("__event_artwork", "1");
+          cacheSource = new Request(artworkUrl, request);
+        }
         producer = async () => {
+          if (resourceName === "events" && resource.entities) {
+            const index = await readReleaseJson(env, release, resource.index);
+            if (!isJsonObject(index)) return errorResponse(request, 502, "catalog_missing", "Catalog index is missing");
+            const projected = await eventArtworkIndex(
+              index,
+              (id) => fnv1a32Shard(id, RELEASE_INDEX_SHARDS),
+              (id) => readCatalogShard(env, release, resource.entities!, id),
+            );
+            return jsonResponse(request, projected as JsonObject);
+          }
           const response = await serveReleaseObject(
             env,
             request,
@@ -2033,7 +2047,9 @@ async function handleCatalogApi(
       );
       return releaseResponseHeaders(response, release);
     }
-    const response = await serveR2Object(env, request, release.manifestKey, "application/json; charset=utf-8");
+    const response = await serveR2Object(env, request, release.manifestKey, "application/json; charset=utf-8", {
+      cacheControl: CATALOG_API_CACHE_CONTROL,
+    });
     return releaseResponseHeaders(
       response ? response : errorResponse(request, 502, "release_invalid", "Release manifest is missing"),
       release,
@@ -2042,16 +2058,22 @@ async function handleCatalogApi(
   if (tail === "sources/tree") {
     const cacheRequest = releaseCacheRequest(request, release.releaseId);
     return releaseResponseHeaders(
-      await edgeCached(cacheRequest, ctx, SOURCE_CACHE_TTL, async () => {
-        const tree = await serveReleaseObject(
-          env,
-          request,
-          release,
-          "metadata/source-index/tree.json",
-          "application/json; charset=utf-8",
-        );
-        return tree || errorResponse(request, 502, "source_index_missing", "Source index is missing");
-      }),
+      await edgeCached(
+        cacheRequest,
+        ctx,
+        SOURCE_CACHE_TTL,
+        async () => {
+          const tree = await serveReleaseObject(
+            env,
+            request,
+            release,
+            "metadata/source-index/tree.json",
+            "application/json; charset=utf-8",
+          );
+          return tree || errorResponse(request, 502, "source_index_missing", "Source index is missing");
+        },
+        CATALOG_API_CACHE_CONTROL,
+      ),
       release,
     );
   }
@@ -2062,16 +2084,22 @@ async function handleCatalogApi(
     }
     const cacheRequest = releaseCacheRequest(request, release.releaseId);
     return releaseResponseHeaders(
-      await edgeCached(cacheRequest, ctx, SOURCE_CACHE_TTL, async () => {
-        const response = await serveReleaseObject(
-          env,
-          request,
-          release,
-          `metadata/sources/${sourcePath}.json`,
-          "application/json; charset=utf-8",
-        );
-        return response || errorResponse(request, 404, "source_not_found", "Unity source not found");
-      }),
+      await edgeCached(
+        cacheRequest,
+        ctx,
+        SOURCE_CACHE_TTL,
+        async () => {
+          const response = await serveReleaseObject(
+            env,
+            request,
+            release,
+            `metadata/sources/${sourcePath}.json`,
+            "application/json; charset=utf-8",
+          );
+          return response || errorResponse(request, 404, "source_not_found", "Unity source not found");
+        },
+        CATALOG_API_CACHE_CONTROL,
+      ),
       release,
     );
   }
@@ -2159,9 +2187,8 @@ async function handleReleaseMedia(
     return new Response("not found", { status: 404, headers: CORS });
   const release = await currentRelease(env, server);
   if (!release) return new Response("not found", { status: 404, headers: CORS });
-  const previewCacheControl = isModelPreviewMedia(tree, relative)
-    ? "public, max-age=3600, stale-while-revalidate=604800"
-    : undefined;
+  // These URLs name the current release rather than immutable bytes.
+  const cacheControl = CATALOG_API_CACHE_CONTROL;
   const cacheRequest = releaseCacheRequest(request, release.releaseId);
   return edgeCached(
     cacheRequest,
@@ -2170,19 +2197,12 @@ async function handleReleaseMedia(
     async () => {
       let response: Response | null = null;
       for (const candidate of localizedReleasePaths(`${tree}/${relative}`)) {
-        response = await serveReleaseObject(
-          env,
-          request,
-          release,
-          candidate,
-          undefined,
-          previewCacheControl ? { cacheControl: previewCacheControl } : {},
-        );
+        response = await serveReleaseObject(env, request, release, candidate, undefined, { cacheControl });
         if (response) break;
       }
       return response || new Response("not found", { status: 404, headers: CORS });
     },
-    previewCacheControl,
+    cacheControl,
   );
 }
 

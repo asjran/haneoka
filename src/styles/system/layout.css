@@ -38,6 +38,9 @@
 .stack--flush {
   --stack-gap: 0px;
 }
+.stack > :where(.md-title-small, .md-title-large, .md-body-medium) {
+  margin: 0;
+}
 
 /* ---------- row: one line of controls or facts ---------- */
 .row {

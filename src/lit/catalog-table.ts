@@ -437,7 +437,7 @@ export class CatalogTable extends LitElement {
                 type="button"
                 @click=${(event: Event) => {
                   event.stopPropagation();
-                  void c.toggleSong(c.itemId(item), String(item.musicUrl));
+                  void c.toggleSong(c.itemId(item), String(item.musicUrl), false, item);
                 }}
                 aria-label=${c.label("play", "Play")}
                 title=${c.label("play", "Play")}

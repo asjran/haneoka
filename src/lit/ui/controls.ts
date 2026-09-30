@@ -87,7 +87,9 @@ export function rovingKeydown<T>(values: ReadonlyArray<T>, current: T, onSelect:
     const container = event.currentTarget as HTMLElement;
     onSelect(values[next]);
     // The container re-renders on selection; move focus once it has.
-    requestAnimationFrame(() => container.querySelectorAll<HTMLElement>("[role]")[next]?.focus());
+    requestAnimationFrame(() =>
+      container.querySelectorAll<HTMLElement>('[role="tab"], [role="radio"], [role="checkbox"]')[next]?.focus(),
+    );
   };
 }
 

@@ -56,6 +56,7 @@ export interface TileOptions {
   media?: unknown;
   /** Presentation hook, e.g. "song" → `.tile--song`. */
   kind?: string;
+  id?: string;
   marks?: ReadonlyArray<TileMark | null | undefined>;
   /**
    * Only for a tile that *is* a chooser — a band in the roster, a model in
@@ -181,6 +182,7 @@ export function tile(options: TileOptions): TemplateResult {
   if (options.href)
     return html`
       <a
+        id=${options.id || nothing}
         class=${classes}
         href=${options.href}
         data-open-item=${options.itemId ?? nothing}
@@ -197,6 +199,7 @@ export function tile(options: TileOptions): TemplateResult {
     `;
   return html`
     <button
+      id=${options.id || nothing}
       class=${classes}
       type="button"
       data-open-item=${options.itemId ?? nothing}

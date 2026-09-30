@@ -22,7 +22,7 @@ import {
 } from "../lib/shop-currency";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
 import { icon } from "./ui/icon";
-import { tile } from "./ui/tile";
+import { tile, type TileMark } from "./ui/tile";
 import { nextImageCandidate } from "./ui/lazy-images";
 import { episodeArtwork } from "../lib/story-artwork";
 import { storyTile } from "./shared/story-tile";
@@ -42,12 +42,11 @@ function canonicalHref(c: Controller, href: string): string {
 
 export interface GachaSimState {
   draws: number;
-  spent: number;
   points: number;
-  currency: string;
-  currencyImage: string;
-  firstUsed: string[];
+  uses: Record<string, number>;
+  costs: Record<string, { currency: unknown; image: string; spent: number }>;
   tally: Record<string, number>;
+  lastDraws: number;
   results: Array<{ prize: Item; rarity: number }>;
 }
 
@@ -57,8 +56,8 @@ export interface ShopFxState {
   rates?: import("../lib/shop-currency").ShopFxRates;
 }
 
-const rateText = (value: unknown) =>
-  Number(value) > 0 ? `${(Number(value) * 100).toLocaleString(undefined, { maximumFractionDigits: 3 })}%` : "";
+const rateText = (value: unknown, locale?: string) =>
+  Number(value) > 0 ? `${(Number(value) * 100).toLocaleString(locale, { maximumFractionDigits: 3 })}%` : "";
 
 const RARITY_NAMES: Record<number, string> = { 2: "R", 3: "SR", 4: "SSR" };
 
@@ -133,7 +132,11 @@ function rewardSection(
   if (!rewards.length) return nothing;
   const list = html`
     <ul class="detail-object-list" role="list">
-      ${rewards.map((reward) => rewardRow(c, reward, options.trailing ? options.trailing(reward) : nothing))}
+      ${rewards.map(
+        (reward) => html`
+          <li>${rewardRow(c, reward, options.trailing ? options.trailing(reward) : nothing)}</li>
+        `,
+      )}
     </ul>
   `;
   if (options.collapsible) return fold(title, list);
@@ -188,31 +191,81 @@ function costLine(amount: string, image: unknown) {
   `;
 }
 
-/** Pickup and other headline rewards, as the same tiles the card catalogue uses. */
+type CardTileKind = "member" | "support";
+
+function cardTileKind(item: Item): CardTileKind | "" {
+  return item.kind === "SupportCard" || Number(item.resourceType) === 3
+    ? "support"
+    : item.kind === "MemberCard" || Number(item.resourceType) === 2
+      ? "member"
+      : "";
+}
+
+function gachaRewardTile(c: Controller, reward: Item, extraMarks: TileMark[] = [], subtitle = "") {
+  const kind = cardTileKind(reward);
+  const href = canonicalHref(c, String(reward.href || ""));
+  if (kind && typeof c.cardTileOptions === "function") {
+    const options = c.cardTileOptions(
+      {
+        ...reward,
+        [kind === "support" ? "supportCardId" : "cardId"]:
+          reward[kind === "support" ? "supportCardId" : "cardId"] ?? reward.resourceId,
+        prefix: reward.prefix || reward.name,
+        cardName: reward.cardName || reward.secondary,
+        images: reward.images || { thumbnail: reward.image },
+      },
+      kind,
+    );
+    return tile({ ...options, href: href || undefined, marks: [...(options.marks || []), ...extraMarks] });
+  }
+  const title = c.localized(reward.name) || c.label("reward", "Reward");
+  return tile({
+    kind: kind || "item",
+    title,
+    titleLanguage: c.localizedLanguage(reward.name),
+    subtitle: subtitle || c.localized(reward.secondary),
+    label: title,
+    image: String(reward.image || ""),
+    href: href || undefined,
+    fit: "contain",
+    marks: extraMarks,
+  });
+}
+
+/** Use each resource's catalog tile and collection sizing wherever it is linked. */
+function renderRewardGrid(c: Controller, rewards: Item[], marks: (reward: Item) => TileMark[] = () => []) {
+  return html`
+    <div class="stack">
+      ${(["member", "support", "item"] as const).map((kind) => {
+        const entries = rewards.filter((reward) => (cardTileKind(reward) || "item") === kind);
+        if (!entries.length) return nothing;
+        const label = c.label(
+          kind === "member" ? "memberCards" : kind === "support" ? "supportCards" : "items",
+          kind === "member" ? "Member cards" : kind === "support" ? "Support cards" : "Items",
+        );
+        return html`
+          <div class="stack stack--tight">
+            <h4 class="md-title-small">${label}</h4>
+            <div class=${`collection collection--${kind}`}>
+              ${entries.map((reward) => gachaRewardTile(c, reward, marks(reward)))}
+            </div>
+          </div>
+        `;
+      })}
+    </div>
+  `;
+}
+
 function featuredGrid(c: Controller, featured: Item[]) {
   if (!featured.length) return nothing;
   return html`
     <section class="detail-section">
       ${renderDetailSectionHeading(c.label("featured", "Featured"), "cards", { count: featured.length })}
-      <ul class="related-grid related-grid--wide" role="list">
-        ${featured.map((reward) => {
-          const title = c.localized(reward.name);
-          const image = String(reward.image || "");
-          return tile({
-            kind: "member",
-            title,
-            titleLanguage: c.localizedLanguage(reward.name),
-            subtitle: c.localized(reward.secondary),
-            label: title,
-            image,
-            href: String(reward.href || "") || undefined,
-            fit: "contain",
-            marks: rateText(reward.rate)
-              ? [{ at: "bottom-start" as const, text: rateText(reward.rate), label: c.label("rates", "Rates") }]
-              : undefined,
-          });
-        })}
-      </ul>
+      ${renderRewardGrid(c, featured, (reward) =>
+        Number(reward.rate) > 0
+          ? [{ at: "bottom-start", text: rateText(reward.rate, c.settings.locale), label: c.label("rates", "Rates") }]
+          : [],
+      )}
     </section>
   `;
 }
@@ -236,18 +289,22 @@ function renderRates(c: Controller, item: Item) {
             slotLabel(row),
             html`
               <ul class="detail-object-list" role="list">
-                ${prizes.map((prize) =>
-                  rewardRow(
-                    c,
-                    prize,
-                    html`
-                      <strong>${rateText(prize.rate)}</strong>
-                    `,
-                  ),
+                ${prizes.map(
+                  (prize) => html`
+                    <li>
+                      ${rewardRow(
+                        c,
+                        prize,
+                        html`
+                          <strong>${rateText(prize.rate, c.settings.locale)}</strong>
+                        `,
+                      )}
+                    </li>
+                  `,
                 )}
               </ul>
             `,
-            rateText(row.rate),
+            rateText(row.rate, c.settings.locale),
           );
         })}
       </div>
@@ -262,181 +319,241 @@ function renderRates(c: Controller, item: Item) {
   `;
 }
 
-function renderDrawOptions(c: Controller, item: Item) {
-  const options = Array.isArray(item.drawOptions) ? (item.drawOptions as Item[]) : [];
-  if (!options.length) return nothing;
-  return html`
-    <section class="detail-section">
-      ${renderDetailSectionHeading(c.label("drawOptions", "Draw options"), "content", { count: options.length })}
-      <dl class="spec-list spec-list--split">
-        ${options.map((option) => {
-          const draws = Number(option.drawCount || 1);
-          const price = Number(option.price || 0);
-          const firstPrice = Number(option.firstPrice || 0);
-          const ensuredRarity = Number(option.guaranteedRarity || 0);
-          const ensuredCount = Number(option.guaranteedCount || 0);
-          const limit = Number(option.limitCount || 0);
-          const currency = c.localized(option.currency);
-          const priceText =
-            price > 0
-              ? costLine(`${price.toLocaleString(c.settings.locale)} ${currency}`, option.currencyImage)
-              : c.label("free", "Free");
-          return html`
-            <div>
-              <dt>
-                ${c
-                  .label(draws === 1 ? "drawOne" : "draw", "{count} draws")
-                  .replace("{count}", draws.toLocaleString(c.settings.locale))}
-              </dt>
-              <dd>
-                ${priceText}
-                ${
-                  firstPrice > 0 && firstPrice !== price
-                    ? html`
-                        · ${c.label("firstTime", "First time")} ${firstPrice.toLocaleString(c.settings.locale)}
-                      `
-                    : nothing
-                }
-                ${
-                  ensuredRarity
-                    ? html`
-                        · ${c.label("guaranteed", "Guaranteed")} ${RARITY_NAMES[ensuredRarity] || ""}
-                        ${ensuredCount > 1 ? `×${ensuredCount}` : ""}
-                      `
-                    : nothing
-                }
-                ${
-                  Number(option.gachaPoint || 0)
-                    ? html`
-                        · ${Number(option.gachaPoint).toLocaleString(c.settings.locale)} ${c.label("gachaPoint", "pt")}
-                      `
-                    : nothing
-                }
-                ${
-                  limit
-                    ? html`
-                        · ${c.label("limit", "Limit")} ${limit.toLocaleString(c.settings.locale)}
-                      `
-                    : nothing
-                }
-              </dd>
-            </div>
-          `;
-        })}
-      </dl>
-    </section>
-  `;
+const gachaOptions = (item: Item): Item[] => (Array.isArray(item.drawOptions) ? (item.drawOptions as Item[]) : []);
+const gachaOptionKey = (item: Item, option: Item): string => String(option.id ?? gachaOptions(item).indexOf(option));
+const gachaRates = (item: Item): Item[] =>
+  (Array.isArray(item.rates) ? (item.rates as Item[]) : []).filter(
+    (row) =>
+      Number(row.rate) > 0 && Array.isArray(row.prizes) && row.prizes.some((prize: Item) => Number(prize.rate) > 0),
+  );
+const optionDrawCount = (option: Item) => Math.max(1, Math.floor(Number(option.drawCount) || 1));
+
+function nextGachaPrice(sim: GachaSimState | null, key: string, option: Item): number {
+  return Number(option.firstPrice) > 0 && !sim?.uses[key]
+    ? Number(option.firstPrice)
+    : Math.max(0, Number(option.price) || 0);
 }
 
-/**
- * The simulator follows the reconstructed draw contract: a slot is rolled by
- * lot weight, a prize by its absolute basis-point rate inside the slot, and a
- * multi-draw whose rolls all miss the product's ensured rarity re-rolls its
- * last slot from the qualifying slots only — the game's 確定枠.
- */
+/** Simulate one product use, including its guarantee, discount and usage limit. */
 export function drawGacha(c: Controller, item: Item, option: Item) {
-  const rates = (Array.isArray(item.rates) ? item.rates : []) as Item[];
-  if (!rates.length) return;
-  const pickWeighted = (rows: Item[], weight: (row: Item) => number) => {
-    const total = rows.reduce((sum, row) => sum + weight(row), 0);
-    let roll = Math.random() * total;
-    for (const row of rows) {
-      roll -= weight(row);
-      if (roll <= 0) return row;
-    }
-    return rows[rows.length - 1];
-  };
-  const drawOnce = (pool: Item[] = rates): { prize: Item; rarity: number } => {
-    const group = pickWeighted(pool, (row) => Number(row.rate) || 0);
-    const prizes = (Array.isArray(group.prizes) ? group.prizes : []) as Item[];
-    const prize = prizes.length > 1 ? pickWeighted(prizes, (row) => Number(row.rate) || 0) : prizes[0] || {};
-    return { prize, rarity: Number(group.rarity || 0) };
-  };
-  const draws = Math.max(1, Number(option.drawCount || 1));
-  const results: Array<{ prize: Item; rarity: number }> = [];
-  for (let index = 0; index < draws; index += 1) results.push(drawOnce());
-  const ensured = Number(option.guaranteedRarity || 0);
-  if (ensured && !results.some((result) => result.rarity >= ensured)) {
-    const pool = rates.filter((row) => Number(row.rarity || 0) >= ensured);
-    if (pool.length) results[results.length - 1] = drawOnce(pool);
-  }
-  const optionKey = String(option.id ?? option.drawCount ?? "");
+  const rates = gachaRates(item);
+  const key = gachaOptionKey(item, option);
   const previous: GachaSimState = c.sim || {
     draws: 0,
-    spent: 0,
     points: 0,
-    currency: c.localized(option.currency),
-    currencyImage: String(option.currencyImage || ""),
-    firstUsed: [],
+    uses: {},
+    costs: {},
     tally: {},
+    lastDraws: 0,
     results: [],
   };
-  const price = Number(option.price || 0);
-  const firstTime = Number(option.firstPrice || 0) > 0 && !previous.firstUsed.includes(optionKey);
-  const spent = firstTime ? Number(option.firstPrice || 0) : price;
+  const limit = Math.max(0, Number(option.limitCount) || 0);
+  if (!rates.length || (limit && (previous.uses[key] || 0) >= limit)) return;
+  const ensured = Math.max(0, Number(option.guaranteedRarity) || 0);
+  const ensuredPool = rates.filter((row) => Number(row.rarity) >= ensured);
+  if (ensured && !ensuredPool.length) return;
+  const pickWeighted = (rows: Item[]) => {
+    const available = rows.filter((row) => Number(row.rate) > 0);
+    let roll = Math.random() * available.reduce((sum, row) => sum + Number(row.rate), 0);
+    for (const row of available) {
+      roll -= Number(row.rate);
+      if (roll < 0) return row;
+    }
+    return available[available.length - 1];
+  };
+  const drawOnce = (pool: Item[] = rates) => {
+    const group = pickWeighted(pool);
+    const prize = pickWeighted(group.prizes as Item[]);
+    const rarity = Number(group.rarity) || 0;
+    return { prize: { ...prize, rarity: prize.rarity ?? rarity }, rarity };
+  };
+  const draws = optionDrawCount(option);
+  const results = Array.from({ length: draws }, () => drawOnce());
+  const guaranteed = ensured ? Math.min(draws, Math.max(1, Number(option.guaranteedCount) || 1)) : 0;
+  let missing = guaranteed - results.filter((result) => result.rarity >= ensured).length;
+  for (let index = results.length - 1; missing > 0 && index >= 0; index -= 1) {
+    if (results[index].rarity >= ensured) continue;
+    results[index] = drawOnce(ensuredPool);
+    missing -= 1;
+  }
+  const costKey = JSON.stringify([option.currencyImage || "", option.currency || []]);
+  const cost = previous.costs[costKey] || {
+    currency: option.currency,
+    image: String(option.currencyImage || ""),
+    spent: 0,
+  };
   const tally = { ...previous.tally };
   for (const result of results) tally[String(result.rarity)] = (tally[String(result.rarity)] || 0) + 1;
   c.sim = {
     draws: previous.draws + draws,
-    spent: previous.spent + spent,
-    // _gachaPoint is granted per product consume, not per single draw.
-    points: previous.points + Number(option.gachaPoint || 0),
-    currency: previous.currency || c.localized(option.currency),
-    currencyImage: previous.currencyImage || String(option.currencyImage || ""),
-    firstUsed: firstTime ? [...previous.firstUsed, optionKey] : previous.firstUsed,
+    points: previous.points + (Number(option.gachaPoint) || 0),
+    uses: { ...previous.uses, [key]: (previous.uses[key] || 0) + 1 },
+    costs: { ...previous.costs, [costKey]: { ...cost, spent: cost.spent + nextGachaPrice(previous, key, option) } },
     tally,
-    results: [...results.reverse(), ...previous.results],
-  };
+    lastDraws: draws,
+    results,
+  } satisfies GachaSimState;
   c.requestUpdate();
 }
 
 function renderSimulator(c: Controller, item: Item) {
-  const options = Array.isArray(item.drawOptions) ? (item.drawOptions as Item[]) : [];
+  const options = gachaOptions(item);
   if (!options.length) return nothing;
   const sim = c.sim as GachaSimState | null;
+  const selected = options.find((option) => gachaOptionKey(item, option) === c.gachaOption) || options[0];
+  const key = gachaOptionKey(item, selected);
+  const draws = optionDrawCount(selected);
+  const price = nextGachaPrice(sim, key, selected);
+  const currency = c.localized(selected.currency);
+  const limit = Math.max(0, Number(selected.limitCount) || 0);
+  const remaining = limit ? Math.max(0, limit - (sim?.uses[key] || 0)) : null;
+  const rates = gachaRates(item);
+  const ensured = Number(selected.guaranteedRarity) || 0;
+  const canSimulate = rates.length > 0 && (!ensured || rates.some((row) => Number(row.rarity) >= ensured));
+  const action = eventText(c, "simulateDraw", "Simulate {count} draws", { count: draws });
   return html`
-    <section class="detail-section">
+    <section class="detail-section" data-gacha-simulator>
       ${renderDetailSectionHeading(c.label("simulator", "Simulator"), "difficulty")}
+      <p class="detail-copy">
+        ${c.label("simulatorNote", "Draw using the published rates. Results and costs apply to this simulation.")}
+      </p>
       <div class="field-stack">
-        ${options.map((option) => {
-          const draws = Number(option.drawCount || 1);
-          const price = Number(option.price || 0);
-          const currency = c.localized(option.currency);
-          const cost = price > 0 ? `${price.toLocaleString(c.settings.locale)} ${currency}` : c.label("free", "Free");
-          return html`
-            <button class="button button--tonal" type="button" @click=${() => drawGacha(c, item, option)}>
-              ${icon("casino", 18)}
-              ${c
-                .label(draws === 1 ? "drawOne" : "draw", "{count} draws")
-                .replace("{count}", draws.toLocaleString(c.settings.locale))}
-              · ${cost}
-            </button>
-          `;
-        })}
+        <md-outlined-select
+          label=${c.label("drawOptions", "Draw options")}
+          .value=${key}
+          .displayText=${`${eventText(c, "draw", "{count} draws", { count: draws })} · ${currency || c.label("free", "Free")}`}
+          @change=${(event: Event) => {
+            c.gachaOption = (event.target as HTMLSelectElement).value;
+            c.requestUpdate();
+          }}
+        >
+          ${options.map(
+            (option) => html`
+              <md-select-option value=${gachaOptionKey(item, option)} ?selected=${gachaOptionKey(item, option) === key}>
+                <div slot="headline">
+                  ${eventText(c, "draw", "{count} draws", { count: optionDrawCount(option) })} ·
+                  ${c.localized(option.currency) || c.label("free", "Free")}
+                </div>
+              </md-select-option>
+            `,
+          )}
+        </md-outlined-select>
+      </div>
+      <dl class="spec-list spec-list--split spec-list--numeric">
+        <div>
+          <dt>${c.label("nextDrawCost", "Next draw cost")}</dt>
+          <dd>
+            ${price ? costLine(`${price.toLocaleString(c.settings.locale)} ${currency}`, selected.currencyImage) : c.label("free", "Free")}
+            ${
+              Number(selected.firstPrice) > 0 &&
+              !sim?.uses[key] &&
+              Number(selected.firstPrice) !== Number(selected.price)
+                ? html`
+                    <span class="chip chip--static">
+                      <span class="chip__label">${c.label("firstTime", "First time")}</span>
+                    </span>
+                  `
+                : nothing
+            }
+          </dd>
+        </div>
         ${
-          sim?.results?.length
+          ensured
             ? html`
-                <button class="button button--text" type="button" @click=${() => ((c.sim = null), c.requestUpdate())}>
-                  ${c.label("reset", "Reset")}
+                <div>
+                  <dt>${c.label("guaranteed", "Guaranteed")}</dt>
+                  <dd>
+                    ${eventText(c, "guaranteedDraws", "At least {count} {rarity} or higher", { count: Math.max(1, Number(selected.guaranteedCount) || 1), rarity: RARITY_NAMES[ensured] || ensured })}
+                  </dd>
+                </div>
+              `
+            : nothing
+        }
+        ${
+          Number(selected.gachaPoint) > 0
+            ? html`
+                <div>
+                  <dt>${c.label("gachaPoint", "Gacha points")}</dt>
+                  <dd>+${Number(selected.gachaPoint).toLocaleString(c.settings.locale)}</dd>
+                </div>
+              `
+            : nothing
+        }
+        ${
+          remaining !== null
+            ? html`
+                <div>
+                  <dt>${c.label("remainingDrawUses", "Uses remaining in this simulation")}</dt>
+                  <dd>${remaining.toLocaleString(c.settings.locale)}</dd>
+                </div>
+              `
+            : nothing
+        }
+      </dl>
+      <div class="cluster">
+        <button
+          class="button"
+          type="button"
+          data-gacha-draw
+          ?disabled=${!canSimulate || remaining === 0}
+          @click=${() => drawGacha(c, item, selected)}
+        >
+          ${icon("casino", 18)}${action}
+        </button>
+        ${
+          sim
+            ? html`
+                <button
+                  class="button button--text"
+                  type="button"
+                  @click=${() => {
+                    c.sim = null;
+                    c.requestUpdate();
+                    void c.updateComplete.then(() => c.querySelector("[data-gacha-draw]")?.focus());
+                  }}
+                >
+                  ${c.label("resetSimulator", "Reset simulation")}
                 </button>
               `
             : nothing
         }
       </div>
       ${
-        sim?.results?.length
+        !canSimulate
           ? html`
-              <dl class="spec-list spec-list--split">
+              <p class="detail-copy" role="status">
+                ${c.label("simulationUnavailable", "Complete rates are required to simulate this recruitment.")}
+              </p>
+            `
+          : remaining === 0
+            ? html`
+                <p class="detail-copy" role="status">
+                  ${c.label("simulationLimitReached", "This option has reached its limit for this simulation.")}
+                </p>
+              `
+            : nothing
+      }
+      ${
+        sim
+          ? html`
+              <p class="md-body-medium" role="status" aria-live="polite" aria-atomic="true">
+                ${eventText(c, "simulationComplete", "Simulated {count} draws; {total} draws in total.", { count: sim.lastDraws, total: sim.draws })}
+              </p>
+              <dl class="spec-list spec-list--split spec-list--numeric">
                 <div>
                   <dt>${c.label("drawCount", "Draws")}</dt>
                   <dd>${sim.draws.toLocaleString(c.settings.locale)}</dd>
                 </div>
-                <div>
-                  <dt>${c.label("spent", "Spent")}</dt>
-                  <dd>
-                    ${costLine(`${sim.spent.toLocaleString(c.settings.locale)} ${sim.currency}`, sim.currencyImage)}
-                  </dd>
-                </div>
+                ${Object.values(sim.costs).map(
+                  (cost) => html`
+                    <div>
+                      <dt>
+                        ${c.label("spent", "Simulated cost")} · ${c.localized(cost.currency) || c.label("free", "Free")}
+                      </dt>
+                      <dd>${costLine(cost.spent.toLocaleString(c.settings.locale), cost.image)}</dd>
+                    </div>
+                  `,
+                )}
                 ${
                   sim.points
                     ? html`
@@ -448,7 +565,7 @@ function renderSimulator(c: Controller, item: Item) {
                     : nothing
                 }
                 ${Object.entries(sim.tally)
-                  .sort((left, right) => Number(right[0]) - Number(left[0]))
+                  .sort(([left], [right]) => Number(right) - Number(left))
                   .map(
                     ([rarity, count]) => html`
                       <div>
@@ -458,31 +575,23 @@ function renderSimulator(c: Controller, item: Item) {
                     `,
                   )}
               </dl>
-              <ul class="related-grid related-grid--wide" role="list">
-                ${sim.results.map(({ prize, rarity }) => {
-                  const title = c.localized(prize.name) || c.label(RARITY_NAMES[rarity] || "reward", "Reward");
-                  const image = String(prize.image || "");
-                  return tile({
-                    kind: "member",
-                    title,
-                    titleLanguage: c.localizedLanguage(prize.name),
-                    subtitle: rarity ? RARITY_NAMES[rarity] : "",
-                    label: title,
-                    image,
-                    href: String(prize.href || "") || undefined,
-                    fit: "contain",
-                    marks: prize.pickup
+              <div class="stack stack--tight">
+                <h4 class="md-title-small">${c.label("latestDrawResults", "Latest draw results")}</h4>
+                ${renderRewardGrid(
+                  c,
+                  sim.results.map(({ prize }) => prize),
+                  (prize) =>
+                    prize.pickup
                       ? [
                           {
-                            at: "end" as const,
+                            at: "bottom-start",
                             text: c.label("pickup", "Pickup"),
                             accent: "var(--md-sys-color-primary)",
                           },
                         ]
-                      : undefined,
-                  });
-                })}
-              </ul>
+                      : [],
+                )}
+              </div>
             `
           : nothing
       }
@@ -710,14 +819,6 @@ function eventRewardValue(row: Item): Item {
   return nested && typeof nested === "object" ? nested : {};
 }
 
-function renderEventHeading(
-  title: string,
-  kind: Parameters<typeof renderDetailSectionHeading>[1],
-  options: { count?: number } = {},
-) {
-  return renderDetailSectionHeading(title, kind, { ...options, level: 2 });
-}
-
 /** Interpolate the authored message before rendering it, including repeated tokens. */
 function eventText(c: Controller, key: string, fallback: string, values: Record<string, unknown> = {}): string {
   const format = (template: string) =>
@@ -762,8 +863,8 @@ function eventRewardCondition(c: Controller, row: Item): string {
   return values.join(" · ");
 }
 
-/** One resource with its quantity and authored probability, also used in score tables. */
-function eventRewardRow(c: Controller, row: Item, quantity = true, compact = false) {
+/** One resource with its quantity and authored probability. */
+function eventRewardRow(c: Controller, row: Item, quantity = true) {
   const reward = eventRewardValue(row);
   const name = c.localized(reward.name) || c.label("rewardUnavailable", "Reward unavailable");
   const secondary = c.localized(reward.secondary);
@@ -778,11 +879,20 @@ function eventRewardRow(c: Controller, row: Item, quantity = true, compact = fal
           `
         : icon("redeem", 24)
     }
-    <span class=${compact ? "sr-only" : nothing} lang=${c.localizedLanguage(reward.name) || nothing}>
+    <span lang=${c.localizedLanguage(reward.name) || nothing}>
       ${name}${
-        secondary
+        secondary && secondary !== name
           ? html`
               <small class="detail-copy" lang=${c.localizedLanguage(reward.secondary) || nothing}>${secondary}</small>
+            `
+          : nothing
+      }
+      ${
+        probability !== undefined && Number(probability) < 10000
+          ? html`
+              <small class="detail-copy">
+                ${eventText(c, "eventProbability", "{rate}% chance", { rate: Number(probability) / 100 })}
+              </small>
             `
           : nothing
       }
@@ -794,123 +904,113 @@ function eventRewardRow(c: Controller, row: Item, quantity = true, compact = fal
           `
         : nothing
     }
-    ${
-      probability !== undefined && Number(probability) < 10000
-        ? html`
-            <small>${eventText(c, "eventProbability", "{rate}% chance", { rate: Number(probability) / 100 })}</small>
-          `
-        : nothing
-    }
   `;
   return html`
     <li>
       ${
         href
           ? html`
-              <a
-                class=${`detail-object event-reward${compact ? " event-reward--compact" : ""}`}
-                href=${href}
-                title=${compact ? name : nothing}
-              >
-                ${body}
-              </a>
+              <a class="detail-object" href=${href}>${body}</a>
             `
           : html`
-              <div
-                class=${`detail-object event-reward${compact ? " event-reward--compact" : ""}`}
-                title=${compact ? name : nothing}
-              >
-                ${body}
-              </div>
+              <div class="detail-object">${body}</div>
             `
       }
     </li>
   `;
 }
 
-/** Shared tile media keeps a reserved ratio and the same Material progress control. */
-function eventMedia(c: Controller, source: string, label = "", fallback = "") {
-  return source
-    ? html`
-        <img
-          data-src=${source}
-          data-fallback=${fallback || nothing}
-          alt=${label}
-          decoding="async"
-          @error=${nextImageCandidate}
-        />
-        <md-circular-progress
-          class="event-media-progress"
-          indeterminate
-          aria-label=${c.label("loading", "Loading")}
-        ></md-circular-progress>
-      `
-    : icon("image", 32);
-}
-
-function renderEventOverview(c: Controller, item: Item) {
+function renderRotatingOverview(c: Controller, item: Item) {
   const instant = (value: unknown) =>
     Number((Array.isArray(value) ? value.find((part) => Number(part) > 0) : value) || 0);
   const start = instant(item.startAt),
     end = instant(item.endAt);
   const state = start > Date.now() ? "upcoming" : end && end < Date.now() ? "ended" : "ongoing";
   const eventItem = item.eventItem && typeof item.eventItem === "object" ? (item.eventItem as Item) : null;
-  const activeRankings = [
+  const rankingFields = [
     ["rankingDisabled", "eventScoreRanking", "Score ranking"],
     ["musicRankingDisabled", "eventSongRanking", "Song ranking"],
     ["totalMusicRankingDisabled", "eventTotalSongRanking", "Total song ranking"],
-  ].filter(([field]) => item[field] === false);
+  ];
+  const activeRankings = rankingFields.filter(([field]) => item[field] === false);
   return html`
-    <section class="detail-section event-overview">
-      <div class="event-overview__facts">
-        <span class="chip chip--static">
-          <span class="chip__label">
-            ${c.label(state, state === "ongoing" ? "Ongoing" : state === "upcoming" ? "Upcoming" : "Ended")}
-          </span>
-        </span>
-        <dl class="spec-list spec-list--split">
-          ${[
-            ["startAt", start],
-            ["endAt", end],
-          ].map(([key, value]) =>
-            value
-              ? html`
-                  <div>
-                    <dt>${c.label(key === "startAt" ? "starts" : "ends", key === "startAt" ? "Starts" : "Ends")}</dt>
-                    <dd><time datetime=${new Date(Number(value)).toISOString()}>${c.release(value)}</time></dd>
-                  </div>
-                `
-              : nothing,
-          )}
-          <div class="spec-list__wide">
-            <dt>${c.label("eventAvailableRankings", "Rankings")}</dt>
-            <dd>
-              ${activeRankings.length ? activeRankings.map(([, key, fallback]) => c.label(key, fallback)).join(" · ") : c.label("eventRankingOff", "No rankings")}
-            </dd>
-          </div>
-        </dl>
+    <section class="detail-section">
+      ${renderDetailSectionHeading(c.label("details", "Details"), "details")}
+      ${
+        start || end
+          ? html`
+              <div class="cluster">
+                <span class="chip chip--static">
+                  <span class="chip__label">
+                    ${c.label(state, state === "ongoing" ? "Ongoing" : state === "upcoming" ? "Upcoming" : "Ended")}
+                  </span>
+                </span>
+              </div>
+            `
+          : nothing
+      }
+      <dl class="spec-list spec-list--split">
         ${
-          c.plainGameText(item.description)
+          item.category
             ? html`
-                <p class="detail-copy" lang=${c.localizedLanguage(item.description) || nothing}>
-                  ${c.plainGameText(item.description)}
-                </p>
+                <div>
+                  <dt>${c.label("category", "Category")}</dt>
+                  <dd>${c.label(String(item.category), String(item.category))}</dd>
+                </div>
+              `
+            : nothing
+        }
+        ${[
+          ["startAt", start],
+          ["endAt", end],
+        ].map(([key, value]) =>
+          value
+            ? html`
+                <div>
+                  <dt>${c.label(key === "startAt" ? "starts" : "ends", key === "startAt" ? "Starts" : "Ends")}</dt>
+                  <dd>
+                    <time datetime=${new Date(Number(value)).toISOString()}>${c.release(value)}</time>
+                  </dd>
+                </div>
+              `
+            : nothing,
+        )}
+        ${
+          rankingFields.some(([field]) => typeof item[field] === "boolean")
+            ? html`
+                <div class="spec-list__wide">
+                  <dt>${c.label("eventAvailableRankings", "Rankings")}</dt>
+                  <dd>
+                    ${activeRankings.length ? activeRankings.map(([, key, fallback]) => c.label(key, fallback)).join(" · ") : c.label("eventRankingOff", "No rankings")}
+                  </dd>
+                </div>
               `
             : nothing
         }
         ${
           eventItem
             ? html`
-                <div class="event-overview__link">
-                  <small>${c.label("eventItem", "Event item")}</small>
-                  <ul class="detail-object-list">
-                    ${eventRewardRow(c, eventItem, false)}
-                  </ul>
+                <div class="spec-list__wide">
+                  <dt>${c.label("eventItem", "Event item")}</dt>
+                  <dd>
+                    <ul class="detail-object-list">
+                      ${eventRewardRow(c, eventItem, false)}
+                    </ul>
+                  </dd>
                 </div>
               `
             : nothing
         }
-      </div>
+      </dl>
+      ${
+        c.plainGameText(item.description)
+          ? html`
+              <p class="detail-copy" lang=${c.localizedLanguage(item.description) || nothing}>
+                ${c.plainGameText(item.description)}
+              </p>
+            `
+          : nothing
+      }
     </section>
   `;
 }
@@ -920,7 +1020,7 @@ function renderEventSong(c: Controller, item: Item) {
   const song = item.song as Item;
   return html`
     <section class="detail-section">
-      ${renderEventHeading(c.label("eventSong", "Event song"), "songs")}
+      ${renderDetailSectionHeading(c.label("eventSong", "Event song"), "songs")}
       <div class="collection collection--song">
         ${tile({ ...c.songTileOptions(song), href: canonicalHref(c, String(song.href || "")) || undefined })}
       </div>
@@ -929,42 +1029,11 @@ function renderEventSong(c: Controller, item: Item) {
 }
 
 function renderEventCardGrid(c: Controller, cards: Item[]) {
-  return html`
-    <div class="event-card-groups">
-      ${[
-        [2, "member", "memberCards", "Member cards"],
-        [3, "support", "supportCards", "Support cards"],
-      ].map(([type, kind, key, fallback]) => {
-        const entries = cards.filter(
-          (card) => Number(card.resourceType) === type || card.kind === (type === 2 ? "MemberCard" : "SupportCard"),
-        );
-        if (!entries.length) return nothing;
-        return html`
-          <div class="stack stack--tight">
-            <h3>${c.label(String(key), String(fallback))}</h3>
-            <div class=${`collection collection--${kind}`}>
-              ${entries.map((card) => {
-                const options = c.cardTileOptions(card, kind);
-                return tile({
-                  ...options,
-                  href: canonicalHref(c, String(card.href || "")) || undefined,
-                  marks: [
-                    ...(options.marks || []),
-                    Number(card.rate) > 0
-                      ? {
-                          at: "bottom-start",
-                          text: eventText(c, "eventUpRate", "UP {rate}%", { rate: Number(card.rate) * 100 }),
-                        }
-                      : null,
-                  ],
-                });
-              })}
-            </div>
-          </div>
-        `;
-      })}
-    </div>
-  `;
+  return renderRewardGrid(c, cards, (card) =>
+    Number(card.rate) > 0
+      ? [{ at: "bottom-start", text: eventText(c, "eventUpRate", "UP {rate}%", { rate: Number(card.rate) * 100 }) }]
+      : [],
+  );
 }
 
 function renderEventPickups(c: Controller, item: Item) {
@@ -975,7 +1044,7 @@ function renderEventPickups(c: Controller, item: Item) {
   if (!cards.length) return nothing;
   return html`
     <section class="detail-section">
-      ${renderEventHeading(c.label("eventRewardCards", "Event reward cards"), "cards", { count: cards.length })}${renderEventCardGrid(c, cards)}
+      ${renderDetailSectionHeading(c.label("eventRewardCards", "Event reward cards"), "cards", { count: cards.length })}${renderEventCardGrid(c, cards)}
     </section>
   `;
 }
@@ -985,22 +1054,26 @@ function renderEventRecruitments(c: Controller, item: Item) {
   if (!recruitments.length) return nothing;
   return html`
     <section class="detail-section">
-      ${renderEventHeading(c.label("eventRecruitments", "Related recruitments"), "content", { count: recruitments.length })}
+      ${renderDetailSectionHeading(c.label("eventRecruitments", "Related recruitments"), "content", { count: recruitments.length })}
       <p class="detail-copy">
-        ${c.label("eventRecruitmentRelation", "Recruitments featuring this event’s bonus cards.")}
+        ${c.label("eventRecruitmentRelation", "Recruitments featuring cards with event bonuses.")}
       </p>
-      ${recruitments.map((gacha) => {
-        const title = c.localized(gacha.title);
-        const subtitle = [c.release(gacha.startAt), c.release(gacha.endAt)].filter(Boolean).join(" – ");
-        return html`
-          <div class="stack">
-            <div class="collection collection--system event-recruitment-grid">
-              ${tile({ kind: "system", title, titleLanguage: c.localizedLanguage(gacha.title), subtitle, label: title, image: String(gacha.image || ""), media: eventMedia(c, String(gacha.image || ""), title), aspectRatio: "16 / 9", href: canonicalHref(c, String(gacha.href || "")) || undefined, fit: "contain" })}
-            </div>
-            ${renderEventCardGrid(c, eventRows(gacha.featured))}
-          </div>
-        `;
-      })}
+      <div class="collection collection--system">
+        ${recruitments.map((gacha) => {
+          const title = c.localized(gacha.title);
+          return tile({
+            kind: "system",
+            title,
+            titleLanguage: c.localizedLanguage(gacha.title),
+            subtitle: [c.release(gacha.startAt), c.release(gacha.endAt)].filter(Boolean).join(" – "),
+            label: title,
+            image: String(gacha.image || ""),
+            aspectRatio: "16 / 9",
+            href: canonicalHref(c, String(gacha.href || "")) || undefined,
+            fit: "contain",
+          });
+        })}
+      </div>
     </section>
   `;
 }
@@ -1016,9 +1089,9 @@ function renderEventStory(c: Controller, item: Item) {
   ] as const;
   return html`
     <section class="detail-section">
-      ${renderEventHeading(c.label("eventStory", "Event story"), "stories", { count: episodes.length })}
+      ${renderDetailSectionHeading(c.label("eventStory", "Event story"), "stories", { count: episodes.length })}
       ${
-        c.plainGameText(story.description)
+        c.plainGameText(story.description) && c.plainGameText(story.description) !== c.plainGameText(item.description)
           ? html`
               <p class="detail-copy" lang=${c.localizedLanguage(story.description) || nothing}>
                 ${c.plainGameText(story.description)}
@@ -1030,7 +1103,7 @@ function renderEventStory(c: Controller, item: Item) {
         entries.length
           ? html`
               <div class="stack stack--tight">
-                <h3>${c.label(key, fallback)}</h3>
+                <h4 class="md-title-small md-on-surface-variant">${c.label(key, fallback)}</h4>
                 <div class="collection collection--story">
                   ${entries.map((episode) => {
                     const titleValue = episode.titleText || episode.title || episode.prefix;
@@ -1109,7 +1182,7 @@ function renderEventRewards(c: Controller, item: Item) {
   }
   return html`
     <section class="detail-section">
-      ${renderEventHeading(c.label("eventRewards", "Event rewards"), "rewards")}
+      ${renderDetailSectionHeading(c.label("eventRewards", "Event rewards"), "rewards")}
       ${[...tables].map(([table, rows]) => {
         const tiers = new Map<string, Item[]>();
         for (const row of rows) {
@@ -1118,24 +1191,26 @@ function renderEventRewards(c: Controller, item: Item) {
         }
         const [key, fallback] = labels[table] || ["rewards", "Rewards"];
         const content = html`
-          <ul class="event-reward-tiers">
+          <dl class="spec-list">
             ${[...tiers.values()].map(
               (tier) => html`
-                <li>
-                  <strong class="event-reward-condition">${eventRewardCondition(c, tier[0])}</strong>
-                  <ul class="detail-object-list event-reward-values">
-                    ${tier.map((row) => eventRewardRow(c, row))}
-                  </ul>
-                </li>
+                <div>
+                  <dt>${eventRewardCondition(c, tier[0]) || c.label("rewards", "Rewards")}</dt>
+                  <dd>
+                    <ul class="detail-object-list">
+                      ${tier.map((row) => eventRewardRow(c, row))}
+                    </ul>
+                  </dd>
+                </div>
               `,
             )}
-          </ul>
+          </dl>
         `;
         return tiers.size > 12
           ? fold(c.label(key, fallback), content, eventNumber(c, tiers.size))
           : html`
               <div class="stack stack--tight">
-                <h3>${c.label(key, fallback)}</h3>
+                <h4 class="md-title-small md-on-surface-variant">${c.label(key, fallback)}</h4>
                 ${content}
               </div>
             `;
@@ -1149,42 +1224,31 @@ function renderEventRankings(c: Controller, item: Item) {
   if (!rows.length) return nothing;
   return html`
     <section class="detail-section">
-      ${renderEventHeading(c.label("eventLiveRewards", "Live rewards"), "rewards")}
-      <div class="event-parallel">
+      ${renderDetailSectionHeading(c.label("eventLiveRewards", "Live rewards"), "rewards")}
+      <div class="stack">
         ${["live", "challenge"].map((kind) => {
           const entries = rows.filter((row) => row.kind === kind);
           if (!entries.length) return nothing;
           return html`
             <div class="stack stack--tight">
-              <h3>
+              <h4 class="md-title-small md-on-surface-variant">
                 ${c.label(kind === "live" ? "liveRanking" : "challengeRanking", kind === "live" ? "Live" : "Challenge live")}
-              </h3>
-              <div class="table-scroll event-table-scroll">
-                <table class="data-table event-score-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">${c.label("scoreRanks", "Score rank")}</th>
-                      <th scope="col">${c.label("eventPointLabel", "Event points")}</th>
-                      <th scope="col">${c.label("rewards", "Rewards")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${entries.map(
-                      (row) => html`
-                        <tr>
-                          <th scope="row">${EVENT_SCORE_RANK_NAMES[Number(row.scoreRank)] || "—"}</th>
-                          <td class="is-numeric">${eventPoints(c, row.pointValue)}</td>
-                          <td>
-                            <ul class="detail-object-list">
-                              ${eventRows(row.rewards).map((reward) => eventRewardRow(c, reward, true, true))}
-                            </ul>
-                          </td>
-                        </tr>
-                      `,
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              </h4>
+              <dl class="spec-list spec-list--numeric">
+                ${entries.map(
+                  (row) => html`
+                    <div>
+                      <dt>${EVENT_SCORE_RANK_NAMES[Number(row.scoreRank)] || "—"}</dt>
+                      <dd class="cluster">
+                        <strong>${eventPoints(c, row.pointValue)}</strong>
+                        <ul class="detail-object-list">
+                          ${eventRows(row.rewards).map((reward) => eventRewardRow(c, reward))}
+                        </ul>
+                      </dd>
+                    </div>
+                  `,
+                )}
+              </dl>
             </div>
           `;
         })}
@@ -1224,7 +1288,7 @@ function renderEventEffects(c: Controller, item: Item) {
   };
   return html`
     <section class="detail-section">
-      ${renderEventHeading(c.label("eventEffects", "Event bonuses"), "effects", { count: effects.length })}
+      ${renderDetailSectionHeading(c.label("eventEffects", "Event bonuses"), "effects", { count: groups.size })}
       ${renderLevelSwitch(
         c.label("eventBonusRank", "Card rank"),
         levels,
@@ -1235,7 +1299,7 @@ function renderEventEffects(c: Controller, item: Item) {
         },
         (value) => eventText(c, "eventRankN", "Rank {rank}", { rank: value }),
       )}
-      <div class="event-parallel">
+      <div class="stack">
         ${[2, 3].map((type) => {
           const entries = [...groups.values()].filter(
             (group) => Number(group[0].resourceTypeConstraint ?? eventRaw(group[0])._resourceTypeConstraint) === type,
@@ -1243,52 +1307,61 @@ function renderEventEffects(c: Controller, item: Item) {
           if (!entries.length) return nothing;
           return html`
             <div class="stack stack--tight">
-              <h3>
+              <h4 class="md-title-small md-on-surface-variant">
                 ${c.label(type === 2 ? "memberCards" : "supportCards", type === 2 ? "Member cards" : "Support cards")}
-              </h3>
-              <div class="table-scroll event-table-scroll">
-                <table class="data-table event-bonus-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">${c.label("eventBonusTarget", "Applies to")}</th>
-                      <th scope="col">${c.label("eventParameterBonus", "Parameters")}</th>
-                      <th scope="col">${c.label("eventItemBonus", "Event items")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${entries.map((group) => {
-                      const first = group[0];
-                      const targets =
-                        first.targets && typeof first.targets === "object"
-                          ? (Object.values(first.targets) as Item[])
-                          : [];
-                      const cardType = Number(first.cardType ?? eventRaw(first)._cardType);
-                      const fallback =
-                        cardType > 0
-                          ? {
-                              name: [
-                                c.label(
-                                  ["", "red", "blue", "green", "yellow", "purple"][cardType] || "attribute",
-                                  "Attribute",
-                                ),
-                              ],
-                            }
-                          : { name: [c.label("eventAnyCard", "All cards")] };
-                      return html`
-                        <tr>
-                          <th scope="row">
-                            <ul class="detail-object-list">
-                              ${(targets.length ? targets : [fallback]).map((target) => eventRewardRow(c, cardType > 0 ? { ...target, image: c.attributeMark(cardType), name: target.name || fallback.name } : target, false))}
-                            </ul>
-                          </th>
-                          <td class="is-numeric">${percent(group.find((row) => bonusType(row) === type - 2))}</td>
-                          <td class="is-numeric">${percent(group.find((row) => bonusType(row) === 2))}</td>
-                        </tr>
-                      `;
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              </h4>
+              <dl class="spec-list">
+                ${entries.map((group) => {
+                  const first = group[0];
+                  const cardType = Number(first.cardType ?? eventRaw(first)._cardType);
+                  const targets =
+                    first.targets && typeof first.targets === "object"
+                      ? Object.entries(first.targets).map(([key, target]) =>
+                          key === "attribute"
+                            ? {
+                                ...(target as Item),
+                                image: c.attributeMark(cardType),
+                              }
+                            : (target as Item),
+                        )
+                      : [];
+                  const fallback =
+                    cardType > 0
+                      ? {
+                          image: c.attributeMark(cardType),
+                          name: [
+                            c.label(
+                              ["", "red", "blue", "green", "yellow", "purple"][cardType] || "attribute",
+                              "Attribute",
+                            ),
+                          ],
+                        }
+                      : { name: [c.label("eventAnyCard", "All cards")] };
+                  return html`
+                    <div>
+                      <dt>
+                        <ul class="detail-object-list">
+                          ${(targets.length ? targets : [fallback]).map((target) => eventRewardRow(c, target, false))}
+                        </ul>
+                      </dt>
+                      <dd class="cluster">
+                        <span class="stack stack--tight">
+                          <small class="md-label-medium md-on-surface-variant">
+                            ${c.label("eventParameterBonus", "Parameters")}
+                          </small>
+                          <strong>${percent(group.find((row) => bonusType(row) === type - 2))}</strong>
+                        </span>
+                        <span class="stack stack--tight">
+                          <small class="md-label-medium md-on-surface-variant">
+                            ${c.label("eventItemBonus", "Event items")}
+                          </small>
+                          <strong>${percent(group.find((row) => bonusType(row) === 2))}</strong>
+                        </span>
+                      </dd>
+                    </div>
+                  `;
+                })}
+              </dl>
             </div>
           `;
         })}
@@ -1311,19 +1384,21 @@ function renderEventMissions(c: Controller, item: Item) {
   if (!missions.length) return nothing;
   return html`
     <section class="detail-section">
-      ${renderEventHeading(c.label("missions", "Missions"), "missions", { count: missions.length })}
-      <ul class="event-reward-tiers">
+      ${renderDetailSectionHeading(c.label("missions", "Missions"), "missions", { count: missions.length })}
+      <dl class="spec-list">
         ${missions.map(
           (mission) => html`
-            <li>
-              <span>${c.plainGameText(mission.description) || c.label("eventMission", "Event mission")}</span>
-              <ul class="detail-object-list">
-                ${eventRows(mission.rewards).map((reward) => eventRewardRow(c, reward))}
-              </ul>
-            </li>
+            <div>
+              <dt>${c.plainGameText(mission.description) || c.label("eventMission", "Event mission")}</dt>
+              <dd>
+                <ul class="detail-object-list">
+                  ${eventRows(mission.rewards).map((reward) => eventRewardRow(c, reward))}
+                </ul>
+              </dd>
+            </div>
           `,
         )}
-      </ul>
+      </dl>
     </section>
   `;
 }
@@ -1338,40 +1413,30 @@ export function renderGameSystemDetail(c: Controller, item: Item) {
   switch (resource) {
     case "events":
       return html`
-        <div class="event-detail">
-          ${renderEventOverview(c, item)} ${renderEventSong(c, item)} ${renderEventPickups(c, item)}
-          ${renderEventRecruitments(c, item)} ${renderEventStory(c, item)} ${renderEventEffects(c, item)}
-          ${renderEventRankings(c, item)} ${renderEventRewards(c, item)} ${renderEventMissions(c, item)}
-          ${
-            !item.story && !pickups.length && !rewards.length && !rankings.length && !effects.length
-              ? html`
-                  <p class="detail-copy">
-                    ${c.label("eventDetailsUnavailable", "No linked event details are available in this release.")}
-                  </p>
-                `
-              : nothing
-          }
-        </div>
+        ${renderRotatingOverview(c, item)} ${renderEventPickups(c, item)} ${renderEventEffects(c, item)}
+        ${renderEventSong(c, item)} ${renderEventStory(c, item)} ${renderEventRecruitments(c, item)}
+        ${renderEventRankings(c, item)} ${renderEventRewards(c, item)} ${renderEventMissions(c, item)}
+        ${
+          !item.story &&
+          !item.song &&
+          !pickups.length &&
+          !eventRows(item.recruitments).length &&
+          !rewards.length &&
+          !rankings.length &&
+          !effects.length &&
+          !eventRows(item.missions).length
+            ? html`
+                <p class="detail-copy">
+                  ${c.label("eventDetailsUnavailable", "No linked event details are available in this release.")}
+                </p>
+              `
+            : nothing
+        }
       `;
     case "gacha":
       return html`
-        ${featuredGrid(c, (Array.isArray(item.featured) ? item.featured : []) as Item[])} ${renderDrawOptions(c, item)}
-        ${renderRates(c, item)} ${renderSimulator(c, item)}
-        ${rewardSection(c, rewards, c.label("prizePool", "Prize pool"), {
-          collapsible: true,
-          trailing: (reward) =>
-            rateText(reward.rate)
-              ? html`
-                  <strong>
-                    ${rateText(reward.rate)}${
-                      Number(reward.count || 0) > 1
-                        ? ` · ×${Number(reward.count).toLocaleString(c.settings.locale)}`
-                        : ""
-                    }
-                  </strong>
-                `
-              : nothing,
-        })}
+        ${renderRotatingOverview(c, item)} ${renderSimulator(c, item)}
+        ${featuredGrid(c, (Array.isArray(item.featured) ? item.featured : []) as Item[])} ${renderRates(c, item)}
       `;
     case "login-campaigns":
       return renderLoginDays(c, rewards);
@@ -1409,6 +1474,13 @@ export function renderGameSystemDetail(c: Controller, item: Item) {
 
 export function initializeGameSystemDetail(c: Controller, item: Item) {
   c.sim = null;
+  const options = gachaOptions(item);
+  const preferred = [...options].sort(
+    (left, right) =>
+      Number(Number(left.limitCount) > 0) - Number(Number(right.limitCount) > 0) ||
+      optionDrawCount(right) - optionDrawCount(left),
+  )[0];
+  c.gachaOption = preferred ? gachaOptionKey(item, preferred) : "";
   c.fx = null;
   c.eventBonusRank = 1;
   // Cash shop entries boot the rate fetch that fills the per-currency

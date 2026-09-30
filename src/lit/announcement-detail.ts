@@ -159,7 +159,6 @@ export class AnnouncementDetail extends LitElement {
     const image = entry.bodyImage ? safeAnnouncementUrl(entry.bodyImage, true) : "";
     const includesImage =
       image && [...(this.body?.querySelectorAll("img") || [])].some((node) => node.getAttribute("src") === image);
-    const updated = entry.updatedAt > entry.startAt && entry.startAt > 0;
     return html`
       <article class="announcement-page announcement-detail" aria-labelledby="announcement-title">
         <section
@@ -174,12 +173,6 @@ export class AnnouncementDetail extends LitElement {
                     <span class="chip">${announcementText(this.locale, "pinned", "Pinned")}</span>
                   `
                 : nothing
-            }${
-              updated
-                ? html`
-                    <span class="chip">${announcementText(this.locale, "updated", "Updated")}</span>
-                  `
-                : nothing
             }
           </div>
           <dl class="spec-list spec-list--split spec-list--numeric">
@@ -191,20 +184,6 @@ export class AnnouncementDetail extends LitElement {
                 </time>
               </dd>
             </div>
-            ${
-              updated
-                ? html`
-                    <div>
-                      <dt>${announcementText(this.locale, "updated", "Updated")}</dt>
-                      <dd>
-                        <time datetime=${announcementDatetime(entry.updatedAt)}>
-                          ${announcementDate(entry.updatedAt, this.locale, true)}
-                        </time>
-                      </dd>
-                    </div>
-                  `
-                : nothing
-            }
           </dl>
         </section>
         <section
