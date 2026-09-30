@@ -92,8 +92,8 @@
       --tile-gap: 8px;
     }
     .collection:not(.collection--rail) .tile__title {
-      font-size: 14px;
-      line-height: 20px;
+      --tile-title-line-height: var(--md-sys-typescale-title-small-line-height);
+      font-size: var(--md-sys-typescale-title-small-size);
     }
     .collection:not(.collection--rail) .tile__subtitle {
       font-size: 12px;

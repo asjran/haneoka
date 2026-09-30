@@ -3,6 +3,7 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { clientText } from "../i18n/client";
 import { beginLoading } from "../lib/loading-progress";
 import { communityExcerpt } from "../lib/community-markup";
+import { communityPostMedia, communityMediaThumbnail } from "../lib/community-artwork";
 import { loadingState, emptyState, errorState } from "./ui/state";
 import { fetchJson } from "./shared/catalog";
 
@@ -10,7 +11,7 @@ type RecordValue = Record<string, unknown>;
 interface SearchResult {
   url: string;
   excerpt: string;
-  meta: { title?: string; image?: string };
+  meta: { title?: string; label?: string; image?: string };
   sub_results?: Array<{ url: string; title: string; excerpt: string }>;
 }
 interface SearchHit {
@@ -192,23 +193,42 @@ export class GlobalSearch extends LitElement {
     }
   }
   private image(image: string | undefined) {
-    return image
+    const source = image?.trim();
+    return source
       ? html`
-          <span class="search-result__image media-loading">
+          <span class="search-result__image">
+            <md-circular-progress indeterminate aria-hidden="true"></md-circular-progress>
             <img
-              src=${image}
+              src=${source}
+              data-loading="true"
               alt=""
               loading="lazy"
               decoding="async"
-              @load=${(event: Event) => (event.currentTarget as HTMLImageElement).classList.add("is-loaded")}
-              @error=${(event: Event) => (event.currentTarget as HTMLImageElement).parentElement?.classList.remove("media-loading")}
+              @load=${(event: Event) => {
+                const imageElement = event.currentTarget as HTMLImageElement;
+                imageElement.removeAttribute("data-loading");
+                imageElement.classList.add("is-loaded");
+              }}
+              @error=${(event: Event) => {
+                const imageElement = event.currentTarget as HTMLImageElement;
+                imageElement.removeAttribute("data-loading");
+                imageElement.classList.add("is-error");
+              }}
             />
           </span>
         `
       : nothing;
   }
+  private resultHref(rawUrl: string): string {
+    try {
+      const url = new URL(rawUrl, document.baseURI);
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`;
+    }
+  }
   render() {
-    if (!this.query.trim()) return emptyState({ title: this.label("searchPage.hint"), icon: "search" });
+    if (!this.query.trim()) return nothing;
     return html`
       ${this.busy && !this.results.length && !this.posts.length ? loadingState(this.label("loading")) : nothing}
       <section aria-label=${this.label("catalog")}>
@@ -228,10 +248,10 @@ export class GlobalSearch extends LitElement {
             const target = result.sub_results?.find((row) => row.url.includes("#")) || result;
             return html`
               <li>
-                <a class="search-result state-layer" href=${target.url}>
+                <a class="search-result state-layer" href=${this.resultHref(target.url)}>
                   ${this.image(result.meta.image)}
                   <span class="search-result__copy">
-                    <strong>${result.meta.title || target.url}</strong>
+                    <strong>${result.meta.label || result.meta.title || target.url}</strong>
                     <p>${unsafeHTML(target.excerpt)}</p>
                   </span>
                 </a>
@@ -251,9 +271,10 @@ export class GlobalSearch extends LitElement {
                   class="search-result state-layer"
                   href=${`/${this.locale}/community/posts/${encodeURIComponent(String(post.id))}/`}
                 >
+                  ${this.image(communityPostMedia(post).map(communityMediaThumbnail).find(Boolean))}
                   <span class="search-result__copy">
                     <strong>${String(post.title || "")}</strong>
-                    <p>${communityExcerpt(String(post.body || "")).slice(0, 180)}</p>
+                    <p>${communityExcerpt(String(post.excerpt || post.body || "")).slice(0, 180)}</p>
                     <p>${String(post.authorName || post.authorHandle || "")}</p>
                   </span>
                 </a>

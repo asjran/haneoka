@@ -14,6 +14,7 @@ import { navigationDocumentUrl } from "../lib/document-url";
 import { RequestScope } from "../lib/request-scope";
 import { beginLoading } from "../lib/loading-progress";
 import { communityMarkup, communityExcerpt } from "../lib/community-markup";
+import { communityPostMedia, communityMediaThumbnail } from "../lib/community-artwork";
 import { formatCommunityTime, isEdited } from "../lib/community-time";
 import { communityImageRatio, type CommunityImage } from "./community-gallery";
 import { keyed } from "lit/directives/keyed.js";
@@ -305,7 +306,12 @@ export class CommunityWorkspace extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.lifetime = new AbortController();
-    if (this.routeKind !== "post-new" && this.routeKind !== "post-edit" && this.mode !== "playlists" && this.mode !== "tags") {
+    if (
+      this.routeKind !== "post-new" &&
+      this.routeKind !== "post-edit" &&
+      this.mode !== "playlists" &&
+      this.mode !== "tags"
+    ) {
       this.relativeTimeTimer = window.setInterval(() => {
         if (this.isConnected && !document.hidden) this.requestUpdate();
       }, 30_000);
@@ -3625,11 +3631,7 @@ export class CommunityWorkspace extends LitElement {
   private renderPin(post: Value) {
     const href = `${this.path(`/community/posts/${post.id}`)}?return=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
     const viewer = (post.viewer as Value | undefined) || {};
-    const images = Array.isArray(post.attachments)
-      ? (post.attachments as Value[]).filter((attachment) => /^(image|video)\//.test(String(attachment.mediaType)))
-      : post.coverUrl
-        ? [{ contentUrl: post.coverUrl, width: post.coverWidth, height: post.coverHeight }]
-        : [];
+    const images = communityPostMedia(post);
     const excerpt = communityExcerpt(String(post.excerpt || post.body || ""));
     return html`
       <article class="community-pin">
@@ -3650,7 +3652,7 @@ export class CommunityWorkspace extends LitElement {
                       aria-label=${this.label("loading", "Loading")}
                     ></md-circular-progress>
                     <img
-                      src=${String(images[0]?.thumbnailUrl || images[0]?.posterUrl || images[0]?.previewUrl || images[0]?.contentUrl || "")}
+                      src=${communityMediaThumbnail(images[0]!)}
                       alt=""
                       loading="lazy"
                       decoding="async"

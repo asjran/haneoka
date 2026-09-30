@@ -10,6 +10,7 @@ import {
 } from "./static-catalog-source";
 import { disambiguateTitles } from "./title-disambiguation";
 import type { ReleaseServer } from "./release-server";
+import { modelPreviewSources } from "./model-artwork";
 
 export interface SearchableModelPage {
   kind: "live2d" | "spine";
@@ -66,7 +67,12 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
     server,
     release,
   );
-  const spineDetails = await fetchStaticCatalogBatch("spine", spineModels.map(([key]) => key), server, release);
+  const spineDetails = await fetchStaticCatalogBatch(
+    "spine",
+    spineModels.map(([key]) => key),
+    server,
+    release,
+  );
 
   const live2dPages = live2dModels.map(([key, model]) => {
     const detail = live2dDetails.get(key) ?? model;
@@ -98,7 +104,7 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
         return [locale, rows];
       }),
     ) as Record<Locale, Array<{ key: string; value: string }>>;
-    const preview = asRecord(model.preview);
+    const mergedModel = { ...model, ...detail };
     return {
       kind: "live2d" as const,
       id: key,
@@ -115,8 +121,8 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
         ]),
       ) as Record<Locale, string>,
       facts,
-      image: typeof preview?.runtime === "string" ? preview.runtime : "",
-      model: { ...model, ...detail },
+      image: modelPreviewSources(mergedModel)[0] || "",
+      model: mergedModel,
     };
   });
 

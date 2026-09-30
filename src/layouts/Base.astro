@@ -22,8 +22,22 @@ interface Props {
   noindex?: boolean;
   seoTitleValues?: Partial<Record<Locale, string>>;
   seoDescriptionValues?: Partial<Record<Locale, string>>;
+  /** Entity artwork used by Pagefind result cards. Empty pages clear its automatic image. */
+  searchImage?: string;
+  searchTitle?: string;
 }
-const { locale, title, titleKey, description, route, canonicalRoute, seoTitleValues, seoDescriptionValues } = Astro.props;
+const {
+  locale,
+  title,
+  titleKey,
+  description,
+  route,
+  canonicalRoute,
+  seoTitleValues,
+  seoDescriptionValues,
+  searchImage,
+  searchTitle,
+} = Astro.props;
 const noindex = Astro.props.noindex || shouldNoindex(route);
 const origin = Astro.site?.origin ?? "https://haneoka.org";
 const formatTitle = (value: string) => (value === "haneoka" ? value : `${value} · haneoka`);
@@ -115,6 +129,10 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
     />
     <meta property="og:url" content={canonicalHref} />
     <meta property="og:image" content={`${origin}/images/haneoka-social-card.png`} />
+    <!-- Pagefind's automatic image is the first image after an h1 (often a UI icon or scene background). -->
+    <meta data-pagefind-meta="image:" />
+    {searchImage?.trim() && <meta data-pagefind-meta="image[content]" content={searchImage.trim()} />}
+    <meta data-pagefind-meta="label[content]" content={searchTitle || localizedTitle} />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={fullTitle} />
     <meta

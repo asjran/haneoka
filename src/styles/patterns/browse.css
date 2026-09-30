@@ -90,10 +90,11 @@
   padding: 8px 10px 10px;
 }
 .tile--rail .tile__title {
+  --tile-title-lines: 1;
+  --tile-title-line-height: var(--md-sys-typescale-title-small-line-height);
   min-block-size: 0;
-  -webkit-line-clamp: 1;
   font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) /
-    var(--md-sys-typescale-title-small-line-height) var(--app-font);
+    var(--tile-title-line-height) var(--app-font);
 }
 .tile--rail .tile__subtitle {
   font: var(--md-sys-typescale-label-small-weight) var(--md-sys-typescale-label-small-size) /

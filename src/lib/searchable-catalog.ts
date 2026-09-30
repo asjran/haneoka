@@ -355,7 +355,9 @@ function catalogImage(kind: SearchableCatalogPage["kind"], value: RecordValue): 
         ? value.profileImage || value.thumbnailImage || value.faceImage
         : kind === "comic"
           ? value.thumbnail || value.image
-          : images?.full || images?.thumbnail || value.image || value.thumbnail;
+          : kind === "system"
+            ? value.image
+            : images?.full || images?.thumbnail || value.image || value.thumbnail;
   return typeof image === "string" ? image : "";
 }
 

@@ -8,6 +8,9 @@ import type { SearchableStoryPage } from "../../lib/searchable-stories";
 import { resourcePath, storyCollectionPath, type EntityLink } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
 import { catalogEntityData, type StoryPayload } from "../../lib/entity-graph";
+import { asRecord } from "../../lib/static-catalog-source";
+import { resolveLocalizedText } from "../../lib/localized-text";
+import { episodeArtwork, spotArtwork } from "../../lib/story-artwork";
 import { serializePageData } from "../../lib/page-data";
 import { renderStory } from "../../server/render-catalog";
 import "../../lit/story-workspace";
@@ -38,6 +41,28 @@ const seoTitleValues = Object.fromEntries(
 ) as Record<Locale, string>;
 const payload = await catalogEntityData(server, "stories", page.storyId) as StoryPayload | undefined;
 if (!payload) throw new Error(`Missing story page data: ${server}/${page.storyId}`);
+const storyArtwork = (() => {
+  const episode = payload.episodes[page.storyId];
+  if (!episode) return "";
+  if (!["home", "afterlive"].includes(page.mode)) {
+    const chapter = Object.values(payload.chapters).find((candidate) => String(candidate.chapterId) === String(episode.chapterId));
+    return episodeArtwork(episode, chapter);
+  }
+  const spot = page.mode === "home" ? payload.homeSpots.find((candidate) =>
+    (Array.isArray(candidate.talks) ? candidate.talks : []).some(
+      (talk) => String(asRecord(talk)?.storyKey || "") === page.storyId,
+    ),
+  ) : undefined;
+  const background = spotArtwork(spot);
+  if (background) return background;
+  const characterIds = Array.isArray(episode.characterIds) ? episode.characterIds.map(Number) : [];
+  for (const id of characterIds) {
+    const character = payload.characters.find((candidate) => Number(candidate.characterId) === id);
+    const portrait = character?.faceImage || character?.thumbnailImage;
+    if (typeof portrait === "string" && portrait.trim()) return portrait;
+  }
+  return "";
+})();
 const pageDataId = `story-page-${page.storyId}`;
 const body = await renderStory(payload, locale);
 ---
@@ -51,6 +76,8 @@ const body = await renderStory(payload, locale);
   description={page.descriptions[locale]}
   seoTitleValues={seoTitleValues}
   seoDescriptionValues={page.descriptions}
+  searchImage={storyArtwork}
+  searchTitle={resolveLocalizedText(payload.episodes[page.storyId]?.title, locale).text || page.titles[locale]}
 >
   <AppShell
     locale={locale}

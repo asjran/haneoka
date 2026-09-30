@@ -3,6 +3,7 @@ import { navigationDocumentUrl } from "../lib/document-url";
 import { localizedContent, localizedList } from "./ui/localized-content";
 import { resolveLocalizedText } from "../lib/localized-text";
 import { storySourceUrl } from "../lib/story-assets";
+import { episodeArtwork, spotArtwork } from "../lib/story-artwork";
 import "../styles/bestdori-detail.css";
 import "./ui/image-gallery";
 import { BESTDORI_CATALOG_VERSION } from "@haneoka/bestdori/resources";
@@ -656,12 +657,7 @@ export class StoryWorkspace extends LitElement {
   }
   /** The game's own Image/Spot thumbnail first; the rendered preview backs it up. */
   private spotPreview(spot: JsonRecord | undefined | null) {
-    if (!spot) return "";
-    return (
-      String(spot.thumbnail || "") ||
-      String((spot.spine as JsonRecord | undefined)?.backgroundPreview || "") ||
-      String(spot.backgroundPreview || "")
-    );
+    return spotArtwork(spot);
   }
   private episodeSpot(episode: JsonRecord) {
     return this.spots.find((spot) =>
@@ -722,16 +718,7 @@ export class StoryWorkspace extends LitElement {
       return this.spotPreview(spot);
     }
     if (this.mode === "afterlive") return "";
-    return String(
-      item.episodeImage ||
-        item.banner ||
-        item.image ||
-        item.thumbnail ||
-        item.cardImage ||
-        (item.cardImages as JsonRecord | undefined)?.normal ||
-        this.chapterOf(item)?.banner ||
-        "",
-    );
+    return episodeArtwork(item, this.chapterOf(item));
   }
 
   /* ---------------------------------------------------------------- facets */

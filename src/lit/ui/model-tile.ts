@@ -1,17 +1,14 @@
 import { html } from "lit";
 import { resolveLocalizedText } from "../../lib/localized-text";
-import { localizedText, readPath } from "../shared/catalog";
+import { localizedText } from "../shared/catalog";
+import { modelPreviewSources } from "../../lib/model-artwork";
+export { modelPreviewSources } from "../../lib/model-artwork";
 import { mediaAspectRatio, tile } from "./tile";
 import { icon } from "./icon";
 import { nextImageCandidate } from "./lazy-images";
 import "../../styles/model-tile.css";
 
 type Model = Record<string, unknown>;
-export function modelPreviewSources(model: Model): string[] {
-  return [readPath(model, "preview.image"), readPath(model, "preview.runtime"), model.thumbnailImage, model.faceImage]
-    .filter((value): value is string => typeof value === "string" && Boolean(value))
-    .filter((value, index, all) => all.indexOf(value) === index);
-}
 export function modelTitle(model: Model, locale: string) {
   return resolveLocalizedText(model.title || model.live2dName || model.characterName || model.live2dKey || "", locale);
 }

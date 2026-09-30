@@ -17,9 +17,7 @@ const title = t(locale,"search","Search");
       </md-filled-text-field>
       <button class="icon-button" type="submit" aria-label={title}><Icon name="arrow_forward" /></button>
     </form>
-    <global-search locale={locale} class="page search-page">
-      <p class="search-page__intro">{t(locale,"searchPage.hint","Search songs, characters, story dialogue, guides and community posts.")}</p>
-    </global-search>
+    <global-search locale={locale} class="page search-page"></global-search>
   </AppShell>
 </Base>
 <script>
