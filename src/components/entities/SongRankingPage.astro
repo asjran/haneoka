@@ -1,0 +1,70 @@
+---
+import Base from "../../layouts/Base.astro";
+import AppShell from "../AppShell.astro";
+import { LOCALES, type Locale } from "../../i18n/locales";
+import { t } from "../../i18n/messages";
+import { rankingPath, resourcePath } from "../../lib/resource-route";
+import type { ReleaseServer } from "../../lib/release-server";
+import type { SearchableCatalogPage } from "../../lib/searchable-catalog";
+import "../../lit/song-ranking";
+import "../../styles/song-ranking.css";
+import { rankingCardCatalog } from "../../lib/ranking-card-catalog";
+import { serializePageData } from "../../lib/page-data";
+
+interface Props {
+  page: SearchableCatalogPage;
+  locale: Locale;
+  server: ReleaseServer;
+  returnTo?: string;
+}
+
+const { page, locale, server, returnTo } = Astro.props;
+const [intlCards, jpCards] = await Promise.all([rankingCardCatalog("intl"), rankingCardCatalog("jp")]);
+const cards = {intl:intlCards, jp:jpCards};
+const pageDataId = `ranking-cards-${page.id}`;
+const rankingTitles = Object.fromEntries(
+  LOCALES.map((target) => [target, t(target, "songRanking.title", "Song ranking")]),
+) as Record<Locale, string>;
+const title = page.titles[locale];
+const canonicalHref = rankingPath({ server, locale, id: page.id });
+const songHref = resourcePath({ server, locale, kind: "songs", id: page.id });
+const backHref = returnTo || songHref;
+const seoTitleValues = Object.fromEntries(
+  LOCALES.map((target) => [target, `${rankingTitles[target]} · ${page.titles[target]}`]),
+) as Record<Locale, string>;
+const seoDescriptionValues = Object.fromEntries(
+  LOCALES.map((target) => [target, `${rankingTitles[target]} · ${page.titles[target]}`]),
+) as Record<Locale, string>;
+---
+
+<Base
+  locale={locale}
+  route={page.route}
+  canonicalRoute={canonicalHref}
+  title={seoTitleValues[locale]}
+  description={seoDescriptionValues[locale]}
+  seoTitleValues={seoTitleValues}
+  seoDescriptionValues={seoDescriptionValues}
+  searchImage={page.image}
+  searchTitle={title}
+>
+  <AppShell
+    locale={locale}
+    route={page.route}
+    server={server}
+    title={seoTitleValues[locale]}
+    entity={{ title: seoTitleValues[locale], backHref }}
+  >
+    <song-ranking
+      data-page-data={pageDataId}
+      locale={locale}
+      server={server}
+      song-id={page.id}
+    ></song-ranking>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(cards)}></script>
+  </AppShell>
+</Base>
+
+<script>
+  import "../../lit/song-ranking";
+</script>

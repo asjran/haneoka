@@ -11,6 +11,7 @@ import {
   loadBestdoriSonolusCatalog,
   loadBestdoriSonolusChartText,
 } from "./bestdori";
+import { handleGameRecordsApi } from "./game-records";
 import { handleCommunityRequest } from "./community";
 import { handleCommunityActivityRequest } from "./community-activity";
 import { handleAnnouncementsRequest } from "./announcements";
@@ -2086,6 +2087,7 @@ async function handleCatalogApi(
 }
 
 const LATEST_CATALOG_RESERVED_SEGMENTS = new Set([
+  "game",
   "account",
   "admin",
   "announcements",
@@ -2847,6 +2849,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (gameClient) return gameClient;
   const sonolus = await handleSonolus(env, ctx, request, url.pathname);
   if (sonolus) return sonolus;
+  const gameRecords = await handleGameRecordsApi(ctx, request, url);
+  if (gameRecords) return gameRecords;
   const bestdori = await handleGarupaBestdoriApi(ctx, request, url, env.BESTDORI_UPSTREAM_BASE);
   if (bestdori) return bestdori;
   const garupaPlaylists = await handleGarupaPlaylistApi(env, ctx, request, url);

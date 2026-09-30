@@ -189,6 +189,7 @@ interface Graph {
   views: Record<string, Rows>;
   skillReference: RecordValue;
   songMeta: Map<string, RecordValue>;
+  gekisou: RecordValue;
   collections: Map<string, Array<[string, RecordValue]>>;
   stories: RecordValue;
   live2d: Array<[string, RecordValue]>;
@@ -217,6 +218,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     supportCards,
     stamps,
     songs,
+    gekisouCatalog,
     stories,
     live2d,
     friendships,
@@ -237,6 +239,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     required("support-cards"),
     required("stamps"),
     required("songs?projection=4"),
+    fetchOptionalStaticCatalog("gekisou", server, release),
     required("stories?projection=4"),
     required("live2d"),
     required("friendships"),
@@ -261,6 +264,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     },
     skillReference: asRecord(skillReference) || {},
     songMeta: new Map(entries(songMeta)),
+    gekisou: asRecord(gekisouCatalog.value) || {},
     collections: new Map([
       ["cards", entries(cards)],
       ["support-cards", entries(supportCards)],
@@ -272,6 +276,44 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     friendships: entries(friendships, "friendships"),
     missionCount: rows(missions.value, "missions").length,
   };
+}
+
+function songGekisouProjection(graph: Graph, item: RecordValue, meta?: RecordValue): RecordValue {
+  const itemGekisou = asRecord(item.gekisou) || {};
+  const metaGekisou = asRecord(meta?.gekisou) || {};
+  const patternSource = Array.isArray(metaGekisou.missionPattern)
+    ? metaGekisou.missionPattern
+    : Array.isArray(itemGekisou.missionPattern)
+      ? itemGekisou.missionPattern
+      : Array.isArray(itemGekisou.missionTypes)
+        ? itemGekisou.missionTypes
+        : [];
+  const missionPattern = patternSource.map(Number);
+  const metaTypes = Array.isArray(metaGekisou.missionTypes) ? metaGekisou.missionTypes : [];
+  const itemTypes = Array.isArray(itemGekisou.missionTypes) ? itemGekisou.missionTypes : [];
+  const missionTypes = metaTypes.length ? metaTypes : itemTypes.length ? itemTypes : patternSource;
+  const bonusRows = rows(graph.gekisou.rankingScoreBonuses);
+  const rankBonusTop = missionPattern.map((pattern) => {
+    const row = Number.isInteger(pattern)
+      ? bonusRows.find(
+          (candidate) =>
+            Number(field(candidate, "missionPattern", "_missionPattern")) === pattern &&
+            Number(field(candidate, "rank", "_rank")) === 1,
+        )
+      : undefined;
+    const bonus = row ? Number(field(row, "scoreBonusPercent", "_scoreBonusPercent")) : Number.NaN;
+    return Number.isFinite(bonus) ? bonus : undefined;
+  });
+  const projection: RecordValue = { ...metaGekisou };
+  if (missionPattern.length && !Array.isArray(projection.missionPattern)) projection.missionPattern = missionPattern;
+  if (missionTypes.length) projection.missionTypes = missionTypes;
+  if (
+    rankBonusTop.length &&
+    rankBonusTop.every((value) => value !== undefined) &&
+    !Array.isArray(projection.rankBonusTop)
+  )
+    projection.rankBonusTop = rankBonusTop;
+  return projection;
 }
 
 export function entityGraph(server: ReleaseServer): Promise<Graph> {
@@ -580,7 +622,16 @@ export async function buildEntityPayloads(
       };
     } else if (resource === "songs") {
       const meta = graph.songMeta.get(id);
-      songMeta = meta ? { [id]: meta } : {};
+      const gekisou = songGekisouProjection(graph, item, meta);
+      if (Object.keys(gekisou).length) item.gekisou = { ...(asRecord(item.gekisou) || {}), ...gekisou };
+      const projectedMeta = meta
+        ? Object.keys(gekisou).length
+          ? { ...meta, gekisou }
+          : meta
+        : Object.keys(gekisou).length
+          ? { gekisou }
+          : undefined;
+      songMeta = projectedMeta ? { [id]: projectedMeta } : {};
     } else if (resource === "characters") {
       const related = characterAux(graph, item);
       aux = related.aux;

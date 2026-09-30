@@ -5,6 +5,22 @@ import { renderDetailSectionHeading } from "./shared/detail-section-heading";
 
 type Item = Record<string, unknown>;
 
+const GEKISOU_MISSION_NAMES: Record<number, string> = {
+  0: "None",
+  1: "Combo",
+  2: "Luck",
+  3: "JustCount",
+  4: "All",
+};
+
+const gekisouMission = (value: unknown): { key: string; fallback: string } | undefined => {
+  const numeric = typeof value === "number" || (typeof value === "string" && value.trim()) ? Number(value) : Number.NaN;
+  const name = Number.isInteger(numeric) ? GEKISOU_MISSION_NAMES[numeric] : String(value || "").trim();
+  return name && Object.values(GEKISOU_MISSION_NAMES).includes(name)
+    ? { key: `gekisouMission${name}`, fallback: name }
+    : undefined;
+};
+
 export interface SongRewardRenderOptions {
   item: Item;
   chart: Item;
@@ -29,8 +45,18 @@ export interface SongSummaryRenderOptions {
 }
 
 export function renderSongSummary(options: SongSummaryRenderOptions) {
-  const { item, meta, difficulty, selectedDifficulty, locale, gekisou, label, detailLabel, fieldValue, selectDifficulty } =
-    options;
+  const {
+    item,
+    meta,
+    difficulty,
+    selectedDifficulty,
+    locale,
+    gekisou,
+    label,
+    detailLabel,
+    fieldValue,
+    selectDifficulty,
+  } = options;
   const percentage = (value: unknown) =>
     value !== null && value !== undefined && Number.isFinite(Number(value))
       ? `${(Number(value) * 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}%`
@@ -54,7 +80,9 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     ["metaScore", "Relative Score Factor", percentage(meta.score)],
     ["metaEff", "Score Efficiency per Minute", percentage(meta.eff)],
     ...(Number.isFinite(currentEff)
-      ? ([["metaEffCurrent", "Current-deck Efficiency per Minute", percentage(currentEff)]] as Array<[string, string, string]>)
+      ? ([["metaEffCurrent", "Current-deck Efficiency per Minute", percentage(currentEff)]] as Array<
+          [string, string, string]
+        >)
       : []),
     ["metaBpm", "Beats per Minute", bpm],
     ["metaN", "Note Count", decimal(meta.n)],
@@ -74,23 +102,49 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
       return value ? [{ key, value }] : [];
     },
   );
-  // Each song's three gekisou (撃奏) segments: mission type, per-segment
-  // justable note rate and the rank-1 score bonus of the mission pattern.
-  const missionTypes = Array.isArray(gekisou.missionTypes) ? (gekisou.missionTypes as string[]) : [];
+  // Each song's source-defined gekisou (撃奏) segments: mission type,
+  // per-segment justable note rate, and the rank-1 score bonus of the mission
+  // pattern. Older entity payloads carry the mission enum on the song item;
+  // use it until the enriched song-meta projection is available.
+  const itemGekisou = (item.gekisou as Item | undefined) || {};
+  const missionPattern = Array.isArray(gekisou.missionPattern)
+    ? gekisou.missionPattern
+    : Array.isArray(itemGekisou.missionPattern)
+      ? itemGekisou.missionPattern
+      : [];
+  const missionTypes = Array.isArray(gekisou.missionTypes)
+    ? gekisou.missionTypes
+    : Array.isArray(itemGekisou.missionTypes)
+      ? itemGekisou.missionTypes
+      : missionPattern;
   const rankBonusTop = Array.isArray(gekisou.rankBonusTop) ? (gekisou.rankBonusTop as number[]) : [];
   const segments = Array.isArray(gekisou.segments) ? (gekisou.segments as Item[]) : [];
-  const gekisouCells = missionTypes.map((type, index) => {
+  const stageCount = Math.max(missionTypes.length, missionPattern.length, segments.length);
+  const stageTypes = Array.from({ length: stageCount }, (_, index) => missionTypes[index] ?? missionPattern[index]);
+  const gekisouCells = stageTypes.flatMap((type, index) => {
     const segment = segments[index] || {};
     const rate = Number(segment.justableRate ?? 0);
     const bonus = Number(rankBonusTop[index] ?? 0);
+    const mission = gekisouMission(type);
+    if (!mission) return [];
     const detail = [
       rate ? `${label("gekisouJustable", "Justable")} ${percentage(rate)}` : "",
       bonus ? `+${decimal(bonus, 0)}%` : "",
-    ].filter(Boolean).join(" · ");
+    ]
+      .filter(Boolean)
+      .join(" · ");
     return html`
       <div>
         <dt>${label("gekisouSegment", "Gekisou segment")} ${index + 1}</dt>
-        <dd>${label(`gekisouMission${type}`, type)}${detail ? html` <small>${detail}</small>` : nothing}</dd>
+        <dd>
+          ${label(mission.key, mission.fallback)}${
+            detail
+              ? html`
+                  <small>${detail}</small>
+                `
+              : nothing
+          }
+        </dd>
       </div>
     `;
   });
@@ -108,11 +162,6 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
           `,
         )}
       </dl>
-      ${gekisouCells.length
-        ? html`<dl class="song-data-grid song-detail-facts">
-            ${gekisouCells}
-          </dl>`
-        : nothing}
       <dl class="song-data-grid song-detail-facts">
         ${facts.map(
           ({ key, value }) => html`
@@ -124,6 +173,16 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
         )}
       </dl>
     </section>
+    ${
+      gekisouCells.length
+        ? html`
+            <section class="detail-section song-detail-section song-gekisou-section">
+              ${renderDetailSectionHeading(label("gekisouStages", "Gekisou stages"), "effects")}
+              <dl class="song-data-grid song-detail-facts">${gekisouCells}</dl>
+            </section>
+          `
+        : nothing
+    }
   `;
 }
 

@@ -59,7 +59,7 @@ export interface ResourceRoute {
   kind: ResourceKind;
   id?: string;
   /** A child view rendered below an entity's canonical resource page. */
-  view?: "chart";
+  view?: "chart" | "ranking";
 }
 
 export interface EntityLink {
@@ -121,6 +121,11 @@ export function chartPath({ server, locale, id }: { server: ReleaseServer; local
   return `${resourcePath({ server, locale, kind: "songs", id })}chart/`;
 }
 
+/** Public song-ranking address for a canonical song entity. */
+export function rankingPath({ server, locale, id }: { server: ReleaseServer; locale: Locale; id: string }): string {
+  return `${resourcePath({ server, locale, kind: "songs", id })}ranking/`;
+}
+
 /** Public collection address for one first-party story section. */
 export function storyCollectionPath({
   server,
@@ -144,11 +149,13 @@ export function parseResourceRoute(pathname: string): ResourceRoute | undefined 
   if (parts.length !== 3 && parts.length !== 4 && parts.length !== 5) return undefined;
   const [server, locale, kind, encodedId, child] = parts;
   if (!isReleaseServer(server) || !isLocale(locale) || !isResourceKind(kind)) return undefined;
-  if (parts.length === 5 && !(kind === "songs" && child === "chart")) return undefined;
+  if (parts.length === 5 && !(kind === "songs" && (child === "chart" || child === "ranking"))) return undefined;
   if (encodedId === undefined) return { server, locale, kind };
   try {
     const id = decodeURIComponent(encodedId);
-    return isResourceId(id) ? { server, locale, kind, id, ...(child ? { view: "chart" as const } : {}) } : undefined;
+    return isResourceId(id)
+      ? { server, locale, kind, id, ...(child ? { view: child as "chart" | "ranking" } : {}) }
+      : undefined;
   } catch {
     return undefined;
   }

@@ -62,6 +62,18 @@ export function catalogUrl(resource: string, id = "", server = currentReleaseSer
   return `/api/v1/servers/${encodeURIComponent(server)}/${path}${id ? `/${encodeURIComponent(id)}` : ""}${!id && ["stories", "songs"].includes(resource) ? "?projection=4" : ""}`;
 }
 
+export class JsonResponseError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+
+  constructor(status: number, body: unknown, message = `HTTP ${status}`) {
+    super(message);
+    this.name = "JsonResponseError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!headers.has("accept")) headers.set("accept", "application/json");
@@ -101,13 +113,17 @@ export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> 
     try {
       value = text || response.status !== 204 ? JSON.parse(text) : null;
     } catch (error) {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new JsonResponseError(response.status, null);
       throw error;
     }
     if (!response.ok) {
       const data = value && typeof value === "object" ? (value as JsonRecord) : {};
       const error = data.error && typeof data.error === "object" ? (data.error as JsonRecord) : {};
-      throw new Error(String(error.message || data.message || `HTTP ${response.status}`));
+      throw new JsonResponseError(
+        response.status,
+        value,
+        String(error.message || data.message || `HTTP ${response.status}`),
+      );
     }
     return value as T;
   } catch (error) {

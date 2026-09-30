@@ -1,0 +1,404 @@
+const GAME_RECORDS_API_PREFIX = "/api/v1/game/records";
+const RANKING_ORIGIN = "https://api.bdon.moe";
+const PROFILE_ORIGIN = "https://bdon.moe";
+const REGIONS = ["jp", "tw", "en", "kr"] as const;
+const MAX_UPSTREAM_BODY_BYTES = 512 * 1024;
+const UPSTREAM_TIMEOUT_MS = 4_000;
+const CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=300";
+
+import type {
+  GameRecordsRegion,
+  GameProfileCardDto,
+  SongRankingCardDto,
+  SongRankingRowDto,
+  SongRankingDto,
+  PlayerProfileDto,
+} from "../src/lib/game-records";
+
+type JsonObject = Record<string, unknown>;
+type CacheableJson = { body: string };
+type FailureKind = "invalid_request" | "not_found" | "pending" | "timeout" | "upstream";
+
+const CORS: Readonly<Record<string, string>> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+class RequestFailure extends Error {
+  readonly status: number;
+  readonly kind: FailureKind;
+  readonly retryAfter: number | null;
+
+  constructor(status: number, kind: FailureKind, retryAfterValue: number | null = null) {
+    super(kind);
+    this.status = status;
+    this.kind = kind;
+    this.retryAfter = retryAfterValue;
+  }
+}
+
+const asObject = (value: unknown): JsonObject =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : {};
+
+const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+const finiteNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+const safeInteger = (value: unknown): number | null => {
+  if (typeof value === "number") return Number.isSafeInteger(value) ? value : null;
+  if (typeof value !== "string" || !/^[0-9]+$/u.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+};
+
+const textOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+const httpUrlOrNull = (value: unknown): string | null => {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? value : null;
+  } catch (error) {
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) throw error;
+    return null;
+  }
+};
+
+const epochMillis = (value: unknown, seconds = false): number | null => {
+  const number =
+    finiteNumber(value) ??
+    (typeof value === "string" && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null);
+  if (number === null || number < 0) return null;
+  const millis = seconds ? number * 1_000 : number;
+  return Number.isSafeInteger(millis) ? millis : null;
+};
+
+const headerEpochMillis = (headers: Headers, name: string): number | null =>
+  epochMillis(headers.get(name) || undefined);
+
+const retryAfter = (headers: Headers): number | null => {
+  const value = headers.get("Retry-After");
+  if (!value || !/^[0-9]+$/u.test(value.trim())) return null;
+  const seconds = Number(value.trim());
+  return Number.isSafeInteger(seconds) && seconds <= 3_600 ? seconds : null;
+};
+
+const knownFailureKind = (value: unknown): FailureKind | null =>
+  value === "pending" || value === "not_found" || value === "upstream" ? value : null;
+
+const readErrorKind = (value: unknown): FailureKind | null => {
+  if (typeof value === "string") return knownFailureKind(value);
+  const root = asObject(value);
+  const error = root.error;
+  if (typeof error === "string") return knownFailureKind(error);
+  return knownFailureKind(asObject(error).kind);
+};
+
+const readBoundedText = async (response: Response): Promise<string> => {
+  const contentLength = response.headers.get("Content-Length");
+  if (contentLength && /^[0-9]+$/u.test(contentLength) && Number(contentLength) > MAX_UPSTREAM_BODY_BYTES) {
+    throw new RequestFailure(502, "upstream");
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      length += value.byteLength;
+      if (length > MAX_UPSTREAM_BODY_BYTES) {
+        await reader.cancel();
+        throw new RequestFailure(502, "upstream");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+};
+
+const readJson = async (response: Response): Promise<unknown> => {
+  const text = await readBoundedText(response);
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new RequestFailure(502, "upstream");
+  }
+};
+
+const upstreamJson = async (target: string): Promise<{ value: unknown; response: Response }> => {
+  const deadline = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+  try {
+    const response = await fetch(target, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: deadline,
+    });
+    if (!response.ok) {
+      let kind: FailureKind =
+        response.status === 401 || response.status === 403 || response.status === 404 ? "not_found" : "upstream";
+      try {
+        const upstreamKind = readErrorKind(await readJson(response));
+        if (upstreamKind) kind = upstreamKind;
+      } catch (error) {
+        if (deadline.aborted) throw deadline.reason;
+        if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) throw error;
+        // The status mapping is the safe fallback for an unusable error body.
+      }
+      throw new RequestFailure(
+        response.status === 404 ? 404 : response.status >= 500 ? 502 : response.status,
+        kind,
+        retryAfter(response.headers),
+      );
+    }
+    return { value: await readJson(response), response };
+  } catch (error) {
+    if (deadline.aborted) throw new RequestFailure(504, "timeout");
+    if (error instanceof RequestFailure) throw error;
+    const name = error instanceof Error ? error.name : "";
+    if (name === "AbortError" || name === "TimeoutError") throw new RequestFailure(504, "timeout");
+    throw new RequestFailure(502, "upstream");
+  }
+};
+
+const normalizeProfileCard = (value: unknown): GameProfileCardDto | null => {
+  const card = asObject(value);
+  if (!Object.keys(card).length) return null;
+  return {
+    name: textOrNull(card.name),
+    slot: safeInteger(card.slot),
+    thumbnailUrls: asArray(card.thumbnailUrl).flatMap((value) => {
+      const url = httpUrlOrNull(value);
+      return url ? [url] : [];
+    }),
+  };
+};
+
+const normalizeCard = (value: unknown, index: number): SongRankingCardDto => {
+  const entry = asObject(value);
+  const member = asObject(entry.memberCard);
+  const support = asObject(entry.supportCard);
+  return {
+    slot: safeInteger(entry.slotIndex) ?? index,
+    memberCardId: safeInteger(member.cardId),
+    memberExp: finiteNumber(member.exp),
+    memberAwakeCount: safeInteger(member.awakeCount),
+    memberRank: safeInteger(member.cardRank),
+    supportCardId: safeInteger(support.cardId),
+    supportExp: finiteNumber(support.exp),
+    supportRank: safeInteger(support.rank),
+  };
+};
+
+type RankedRow = SongRankingRowDto & { sourceIndex: number };
+
+const normalizeRankingRow = (value: unknown, sourceIndex: number): RankedRow => {
+  const entry = asObject(value);
+  const player = asObject(entry.playerData);
+  const deck = asObject(entry.highScoreDeck);
+  const cards = asArray(deck.cards)
+    .slice(0, 5)
+    .map((card, index) => normalizeCard(card, index))
+    .sort((a, b) => a.slot - b.slot);
+  return {
+    sourceIndex,
+    rank: 0,
+    tied: false,
+    playerId: textOrNull(player.id),
+    profileId: textOrNull(player.profileId),
+    name: typeof player.name === "string" ? player.name : "",
+    rankExp: finiteNumber(player.rankExp),
+    favoriteMemberCardId: safeInteger(asObject(player.favoriteMemberCard).cardId),
+    score: finiteNumber(entry.score),
+    deckId: safeInteger(deck.id),
+    deckName: textOrNull(deck.name),
+    totalPower: finiteNumber(deck.totalPower),
+    profileCard: normalizeProfileCard(player.profileCard),
+    cards,
+  };
+};
+
+const normalizeRanking = (
+  value: unknown,
+  region: GameRecordsRegion,
+  musicId: number,
+  response: Response,
+): SongRankingDto => {
+  const root = asObject(value);
+  if (!Array.isArray(root.players)) throw new RequestFailure(502, "upstream");
+  const rows = root.players
+    .map((player, index) => normalizeRankingRow(player, index))
+    .sort((left, right) => {
+      if (left.score === null && right.score === null) return left.sourceIndex - right.sourceIndex;
+      if (left.score === null) return 1;
+      if (right.score === null) return -1;
+      return right.score - left.score || left.sourceIndex - right.sourceIndex;
+    });
+  let previousScore: number | null = null;
+  let previousRank = 0;
+  rows.forEach((row, index) => {
+    const tied = row.score !== null && row.score === previousScore;
+    row.rank = tied ? previousRank : index + 1;
+    row.tied = tied || (row.score !== null && rows[index + 1]?.score === row.score);
+    previousScore = row.score;
+    previousRank = row.rank;
+  });
+  return {
+    region,
+    musicId,
+    fetchedAtMs: headerEpochMillis(response.headers, "X-Fetched-At"),
+    serverTimeMs: headerEpochMillis(response.headers, "X-Server-Time"),
+    stale: response.headers.get("X-Stale") === "1" || response.headers.get("X-Refreshing") === "1",
+    rows: rows.map(({ sourceIndex: _sourceIndex, ...row }) => row),
+  };
+};
+
+const normalizeProfile = (
+  value: unknown,
+  region: GameRecordsRegion,
+  profileId: string,
+  response: Response,
+): PlayerProfileDto => {
+  const root = asObject(value);
+  if (!Object.keys(root).length || (!root.profile && !root.brief)) throw new RequestFailure(502, "upstream");
+  const profile = asObject(root.profile);
+  const brief = asObject(root.brief);
+  const favorites = asObject(root.favorites);
+  const favoriteMemberCard = asObject(profile.favoriteMemberCard);
+  const favorite = Object.keys(favoriteMemberCard).length
+    ? {
+        cardId: safeInteger(favoriteMemberCard.cardId),
+        awakeCount: safeInteger(favoriteMemberCard.awakeCount),
+        cardRank: safeInteger(favoriteMemberCard.cardRank),
+        liveSkillLevel: safeInteger(favoriteMemberCard.liveSkillLevel),
+        performanceSkillLevel: safeInteger(favoriteMemberCard.performanceSkillLevel),
+      }
+    : null;
+  return {
+    region,
+    profileId,
+    fetchedAtMs: headerEpochMillis(response.headers, "X-Fetched-At") ?? epochMillis(root.fetchedAt),
+    serverTimeMs: headerEpochMillis(response.headers, "X-Server-Time"),
+    stale: response.headers.get("X-Stale") === "1" || response.headers.get("X-Refreshing") === "1",
+    profile: {
+      name: textOrNull(profile.name),
+      level: finiteNumber(brief.level),
+      rankExp: finiteNumber(profile.rankExp),
+      totalFavorite: finiteNumber(favorites.totalFavorite),
+      favoriteMemberCard: favorite,
+      profileCard: normalizeProfileCard(profile.profileCard),
+      lastUpdatedAtMs: epochMillis(profile.lastUpdatedAt, true),
+    },
+  };
+};
+
+const errorResponse = (
+  request: Request,
+  status: number,
+  kind: string,
+  retryAfterValue: number | null = null,
+): Response =>
+  new Response(request.method === "HEAD" ? null : JSON.stringify({ error: { kind, retryAfter: retryAfterValue } }), {
+    status,
+    headers: {
+      ...CORS,
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+
+const jsonResponse = (request: Request, body: string): Response =>
+  new Response(request.method === "HEAD" ? null : body, {
+    status: 200,
+    headers: { ...CORS, "Cache-Control": CACHE_CONTROL, "Content-Type": "application/json; charset=utf-8" },
+  });
+
+const cacheRequest = (request: Request): Request => {
+  const url = new URL(request.url);
+  url.search = "";
+  url.hash = "";
+  return new Request(url, { method: "GET" });
+};
+
+const serveCached = async (
+  request: Request,
+  ctx: ExecutionContext,
+  producer: () => Promise<CacheableJson>,
+): Promise<Response> => {
+  const key = cacheRequest(request);
+  if (typeof caches !== "undefined") {
+    const hit = await caches.default.match(key);
+    if (hit) {
+      if (request.method === "HEAD") return new Response(null, { status: hit.status, headers: hit.headers });
+      return hit;
+    }
+  }
+  let result: CacheableJson;
+  try {
+    result = await producer();
+  } catch (error) {
+    if (error instanceof RequestFailure) return errorResponse(request, error.status, error.kind, error.retryAfter);
+    return errorResponse(request, 502, "upstream");
+  }
+  const response = jsonResponse(request, result.body);
+  if (request.method === "GET" && typeof caches !== "undefined") {
+    ctx.waitUntil(caches.default.put(key, response.clone()).catch(() => undefined));
+  }
+  return response;
+};
+
+const rankingProfileIdPattern = (region: GameRecordsRegion): RegExp =>
+  region === "jp"
+    ? /^[0-9]{1,19}$/u
+    : new RegExp(`^[${region === "tw" ? "2" : region === "en" ? "3" : "4"}][0-9]{10}$`, "u");
+
+const isRegion = (value: string): value is GameRecordsRegion => REGIONS.includes(value as GameRecordsRegion);
+
+const rankingUrl = (region: GameRecordsRegion, musicId: string): string =>
+  `${RANKING_ORIGIN}/api/v1/${region}/music/${musicId}/ranking`;
+
+const profileUrl = (region: GameRecordsRegion, profileId: string): string =>
+  `${PROFILE_ORIGIN}/api/players/${region}/${profileId}`;
+
+export async function handleGameRecordsApi(
+  ctx: ExecutionContext,
+  request: Request,
+  url: URL,
+): Promise<Response | null> {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const ranking = new RegExp(`^${GAME_RECORDS_API_PREFIX}/([^/]+)/songs/([^/]+)/ranking$`).exec(url.pathname);
+  const profile = new RegExp(`^${GAME_RECORDS_API_PREFIX}/([^/]+)/players/([^/]+)$`).exec(url.pathname);
+  if (!ranking && !profile) return null;
+  const rawRegion = ranking?.[1] ?? profile?.[1];
+  if (!rawRegion || !isRegion(rawRegion)) return errorResponse(request, 404, "not_found");
+  const region = rawRegion;
+  if (ranking) {
+    const musicIdText = ranking[2]!;
+    const musicId = safeInteger(musicIdText);
+    if (!/^[0-9]{1,19}$/u.test(musicIdText) || musicId === null || musicId < 1)
+      return errorResponse(request, 400, "invalid_request");
+    return serveCached(request, ctx, async () => {
+      const upstream = await upstreamJson(rankingUrl(region, musicIdText));
+      return { body: JSON.stringify(normalizeRanking(upstream.value, region, musicId, upstream.response)) };
+    });
+  }
+  if (!profile) return null;
+  const profileId = profile[2]!;
+  if (!rankingProfileIdPattern(region).test(profileId)) return errorResponse(request, 400, "invalid_request");
+  return serveCached(request, ctx, async () => {
+    const upstream = await upstreamJson(profileUrl(region, profileId));
+    return { body: JSON.stringify(normalizeProfile(upstream.value, region, profileId, upstream.response)) };
+  });
+}

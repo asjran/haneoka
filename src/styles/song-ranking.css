@@ -1,0 +1,404 @@
+@layer pages {
+  song-ranking {
+    display: block;
+    min-width: 0;
+  }
+  .song-ranking-page {
+    min-width: 0;
+    container-type: inline-size;
+  }
+  .song-ranking__content,
+  .song-ranking__profile {
+    width: 100%;
+    max-width: 1200px;
+    margin-inline: auto;
+    padding-block: 8px 24px;
+  }
+  .song-ranking__progress {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 4px;
+    overflow: hidden;
+  }
+  .song-ranking__progress md-linear-progress {
+    display: block;
+    width: 100%;
+    height: 4px;
+    --md-linear-progress-track-height: 4px;
+  }
+  .song-ranking__fetched {
+    margin: 0;
+    padding: 8px 16px;
+    color: var(--md-sys-color-on-surface-variant);
+    font: var(--md-sys-typescale-body-small-weight)
+      var(--md-sys-typescale-body-small-size)/var(--md-sys-typescale-body-small-line-height) var(--app-font);
+  }
+  .song-ranking__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .song-ranking__entry + .song-ranking__entry {
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .song-ranking__row {
+    display: grid;
+    grid-template-columns: 28px 96px 40px minmax(80px, 1fr) minmax(80px, auto) minmax(220px, 280px);
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    min-width: 0;
+  }
+  .song-ranking__rank {
+    font: var(--md-sys-typescale-title-medium-weight)
+      var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--app-font);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .song-ranking__namecard {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 1224/688;
+    border-radius: var(--md-sys-shape-corner-small);
+    overflow: hidden;
+    background: var(--md-sys-color-surface-container-highest);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .song-ranking__avatar {
+    display: block;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--md-sys-shape-corner-full);
+    overflow: hidden;
+  }
+  .song-ranking__player-media,
+  .song-ranking__profile-card {
+    display: grid;
+    position: relative;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  .song-ranking__player-media img,
+  .song-ranking__profile-card img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .song-ranking__player-media md-circular-progress,
+  .song-ranking__profile-card md-circular-progress {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+  }
+  .song-ranking__player-media:is(.is-loaded, .is-error) md-circular-progress,
+  .song-ranking__profile-card:is(.is-loaded, .is-error) md-circular-progress {
+    display: none;
+  }
+  .song-ranking__player-media.is-error img,
+  .song-ranking__profile-card.is-error img {
+    visibility: hidden;
+  }
+  .song-ranking__initial {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+    font: var(--md-sys-typescale-label-large-weight)
+      var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--app-font);
+  }
+  .song-ranking__player-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    text-align: start;
+    color: var(--md-sys-color-on-surface);
+    padding: 8px 0;
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  button.song-ranking__player-copy {
+    cursor: pointer;
+    min-height: 48px;
+  }
+  .song-ranking__player-copy strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: var(--md-sys-typescale-body-large-weight)
+      var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height) var(--app-font);
+  }
+  .song-ranking__player-copy small,
+  .song-ranking__score small {
+    color: var(--md-sys-color-on-surface-variant);
+    font: var(--md-sys-typescale-body-small-weight)
+      var(--md-sys-typescale-body-small-size)/var(--md-sys-typescale-body-small-line-height) var(--app-font);
+  }
+  .song-ranking__score {
+    display: grid;
+    gap: 2px;
+    text-align: end;
+    min-width: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .song-ranking__score strong {
+    font: var(--md-sys-typescale-title-medium-weight)
+      var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--app-font);
+  }
+  .song-ranking__deck-preview,
+  .song-ranking__deck-cards {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+    min-width: 0;
+  }
+  .song-ranking__card {
+    display: block;
+    min-width: 0;
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  .song-ranking__card-media {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: var(--md-sys-shape-corner-small);
+    overflow: hidden;
+    background: var(--md-sys-color-surface-container-highest);
+  }
+  .song-ranking__card-media > .song-ranking__player-media {
+    position: absolute;
+    inset: 0;
+  }
+  .song-ranking__card-media .song-ranking__player-media img {
+    object-fit: cover;
+    object-position: 50% 25%;
+  }
+  .song-ranking__card-media--support {
+    aspect-ratio: 16/9;
+  }
+  .song-ranking__card-media--support .song-ranking__player-media img {
+    object-fit: contain;
+  }
+  .song-ranking__card-attribute {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+  .song-ranking__card-rarity {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 22px;
+    height: 14px;
+    object-fit: contain;
+  }
+  .song-ranking__card-level {
+    position: absolute;
+    bottom: 2px;
+    right: 3px;
+    max-width: 100%;
+    color: #fff;
+    text-shadow:
+      0 1px 2px #000,
+      0 0 2px #000;
+    paint-order: stroke fill;
+    -webkit-text-stroke: 0.35px #000;
+    font: 600 11px/14px var(--app-font);
+    font-variant-numeric: tabular-nums;
+  }
+  .song-ranking__regions.settings-options {
+    gap: 4px;
+    padding: 0;
+  }
+  .song-ranking__regions .settings-option {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+  }
+  .song-ranking__regions .settings-option__tooltip {
+    top: calc(100% + 8px);
+    bottom: auto;
+  }
+  .song-ranking__notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 8px 16px;
+    padding: 8px 12px;
+    border-radius: var(--md-sys-shape-corner-medium);
+    color: var(--md-sys-color-on-secondary-container);
+    background: var(--md-sys-color-secondary-container);
+    font: var(--md-sys-typescale-body-medium-weight)
+      var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--app-font);
+  }
+  .song-ranking__notice--error {
+    color: var(--md-sys-color-on-error-container);
+    background: var(--md-sys-color-error-container);
+  }
+  .song-ranking__more {
+    display: flex;
+    margin: 16px auto 0;
+  }
+  .song-ranking__profile {
+    padding: 24px;
+  }
+  .song-ranking__profile-head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .song-ranking__profile-head .song-ranking__initial {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+  }
+  .song-ranking__profile-head h2 {
+    margin: 0;
+    font: var(--md-sys-typescale-headline-small-weight)
+      var(--md-sys-typescale-headline-small-size)/var(--md-sys-typescale-headline-small-line-height) var(--app-font);
+  }
+  .song-ranking__profile-head p {
+    margin: 4px 0 0;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .song-ranking__card:focus-visible,
+  .song-ranking__namecard:focus-visible {
+    outline: 3px solid var(--md-sys-color-primary);
+    outline-offset: 3px;
+  }
+  @container (max-width:760px) {
+    .song-ranking__row {
+      grid-template-columns: 24px 68px 32px minmax(0, 1fr) 80px;
+      gap: 8px;
+      padding: 10px 12px;
+    }
+    .song-ranking__avatar {
+      width: 32px;
+      height: 32px;
+    }
+    .song-ranking__deck-preview {
+      grid-column: 2 / -1;
+      grid-row: 2;
+      max-width: 400px;
+      justify-self: end;
+      width: 100%;
+    }
+    .song-ranking__score strong {
+      font-size: 14px;
+      line-height: 20px;
+    }
+    .song-ranking__player-copy strong {
+      font-size: 14px;
+      line-height: 20px;
+    }
+    .song-ranking__card-level {
+      font-size: 11px;
+      line-height: 16px;
+    }
+  }
+}
+@layer pages {
+  @container (max-width:360px) {
+    .song-ranking__row {
+      grid-template-columns: 16px 48px 28px minmax(0, 1fr) 70px;
+      gap: 4px;
+      padding-inline: 8px;
+    }
+    .song-ranking__avatar {
+      width: 28px;
+      height: 28px;
+    }
+    .song-ranking__deck-preview {
+      grid-column: 1 / -1;
+    }
+  }
+}
+
+@layer pages {
+  .song-ranking__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 48px;
+    padding-inline: 16px;
+  }
+  .song-ranking__meta .song-ranking__fetched {
+    padding: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .song-ranking__brand {
+    display: grid;
+    align-items: center;
+    width: 104px;
+    min-height: 48px;
+    flex: 0 0 104px;
+    margin-inline-start: auto;
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  .song-ranking__brand img {
+    width: 104px;
+    height: 40px;
+    object-fit: contain;
+  }
+  .song-ranking__brand-dark {
+    display: none;
+  }
+  :root[data-theme="dark"] .song-ranking__brand-light {
+    display: none;
+  }
+  :root[data-theme="dark"] .song-ranking__brand-dark {
+    display: block;
+  }
+  .song-ranking__brand:focus-visible {
+    outline: 3px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+  }
+  @media (max-width: 599px) {
+    .song-ranking__brand {
+      width: 104px;
+      flex-basis: 104px;
+    }
+    .song-ranking__brand img {
+      width: 104px;
+      height: 40px;
+    }
+  }
+}
+
+@layer pages {
+  .song-ranking__deck-slot {
+    display: grid;
+    gap: 4px;
+    align-content: start;
+    min-width: 0;
+  }
+  .song-ranking__player-stats {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+  }
+  .song-ranking__player-stats > span {
+    white-space: nowrap;
+  }
+  .song-ranking__card-empty {
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: transparent;
+  }
+}

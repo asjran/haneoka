@@ -211,7 +211,11 @@ export class CatalogTable extends LitElement {
     if (!c) return nothing;
     const columns =
       COLUMNS[
-        c.profile.perDifficulty ? (this.meta?.mode === "gekisou" ? "song-meta-gekisou" : "song-meta") : c.profile.presentation
+        c.profile.perDifficulty
+          ? this.meta?.mode === "gekisou"
+            ? "song-meta-gekisou"
+            : "song-meta"
+          : c.profile.presentation
       ] || COLUMNS.item;
     const label = (key: string) => c.detailLabel(key);
     return html`
@@ -291,7 +295,12 @@ export class CatalogTable extends LitElement {
       // so the table is operable without relying on the row click.
       return html`
         <th scope="row" class=${classes || nothing} style=${CELL_MAX.title ? `--cell-max:${CELL_MAX.title}` : nothing}>
-          <button class="table-entity state-layer" type="button" data-open-item=${c.itemId(item)} @click=${() => c.open(item)}>
+          <button
+            class="table-entity state-layer"
+            type="button"
+            data-open-item=${c.itemId(item)}
+            @click=${() => c.open(item)}
+          >
             ${
               image
                 ? html`
@@ -453,7 +462,7 @@ export class CatalogTable extends LitElement {
                 aria-label=${c.label("chart", "Chart")}
                 title=${c.label("chart", "Chart")}
               >
-                ${icon("bar_chart", 20)}
+                ${icon("sports_esports", 20)}
               </button>
             `
           : nothing,
@@ -472,7 +481,10 @@ export class CatalogTable extends LitElement {
             class="difficulty-picker difficulty-picker--static"
             style=${`--chart-color:var(--md-extended-color-difficulty-${name === "special" ? "master" : name})`}
           >
-            <span><small>${name.toUpperCase()}</small><b>${level}</b></span>
+            <span>
+              <small>${name.toUpperCase()}</small>
+              <b>${level}</b>
+            </span>
           </span>
         `);
       }

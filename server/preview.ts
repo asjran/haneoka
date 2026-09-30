@@ -88,6 +88,7 @@ const catalogRouteKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:~-]{0,255}$/u;
 const releaseIdPattern = /^r-[a-f0-9]{20}$/u;
 const releaseSourceIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const latestCatalogReservedSegments = new Set([
+  "game",
   "account",
   "admin",
   "auth",
@@ -280,6 +281,7 @@ function isApplicationWorkerRequest(pathname: string): boolean {
     "/api/v1/community",
     "/api/v1/garupa",
     "/api/v1/home",
+    "/api/v1/game/records",
     "/api/v1/releases",
   ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
