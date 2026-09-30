@@ -1,0 +1,73 @@
+import { LitElement, html } from "lit";
+import { isLocale, localeFromPath, type Locale } from "../i18n/locales";
+import { fetchAnnouncements, sortAnnouncements, type Announcement } from "../lib/announcements";
+import { readReleaseServer } from "../lib/release-server";
+import { navigationDocumentUrl } from "../lib/document-url";
+import { RequestScope } from "../lib/request-scope";
+import { announcementRow, announcementState, type AnnouncementPhase } from "./shared/announcement";
+
+/** Also used in home: this request has its own state and cancellation. */
+export class AnnouncementFeed extends LitElement {
+  static properties = {
+    locale: { type: String },
+    limit: { type: Number },
+    phase: { state: true },
+    entries: { state: true },
+  };
+  declare locale: Locale;
+  declare limit: number;
+  declare phase: AnnouncementPhase;
+  declare entries: Announcement[];
+  private requests = new RequestScope();
+  private server = readReleaseServer();
+  private localeListener = (event: Event) => {
+    const locale = (event as CustomEvent).detail;
+    if (isLocale(locale)) this.locale = locale;
+  };
+  constructor() {
+    super();
+    this.locale = localeFromPath(typeof location === "undefined" ? "" : navigationDocumentUrl().pathname) || "en";
+    this.limit = 0;
+    this.phase = "loading";
+    this.entries = [];
+  }
+  createRenderRoot() {
+    return this;
+  }
+  connectedCallback() {
+    super.connectedCallback();
+    addEventListener("haneoka:locale-ready", this.localeListener);
+    void this.load();
+  }
+  disconnectedCallback() {
+    this.requests.cancel();
+    removeEventListener("haneoka:locale-ready", this.localeListener);
+    super.disconnectedCallback();
+  }
+  private async load() {
+    const signal = this.requests.begin();
+    this.server = readReleaseServer();
+    this.phase = "loading";
+    this.entries = [];
+    try {
+      const value = await fetchAnnouncements(this.server, signal);
+      if (!this.requests.current(signal)) return;
+      this.entries = sortAnnouncements(value.announcements);
+      this.phase = value.available ? "ready" : "unavailable";
+    } catch {
+      if (this.requests.current(signal)) this.phase = "error";
+    }
+  }
+  render() {
+    return this.phase === "ready" && this.entries.length
+      ? html`
+          <ul class="list list--divided announcement-list" role="list">
+            ${(this.limit > 0 ? this.entries.slice(0, this.limit) : this.entries).map((entry) => announcementRow(entry, this.server, this.locale))}
+          </ul>
+        `
+      : announcementState(this.phase, this.locale, () => {
+          void this.load();
+        });
+  }
+}
+if (!customElements.get("announcement-feed")) customElements.define("announcement-feed", AnnouncementFeed);

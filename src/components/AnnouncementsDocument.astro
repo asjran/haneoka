@@ -1,0 +1,22 @@
+---
+import Base from "../layouts/Base.astro";
+import AppShell from "./AppShell.astro";
+import { t } from "../i18n/messages";
+import type { Locale } from "../i18n/locales";
+import type { ReleaseServer } from "../lib/release-server";
+import { announcementPath } from "../lib/announcements";
+import "../styles/announcements.css";
+const { server, locale, detail = false } = Astro.props as { server: ReleaseServer; locale: Locale; detail?: boolean };
+const title = t(locale, "announcements.title", "Announcements");
+const listPath = announcementPath(server, locale);
+const canonicalRoute = detail ? `${listPath}detail/` : listPath;
+---
+<Base locale={locale} route="/announcements" canonicalRoute={canonicalRoute} title={title} titleKey="announcements.title" description={t(locale, "announcements.description", "Latest in-game announcements.")}>
+  <AppShell locale={locale} server={server} route="/announcements" title={title} titleKey="announcements.title" entity={detail ? { title, backHref: listPath } : undefined}>
+    {detail ? <announcement-detail locale={locale}></announcement-detail> : <div class="announcement-page"><announcement-feed locale={locale}></announcement-feed></div>}
+  </AppShell>
+</Base>
+<script>
+  import "../lit/announcement-feed";
+  import "../lit/announcement-detail";
+</script>

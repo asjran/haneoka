@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { buildNativeNoteSkinPacks, decodeRgba8Png, encodeRgba8Png } from "./pack-original-note-skins.ts";
 import { NATIVE_EFFECT_WIDTHS, compileNativeParticles } from "./native-particles/compile.ts";
+import { OUR_NOTES_NOTE_SE_GROUP_IDS } from "@haneoka/cassiopeia-plugin-our-notes";
 import { resolveSonolusReleaseWorkspace } from "../src/server/releaseWorkspace.ts";
 import { validateSonolusInputProvenance } from "../src/server/sonolusProvenance.ts";
 
@@ -165,7 +166,7 @@ for (const retired of ["skin.data", "skin.texture.png"]) rmSync(resolve(out, ret
     name.startsWith("Our Notes Slot ") ||
     /Our Notes Flick Arrow (Red|Yellow) Up [5-8]$/.test(name) ||
     // Exactly one skin marker exists per pack (the packer enforces it).
-    /Our Notes Native Flick Arrow Animation Skin skin\d{3}$/.test(name);
+    /Our Notes Native Flick Arrow Animation Skin \d{3}$/.test(name);
   const missing = [...referencedNames].filter((name) => !available.has(name) && !optional(name));
   if (missing.length) {
     throw new Error(`Skin pack skin001 is missing engine-referenced sprites: ${missing.join(", ")}`);
@@ -206,20 +207,31 @@ console.log(
     `${compiled.atlas.sprites.length} sprites (${compiled.atlas.width}x${compiled.atlas.height})`,
 );
 
-const effectSourceFile = resolve(source, "effect.data");
-const effectData = requireJsonObject(
-  parseJson(gunzipSync(readFileSync(effectSourceFile)).toString("utf8"), effectSourceFile),
-  "effect.data",
-);
-const effectClips = effectData.clips;
-if (!Array.isArray(effectClips)) throw new Error("effect.data.clips must be an array");
-for (const [index, value] of effectClips.entries()) {
-  const entry = requireJsonObject(value, `effect.data.clips[${index}]`);
-  if (typeof entry.name !== "string") throw new Error(`effect.data.clips[${index}].name must be a string`);
-  entry.name = entry.name.replace(/^Sekai /, "Our Notes ");
+rmSync(resolve(out, "effects"), { recursive: true, force: true });
+for (const group of OUR_NOTES_NOTE_SE_GROUP_IDS) {
+  const effectSourceDir = group === 1 ? source : resolve(source, "effects", String(group));
+  const effectOutputDir = resolve(out, "effects", String(group));
+  mkdirSync(effectOutputDir, { recursive: true });
+  const effectSourceFile = resolve(effectSourceDir, "effect.data");
+  const effectData = requireJsonObject(
+    parseJson(gunzipSync(readFileSync(effectSourceFile)).toString("utf8"), effectSourceFile),
+    `effect.data group ${group}`,
+  );
+  const effectClips = effectData.clips;
+  if (!Array.isArray(effectClips)) throw new Error(`effect.data group ${group} clips must be an array`);
+  for (const [index, value] of effectClips.entries()) {
+    const entry = requireJsonObject(value, `effect.data group ${group} clips[${index}]`);
+    if (typeof entry.name !== "string")
+      throw new Error(`effect.data group ${group} clips[${index}].name must be a string`);
+    entry.name = entry.name.replace(/^Sekai /, "Our Notes ");
+  }
+  writeFileSync(resolve(effectOutputDir, "effect.data"), gzipSync(JSON.stringify(effectData), { level: 9 }));
+  copyFileSync(resolve(effectSourceDir, "effect.audio"), resolve(effectOutputDir, "effect.audio"));
+  if (group === 1) {
+    copyFileSync(resolve(effectOutputDir, "effect.data"), resolve(out, "effect.data"));
+    copyFileSync(resolve(effectOutputDir, "effect.audio"), resolve(out, "effect.audio"));
+  }
 }
-writeFileSync(resolve(out, "effect.data"), gzipSync(JSON.stringify(effectData), { level: 9 }));
-copyFileSync(resolve(source, "effect.audio"), resolve(out, "effect.audio"));
 
 console.log(
   `built Our Notes Sonolus resources: ${nativeSkinPacks.map((pack) => `${pack.skinName}=${pack.sprites} sprites/${pack.nativeArea} native px`).join(", ")}, ` +

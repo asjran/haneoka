@@ -57,7 +57,11 @@ def _resource(
         route = f"/catalog/member-cards?card={resource_id}"
         name = source.get("prefix") if source else None
         image = (source.get("images") or {}).get("thumbnail") if source else None
-        character = documents["characters"].get(str(source.get("characterId"))) if source else None
+        character = (
+            documents["characters"].get(str(source.get("characterId")))
+            if source
+            else None
+        )
         secondary = character.get("characterName") if character else None
     elif resource_type == 3:
         source = documents["support-cards"].get(key)
@@ -69,7 +73,9 @@ def _resource(
         source = documents["songs"].get(key)
         route = f"/catalog/songs?song={resource_id}"
         name = source.get("musicTitle") if source else None
-        image = source.get("jacketThumbUrl") or source.get("jacketUrl") if source else None
+        image = (
+            source.get("jacketThumbUrl") or source.get("jacketUrl") if source else None
+        )
         secondary = source.get("bandName") if source else None
     elif resource_type == 9:
         source = documents["stamps"].get(key)
@@ -78,7 +84,11 @@ def _resource(
         image = source.get("image") if source else None
     elif resource_type == 7:
         gacha = next(
-            (row for row in data.rows("MasterGacha") if _number(row, "_id") == resource_id),
+            (
+                row
+                for row in data.rows("MasterGacha")
+                if _number(row, "_id") == resource_id
+            ),
             None,
         )
         name = data.text(gacha.get("_nameTextId")) if gacha else None
@@ -86,8 +96,68 @@ def _resource(
     else:
         name = None
         image = None
+    card_details: dict[str, Any] = {}
+    if source and resource_type in (2, 3):
+        character_ids = source.get("characterIds") or [source.get("characterId")]
+        card_details["characterDetails"] = [
+            {
+                "characterId": int(character_id),
+                **{
+                    field: character[field]
+                    for field in (
+                        "characterName",
+                        "englishName",
+                        "faceImage",
+                        "thumbnailImage",
+                    )
+                    if field in character
+                },
+            }
+            for character_id in character_ids
+            if character_id
+            and (character := documents["characters"].get(str(character_id)))
+        ]
+    song_details: dict[str, Any] = {}
+    if source and resource_type == 8:
+        song_details = {
+            field: source[field]
+            for field in (
+                "musicId",
+                "musicTitle",
+                "jacketThumbUrl",
+                "jacketUrl",
+                "bandId",
+                "bandIds",
+                "musicType",
+                "musicCategories",
+                "bandName",
+                "artistName",
+            )
+            if field in source
+        }
+        band = documents.get("bands", {}).get(str(source.get("bandId")))
+        if band:
+            song_details["bandDetails"] = {
+                field: band[field]
+                for field in ("bandId", "bandName", "icon", "logo")
+                if field in band
+            }
+            song_details.setdefault("bandName", band.get("bandName", []))
     return {
         "kind": resource_types.get(resource_type, ""),
+        **card_details,
+        **song_details,
+        "resourceType": resource_type,
+        "resourceId": resource_id,
+        **(
+            {
+                key: source[key]
+                for key in ("rarity", "cardType", "characterId", "characterIds")
+                if key in source
+            }
+            if source and resource_type in (2, 3)
+            else {}
+        ),
         "name": _localized_name(name),
         "secondary": secondary or [],
         "image": image or "",
@@ -188,7 +258,12 @@ def _event_resource(
     return value
 
 
-def _event_story(documents: dict[str, Any], chapter_id: int) -> dict[str, Any] | None:
+def _event_story(
+    data: Any,
+    documents: dict[str, Any],
+    resource_types: dict[int, str],
+    chapter_id: int,
+) -> dict[str, Any] | None:
     if not chapter_id:
         return None
     stories = documents.get("stories", {})
@@ -198,25 +273,77 @@ def _event_story(documents: dict[str, Any], chapter_id: int) -> dict[str, Any] |
         return None
     episodes = stories.get("episodes", {}) if isinstance(stories, dict) else {}
     episode_rows = []
+    reward_groups: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in data.rows("MasterStoryReward"):
+        reward_groups[_number(row, "_group")].append(row)
+    sources = {
+        (
+            _number(row, "_episodeNumber"),
+            bool(row.get("_isExtraEpisode")),
+            bool(row.get("_isAnotherEpisode")),
+        ): row
+        for row in data.rows("MasterStoryEpisode")
+        if _number(row, "_chapterId") == chapter_id
+    }
     for story_id in chapter.get("episodes", []):
         episode = episodes.get(str(story_id)) if isinstance(episodes, dict) else None
         if not isinstance(episode, dict):
             continue
+        source = sources.get(
+            (
+                _number(episode, "episodeNumber"),
+                bool(episode.get("isExtraEpisode")),
+                bool(episode.get("isAnotherEpisode")),
+            ),
+            {},
+        )
         episode_rows.append(
             {
-                key: episode.get(key)
-                for key in (
-                    "storyId",
-                    "storyKey",
-                    "title",
-                    "episodeNumber",
-                    "isExtraEpisode",
-                    "isAnotherEpisode",
-                    "banner",
-                    "image",
-                    "description",
-                )
-                if episode.get(key) is not None
+                "eventPoint": _number(source, "_eventPoint"),
+                "unlockEpisodeNumber": _number(source, "_unlockEpisodeNumber"),
+                "rewardTracks": [
+                    {
+                        "kind": kind,
+                        "rewards": [
+                            _event_resource(
+                                data,
+                                documents,
+                                resource_types,
+                                "MasterStoryReward",
+                                reward,
+                            )
+                            for reward in reward_groups[_number(source, field)]
+                        ],
+                    }
+                    for kind, field in (
+                        ("story", "_storyRewardGroupId"),
+                        ("event", "_eventStoryRewardGroupId"),
+                    )
+                    if _number(source, field)
+                ],
+                **{
+                    key: episode.get(key)
+                    for key in (
+                        "storyId",
+                        "storyKey",
+                        "chapterId",
+                        "chapterName",
+                        "bandId",
+                        "titleText",
+                        "caption",
+                        "title",
+                        "episodeNumber",
+                        "isExtraEpisode",
+                        "isAnotherEpisode",
+                        "banner",
+                        "image",
+                        "description",
+                        "episodeImage",
+                        "thumbnail",
+                        "playTime",
+                    )
+                    if episode.get(key) is not None
+                },
             }
         )
     # The client presents the authored Main → Extra → Another groups.  The
@@ -224,7 +351,11 @@ def _event_story(documents: dict[str, Any], chapter_id: int) -> dict[str, Any] |
     # an implementation detail and must not define the public ordering.
     episode_rows.sort(
         key=lambda episode: (
-            2 if episode.get("isAnotherEpisode") else 1 if episode.get("isExtraEpisode") else 0,
+            2
+            if episode.get("isAnotherEpisode")
+            else 1
+            if episode.get("isExtraEpisode")
+            else 0,
             _number(episode, "episodeNumber"),
             str(episode.get("storyId") or episode.get("storyKey") or ""),
         )
@@ -232,6 +363,14 @@ def _event_story(documents: dict[str, Any], chapter_id: int) -> dict[str, Any] |
     return {
         "chapterId": chapter_id,
         "chapterName": chapter.get("chapterName", []),
+        "bandId": _number(chapter, "bandId"),
+        "bandDetails": {
+            field: band[field]
+            for field in ("bandId", "bandName", "icon", "logo")
+            if field in band
+        }
+        if (band := documents.get("bands", {}).get(str(chapter.get("bandId"))))
+        else {},
         "description": chapter.get("description", []),
         "banner": chapter.get("banner"),
         "image": chapter.get("image"),
@@ -270,7 +409,10 @@ def _event_support(
                 and _number(row, "_eventGroup") == live_reward_group
             )
         if table == "MasterChallengeLiveEventPoint":
-            return bool(challenge_point_group and _number(row, "_group") == challenge_point_group)
+            return bool(
+                challenge_point_group
+                and _number(row, "_group") == challenge_point_group
+            )
         if table == "MasterChallengeLiveEventReward":
             return bool(
                 challenge_point_group
@@ -303,7 +445,9 @@ def _event_support(
                         if linked is None:
                             # Preserve an unresolved identifier in the API
                             # contract; the UI renders its localized fallback.
-                            value.setdefault("unresolvedRewardIds", []).append(reward_identity)
+                            value.setdefault("unresolvedRewardIds", []).append(
+                                reward_identity
+                            )
                             rewards.append(
                                 {
                                     "sourceTable": table,
@@ -313,7 +457,13 @@ def _event_support(
                                     "resourceTypeName": "",
                                     "resourceId": 0,
                                     "resourceCount": 0,
-                                    "reward": {"name": [], "secondary": [], "image": "", "href": "", "count": 0},
+                                    "reward": {
+                                        "name": [],
+                                        "secondary": [],
+                                        "image": "",
+                                        "href": "",
+                                        "count": 0,
+                                    },
                                     "raw": row,
                                     "unresolvedRewardId": reward_identity,
                                 }
@@ -329,10 +479,7 @@ def _event_support(
                                 linked,
                             )
                         )
-                elif (
-                    _number(row, "_resourceType")
-                    or _number(row, "_resourceId")
-                ):
+                elif _number(row, "_resourceType") or _number(row, "_resourceId"):
                     value = _event_resource(data, documents, resource_types, table, row)
                     rewards.append(value)
             elif table == "MasterEventEffect":
@@ -356,6 +503,44 @@ def _event_support(
                             "image": band.get("logo") or band.get("icon") or "",
                             "href": f"/catalog/bands?band={band_id}",
                         }
+                character_id = _number(row, "_characterId")
+                if character_id:
+                    character = documents.get("characters", {}).get(str(character_id))
+                    if isinstance(character, dict):
+                        targets["character"] = {
+                            "name": character.get("characterName", []),
+                            "image": character.get("faceImage", ""),
+                            "href": f"/catalog/characters?character={character_id}",
+                        }
+                card_type = _number(row, "_cardType")
+                colors = ("Red", "Blue", "Green", "Yellow", "Purple")
+                if 1 <= card_type <= len(colors):
+                    targets["attribute"] = {
+                        "name": data.text(f"CardType_{colors[card_type - 1]}_Name"),
+                        "image": "",
+                        "href": "",
+                    }
+                tag_id = _number(row, "_tagId")
+                if tag_id:
+                    tag = next(
+                        (
+                            tag
+                            for tag in data.rows("MasterTag")
+                            if _number(tag, "_id") == tag_id
+                        ),
+                        None,
+                    )
+                    if tag:
+                        targets["tag"] = {
+                            "name": data.text(tag.get("_nameTextID")),
+                            "image": "",
+                            "href": "",
+                        }
+                value["resourceTypeConstraint"] = _number(
+                    row, "_resourceTypeConstraint"
+                )
+                value["bonusType"] = _number(row, "_eventBonusType")
+                value["cardType"] = card_type
                 if targets:
                     value["targets"] = targets
                 per_rank = []
@@ -381,7 +566,11 @@ def _event_support(
     rankings: list[dict[str, Any]] = []
     ranking_pairs = (
         ("live", "MasterLiveEventPoint", "MasterLiveEventReward"),
-        ("challenge", "MasterChallengeLiveEventPoint", "MasterChallengeLiveEventReward"),
+        (
+            "challenge",
+            "MasterChallengeLiveEventPoint",
+            "MasterChallengeLiveEventReward",
+        ),
     )
     for kind, point_table, reward_table in ranking_pairs:
         point_rows = support.get(point_table, [])
@@ -423,6 +612,78 @@ def _event_support(
     }
 
 
+def _event_recruitments(
+    data: Any, event_id: int, gacha: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Recruitments with pickup prizes explicitly targeted by this event.
+
+    Card identity includes its resource type. Dates never establish a relation.
+    Keep the exact prize/lot/effect evidence with the compact linked projection.
+    """
+    targets: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+    for row in data.rows("MasterEventPickUpCard"):
+        if _event_id(row) == event_id:
+            targets[
+                (_number(row, "_resourceType"), _number(row, "_resourceId"))
+            ].append({"table": "MasterEventPickUpCard", "id": _number(row, "_id")})
+    for row in data.rows("MasterEventEffect"):
+        if _event_id(row) != event_id:
+            continue
+        for resource_type, field in ((2, "_memberCardId"), (3, "_supportCardId")):
+            card_id = _number(row, field)
+            if card_id:
+                targets[(resource_type, card_id)].append(
+                    {"table": "MasterEventEffect", "id": _number(row, "_id")}
+                )
+    prizes: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in data.rows("MasterGachaPrize"):
+        if _number(row, "_pickUpType") == 2:
+            prizes[_number(row, "_groupId")].append(row)
+    lots: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in data.rows("MasterGachaLot"):
+        lots[_number(row, "_lotGroupId")].append(row)
+    related = []
+    for row in data.rows("MasterGacha"):
+        identity = str(_number(row, "_id"))
+        projection = gacha.get("entries", {}).get(identity)
+        if not projection:
+            continue
+        evidence = []
+        for lot in lots[_number(row, "_lotGroupId")]:
+            for prize in prizes[_number(lot, "_prizeGroupId")]:
+                key = (_number(prize, "_resourceType"), _number(prize, "_resourceId"))
+                if key in targets:
+                    evidence.append(
+                        {
+                            "resourceType": key[0],
+                            "resourceId": key[1],
+                            "eventSources": targets[key],
+                            "lotId": _number(lot, "_id"),
+                            "prizeId": _number(prize, "_id"),
+                        }
+                    )
+        if evidence:
+            related.append(
+                {
+                    **{
+                        key: projection[key]
+                        for key in (
+                            "id",
+                            "title",
+                            "image",
+                            "startAt",
+                            "endAt",
+                            "featured",
+                        )
+                    },
+                    "href": f"/catalog/gacha?entry={identity}",
+                    "relation": "event-bonus-pickup",
+                    "evidence": evidence,
+                }
+            )
+    return related
+
+
 def _events(
     data: Any,
     documents: dict[str, Any],
@@ -430,6 +691,7 @@ def _events(
     stamp: Callable[[Any], list[int | None]],
 ) -> dict[str, Any]:
     entries: dict[str, Any] = {}
+    gacha = documents.get("gacha") or _gacha(data, documents, resource_types, stamp)
     for row in data.rows("MasterEvent"):
         identity = _number(row, "_id")
         if not identity:
@@ -467,7 +729,7 @@ def _events(
             end_at=stamp(row.get("_endAt")),
             displayEndAt=stamp(row.get("_displayEndAt")),
             storyChapterId=story_chapter_id,
-            story=_event_story(documents, story_chapter_id),
+            story=_event_story(data, documents, resource_types, story_chapter_id),
             eventType=_number(row, "_eventType"),
             musicId=music_id,
             song=(
@@ -485,28 +747,45 @@ def _events(
             totalMusicRankingDisabled=bool(row.get("_isTotalMusicRankingDisabled")),
             rewardGroups=support["groups"],
             pickupCards=pickup_cards,
+            recruitments=_event_recruitments(data, identity, gacha),
             rewards=support["rewards"],
             effects=support["effects"],
+            bonusNote=data.text("ui_event_bonus_item_num_truncate_message"),
             missions=support["missions"],
             rankings=support["rankings"],
             support=support["support"],
-            sourceTables=["MasterEvent", "MasterEventPickUpCard", *support["sourceTables"]],
+            sourceTables=[
+                "MasterEvent",
+                "MasterEventPickUpCard",
+                "MasterGacha",
+                "MasterGachaLot",
+                "MasterGachaPrize",
+                "MasterStoryEpisode",
+                "MasterStoryReward",
+                *support["sourceTables"],
+            ],
         )
     return {"entries": entries, "hasGameEvents": bool(data.rows("MasterEvent"))}
 
 
-def _real_lives(data: Any, documents: dict[str, Any], stamp: Callable[[Any], list[int | None]]) -> dict[str, Any]:
+def _real_lives(
+    data: Any, documents: dict[str, Any], stamp: Callable[[Any], list[int | None]]
+) -> dict[str, Any]:
     entries: dict[str, Any] = {}
     for row in data.rows("MasterRealLiveSchedule"):
         identity = _number(row, "_id")
         if not identity:
             continue
-        bands = [documents["bands"].get(str(value)) for value in row.get("_bandIds", [])]
+        bands = [
+            documents["bands"].get(str(value)) for value in row.get("_bandIds", [])
+        ]
         bands = [band for band in bands if isinstance(band, dict)]
         if not bands:
             continue
         title = [
-            " / ".join(str((band.get("bandName") or [""] * 5)[index] or "") for band in bands)
+            " / ".join(
+                str((band.get("bandName") or [""] * 5)[index] or "") for band in bands
+            )
             for index in range(5)
         ]
         entries[f"real-live-{identity}"] = _entry(
@@ -517,7 +796,14 @@ def _real_lives(data: Any, documents: dict[str, Any], stamp: Callable[[Any], lis
             start_at=stamp(row.get("_startAt")),
             end_at=stamp(row.get("_endAt")),
             readyAt=stamp(row.get("_readyAt")),
-            bands=[{"name": band.get("bandName"), "icon": band.get("icon"), "logo": band.get("logo")} for band in bands],
+            bands=[
+                {
+                    "name": band.get("bandName"),
+                    "icon": band.get("icon"),
+                    "logo": band.get("logo"),
+                }
+                for band in bands
+            ],
         )
     return {"entries": entries}
 
@@ -572,7 +858,10 @@ def _gacha(
         identity = _number(row, "_id")
         if not identity:
             continue
-        lot_rows = sorted(lots[_number(row, "_lotGroupId")], key=lambda value: -_number(value, "_weight"))
+        lot_rows = sorted(
+            lots[_number(row, "_lotGroupId")],
+            key=lambda value: -_number(value, "_weight"),
+        )
         total_weight = sum(_number(value, "_weight") for value in lot_rows) or 1
         rates: list[dict[str, Any]] = []
         rewards: list[dict[str, Any]] = []
@@ -587,23 +876,32 @@ def _gacha(
             for value in shares:
                 prize = value["prize"]
                 reward = _resource(
-                    data, documents, resource_types,
-                    _number(prize, "_resourceType"), _number(prize, "_resourceId"),
+                    data,
+                    documents,
+                    resource_types,
+                    _number(prize, "_resourceType"),
+                    _number(prize, "_resourceId"),
                     _number(prize, "_amount") or 1,
                 )
                 reward["pickup"] = value["pickup"]
                 reward["rate"] = value["weight"] / total_weight
                 group_prizes.append(reward)
-            rates.append({
-                "rarity": _number(lot, "_rarityConstraint"),
-                "resourceType": resource_types.get(_number(lot, "_resourceTypeConstraint"), ""),
-                "weight": _number(lot, "_weight"),
-                "rate": group_rate,
-                "prizes": group_prizes,
-            })
+            rates.append(
+                {
+                    "rarity": _number(lot, "_rarityConstraint"),
+                    "resourceType": resource_types.get(
+                        _number(lot, "_resourceTypeConstraint"), ""
+                    ),
+                    "weight": _number(lot, "_weight"),
+                    "rate": group_rate,
+                    "prizes": group_prizes,
+                }
+            )
             rewards.extend(group_prizes)
             featured.extend(
-                reward for value, reward in zip(shares, group_prizes, strict=True) if value["pickup"]
+                reward
+                for value, reward in zip(shares, group_prizes, strict=True)
+                if value["pickup"]
             )
         draw_options = []
         currencies: set[int] = set()
@@ -614,19 +912,23 @@ def _gacha(
             item_type = _number(product, "_itemType")
             currencies.add(item_type)
             currency = currency_by_type.get(item_type)
-            draw_options.append({
-                "drawCount": _number(product, "_drawCount"),
-                "price": _number(product, "_price"),
-                "firstPrice": _number(product, "_firstTimePrice"),
-                "currency": currency.get("name") if currency else [],
-                "currencyImage": currency.get("image") if currency else "",
-                "guaranteedRarity": _number(product, "_ensuredRarity"),
-                "guaranteedCount": _number(product, "_ensuredCount"),
-                "guaranteedNew": bool(product.get("_isEnsuredNew")),
-                "gachaPoint": _number(product, "_gachaPoint"),
-                "limitCount": _number(product, "_limitConsumeCount"),
-                "monthlyPassIds": [int(value) for value in product.get("_monthlyPassIds", [])],
-            })
+            draw_options.append(
+                {
+                    "drawCount": _number(product, "_drawCount"),
+                    "price": _number(product, "_price"),
+                    "firstPrice": _number(product, "_firstTimePrice"),
+                    "currency": currency.get("name") if currency else [],
+                    "currencyImage": currency.get("image") if currency else "",
+                    "guaranteedRarity": _number(product, "_ensuredRarity"),
+                    "guaranteedCount": _number(product, "_ensuredCount"),
+                    "guaranteedNew": bool(product.get("_isEnsuredNew")),
+                    "gachaPoint": _number(product, "_gachaPoint"),
+                    "limitCount": _number(product, "_limitConsumeCount"),
+                    "monthlyPassIds": [
+                        int(value) for value in product.get("_monthlyPassIds", [])
+                    ],
+                }
+            )
         ticket = currency_by_type.get(_number(row, "_gachaTicketItemId"))
         if 2 in currencies or ticket:
             category = "ticket"
@@ -636,7 +938,9 @@ def _gacha(
             category = "bonus"
         elif currencies & {12, 13}:
             category = "stars"
-        elif 23 in currencies or any(option["monthlyPassIds"] for option in draw_options):
+        elif 23 in currencies or any(
+            option["monthlyPassIds"] for option in draw_options
+        ):
             category = "pass"
         else:
             category = "other"
@@ -644,11 +948,14 @@ def _gacha(
             str(identity),
             data.text(row.get("_nameTextId")),
             kind="gacha",
-            image=_asset(data, row.get("_bannerAssetName")) or _asset(data, row.get("_logoAssetName")),
+            image=_asset(data, row.get("_bannerAssetName"))
+            or _asset(data, row.get("_logoAssetName")),
             logo=_asset(data, row.get("_logoAssetName")),
             description=data.text(row.get("_descriptionTextId")),
             appeal=data.text(row.get("_appealTextId")),
-            warning=data.text(row.get("_warningTextId")) if row.get("_warningTextId") else [],
+            warning=data.text(row.get("_warningTextId"))
+            if row.get("_warningTextId")
+            else [],
             start_at=stamp(row.get("_startAt")),
             end_at=stamp(row.get("_endAt")),
             category=category,
@@ -661,13 +968,24 @@ def _gacha(
             ticketItem={
                 "name": ticket.get("name"),
                 "image": ticket.get("image"),
-            } if ticket else None,
+            }
+            if ticket
+            else None,
             pickUpSelectCount=_number(row, "_pickUpSelectCount"),
             beginnerHours=_number(row, "_beginnerHours"),
             comebackHours=_number(row, "_comebackHours"),
             isNewMember=bool(row.get("_isNewMember")),
             ceilings=[int(value) for value in row.get("_ceilingIds", [])],
-            bonuses=[int(value) for key in ("_gachaBonusIds1", "_gachaBonusIds2", "_gachaBonusIds3", "_gachaBonusIds4") for value in row.get(key, [])],
+            bonuses=[
+                int(value)
+                for key in (
+                    "_gachaBonusIds1",
+                    "_gachaBonusIds2",
+                    "_gachaBonusIds3",
+                    "_gachaBonusIds4",
+                )
+                for value in row.get(key, [])
+            ],
         )
     return {"entries": entries}
 
@@ -681,16 +999,21 @@ def _login(
     slots: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rows("MasterLoginBonusSlot"):
         reward = _resource(
-            data, documents, resource_types,
-            _number(row, "_resourceType"), _number(row, "_resourceId"),
+            data,
+            documents,
+            resource_types,
+            _number(row, "_resourceType"),
+            _number(row, "_resourceId"),
             _number(row, "_resourceCount"),
         )
-        slots[_number(row, "_loginBonusID")].append({
-            "sheet": _number(row, "_sheetNo"),
-            "day": _number(row, "_slotNo"),
-            "reward": reward,
-            "image": _asset(data, row.get("_thumbnailAsset")) or reward["image"],
-        })
+        slots[_number(row, "_loginBonusID")].append(
+            {
+                "sheet": _number(row, "_sheetNo"),
+                "day": _number(row, "_slotNo"),
+                "reward": reward,
+                "image": _asset(data, row.get("_thumbnailAsset")) or reward["image"],
+            }
+        )
     entries = {}
     for row in data.rows("MasterLoginBonus"):
         identity = _number(row, "_id")
@@ -700,10 +1023,13 @@ def _login(
             str(identity),
             data.text(row.get("_nameTextID")),
             kind="login",
-            image=_asset(data, row.get("_sheetImageAsset")) or _asset(data, row.get("_backgroundImageAsset")),
+            image=_asset(data, row.get("_sheetImageAsset"))
+            or _asset(data, row.get("_backgroundImageAsset")),
             start_at=stamp(row.get("_startAt")),
             end_at=stamp(row.get("_endAt")),
-            rewards=sorted(slots[identity], key=lambda slot: (slot["sheet"], slot["day"])),
+            rewards=sorted(
+                slots[identity], key=lambda slot: (slot["sheet"], slot["day"])
+            ),
             recurring=bool(row.get("_isLoop")),
             premium=bool(row.get("_isPremium")),
             comeback=bool(row.get("_isComeback")),
@@ -721,11 +1047,16 @@ def _shop(
     grants: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rows("MasterShopProduct"):
         reward = _resource(
-            data, documents, resource_types,
-            _number(row, "_resourceType"), _number(row, "_resourceId"),
+            data,
+            documents,
+            resource_types,
+            _number(row, "_resourceType"),
+            _number(row, "_resourceId"),
             _number(row, "_resourceCount"),
         )
-        grants[_number(row, "_shopId")].append({**reward, "bonus": bool(row.get("_isBonus"))})
+        grants[_number(row, "_shopId")].append(
+            {**reward, "bonus": bool(row.get("_isBonus"))}
+        )
     currencies = {
         int(item.get("itemType") or 0): item
         for item in documents["items"]["items"].values()
@@ -748,7 +1079,10 @@ def _shop(
         products_by_shop[_number(row, "_shopId")].append(row)
 
     def _is_subscription(identity: int) -> bool:
-        return any(_number(row, "_resourceType") == 6 for row in products_by_shop.get(identity, []))
+        return any(
+            _number(row, "_resourceType") == 6
+            for row in products_by_shop.get(identity, [])
+        )
 
     def _is_plain_gem_pack(products: list[dict[str, Any]]) -> bool:
         # Paid/free stars only — bundles that toss in passes, stamps or
@@ -762,7 +1096,8 @@ def _shop(
         identity
         for identity in bili_pay
         if any(
-            _number(row, "_resourceType") == 1 and _number(row, "_resourceId") >= 2000004
+            _number(row, "_resourceType") == 1
+            and _number(row, "_resourceId") >= 2000004
             for row in products_by_shop.get(identity, [])
         )
     }
@@ -777,7 +1112,9 @@ def _shop(
             and not _is_subscription(identity)
             and _is_plain_gem_pack(products)
             for row in products
-            if _number(row, "_resourceType") == 1 and _number(row, "_resourceId") == 2 and not row.get("_isBonus")
+            if _number(row, "_resourceType") == 1
+            and _number(row, "_resourceId") == 2
+            and not row.get("_isBonus")
         }
     )
 
@@ -793,7 +1130,9 @@ def _shop(
         gems = [
             row
             for row in products
-            if _number(row, "_resourceType") == 1 and _number(row, "_resourceId") == 2 and not row.get("_isBonus")
+            if _number(row, "_resourceType") == 1
+            and _number(row, "_resourceId") == 2
+            and not row.get("_isBonus")
         ]
         if len(gems) == 1 and gem_tiers:
             tier = _number(gems[0], "_resourceCount")
@@ -825,17 +1164,22 @@ def _shop(
             "price": _number(row, "_price"),
             "currency": currency.get("name") if currency else [],
             "currencyImage": currency.get("image") if currency else "",
-            "advertisement": _number(row, "_paymentType") == 15 and not _number(row, "_price"),
-            "storePurchase": bool(row.get("_googlePlayPurchaseId") or row.get("_appStorePurchaseId")),
+            "advertisement": _number(row, "_paymentType") == 15
+            and not _number(row, "_price"),
+            "storePurchase": bool(
+                row.get("_googlePlayPurchaseId") or row.get("_appStorePurchaseId")
+            ),
         }
         if regional is not None:
-            payment.update({
-                "price": _number(regional, "_usd") / 100,
-                "currency": ["US$", "US$", "US$", "US$", "US$"],
-                "currencyImage": "",
-                "prices": _regional_prices(regional),
-                "storePurchase": True,
-            })
+            payment.update(
+                {
+                    "price": _number(regional, "_usd") / 100,
+                    "currency": ["US$", "US$", "US$", "US$", "US$"],
+                    "currencyImage": "",
+                    "prices": _regional_prices(regional),
+                    "storePurchase": True,
+                }
+            )
         entries[str(identity)] = _entry(
             str(identity),
             name if any(name) else description,
@@ -865,7 +1209,8 @@ def _shop(
             (
                 row.get("_imageAsset")
                 for row in data.rows("MasterHomeBanner")
-                if _number(row, "_displayType") == 4 and _number(row, "_contentId") == identity
+                if _number(row, "_displayType") == 4
+                and _number(row, "_contentId") == identity
             ),
             None,
         )
@@ -887,7 +1232,8 @@ def _shop(
             (
                 reward["image"]
                 for reward in reversed(rewards)
-                if reward.get("image") and not str((reward.get("name") or [""])[0]).startswith("スター")
+                if reward.get("image")
+                and not str((reward.get("name") or [""])[0]).startswith("スター")
             ),
             None,
         )
@@ -896,9 +1242,7 @@ def _shop(
             str(identity),
             name if any(name) else description,
             kind="shop",
-            image=(
-                lineup_thumb and _asset(data, f"Shop/ItemThumbnail/{lineup_thumb}")
-            )
+            image=(lineup_thumb and _asset(data, f"Shop/ItemThumbnail/{lineup_thumb}"))
             or _asset(data, f"Shop/ItemThumbnail/shop_thumb_bili_{identity}")
             or (tier_thumb and _asset(data, f"Shop/ItemThumbnail/{tier_thumb}"))
             or _asset(data, banner or "")
@@ -936,18 +1280,23 @@ def _exchange(
     products: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rows("MasterExchangeProduct"):
         reward = _resource(
-            data, documents, resource_types,
-            _number(row, "_resourceType"), _number(row, "_resourceId"),
+            data,
+            documents,
+            resource_types,
+            _number(row, "_resourceType"),
+            _number(row, "_resourceId"),
             _number(row, "_resourceCount"),
         )
-        products[_number(row, "_exchangeId")].append({
-            "reward": reward,
-            "cost": _number(row, "_paymentResourceCount"),
-            "limit": _number(row, "_limitCount"),
-            "recommended": bool(row.get("_isRecommended")),
-            "startAt": stamp(row.get("_startAt")),
-            "endAt": stamp(row.get("_endAt")),
-        })
+        products[_number(row, "_exchangeId")].append(
+            {
+                "reward": reward,
+                "cost": _number(row, "_paymentResourceCount"),
+                "limit": _number(row, "_limitCount"),
+                "recommended": bool(row.get("_isRecommended")),
+                "startAt": stamp(row.get("_startAt")),
+                "endAt": stamp(row.get("_endAt")),
+            }
+        )
     entries = {}
     for row in data.rows("MasterExchange"):
         identity = _number(row, "_id")
@@ -955,8 +1304,11 @@ def _exchange(
             continue
         category = categories.get(_number(row, "_exchangeCategoryId"))
         currency = _resource(
-            data, documents, resource_types,
-            _number(row, "_paymentResourceType"), _number(row, "_paymentResourceId"),
+            data,
+            documents,
+            resource_types,
+            _number(row, "_paymentResourceType"),
+            _number(row, "_paymentResourceId"),
         )
         entries[str(identity)] = _entry(
             str(identity),
@@ -981,11 +1333,16 @@ def _circle(
     rewards: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rows("MasterCircleRankUpReward"):
         rank = _number(row, "_circleRankId", "_rank")
-        rewards[rank].append(_resource(
-            data, documents, resource_types,
-            _number(row, "_resourceType"), _number(row, "_resourceId"),
-            _number(row, "_resourceCount"),
-        ))
+        rewards[rank].append(
+            _resource(
+                data,
+                documents,
+                resource_types,
+                _number(row, "_resourceType"),
+                _number(row, "_resourceId"),
+                _number(row, "_resourceCount"),
+            )
+        )
     entries = {}
     for row in data.rows("MasterCircleRank"):
         identity = _number(row, "_id")
@@ -1027,7 +1384,9 @@ def _challenge(
     return {"entries": entries}
 
 
-def _mission_description(data: Any, row: dict[str, Any], documents: dict[str, Any]) -> list[str]:
+def _mission_description(
+    data: Any, row: dict[str, Any], documents: dict[str, Any]
+) -> list[str]:
     text = data.text(row.get("_descriptionTextId"))
     bands = documents["bands"]
     characters = documents["characters"]
@@ -1036,12 +1395,17 @@ def _mission_description(data: Any, row: dict[str, Any], documents: dict[str, An
     exchange = documents.get("exchange", {}).get("entries", {})
     chapter = chapters.get(str(_number(row, "_storyChapterId")))
     episode_row = next(
-        (item for item in data.rows("MasterStoryEpisode") if _number(item, "_id") == _number(row, "_episodeId")),
+        (
+            item
+            for item in data.rows("MasterStoryEpisode")
+            if _number(item, "_id") == _number(row, "_episodeId")
+        ),
         None,
     )
     episode = next(
         (
-            item for item in documents["stories"].get("episodes", {}).values()
+            item
+            for item in documents["stories"].get("episodes", {}).values()
             if episode_row
             and _number(item, "chapterId") == _number(episode_row, "_chapterId")
             and _number(item, "episodeNumber") == _number(episode_row, "_episodeNumber")
@@ -1069,15 +1433,23 @@ def _mission_description(data: Any, row: dict[str, Any], documents: dict[str, An
         "EpisodeId": episode.get("title") if episode else [],
         "MusicId": music.get("musicTitle") if music else [],
         "ExchangeId": shop.get("title") if shop else [],
-        "CardType": data.text(f"CardType_{color_keys[card_type - 1]}_Name") if 1 <= card_type <= len(color_keys) else [],
-        "MusicDifficulty": data.text(f"ui_difficulty_{difficulty_keys[difficulty]}") if 0 <= difficulty < len(difficulty_keys) else [],
+        "CardType": data.text(f"CardType_{color_keys[card_type - 1]}_Name")
+        if 1 <= card_type <= len(color_keys)
+        else [],
+        "MusicDifficulty": data.text(f"ui_difficulty_{difficulty_keys[difficulty]}")
+        if 0 <= difficulty < len(difficulty_keys)
+        else [],
         "MissionCategory": "",
     }
     rendered = []
     for index, raw in enumerate(text):
         line = str(raw or "")
         for key, value in values.items():
-            replacement = str(value[index] or "") if isinstance(value, list) and index < len(value) else str(value or "")
+            replacement = (
+                str(value[index] or "")
+                if isinstance(value, list) and index < len(value)
+                else str(value or "")
+            )
             line = line.replace(f"{{{key}}}", replacement)
         line = re.sub(r"\{[^{}]+\}", "", line)
         rendered.append(re.sub(r"\s{2,}", " ", line).strip())
@@ -1092,22 +1464,31 @@ def _missions(
 ) -> dict[str, Any]:
     rewards = {
         _number(row, "_id"): _resource(
-            data, documents, resource_types,
-            _number(row, "_resourceType"), _number(row, "_resourceId"),
+            data,
+            documents,
+            resource_types,
+            _number(row, "_resourceType"),
+            _number(row, "_resourceId"),
             _number(row, "_resourceCount"),
         )
         for row in data.rows("MasterMissionReward")
     }
-    groups = {_number(row, "_id"): row for row in data.rows("MasterLimitedMissionGroup")}
+    groups = {
+        _number(row, "_id"): row for row in data.rows("MasterLimitedMissionGroup")
+    }
     entries = {}
-    for table, kind in (("MasterMission", "regular-mission"), ("MasterLimitedMission", "limited-mission")):
+    for table, kind in (
+        ("MasterMission", "regular-mission"),
+        ("MasterLimitedMission", "limited-mission"),
+    ):
         for row in data.rows(table):
             identity = _number(row, "_id")
             if not identity:
                 continue
             group = groups.get(_number(row, "_limitedMissionGroupId"))
             prizes = [
-                rewards[int(value)] for value in row.get("_missionRewardIds", [])
+                rewards[int(value)]
+                for value in row.get("_missionRewardIds", [])
                 if int(value) in rewards
             ]
             title = _mission_description(data, row, documents)
@@ -1115,7 +1496,9 @@ def _missions(
                 f"{kind}-{identity}",
                 title,
                 kind=kind,
-                image=_asset(data, group.get("_bannerAsset")) if group else (prizes[0]["image"] if prizes else ""),
+                image=_asset(data, group.get("_bannerAsset"))
+                if group
+                else (prizes[0]["image"] if prizes else ""),
                 start_at=stamp(row.get("_startAt") or (group or {}).get("_startAt")),
                 end_at=stamp(row.get("_endAt") or (group or {}).get("_endAt")),
                 group=data.text(group.get("_nameTextID")) if group else [],
@@ -1134,8 +1517,11 @@ def _passes(
 ) -> dict[str, Any]:
     season_rewards = {
         _number(row, "_id"): _resource(
-            data, documents, resource_types,
-            _number(row, "_resourceType"), _number(row, "_resourceId"),
+            data,
+            documents,
+            resource_types,
+            _number(row, "_resourceType"),
+            _number(row, "_resourceId"),
             _number(row, "_resourceCount"),
         )
         for row in data.rows("MasterSeasonPassReward")
@@ -1143,30 +1529,40 @@ def _passes(
     levels: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rows("MasterSeasonPassLevelReward"):
         prizes = [
-            season_rewards[int(value)] for value in row.get("_rewardIds", [])
+            season_rewards[int(value)]
+            for value in row.get("_rewardIds", [])
             if int(value) in season_rewards
         ]
-        levels[_number(row, "_seasonPassId")].append({
-            "level": _number(row, "_level"),
-            "premium": bool(row.get("_isPremium")),
-            "rewards": prizes,
-        })
+        levels[_number(row, "_seasonPassId")].append(
+            {
+                "level": _number(row, "_level"),
+                "premium": bool(row.get("_isPremium")),
+                "rewards": prizes,
+            }
+        )
     season_tasks: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rows("MasterSeasonPassMission"):
-        season_tasks[_number(row, "_seasonPassId")].append({
-            "title": _mission_description(data, row, documents),
-            "points": _number(row, "_seasonPassPoint"),
-        })
+        season_tasks[_number(row, "_seasonPassId")].append(
+            {
+                "title": _mission_description(data, row, documents),
+                "points": _number(row, "_seasonPassPoint"),
+            }
+        )
     monthly_rewards: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rows("MasterMonthlyPassDailyReward"):
-        monthly_rewards[_number(row, "_monthlyPassId")].append({
-            "day": _number(row, "_dayCount"),
-            "reward": _resource(
-                data, documents, resource_types,
-                _number(row, "_resourceType"), _number(row, "_resourceId"),
-                _number(row, "_resourceCount"),
-            ),
-        })
+        monthly_rewards[_number(row, "_monthlyPassId")].append(
+            {
+                "day": _number(row, "_dayCount"),
+                "reward": _resource(
+                    data,
+                    documents,
+                    resource_types,
+                    _number(row, "_resourceType"),
+                    _number(row, "_resourceId"),
+                    _number(row, "_resourceCount"),
+                ),
+            }
+        )
     entries = {}
     for row in data.rows("MasterSeasonPass"):
         identity = _number(row, "_id")
@@ -1178,7 +1574,9 @@ def _passes(
             description=data.text(row.get("_descriptionTextId")),
             start_at=stamp(row.get("_startAt")),
             end_at=stamp(row.get("_endAt")),
-            levels=sorted(levels[identity], key=lambda value: (value["level"], value["premium"])),
+            levels=sorted(
+                levels[identity], key=lambda value: (value["level"], value["premium"])
+            ),
             tasks=season_tasks[identity],
         )
     for row in data.rows("MasterMonthlyPass"):
@@ -1200,7 +1598,9 @@ def _passes(
     return {"entries": entries}
 
 
-def _home_banners(data: Any, stamp: Callable[[Any], list[int | None]]) -> dict[str, Any]:
+def _home_banners(
+    data: Any, stamp: Callable[[Any], list[int | None]]
+) -> dict[str, Any]:
     """The carousel the game itself shows at the bottom-left of its home screen.
 
     ``MasterHomeBanner`` rows are pure images with a display window and a
@@ -1246,11 +1646,12 @@ def build_game_systems(
     resource_types: dict[int, str],
     stamp: Callable[[Any], list[int | None]],
 ) -> dict[str, dict[str, Any]]:
+    gacha = _gacha(data, documents, resource_types, stamp)
     base = {
-        "events": _events(data, documents, resource_types, stamp),
+        "events": _events(data, {**documents, "gacha": gacha}, resource_types, stamp),
         "real-lives": _real_lives(data, documents, stamp),
         "home-banners": _home_banners(data, stamp),
-        "gacha": _gacha(data, documents, resource_types, stamp),
+        "gacha": gacha,
         "login-campaigns": _login(data, documents, resource_types, stamp),
         "shop": _shop(data, documents, resource_types, stamp),
         "exchange": _exchange(data, documents, resource_types, stamp),

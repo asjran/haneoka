@@ -19,6 +19,7 @@ import type { Locale } from "@haneoka/i18n";
 import { viewerBufferSize } from "./runtime/viewer-resolution";
 import { segmented } from "./ui/controls";
 import { CUBISM_CORE_URLS, CUBISM_WEB_RUNTIME_URL } from "../lib/cubism-runtime";
+import type { CubismTextureVariant } from "@haneoka/vega-plugin-cubism";
 
 type Value = Record<string, unknown>;
 type Parameter = { id: string; value: number; minimum: number; maximum: number; defaultValue: number };
@@ -40,6 +41,7 @@ interface Viewer {
   captureSupersampled(scale: number, copy: (canvas: HTMLCanvasElement) => void): boolean;
   load(options: {
     modelUrl: string;
+    textureVariants?: readonly CubismTextureVariant[];
     harmonicMotion?: unknown;
     defaultMotionName?: string;
     autoIdleMotion?: boolean;
@@ -574,6 +576,9 @@ export class Live2DWorkspace extends LitElement {
       resize();
       await viewer!.load({
         modelUrl,
+        textureVariants: Array.isArray(readPath(detail, "runtime.textureVariants"))
+          ? readPath(detail, "runtime.textureVariants") as CubismTextureVariant[]
+          : undefined,
         harmonicMotion: this.harmonicMotionData(detail),
         defaultMotionName: defaultMotion || undefined,
         autoIdleMotion: false,

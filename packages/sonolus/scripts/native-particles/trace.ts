@@ -226,6 +226,8 @@ const DRAW_OFFSETS = [3, 5, 7, 11, 17, 23, 29, 37] as const;
 export interface TracerOptions {
   releaseRoot: string;
   currentQuality?: number;
+  /** Selected MasterLiveNoteEffectSkin asset; quality remains independent. */
+  noteEffectSkin?: "effect001" | "effect001Simple";
 }
 
 export class EffectTracer {
@@ -249,6 +251,7 @@ export class EffectTracer {
     this.assets = createOurNotesAssetManifest(
       {
         noteAtlasTextureUrl: "/unused",
+        noteEffectSkin: options.noteEffectSkin ?? "effect001",
         currentQuality: options.currentQuality ?? 0,
         hud: {
           judgementImages: {},

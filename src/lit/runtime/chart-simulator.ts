@@ -17,14 +17,18 @@ import {
   OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
   OUR_NOTES_NOTE_SKINS,
   OUR_NOTES_NOTE_SKIN_NAMES,
+  OUR_NOTES_NOTE_SE_GROUP_IDS,
+  OUR_NOTES_NOTE_SE_GROUP_NAMES,
   OUR_NOTES_STAGE_NAMES,
   DEFAULT_RENDER_SETTINGS,
   createOurNotesPlugin,
+  ourNotesNoteSoundsForRelease,
   type RenderFrameBuilder,
   type RenderSettings,
   type OurNotesAssetManifest,
   type OurNotesRuntimeMediaManifest,
   type OurNotesLiveQuality,
+  type OurNotesNoteSeGroup,
   type OurNotesNoteEffectSkin,
   type OurNotesNoteSkin,
 } from "@haneoka/cassiopeia-plugin-our-notes";
@@ -65,6 +69,9 @@ type ChartUiKey =
   | "noteSkin"
   | "noteEffectSkin"
   | "liveQuality"
+  | "noteSe"
+  | "noteSeLoading"
+  | "noteSeError"
   | "longOpacity"
   | "guideOpacity"
   | "mirror"
@@ -82,8 +89,16 @@ type ChartUiKey =
   | "noteTap"
   | "noteFlick"
   | "noteSlide"
+  | "loading"
+  | "runtimeError"
   | "collapse"
   | "expand";
+
+type NoteSoundSwap = {
+  controller: AbortController;
+  target: OurNotesNoteSeGroup;
+  player?: NoteSoundPlayer;
+};
 
 const SETTINGS_KEY = "haneoka:chart-player:v1";
 
@@ -117,6 +132,9 @@ export class ChartSimulator extends LitElement {
     noteSkin: { state: true },
     noteEffectSkin: { state: true },
     liveQuality: { state: true },
+    noteSeGroup: { state: true },
+    noteSoundSwapTarget: { state: true },
+    noteSoundStatus: { state: true },
     stageBackground: { state: true },
     playbackRate: { state: true },
     volume: { state: true },
@@ -141,6 +159,9 @@ export class ChartSimulator extends LitElement {
   declare noteSkin: OurNotesNoteSkin;
   declare noteEffectSkin: OurNotesNoteEffectSkin;
   declare liveQuality: OurNotesLiveQuality;
+  declare noteSeGroup: OurNotesNoteSeGroup;
+  declare noteSoundSwapTarget: OurNotesNoteSeGroup | undefined;
+  declare noteSoundStatus: "idle" | "loading" | "error";
   declare stageBackground: StageBackground;
   declare playbackRate: number;
   declare volume: number;
@@ -162,6 +183,7 @@ export class ChartSimulator extends LitElement {
   private frames?: RenderFrameBuilder;
   private clock?: MediaClock;
   private noteSounds?: NoteSoundPlayer;
+  private noteSoundSwap?: NoteSoundSwap;
   private stagePointer?: { x: number; y: number };
   private overviewSkin?: Awaited<ReturnType<typeof loadDetailedOverviewSkin>>;
   private resizeObserver?: ResizeObserver;
@@ -199,6 +221,9 @@ export class ChartSimulator extends LitElement {
     this.noteEffectSkin = "effect001";
     // Native High quality: full effect001 prefabs and a 1.0 effect-camera scale.
     this.liveQuality = 0;
+    this.noteSeGroup = 1;
+    this.noteSoundSwapTarget = undefined;
+    this.noteSoundStatus = "idle";
     this.stageBackground = "auto";
     this.playbackRate = 1;
     this.volume = 0.8;
@@ -357,6 +382,7 @@ export class ChartSimulator extends LitElement {
     const media: OurNotesRuntimeMediaManifest = {
       noteSkin: selectedSkin,
       noteEffectSkin: selectedEffectSkin,
+      noteSeGroup: this.noteSeGroup,
       // Low quality loads effect001Light only when the release ships it; the
       // native loader falls back to the base skin otherwise.
       currentQuality:
@@ -449,6 +475,7 @@ export class ChartSimulator extends LitElement {
         noteSkin?: OurNotesNoteSkin;
         noteEffectSkin?: OurNotesNoteEffectSkin;
         liveQuality?: OurNotesLiveQuality;
+        noteSeGroup?: OurNotesNoteSeGroup;
       } | null;
       if (!saved) return;
       const number = (value: unknown, minimum: number, maximum: number, fallback: number) => {
@@ -486,6 +513,8 @@ export class ChartSimulator extends LitElement {
         this.noteEffectSkin = saved.noteEffectSkin!;
       if (OUR_NOTES_LIVE_QUALITIES.includes(saved.liveQuality as OurNotesLiveQuality))
         this.liveQuality = saved.liveQuality!;
+      if (OUR_NOTES_NOTE_SE_GROUP_IDS.includes(saved.noteSeGroup as OurNotesNoteSeGroup))
+        this.noteSeGroup = saved.noteSeGroup!;
     } catch {
       localStorage.removeItem(SETTINGS_KEY);
     }
@@ -502,6 +531,7 @@ export class ChartSimulator extends LitElement {
           noteSkin: this.noteSkin,
           noteEffectSkin: this.noteEffectSkin,
           liveQuality: this.liveQuality,
+          noteSeGroup: this.noteSeGroup,
         }),
       );
     } catch {
@@ -536,6 +566,50 @@ export class ChartSimulator extends LitElement {
     this.volume = clamp(Number(value) || 0, 0, 1);
     if (this.clock) this.clock.audio.volume = this.volume;
     this.persistSettings();
+  }
+  private async switchNoteSeGroup(target: OurNotesNoteSeGroup) {
+    if (target === this.noteSeGroup && !this.noteSoundSwap) {
+      this.noteSoundStatus = "idle";
+      this.noteSoundSwapTarget = undefined;
+      return;
+    }
+    this.noteSoundSwap?.controller.abort();
+    this.noteSoundSwap?.player?.dispose();
+    const swap: NoteSoundSwap = { controller: new AbortController(), target };
+    this.noteSoundSwap = swap;
+    this.noteSoundSwapTarget = target;
+    this.noteSoundStatus = "loading";
+    try {
+      const replacement = this.runtime()
+        .require(WEB_HOST)
+        .createNoteSounds(ourNotesNoteSoundsForRelease(this.server, target));
+      swap.player = replacement;
+      if (this.playing) await replacement.unlock();
+      else await replacement.load();
+      if (swap.controller.signal.aborted || this.noteSoundSwap !== swap) {
+        replacement.dispose();
+        return;
+      }
+      const previous = this.noteSounds;
+      this.noteSounds = replacement;
+      this.noteSeGroup = target;
+      this.noteSoundSwap = undefined;
+      this.noteSoundSwapTarget = undefined;
+      this.noteSoundStatus = "idle";
+      this.persistSettings();
+      previous?.dispose();
+    } catch (error) {
+      swap.player?.dispose();
+      if (this.noteSoundSwap !== swap) return;
+      this.noteSoundSwap = undefined;
+      this.noteSoundSwapTarget = undefined;
+      if (swap.controller.signal.aborted) {
+        this.noteSoundStatus = "idle";
+        return;
+      }
+      this.noteSoundStatus = "error";
+      console.warn("Unable to load the selected chart note sounds", error);
+    }
   }
   private async setStageBackground(value: StageBackground) {
     this.stageBackground = value;
@@ -585,7 +659,9 @@ export class ChartSimulator extends LitElement {
     };
     clock.audio.addEventListener("loadedmetadata", updateDuration);
     clock.audio.addEventListener("durationchange", updateDuration);
-    this.noteSounds = this.runtime().require(WEB_HOST).createNoteSounds(this.assets.noteSounds);
+    this.noteSounds = this.runtime()
+      .require(WEB_HOST)
+      .createNoteSounds(ourNotesNoteSoundsForRelease(this.server, this.noteSeGroup));
     void this.noteSounds.load().catch((error: unknown) => {
       if (!signal.aborted) console.warn("Unable to load chart note sounds", error);
     });
@@ -778,6 +854,11 @@ export class ChartSimulator extends LitElement {
   private dispose() {
     this.loadAbort?.abort();
     this.loadAbort = undefined;
+    this.noteSoundSwap?.controller.abort();
+    this.noteSoundSwap?.player?.dispose();
+    this.noteSoundSwap = undefined;
+    this.noteSoundSwapTarget = undefined;
+    this.noteSoundStatus = "idle";
     this.sourceFilesCache = undefined;
     this.pluginRuntime?.dispose();
     this.pluginRuntime = undefined;
@@ -803,49 +884,7 @@ export class ChartSimulator extends LitElement {
   }
   private ui(key: ChartUiKey) {
     if (key === "collapse" || key === "expand") return uiText(this.locale, key);
-    const copy = {
-      play: ["プレイ", "Play", "遊玩", "游玩", "플레이"],
-      pause: ["一時停止", "Pause", "暫停", "暂停", "일시 정지"],
-      loop: ["ループ", "Loop", "循環", "循环", "반복"],
-      fullscreen: ["全画面", "Fullscreen", "全螢幕", "全屏", "전체 화면"],
-      settings: ["ライブ設定", "Live settings", "LIVE 設定", "LIVE 设置", "라이브 설정"],
-      reset: ["リセット", "Reset", "重設", "重置", "초기화"],
-      close: ["閉じる", "Close", "關閉", "关闭", "닫기"],
-      playback: ["再生", "Playback", "播放", "播放", "재생"],
-      volume: ["音量", "Volume", "音量", "音量", "볼륨"],
-      playbackSpeed: ["再生速度", "Playback speed", "播放速度", "播放速度", "재생 속도"],
-      notes: ["ノーツ", "Notes", "音符", "音符", "노트"],
-      noteSpeed: ["ノーツ速度", "Note speed", "音符速度", "音符速度", "노트 속도"],
-      noteSize: ["ノーツ幅", "Note width", "音符寬度", "音符宽度", "노트 너비"],
-      noteSkin: ["ノーツデザイン", "Note design", "音符樣式", "音符样式", "노트 디자인"],
-      noteEffectSkin: ["判定エフェクト", "Judgement effect", "判定特效", "判定特效", "판정 이펙트"],
-      liveQuality: ["ライブ画質", "Live quality", "演出畫質", "演出画质", "라이브 화질"],
-      longOpacity: ["ロング透明度", "Long-note opacity", "長條透明度", "长条透明度", "롱 노트 투명도"],
-      guideOpacity: ["ガイド透明度", "Guide-note opacity", "引導音符透明度", "引导音符透明度", "가이드 노트 투명도"],
-      mirror: ["ミラー", "Mirror", "鏡像", "镜像", "미러"],
-      effects: ["エフェクト", "Effects", "特效", "特效", "이펙트"],
-      simultaneousLine: ["同時ライン", "Simultaneous line", "同時線", "同时线", "동시 라인"],
-      judgementLine: ["判定ライン", "Judgement line", "判定線", "判定线", "판정선"],
-      stage: ["ステージ", "Stage", "舞台", "舞台", "스테이지"],
-      stageBackground: ["ステージ背景", "Stage background", "舞台背景", "舞台背景", "스테이지 배경"],
-      songBand: ["楽曲のバンド", "Song band", "歌曲樂隊", "歌曲乐队", "곡 밴드"],
-      noBackground: ["背景なし", "No background", "無背景", "无背景", "배경 없음"],
-      backgroundBrightness: ["背景の明るさ", "Background brightness", "背景亮度", "背景亮度", "배경 밝기"],
-      laneOpacity: ["レーン透明度", "Lane opacity", "軌道透明度", "轨道透明度", "레인 투명도"],
-      guidelineOpacity: [
-        "ガイドライン透明度",
-        "Guideline opacity",
-        "分隔線透明度",
-        "分隔线透明度",
-        "가이드라인 투명도",
-      ],
-      guidelineCount: ["ガイドライン数", "Guideline count", "分隔線數量", "分隔线数量", "가이드라인 수"],
-      noteTap: ["タップ", "Tap", "單擊", "单击", "탭"],
-      noteFlick: ["フリック", "Flick", "上滑", "上滑", "플릭"],
-      noteSlide: ["スライド", "Slide", "滑鍵", "滑键", "슬라이드"],
-    } as const;
-    const index = Math.max(0, ["ja", "en", "zh-TW", "zh-CN", "ko"].indexOf(this.locale));
-    return copy[key][index] || copy[key][1];
+    return uiText(this.locale, `chartPlayer.${key}`);
   }
   private renderSettingSlider(
     key: NumericRenderSetting,
@@ -1013,6 +1052,37 @@ export class ChartSimulator extends LitElement {
                 )}
               </select>
             </label>
+            <label class="chart-runtime__setting chart-runtime__setting--select">
+              <span>${this.ui("noteSe")}</span>
+              <select
+                @change=${(event: Event) =>
+                  void this.switchNoteSeGroup(
+                    Number((event.currentTarget as HTMLSelectElement).value) as OurNotesNoteSeGroup,
+                  )}
+              >
+                ${OUR_NOTES_NOTE_SE_GROUP_IDS.map(
+                  (group) => html`
+                    <option value=${group} ?selected=${(this.noteSoundSwapTarget ?? this.noteSeGroup) === group}>
+                      ${OUR_NOTES_NOTE_SE_GROUP_NAMES[group][this.locale] || OUR_NOTES_NOTE_SE_GROUP_NAMES[group].en}
+                    </option>
+                  `,
+                )}
+              </select>
+            </label>
+            ${
+              this.noteSoundStatus === "loading"
+                ? html`
+                    <div class="chart-runtime__setting" role="status" aria-live="polite" aria-busy="true">
+                      <span>${this.ui("noteSeLoading")}</span>
+                      <md-circular-progress indeterminate aria-label=${this.ui("loading")}></md-circular-progress>
+                    </div>
+                  `
+                : this.noteSoundStatus === "error"
+                  ? html`
+                      <div class="chart-runtime__setting" role="alert">${this.ui("noteSeError")}</div>
+                    `
+                  : nothing
+            }
             ${this.renderSettingSlider("noteSpeed", this.ui("noteSpeed"), 1, 12, 0.1)}
             ${this.renderSettingSlider("noteSize", this.ui("noteSize"), 0.5, 1.5, 0.05, percent)}
             ${this.renderSettingSlider("longAlpha", this.ui("longOpacity"), 0.1, 1, 0.05, percent)}
@@ -1067,11 +1137,11 @@ export class ChartSimulator extends LitElement {
         ${
           this.phase === "loading"
             ? html`
-                ${loadingState(uiText(this.locale, "loading"))}
+                ${loadingState(this.ui("loading"))}
               `
             : this.phase === "error"
               ? html`
-                  <div class="notice"><p>Unable to load the Our Notes chart runtime.</p></div>
+                  <div class="notice"><p>${this.ui("runtimeError")}</p></div>
                 `
               : nothing
         }

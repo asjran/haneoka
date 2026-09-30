@@ -46,7 +46,10 @@ USM_ENCODING_FALLBACKS = ("cp932", "gb18030", "big5", "cp949", "latin-1")
 # Both live releases carry the v2 id already; adoption now only matches the
 # current transform id. A DECODE_CONTRACT bump therefore means exactly one
 # full re-decode, and nothing else ever does.
-COMPATIBLE_HCA_KEY_SHA256 = "cd0b2ad6de5baa070f1c00baa33658b493a138919f00a4ed8418a7ff6af6ba2f"
+COMPATIBLE_HCA_KEY_SHA256 = (
+    "cd0b2ad6de5baa070f1c00baa33658b493a138919f00a4ed8418a7ff6af6ba2f"
+)
+NOTE_SE_DECODE_PROFILE = "note-se-original-stream-once-v1"
 RestoreOutput = Callable[[dict[str, Any], Path], None]
 
 
@@ -65,7 +68,9 @@ def _cri_transform_id(config: ServerConfig) -> str:
 TASK_ID_SCHEMAS = (CRI_TRANSFORM_SCHEMA, "haneoka-cri-transform-v1")
 
 
-def _cri_task_id(task: dict[str, Any], transform_id: str, schema: str = CRI_TRANSFORM_SCHEMA) -> str:
+def _cri_task_id(
+    task: dict[str, Any], transform_id: str, schema: str = CRI_TRANSFORM_SCHEMA
+) -> str:
     identity = {
         "schema": schema,
         "transformId": transform_id,
@@ -74,6 +79,9 @@ def _cri_task_id(task: dict[str, Any], transform_id: str, schema: str = CRI_TRAN
         "runtimePath": task["relative"].as_posix(),
         "preferredStem": str(task.get("preferred") or ""),
     }
+    semantic_decode_profile = str(task.get("semanticDecodeProfile") or "")
+    if semantic_decode_profile:
+        identity["semanticDecodeProfile"] = semantic_decode_profile
     return sha256_bytes(stable_json(identity))
 
 
@@ -84,7 +92,9 @@ def _tool(name: str) -> str:
     return value
 
 
-def _run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run(
+    command: list[str], cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     # vgmstream/ffmpeg may emit non-UTF-8 bytes (e.g. Shift-JIS cue names embedded
     # in ACB UTF tables, or binary-ish header lines). Decode leniently so a stray
     # byte in tool output never crashes an otherwise-decodable source; the JSON
@@ -94,7 +104,9 @@ def _run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedPro
     )
     if result.returncode:
         detail = (result.stderr or result.stdout).strip()[:1000]
-        raise RuntimeError(f"command failed ({result.returncode}): {' '.join(command)}\n{detail}")
+        raise RuntimeError(
+            f"command failed ({result.returncode}): {' '.join(command)}\n{detail}"
+        )
     return result
 
 
@@ -168,7 +180,9 @@ def _ffmpeg_mp3(wav: Path, output: Path) -> None:
     os.replace(temporary, output)
 
 
-def _vgmstream_json_lines(result: subprocess.CompletedProcess[str], source: Path) -> list[dict[str, Any]]:
+def _vgmstream_json_lines(
+    result: subprocess.CompletedProcess[str], source: Path
+) -> list[dict[str, Any]]:
     values = []
     for line in result.stdout.splitlines():
         text = line.strip()
@@ -177,7 +191,9 @@ def _vgmstream_json_lines(result: subprocess.CompletedProcess[str], source: Path
         try:
             value = json.loads(text)
         except json.JSONDecodeError as error:
-            raise ValueError(f"vgmstream returned invalid JSON metadata for {source}") from error
+            raise ValueError(
+                f"vgmstream returned invalid JSON metadata for {source}"
+            ) from error
         if isinstance(value, dict):
             values.append(value)
     if not values:
@@ -195,16 +211,26 @@ def _acb_stream_metadata(source: Path, cwd: Path) -> dict[int, dict[str, Any]]:
     )
     output: dict[int, dict[str, Any]] = {}
     for info in infos:
-        stream = info.get("streamInfo") if isinstance(info.get("streamInfo"), dict) else {}
+        stream = (
+            info.get("streamInfo") if isinstance(info.get("streamInfo"), dict) else {}
+        )
         index = int(stream.get("index") or 0)
         total = int(stream.get("total") or len(infos))
         sample_rate = int(info.get("sampleRate") or 0)
         total_samples = int(info.get("numberOfSamples") or 0)
         if index <= 0 or index in output:
-            raise ValueError(f"vgmstream returned an invalid stream index for {source}: {index}")
+            raise ValueError(
+                f"vgmstream returned an invalid stream index for {source}: {index}"
+            )
         if total != len(infos) or sample_rate <= 0 or total_samples <= 0:
-            raise ValueError(f"vgmstream returned incomplete stream metadata for {source}#{index}")
-        loop = info.get("loopingInfo") if isinstance(info.get("loopingInfo"), dict) else None
+            raise ValueError(
+                f"vgmstream returned incomplete stream metadata for {source}#{index}"
+            )
+        loop = (
+            info.get("loopingInfo")
+            if isinstance(info.get("loopingInfo"), dict)
+            else None
+        )
         loop_start = int((loop or {}).get("start") or 0)
         loop_end = int((loop or {}).get("end") or 0)
         has_loop = loop is not None and loop_end > loop_start >= 0
@@ -222,7 +248,9 @@ def _acb_stream_metadata(source: Path, cwd: Path) -> dict[int, dict[str, Any]]:
                 "isLoop": has_loop,
                 "loopStartSample": loop_start if has_loop else None,
                 "loopEndSample": loop_end if has_loop else None,
-                "loopStartMs": round(loop_start / sample_rate * 1000) if has_loop else None,
+                "loopStartMs": round(loop_start / sample_rate * 1000)
+                if has_loop
+                else None,
                 "loopEndMs": round(loop_end / sample_rate * 1000) if has_loop else None,
             },
         }
@@ -236,7 +264,13 @@ def _decoded_stream_index(path: Path) -> int:
     return int(match.group(1))
 
 
-def _decode_acb(payload: Path, output: Path, hca_key: str, preferred_stem: str = "") -> list[dict[str, Any]]:
+def _decode_acb(
+    payload: Path,
+    output: Path,
+    hca_key: str,
+    preferred_stem: str = "",
+    semantic_decode_profile: str = "",
+) -> list[dict[str, Any]]:
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="haneoka-acb-") as directory:
         scratch = Path(directory)
@@ -244,7 +278,13 @@ def _decode_acb(payload: Path, output: Path, hca_key: str, preferred_stem: str =
         shutil.copy2(payload, source)
         (scratch / ".hcakey").write_text(hca_key, "ascii")
         metadata = _acb_stream_metadata(source, scratch)
-        _run([_tool("vgmstream-cli"), "-S", "0", "-o", "?s_?n.wav", source.name], cwd=scratch)
+        decode_command = [_tool("vgmstream-cli")]
+        if semantic_decode_profile == NOTE_SE_DECODE_PROFILE:
+            # Native note-SE playback sets CRIplayerLoop(-3); export one
+            # original stream interval and retain the native metadata above.
+            decode_command.append("-i")
+        decode_command.extend(["-S", "0", "-o", "?s_?n.wav", source.name])
+        _run(decode_command, cwd=scratch)
         wavs = sorted(scratch.glob("*.wav"), key=_decoded_stream_index)
         if not wavs:
             raise RuntimeError(f"vgmstream produced no audio: {payload}")
@@ -258,9 +298,13 @@ def _decode_acb(payload: Path, output: Path, hca_key: str, preferred_stem: str =
             stream_index = _decoded_stream_index(wav)
             stream_metadata = metadata.get(stream_index)
             if stream_metadata is None:
-                raise RuntimeError(f"vgmstream output has no matching metadata: {payload}#{stream_index}")
+                raise RuntimeError(
+                    f"vgmstream output has no matching metadata: {payload}#{stream_index}"
+                )
             stem = _safe_name(
-                f"{preferred_stem}_{index + 1}" if preferred_stem and len(wavs) > 1 else preferred_stem or wav.stem,
+                f"{preferred_stem}_{index + 1}"
+                if preferred_stem and len(wavs) > 1
+                else preferred_stem or wav.stem,
                 f"stream-{index + 1}",
             )
             name = stem
@@ -337,7 +381,9 @@ def _decode_usm(
                 except ValueError:
                     candidate.unlink()
                     continue
-                target = candidate.with_suffix(".ivf" if header.startswith(b"DKIF") else ".m2v")
+                target = candidate.with_suffix(
+                    ".ivf" if header.startswith(b"DKIF") else ".m2v"
+                )
                 os.replace(candidate, target)
                 try:
                     probe = _probe_streams(target)
@@ -350,7 +396,9 @@ def _decode_usm(
                 selected = target
                 break
             if selected is None:
-                raise ValueError(f"USM video stream {index} is neither a supported encrypted nor plain video")
+                raise ValueError(
+                    f"USM video stream {index} is neither a supported encrypted nor plain video"
+                )
             video_files.append(selected)
             # Sofdec2 carries per-stream transparency as a parallel alpha
             # mask stream (MPEG-1 grayscale here); pair it with the color
@@ -365,7 +413,9 @@ def _decode_usm(
             with alpha_candidate.open("rb") as input_stream:
                 alpha_header = input_stream.read(12)
             if alpha_header[:4] == b"DKIF" or alpha_header[:4] == b"\x00\x00\x01\xb3":
-                alpha_target = alpha_candidate.with_suffix(".ivf" if alpha_header[:4] == b"DKIF" else ".m2v")
+                alpha_target = alpha_candidate.with_suffix(
+                    ".ivf" if alpha_header[:4] == b"DKIF" else ".m2v"
+                )
                 os.replace(alpha_candidate, alpha_target)
                 alpha_files[index] = alpha_target
             else:
@@ -376,18 +426,28 @@ def _decode_usm(
             with raw_audio.open("wb") as file:
                 for packet in stream.stream(OpMode.DECRYPT, usm.audio_key):
                     file.write(packet[0] if isinstance(packet, tuple) else packet)
-            compressed = raw_audio.with_suffix(_cri_audio_extension(raw_audio.read_bytes()[:4]))
+            compressed = raw_audio.with_suffix(
+                _cri_audio_extension(raw_audio.read_bytes()[:4])
+            )
             os.replace(raw_audio, compressed)
             audio = scratch / "audio.wav"
             if compressed.suffix == ".hca":
                 (scratch / ".hcakey").write_text(key, "ascii")
-            _run([_tool("vgmstream-cli"), "-o", str(audio), str(compressed)], cwd=scratch)
+            _run(
+                [_tool("vgmstream-cli"), "-o", str(audio), str(compressed)], cwd=scratch
+            )
         if not video_files:
             raise RuntimeError(f"USM contains no video stream: {payload}")
         records = []
         for index, video in enumerate(video_files):
-            suffix, video_codec, audio_codec = _video_output_profile(video.read_bytes()[:12])
-            name = f"video{suffix}" if len(video_files) == 1 else f"video-{index + 1}{suffix}"
+            suffix, video_codec, audio_codec = _video_output_profile(
+                video.read_bytes()[:12]
+            )
+            name = (
+                f"video{suffix}"
+                if len(video_files) == 1
+                else f"video-{index + 1}{suffix}"
+            )
             target = output / name
             temporary = target.with_name(f".{target.stem}.{os.getpid()}.tmp{suffix}")
             alpha = alpha_files.get(index)
@@ -455,7 +515,13 @@ def _decode_usm(
             command.append(str(temporary))
             _run(command)
             os.replace(temporary, target)
-            records.append({"path": target.as_posix(), "bytes": target.stat().st_size, "sha256": sha256_file(target)})
+            records.append(
+                {
+                    "path": target.as_posix(),
+                    "bytes": target.stat().st_size,
+                    "sha256": sha256_file(target),
+                }
+            )
         return records
 
 
@@ -477,7 +543,9 @@ def _remote_runtime_path(artifact: dict[str, Any]) -> PurePosixPath:
     locales = set(str(value) for value in addressables.get("locales", []))
     if locales and not locales.intersection({"", "ja"}):
         if len(locales) != 1 or not locales <= {"en", "zh-Hant", "zh-Hans", "ko"}:
-            raise ValueError(f"CRI payload has unsupported locale ownership: {filename}: {sorted(locales)}")
+            raise ValueError(
+                f"CRI payload has unsupported locale ownership: {filename}: {sorted(locales)}"
+            )
         stem = f"{stem}({next(iter(locales))})"
     namespace = str(parts[1] if len(parts) > 1 else "cri_assets_cri/unknown")
     if namespace.startswith("cri_assets_"):
@@ -546,14 +614,24 @@ def _embedded_payloads(
             for output in record.get("outputs", []):
                 match = CHUNK_SUFFIX.search(output["path"])
                 if match:
-                    chunks.append((int(match.group(1)), str(output["path"]), build.root / output["path"]))
+                    chunks.append(
+                        (
+                            int(match.group(1)),
+                            str(output["path"]),
+                            build.root / output["path"],
+                        )
+                    )
             if not chunks:
                 continue
             for _, relative, file in sorted(chunks):
                 if file.is_file() or delta is None:
                     continue
                 declared = next(
-                    (output for output in record.get("outputs", []) if str(output.get("path")) == relative),
+                    (
+                        output
+                        for output in record.get("outputs", [])
+                        if str(output.get("path")) == relative
+                    ),
                     None,
                 )
                 digest = str((declared or {}).get("bundleSha256") or "")
@@ -562,7 +640,10 @@ def _embedded_payloads(
                         f"embedded CRI chunk is missing locally and cannot be restored: {relative}"
                     )
                 delta.fetch_release_path(relative, file)
-            raw = b"".join(bytes(value ^ 0x5A for value in file.read_bytes()) for _, _, file in sorted(chunks))
+            raw = b"".join(
+                bytes(value ^ 0x5A for value in file.read_bytes())
+                for _, _, file in sorted(chunks)
+            )
         if raw[:4] != b"@UTF":
             continue
         if len(raw) >= 8:
@@ -572,12 +653,16 @@ def _embedded_payloads(
         if any(part.casefold().startswith("notese_") for part in tail.parts):
             relative = PurePosixPath("note-se")
         else:
-            relative = PurePosixPath("cri", *[part.casefold() for part in tail.parts[:-1]], source.stem)
+            relative = PurePosixPath(
+                "cri", *[part.casefold() for part in tail.parts[:-1]], source.stem
+            )
         values.append((source_path, raw, relative))
     return values
 
 
-def _metadata_from_acb_payload(payload: Path | bytes, hca_key: str) -> dict[int, dict[str, Any]]:
+def _metadata_from_acb_payload(
+    payload: Path | bytes, hca_key: str
+) -> dict[int, dict[str, Any]]:
     with tempfile.TemporaryDirectory(prefix="haneoka-acb-metadata-") as directory:
         scratch = Path(directory)
         source = scratch / "source.acb"
@@ -606,7 +691,9 @@ def _existing_output_stream_index(
     ]
     if len(cue_matches) == 1:
         return cue_matches[0]
-    raise ValueError(f"CRI output cannot be bound to exact vgmstream metadata: {output.get('path')}")
+    raise ValueError(
+        f"CRI output cannot be bound to exact vgmstream metadata: {output.get('path')}"
+    )
 
 
 def refresh_cri_audio_metadata(
@@ -629,20 +716,28 @@ def refresh_cri_audio_metadata(
             continue
         name = str(artifact.get("originalFilename") or "")
         if not name or name in artifacts:
-            raise ValueError(f"CRI source manifest has a missing or duplicate original filename: {name!r}")
+            raise ValueError(
+                f"CRI source manifest has a missing or duplicate original filename: {name!r}"
+            )
         artifacts[name] = source.root / str(artifact.get("path") or "")
     embedded = {
         source_path: payload
         for source_path, payload, _ in _embedded_payloads(build, source_index)
     }
 
-    entries = [entry for entry in manifest.get("entries", []) if entry.get("kind") == "acb"]
+    entries = [
+        entry for entry in manifest.get("entries", []) if entry.get("kind") == "acb"
+    ]
     tasks: list[tuple[dict[str, Any], Path | bytes]] = []
     for entry in entries:
-        source_record = entry.get("source") if isinstance(entry.get("source"), dict) else {}
+        source_record = (
+            entry.get("source") if isinstance(entry.get("source"), dict) else {}
+        )
         original = str(source_record.get("originalFilename") or "")
         unity_source = str(source_record.get("unitySourcePath") or "")
-        payload: Path | bytes | None = artifacts.get(original) if original else embedded.get(unity_source)
+        payload: Path | bytes | None = (
+            artifacts.get(original) if original else embedded.get(unity_source)
+        )
         if payload is None:
             raise FileNotFoundError(
                 f"CRI manifest source payload is missing: {original or unity_source or entry.get('runtimePath')}"
@@ -670,12 +765,16 @@ def refresh_cri_audio_metadata(
         for output in outputs:
             index = _existing_output_stream_index(output, metadata)
             if index in used:
-                raise ValueError(f"CRI stream metadata is reused: {entry.get('runtimePath')}#{index}")
+                raise ValueError(
+                    f"CRI stream metadata is reused: {entry.get('runtimePath')}#{index}"
+                )
             used.add(index)
             output.update(metadata[index])
             output_count += 1
         if used != set(metadata):
-            raise ValueError(f"CRI stream metadata is incomplete: {entry.get('runtimePath')}")
+            raise ValueError(
+                f"CRI stream metadata is incomplete: {entry.get('runtimePath')}"
+            )
 
     write_json(manifest_path, manifest, pretty=True)
     return {
@@ -688,7 +787,9 @@ def refresh_cri_audio_metadata(
     }
 
 
-def _decode_task(task: dict[str, Any], config: ServerConfig, root: Path) -> dict[str, Any]:
+def _decode_task(
+    task: dict[str, Any], config: ServerConfig, root: Path
+) -> dict[str, Any]:
     output = root / Path(*task["relative"].parts)
     payload = task.get("payload")
     temporary: Path | None = None
@@ -699,7 +800,13 @@ def _decode_task(task: dict[str, Any], config: ServerConfig, root: Path) -> dict
             temporary.write_bytes(task["bytes"])
             payload = temporary
         files = (
-            _decode_acb(payload, output, config.cri_hca_key, task.get("preferred", ""))
+            _decode_acb(
+                payload,
+                output,
+                config.cri_hca_key,
+                task.get("preferred", ""),
+                task.get("semanticDecodeProfile", ""),
+            )
             if task["kind"] == "acb"
             else _decode_usm(
                 payload,
@@ -709,7 +816,9 @@ def _decode_task(task: dict[str, Any], config: ServerConfig, root: Path) -> dict
             )
         )
     except Exception as error:
-        raise RuntimeError(f"failed to decode CRI source {task['label']}: {error}") from error
+        raise RuntimeError(
+            f"failed to decode CRI source {task['label']}: {error}"
+        ) from error
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -735,6 +844,11 @@ def _decode_task(task: dict[str, Any], config: ServerConfig, root: Path) -> dict
         "kind": task["kind"],
         "runtimePath": task["relative"].as_posix(),
         "taskId": task["taskId"],
+        **(
+            {"semanticDecodeProfile": task["semanticDecodeProfile"]}
+            if task.get("semanticDecodeProfile")
+            else {}
+        ),
         "outputs": outputs,
     }
 
@@ -754,7 +868,9 @@ def _cached_output_relative(output: dict[str, Any]) -> PurePosixPath:
     return relative
 
 
-def _cached_records(manifest: dict[str, Any] | None, transform_id: str) -> dict[str, dict[str, Any]]:
+def _cached_records(
+    manifest: dict[str, Any] | None, transform_id: str
+) -> dict[str, dict[str, Any]]:
     if (
         not isinstance(manifest, dict)
         or manifest.get("schema") != CRI_SCHEMA
@@ -776,13 +892,19 @@ def _cached_records(manifest: dict[str, Any] | None, transform_id: str) -> dict[
             or not isinstance(outputs, list)
             or not outputs
         ):
-            raise ValueError("current CRI cache manifest contains an invalid or repeated task")
+            raise ValueError(
+                "current CRI cache manifest contains an invalid or repeated task"
+            )
         for output in outputs:
             if not isinstance(output, dict):
-                raise ValueError("current CRI cache manifest contains a non-object output")
+                raise ValueError(
+                    "current CRI cache manifest contains a non-object output"
+                )
             path = _cached_output_relative(output).as_posix()
             if path in paths:
-                raise ValueError(f"current CRI cache manifest repeats an output path: {path}")
+                raise ValueError(
+                    f"current CRI cache manifest repeats an output path: {path}"
+                )
             paths.add(path)
         records[task_id] = record
     return records
@@ -815,6 +937,7 @@ def _declare_cached_record(
     cached_by_source: dict[str, dict[str, Any]],
     source: dict[str, Any],
     runtime_path: PurePosixPath,
+    semantic_decode_profile: str = "",
 ) -> dict[str, Any] | None:
     """Return the base record adoptable for one source identity, if any.
 
@@ -827,6 +950,8 @@ def _declare_cached_record(
     if record is None:
         return None
     if str(record.get("runtimePath") or "") != runtime_path.as_posix():
+        return None
+    if str(record.get("semanticDecodeProfile") or "") != semantic_decode_profile:
         return None
     if not isinstance(record.get("outputs"), list) or not record["outputs"]:
         return None
@@ -860,6 +985,8 @@ def _restore_cached_records(
             record.get("source") != task["source"]
             or record.get("kind") != task["kind"]
             or record.get("runtimePath") != task["relative"].as_posix()
+            or str(record.get("semanticDecodeProfile") or "")
+            != str(task.get("semanticDecodeProfile") or "")
         ):
             continue
         cached = deepcopy(record)
@@ -877,10 +1004,9 @@ def _restore_cached_records(
                 try:
                     relative = _cached_output_relative(output).as_posix()
                     entry = delta.require_entry(relative)
-                    if (
-                        str(entry.get("sha256")) != str(output.get("sha256"))
-                        or int(entry.get("bytes", -1)) != int(output.get("bytes"))
-                    ):
+                    if str(entry.get("sha256")) != str(output.get("sha256")) or int(
+                        entry.get("bytes", -1)
+                    ) != int(output.get("bytes")):
                         raise ValueError("base entry mismatch")
                 except Exception:
                     valid = False
@@ -892,7 +1018,9 @@ def _restore_cached_records(
         return reused, {
             "candidateSourceCount": len(candidates),
             "reusedSourceCount": len(reused),
-            "reusedOutputCount": sum(len(record["outputs"]) for record in reused.values()),
+            "reusedOutputCount": sum(
+                len(record["outputs"]) for record in reused.values()
+            ),
             "reusedBytes": sum(
                 int(output["bytes"])
                 for record in reused.values()
@@ -911,8 +1039,13 @@ def _restore_cached_records(
         index, output, target = job
         try:
             restore_output(output, target)
-            if target.stat().st_size != output["bytes"] or sha256_file(target) != output["sha256"]:
-                raise ValueError(f"restored CRI output does not match its cache identity: {output['path']}")
+            if (
+                target.stat().st_size != output["bytes"]
+                or sha256_file(target) != output["sha256"]
+            ):
+                raise ValueError(
+                    f"restored CRI output does not match its cache identity: {output['path']}"
+                )
             return index, True
         except Exception:
             target.unlink(missing_ok=True)
@@ -926,7 +1059,9 @@ def _restore_cached_records(
         for output in candidates[index]["outputs"]:
             relative = _cached_output_relative(output)
             build_root.joinpath(*relative.parts).unlink(missing_ok=True)
-    reused = {index: record for index, record in candidates.items() if index not in failed}
+    reused = {
+        index: record for index, record in candidates.items() if index not in failed
+    }
     return reused, {
         "candidateSourceCount": len(candidates),
         "reusedSourceCount": len(reused),
@@ -986,13 +1121,17 @@ def _probe_streams(path: Path) -> dict[str, Any]:
     return {
         "videoCount": len(videos),
         "videoCodec": videos[0].get("codec_name") if len(videos) == 1 else None,
-        "videoAlpha": (videos[0].get("tags", {}) or {}).get("alpha_mode") == "1" if len(videos) == 1 else False,
+        "videoAlpha": (videos[0].get("tags", {}) or {}).get("alpha_mode") == "1"
+        if len(videos) == 1
+        else False,
         "audioCount": len(audios),
         "audioCodec": audios[0].get("codec_name") if len(audios) == 1 else None,
     }
 
 
-def _exact_video_entry(entries: list[dict[str, Any]], asset_name: str) -> dict[str, Any] | None:
+def _exact_video_entry(
+    entries: list[dict[str, Any]], asset_name: str
+) -> dict[str, Any] | None:
     """Resolve MasterVideo._assetName by exact normalized runtime path components.
 
     Returns None when no USM matches (e.g. the video is not present in an offline
@@ -1006,9 +1145,13 @@ def _exact_video_entry(entries: list[dict[str, Any]], asset_name: str) -> dict[s
         if entry.get("kind") != "usm":
             continue
         runtime_parts = tuple(
-            part.casefold() for part in PurePosixPath(str(entry.get("runtimePath") or "")).parts
+            part.casefold()
+            for part in PurePosixPath(str(entry.get("runtimePath") or "")).parts
         )
-        if len(runtime_parts) >= len(asset_parts) and runtime_parts[-len(asset_parts):] == asset_parts:
+        if (
+            len(runtime_parts) >= len(asset_parts)
+            and runtime_parts[-len(asset_parts) :] == asset_parts
+        ):
             matches.append(entry)
     if len(matches) > 1:
         raise ValueError(
@@ -1025,7 +1168,9 @@ def _exact_music_audio_entry(
     # Assets/AddressableResources/Cri/Sound/MusicScore/<cue sheet>.asset.
     # Returns None when the ACB is not present (e.g. offline install-time pack without
     # the CDN-served music-score ACBs); raises only on genuine ambiguity (>1 match).
-    runtime_path = PurePosixPath("cri", "sound", "musicscore", cue_sheet_name).as_posix()
+    runtime_path = PurePosixPath(
+        "cri", "sound", "musicscore", cue_sheet_name
+    ).as_posix()
     matches = [
         entry
         for entry in entries_by_runtime.get(runtime_path, [])
@@ -1102,17 +1247,26 @@ def _mux_exact_music_audio(video: Path, audio: Path) -> dict[str, Any]:
         temporary.unlink(missing_ok=True)
 
 
-def _annotate_video_outputs(build_root: Path, entries: list[dict[str, Any]], delta: Any = None) -> None:
+def _annotate_video_outputs(
+    build_root: Path, entries: list[dict[str, Any]], delta: Any = None
+) -> None:
     """Record actual output streams; never copy MasterVideo._hasAudio into the manifest."""
     for entry in entries:
         if entry.get("kind") != "usm":
             continue
         for output in entry.get("outputs", []):
-            if PurePosixPath(str(output.get("path") or "")).suffix.casefold() not in {".webm", ".mp4"}:
+            if PurePosixPath(str(output.get("path") or "")).suffix.casefold() not in {
+                ".webm",
+                ".mp4",
+            }:
                 continue
             path = _runtime_file(build_root, output)
             if not path.is_file():
-                if delta is not None and "hasAudio" in output and "videoCodec" in output:
+                if (
+                    delta is not None
+                    and "hasAudio" in output
+                    and "videoCodec" in output
+                ):
                     # Declared output adopted from the base release: the base
                     # build probed these streams when it produced the file.
                     continue
@@ -1122,7 +1276,9 @@ def _annotate_video_outputs(build_root: Path, entries: list[dict[str, Any]], del
                     raise FileNotFoundError(f"CRI video output is missing: {path}")
             probe = _probe_streams(path)
             if probe["videoCount"] != 1:
-                raise RuntimeError(f"CRI video output has unexpected video stream count: {path}: {probe}")
+                raise RuntimeError(
+                    f"CRI video output has unexpected video stream count: {path}: {probe}"
+                )
             output["hasAudio"] = probe["audioCount"] > 0
             output["videoCodec"] = probe["videoCodec"]
             output["hasAlpha"] = bool(probe.get("videoAlpha"))
@@ -1156,8 +1312,12 @@ def _apply_music_video_audio(
     }
 
     live_music = _master_rows(build_root, "MasterLiveMusic")
-    videos = {int(row.get("_id") or 0): row for row in _master_rows(build_root, "MasterVideo")}
-    sounds = {int(row.get("_id") or 0): row for row in _master_rows(build_root, "MasterSound")}
+    videos = {
+        int(row.get("_id") or 0): row for row in _master_rows(build_root, "MasterVideo")
+    }
+    sounds = {
+        int(row.get("_id") or 0): row for row in _master_rows(build_root, "MasterSound")
+    }
     cue_sheets = {
         int(row.get("_id") or 0): row
         for row in _master_rows(build_root, "MasterSoundCueSheet")
@@ -1173,7 +1333,9 @@ def _apply_music_video_audio(
         sound_id = int(music.get("_musicSoundID") or 0)
         sound = sounds.get(sound_id)
         if not sound:
-            raise ValueError(f"MasterLiveMusic {music_id} references missing MasterSound {sound_id}")
+            raise ValueError(
+                f"MasterLiveMusic {music_id} references missing MasterSound {sound_id}"
+            )
         cue_sheet_id = int(sound.get("_soundCueSheetID") or 0)
         cue_sheet = cue_sheets.get(cue_sheet_id)
         if not cue_sheet:
@@ -1187,12 +1349,16 @@ def _apply_music_video_audio(
                 f"warning: skipping music {music_id} audio/video binding; MusicScore ACB not available: {cue_sheet_name!r}\n"
             )
             continue
-        audio_output = _single_output(audio_entry, {".mp3"}, f"music ACB {cue_sheet_name}")
+        audio_output = _single_output(
+            audio_entry, {".mp3"}, f"music ACB {cue_sheet_name}"
+        )
         audio_path = _runtime_file(build_root, audio_output)
         if audio_path.is_file():
             audio_sha256 = sha256_file(audio_path)
             if audio_output.get("sha256") != audio_sha256:
-                raise ValueError(f"music runtime hash does not match CRI manifest: {audio_path}")
+                raise ValueError(
+                    f"music runtime hash does not match CRI manifest: {audio_path}"
+                )
         elif declare:
             # Declared audio output: its sha256 was validated against the base
             # release manifest when the record was adopted.
@@ -1253,7 +1419,8 @@ def _apply_music_video_audio(
                 if (
                     prior_binding == binding_core
                     and isinstance(base_binding, dict)
-                    and str(base_binding.get("outputSha256") or "") == str(video_output.get("sha256"))
+                    and str(base_binding.get("outputSha256") or "")
+                    == str(video_output.get("sha256"))
                     and isinstance(base_binding.get("hasAudio"), bool)
                 ):
                     probe = {
@@ -1283,7 +1450,9 @@ def _apply_music_video_audio(
                 probe = _probe_streams(video_path)
             else:
                 if video_output.get("sha256") != current_sha256:
-                    raise ValueError(f"video runtime hash does not match CRI manifest: {video_path}")
+                    raise ValueError(
+                        f"video runtime hash does not match CRI manifest: {video_path}"
+                    )
                 probe = _mux_exact_music_audio(video_path, audio_path)
                 current_sha256 = sha256_file(video_path)
                 video_output.update(
@@ -1303,7 +1472,9 @@ def _apply_music_video_audio(
 
     _annotate_video_outputs(build_root, entries, delta=delta)
     if any(not binding["hasAudio"] for binding in bindings):
-        raise RuntimeError("one or more exact Master music-video bindings lack an audio stream")
+        raise RuntimeError(
+            "one or more exact Master music-video bindings lack an audio stream"
+        )
     manifest["schema"] = CRI_SCHEMA
     manifest["musicVideoMux"] = {
         "declaredCount": len(bindings),
@@ -1367,7 +1538,9 @@ def extract_cri(
     declare = delta is not None
 
     tasks: list[dict[str, Any]] = []
-    for artifact in sorted(source_manifest.get("files", []), key=lambda item: item["path"]):
+    for artifact in sorted(
+        source_manifest.get("files", []), key=lambda item: item["path"]
+    ):
         if artifact.get("role") != "cri-payload":
             continue
         payload = source.root / artifact["path"]
@@ -1381,7 +1554,9 @@ def extract_cri(
         if payload.is_file():
             kind = _kind(payload)
             if not kind:
-                raise ValueError(f"unknown CRI payload format: {artifact['originalFilename']}")
+                raise ValueError(
+                    f"unknown CRI payload format: {artifact['originalFilename']}"
+                )
             tasks.append(
                 {
                     "label": artifact["originalFilename"],
@@ -1394,9 +1569,13 @@ def extract_cri(
             )
             continue
         if not declare:
-            raise FileNotFoundError(f"required CRI payload is not available locally: {payload}")
+            raise FileNotFoundError(
+                f"required CRI payload is not available locally: {payload}"
+            )
         record = _declare_cached_record(
-            cached_by_source=_cached_by_source(reuse_manifest, transform_id, "artifactSha256"),
+            cached_by_source=_cached_by_source(
+                reuse_manifest, transform_id, "artifactSha256"
+            ),
             source=source_identity,
             runtime_path=_remote_runtime_path(artifact),
         )
@@ -1406,7 +1585,9 @@ def extract_cri(
             delta.fetch_original_bundle(artifact["sha256"], payload)
             kind = _kind(payload)
             if not kind:
-                raise ValueError(f"unknown CRI payload format: {artifact['originalFilename']}")
+                raise ValueError(
+                    f"unknown CRI payload format: {artifact['originalFilename']}"
+                )
             tasks.append(
                 {
                     "label": artifact["originalFilename"],
@@ -1430,7 +1611,9 @@ def extract_cri(
             }
         )
 
-    for source_path, payload, relative in _embedded_payloads(build, source_index, delta):
+    for source_path, payload, relative in _embedded_payloads(
+        build, source_index, delta
+    ):
         task = {
             "label": source_path,
             "source": {
@@ -1440,8 +1623,12 @@ def extract_cri(
             "kind": "acb",
             "relative": relative,
             "bytes": payload,
-            "preferred": PurePosixPath(source_path).stem if relative == PurePosixPath("note-se") else "",
+            "preferred": PurePosixPath(source_path).stem
+            if relative == PurePosixPath("note-se")
+            else "",
         }
+        if relative == PurePosixPath("note-se"):
+            task["semanticDecodeProfile"] = NOTE_SE_DECODE_PROFILE
         tasks.append(task)
     for task in tasks:
         task["taskId"] = _cri_task_id(task, transform_id)
@@ -1451,13 +1638,16 @@ def extract_cri(
         cache_manifest_accepted = False
         try:
             previous_transform = str((reuse_manifest or {}).get("transformId") or "")
-            compatible_key = sha256_bytes(config.cri_hca_key) == COMPATIBLE_HCA_KEY_SHA256
+            compatible_key = (
+                sha256_bytes(config.cri_hca_key) == COMPATIBLE_HCA_KEY_SHA256
+            )
             cached = (
                 _cached_records(reuse_manifest, transform_id)
                 if previous_transform == transform_id or compatible_key
                 else {}
             )
             if cached and previous_transform != transform_id:
+
                 def legacy_id(task: dict[str, Any]) -> str | None:
                     for schema in TASK_ID_SCHEMAS:
                         legacy = _cri_task_id(task, previous_transform, schema)
@@ -1470,7 +1660,10 @@ def extract_cri(
                     legacy = legacy_id(task)
                     if legacy is None:
                         continue
-                    remapped[task["taskId"]] = {**cached[legacy], "taskId": task["taskId"]}
+                    remapped[task["taskId"]] = {
+                        **cached[legacy],
+                        "taskId": task["taskId"],
+                    }
                 if len(remapped) < len(cached):
                     sys.stderr.write(
                         f"warning: CRI cache remap matched {len(remapped)} of {len(cached)} "
@@ -1493,7 +1686,9 @@ def extract_cri(
         records: list[dict[str, Any] | None] = [None] * len(tasks)
         for index, record in reused.items():
             records[index] = record
-        pending = [(index, task) for index, task in enumerate(tasks) if records[index] is None]
+        pending = [
+            (index, task) for index, task in enumerate(tasks) if records[index] is None
+        ]
         # Declare tasks whose adoption was rejected still need their original
         # payload to decode; restore it from the source CAS on demand.
         for index, task in pending:
@@ -1514,7 +1709,9 @@ def extract_cri(
             try:
                 return _decode_task(task, config, staging / f"{index:04d}")
             except Exception as error:
-                if task["kind"] == "usm" and task["relative"] == PurePosixPath("cri/video/test/movie"):
+                if task["kind"] == "usm" and task["relative"] == PurePosixPath(
+                    "cri/video/test/movie"
+                ):
                     sys.stderr.write(
                         f"warning: test-only CRI movie has no decodable video stream: {task.get('label')}; skipping\n"
                     )
@@ -1531,10 +1728,14 @@ def extract_cri(
                 continue
             for output in record["outputs"]:
                 staged = output.pop("_staged")
-                hardlink_or_copy(staged, build.root.joinpath(*PurePosixPath(output["path"]).parts))
+                hardlink_or_copy(
+                    staged, build.root.joinpath(*PurePosixPath(output["path"]).parts)
+                )
         if any(record is None for record in records):
             skipped = sum(1 for record in records if record is None)
-            sys.stderr.write(f"warning: {skipped} CRI source(s) failed to decode and were skipped\n")
+            sys.stderr.write(
+                f"warning: {skipped} CRI source(s) failed to decode and were skipped\n"
+            )
         complete = [record for record in records if isinstance(record, dict)]
         manifest = {
             "schema": CRI_SCHEMA,

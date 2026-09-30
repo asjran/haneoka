@@ -55,7 +55,7 @@ import { icon } from "./ui/icon";
 import { COMPACT, EXPANDED, matches, watchMedia } from "./ui/media";
 import { PaneFocus, renderPane } from "./ui/pane";
 import { emptyState, errorState, loadingState } from "./ui/state";
-import { tile } from "./ui/tile";
+import { tile, type TileOptions } from "./ui/tile";
 import {
   chartPath,
   entityHref,
@@ -499,6 +499,7 @@ export class CatalogScreen extends LitElement {
   declare density: Density;
   /** Gacha simulator session for the open detail; owned here so the module stays stateless. */
   declare sim: import("./game-system-detail").GachaSimState | null;
+  eventBonusRank = 1;
   /** Real-time FX session for the open shop detail; owned here like sim. */
   declare fx: import("./game-system-detail").ShopFxState | null;
   private paneFocus = new PaneFocus();
@@ -964,7 +965,14 @@ export class CatalogScreen extends LitElement {
   resourceHref(value: string): string {
     if (!value.startsWith("/catalog")) return value;
     const target = resourceCollectionHref(value, this.dataServer(), this.settings.locale as Locale);
-    if (!target) return value;
+    if (!target) {
+      const source = new URL(value, "https://route.invalid");
+      if (source.pathname === "/catalog/bands") {
+        const base = resourceCollectionHref("/catalog", this.dataServer(), this.settings.locale as Locale);
+        return base ? `${base}bands/${source.search}` : value;
+      }
+      return value;
+    }
     const url = new URL(target, "https://route.invalid");
     return legacyEntityRedirectTarget(url.pathname, url.search) || target;
   }
@@ -1049,7 +1057,9 @@ export class CatalogScreen extends LitElement {
       if (bandId)
         return `/assets/${this.dataServer()}/Assets/AddressableResources/Band/${bandId}/BandItem/${this.itemId(item)}/band_item.png`;
     }
-    const value = this.first(item, this.profile.image);
+    return this.imageSource(this.first(item, this.profile.image));
+  }
+  private imageSource(value: unknown): string {
     const source =
       typeof value === "string"
         ? value
@@ -1652,8 +1662,18 @@ export class CatalogScreen extends LitElement {
       this.settings.locale,
     );
   }
-  private tileDescriptionContent(item: Item) {
-    if (this.profile.presentation === "song") return this.itemArtistContent(item);
+  private tileDescriptionContent(item: Item, kind: Presentation = this.profile.presentation) {
+    if (kind === "song") return this.itemArtistContent(item);
+    if (kind === "member" || kind === "support") {
+      const characters = asItems(item.characterDetails);
+      return localizedList(
+        this.itemCharacterIds(item).map((id) => {
+          const character = this.character(id, characters);
+          return character?.characterName || character?.englishName;
+        }),
+        this.settings.locale,
+      );
+    }
     return this.tileDescription(item);
   }
   private itemArtist(item: Item) {
@@ -1955,11 +1975,14 @@ export class CatalogScreen extends LitElement {
     };
     this.syncUrl();
   }
-  private character(id: number) {
-    return this.characters.find((item) => Number(item.characterId) === id);
+  private character(id: number, supplemental: Item[] = []) {
+    return (
+      this.characters.find((item) => Number(item.characterId) === id) ||
+      supplemental.find((item) => Number(item.characterId) === id)
+    );
   }
-  private characterName(id: number) {
-    const item = this.character(id);
+  private characterName(id: number, supplemental: Item[] = []) {
+    const item = this.character(id, supplemental);
     return (
       this.localized(item?.characterName) ||
       this.localized(item?.englishName) ||
@@ -2078,16 +2101,16 @@ export class CatalogScreen extends LitElement {
   private total(item: Item) {
     return ["performance", "technique", "visual"].reduce((sum, key) => sum + this.stat(item, key), 0);
   }
-  private characterAvatars(ids: number[]) {
+  private characterAvatars(ids: number[], supplemental: Item[] = []) {
     const visible = [...new Set(ids)].slice(0, 5);
     return html`
       <span class="avatar-stack">
         ${visible.map((id) => {
-          const character = this.character(id);
+          const character = this.character(id, supplemental);
           const source = String(character?.faceImage || character?.thumbnailImage || "");
           return source
             ? html`
-                <img src=${source} alt=${this.characterName(id)} loading="lazy" decoding="async" />
+                <img src=${source} alt=${this.characterName(id, supplemental)} loading="lazy" decoding="async" />
               `
             : nothing;
         })}
@@ -2143,8 +2166,11 @@ export class CatalogScreen extends LitElement {
       return this.plainGameText(item.description) || this.localized(item.englishName) || this.localized(item.shortName);
     return this.secondary(item);
   }
-  private tileAdornment(item: Item, ids: number[]): GridIdentityAdornment {
-    const kind = this.profile.presentation;
+  private tileAdornment(
+    item: Item,
+    ids: number[],
+    kind: Presentation = this.profile.presentation,
+  ): GridIdentityAdornment {
     if ((kind === "comic" || kind === "stamp") && ids.length) return this.characterAvatars(ids);
     if (kind === "song" && this.bandIcon(Number(item.bandId || 0)))
       return html`
@@ -2156,7 +2182,8 @@ export class CatalogScreen extends LitElement {
           }}
         />
       `;
-    if ((kind === "member" || kind === "support") && ids.length) return this.characterAvatars(ids);
+    if ((kind === "member" || kind === "support") && ids.length)
+      return this.characterAvatars(ids, asItems(item.characterDetails));
     return nothing;
   }
   private async open(item: Item) {
@@ -2982,12 +3009,69 @@ export class CatalogScreen extends LitElement {
     return collection;
   }
 
+  /** The catalog card anatomy, also used by linked event member/support cards. */
+  cardTileOptions(item: Item, kind: "member" | "support"): TileOptions {
+    const name = this.first(item, ["prefix", "cardName", "name"]);
+    const resolved = resolveLocalizedText(name, this.settings.locale);
+    const title = cleanMarkup(resolved.text) || "—";
+    const image = this.imageSource(this.first(item, ["images.thumbnail", "thumbnail", "image"]));
+    const attribute = this.attributeMark(item.cardType);
+    const rarity = this.rarityMark(item.rarity);
+    return {
+      kind,
+      title,
+      titleLanguage: resolved.locale,
+      subtitle: this.tileDescriptionContent(item, kind),
+      adornment: this.tileAdornment(item, this.itemCharacterIds(item), kind),
+      label: title,
+      image,
+      imageFallback: image,
+      placeholder: icon("image", 32),
+      fit: "contain",
+      onImageError: this.imageError,
+      marks: [
+        attribute ? { at: "start", image: attribute, label: this.fieldValue(item, "cardType") } : null,
+        rarity ? { at: "end", image: rarity, label: this.fieldValue(item, "rarity") } : null,
+      ],
+    };
+  }
+
+  /** Shared catalog song title preference, artist line, jacket and native marks. */
+  songTileOptions(item: Item): TileOptions {
+    return {
+      ...songTile(
+        item,
+        {
+          locale: this.settings.locale,
+          title: (entry) => songTitle(entry, this.settings.locale),
+          image: (entry) =>
+            this.imageSource(this.first(entry, ["jacketUrl", "jacketThumbUrl", "jacket", "thumbnail", "image"])),
+          artist: (entry) => this.itemArtistContent(entry),
+          bandIcon: (entry) =>
+            this.bandIcon(Number(entry.bandId || 0)) || String((entry.bandDetails as Item | undefined)?.icon || ""),
+          imageForLocale: (source) => this.imageForLocale(source),
+          attributeMark: (entry) => liveMusicTypeMark(this.gameMarks, entry.musicType),
+          attributeLabel: (entry) => this.fieldValue(entry, "musicType"),
+        },
+        "",
+        [
+          this.fieldValue(item, "musicCategories")
+            ? { at: "bottom-start", text: this.fieldValue(item, "musicCategories") }
+            : null,
+        ],
+      ),
+      aspectRatio: 1,
+    };
+  }
+
   private renderTile(item: Item) {
     const kind = this.profile.presentation;
     const image = this.image(item);
     const title = this.itemTitle(item);
     const href = this.entityLink(this.itemId(item));
     const onOpen = href ? undefined : () => this.open(item);
+    if (kind === "member" || kind === "support")
+      return tile({ ...this.cardTileOptions(item, kind), href, onOpen, itemId: this.itemId(item) });
     if (kind === "character")
       return tile({
         kind: "character",
@@ -3006,33 +3090,7 @@ export class CatalogScreen extends LitElement {
         style: `--entity-accent:${String(item.colorCode || "var(--md-sys-color-primary)")}`,
       });
     const ids = this.itemCharacterIds(item);
-    if (kind === "song") {
-      // The song tile is shared with the home page; one construction, two pages.
-      return tile({
-        ...songTile(
-          item,
-          {
-            locale: this.settings.locale,
-            title: (entry) => ({ text: this.itemTitle(entry), locale: this.itemTitleLanguage(entry) }),
-            image: (entry) => this.image(entry),
-            artist: (entry) => this.itemArtistContent(entry),
-            bandIcon: (entry) => this.bandIcon(Number(entry.bandId || 0)),
-            imageForLocale: (source) => this.imageForLocale(source),
-            attributeMark: (entry) => liveMusicTypeMark(this.gameMarks, entry.musicType),
-            attributeLabel: (entry) => this.fieldValue(entry, "musicType"),
-          },
-          "",
-          [
-            this.fieldValue(item, "musicCategories")
-              ? { at: "bottom-start" as const, text: this.fieldValue(item, "musicCategories") }
-              : null,
-          ],
-        ),
-        href,
-        onOpen,
-        itemId: this.itemId(item),
-      });
-    }
+    if (kind === "song") return tile({ ...this.songTileOptions(item), href, onOpen, itemId: this.itemId(item) });
     const attribute = this.attributeMark(item.cardType);
     return tile({
       kind,
@@ -3060,12 +3118,6 @@ export class CatalogScreen extends LitElement {
               image: attribute,
               label: this.fieldValue(item, "cardType"),
             }
-          : null,
-        kind === "member" || kind === "support"
-          ? (() => {
-              const rarity = this.rarityMark(item.rarity);
-              return rarity ? { at: "end" as const, image: rarity, label: this.fieldValue(item, "rarity") } : null;
-            })()
           : null,
         kind === "system" && this.entryState(item) === "ended"
           ? { at: "bottom-end" as const, text: this.label("ended", "Ended"), accent: "var(--md-sys-color-error)" }
@@ -3151,7 +3203,12 @@ export class CatalogScreen extends LitElement {
                 { id: "full", label: this.label("details", "Full"), source: images.full || images.thumbnail },
                 { id: "skill", label: this.label("skills", "Skill"), source: images.skill },
               ]
-            : [{ id: "full", label: this.label("details", "Preview"), source: this.detailImage(item) }];
+            : [
+                { id: "full", label: this.label("details", "Preview"), source: this.detailImage(item) },
+                ...(this.settings.resource === "events" && item.logo
+                  ? [{ id: "logo", label: this.label("eventLogo", "Event logo"), source: item.logo }]
+                  : []),
+              ];
     const seen = new Set<string>();
     const imageVariants = (item.imageVariants || {}) as Record<string, Record<string, string>>;
     const languages = ["ja", "en", "zh-Hant", "zh-Hans", "ko"];
@@ -3792,7 +3849,9 @@ export class CatalogScreen extends LitElement {
             ${
               this.profile.presentation === "character"
                 ? this.renderCharacterArchive(item, fields)
-                : this.localized(item.description) && !["item", "band-item"].includes(this.profile.presentation)
+                : this.localized(item.description) &&
+                    !["item", "band-item"].includes(this.profile.presentation) &&
+                    this.settings.resource !== "events"
                   ? html`
                       <p class="detail-description" lang=${this.localizedLanguage(item.description)}>
                         ${this.localized(item.description)}
@@ -3801,7 +3860,10 @@ export class CatalogScreen extends LitElement {
                   : nothing
             }
             ${
-              this.profile.presentation === "character" || this.profile.presentation === "song" || !fields.length
+              this.profile.presentation === "character" ||
+              this.profile.presentation === "song" ||
+              !fields.length ||
+              this.settings.resource === "events"
                 ? nothing
                 : html`
                     <section class="detail-section detail-section--facts">

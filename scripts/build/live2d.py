@@ -23,6 +23,7 @@ from build.live2d_preview import PREVIEW_SCHEMA, build_live2d_previews
 from build.live2d_textures import (
     TextureOutputReference,
     TextureVariantIssue,
+    encoder_profile,
     extract_live2d_astc,
     find_ktx_executable,
     ktx_tool_version,
@@ -66,9 +67,21 @@ def motion3_from_fade_asset(data: dict[str, Any]) -> dict[str, Any]:
     """Convert serialized Unity AnimationCurves to Cubism motion3 curves."""
 
     ids = data.get("ParameterIds") if isinstance(data.get("ParameterIds"), list) else []
-    source_curves = data.get("ParameterCurves") if isinstance(data.get("ParameterCurves"), list) else []
-    fade_in = data.get("ParameterFadeInTimes") if isinstance(data.get("ParameterFadeInTimes"), list) else []
-    fade_out = data.get("ParameterFadeOutTimes") if isinstance(data.get("ParameterFadeOutTimes"), list) else []
+    source_curves = (
+        data.get("ParameterCurves")
+        if isinstance(data.get("ParameterCurves"), list)
+        else []
+    )
+    fade_in = (
+        data.get("ParameterFadeInTimes")
+        if isinstance(data.get("ParameterFadeInTimes"), list)
+        else []
+    )
+    fade_out = (
+        data.get("ParameterFadeOutTimes")
+        if isinstance(data.get("ParameterFadeOutTimes"), list)
+        else []
+    )
     curves: list[dict[str, Any]] = []
     key_duration = 0.0
     total_segments = 0
@@ -77,7 +90,11 @@ def motion3_from_fade_asset(data: dict[str, Any]) -> dict[str, Any]:
 
     for index, raw_id in enumerate(ids):
         parameter_id = str(raw_id or "")
-        raw_points = source_curves[index].get("m_Curve", []) if index < len(source_curves) else []
+        raw_points = (
+            source_curves[index].get("m_Curve", [])
+            if index < len(source_curves)
+            else []
+        )
         points = sorted(
             (
                 {
@@ -101,17 +118,29 @@ def motion3_from_fade_asset(data: dict[str, Any]) -> dict[str, Any]:
         curve_points = 1
         for left, right in zip(points, points[1:]):
             duration = right["time"] - left["time"]
-            if not math.isfinite(left["outSlope"]) or not math.isfinite(right["inSlope"]):
+            if not math.isfinite(left["outSlope"]) or not math.isfinite(
+                right["inSlope"]
+            ):
                 segments.extend((2, right["time"], right["value"]))
                 curve_points += 1
                 continue
-            linear_slope = (right["value"] - left["value"]) / duration if duration > 0 else 0
+            linear_slope = (
+                (right["value"] - left["value"]) / duration if duration > 0 else 0
+            )
             if left["outSlope"] == linear_slope and right["inSlope"] == linear_slope:
                 segments.extend((0, right["time"], right["value"]))
                 curve_points += 1
                 continue
-            out_weight = left["outWeight"] if left["weightedMode"] & 2 else DEFAULT_TANGENT_WEIGHT
-            in_weight = right["inWeight"] if right["weightedMode"] & 1 else DEFAULT_TANGENT_WEIGHT
+            out_weight = (
+                left["outWeight"]
+                if left["weightedMode"] & 2
+                else DEFAULT_TANGENT_WEIGHT
+            )
+            in_weight = (
+                right["inWeight"]
+                if right["weightedMode"] & 1
+                else DEFAULT_TANGENT_WEIGHT
+            )
             segments.extend(
                 (
                     1,
@@ -124,15 +153,24 @@ def motion3_from_fade_asset(data: dict[str, Any]) -> dict[str, Any]:
                 )
             )
             curve_points += 3
-            if out_weight != DEFAULT_TANGENT_WEIGHT or in_weight != DEFAULT_TANGENT_WEIGHT:
+            if (
+                out_weight != DEFAULT_TANGENT_WEIGHT
+                or in_weight != DEFAULT_TANGENT_WEIGHT
+            ):
                 restricted = False
 
         key_duration = max(key_duration, points[-1]["time"])
         total_segments += max(0, len(points) - 1)
         total_points += curve_points
-        curve: dict[str, Any] = {"Target": "Parameter", "Id": parameter_id, "Segments": segments}
+        curve: dict[str, Any] = {
+            "Target": "Parameter",
+            "Id": parameter_id,
+            "Segments": segments,
+        }
         parameter_fade_in = _number(fade_in[index], -1) if index < len(fade_in) else -1
-        parameter_fade_out = _number(fade_out[index], -1) if index < len(fade_out) else -1
+        parameter_fade_out = (
+            _number(fade_out[index], -1) if index < len(fade_out) else -1
+        )
         if parameter_fade_in >= 0:
             curve["FadeInTime"] = parameter_fade_in
         if parameter_fade_out >= 0:
@@ -171,8 +209,18 @@ def exp3_from_expression_asset(data: dict[str, Any]) -> dict[str, Any]:
             blend_index = int(raw_blend)
         except (TypeError, ValueError):
             blend_index = -1
-        blend = blends[blend_index] if 0 <= blend_index < len(blends) else str(raw_blend or "Add")
-        parameters.append({"Id": str(value["Id"]), "Value": _number(value.get("Value")), "Blend": blend})
+        blend = (
+            blends[blend_index]
+            if 0 <= blend_index < len(blends)
+            else str(raw_blend or "Add")
+        )
+        parameters.append(
+            {
+                "Id": str(value["Id"]),
+                "Value": _number(value.get("Value")),
+                "Blend": blend,
+            }
+        )
     return {
         "Type": "Live2D Expression",
         "FadeInTime": _number(data.get("FadeInTime"), 1),
@@ -214,7 +262,9 @@ def physics3_from_rig(rig: dict[str, Any]) -> dict[str, Any] | None:
                 {
                     "Source": {"Target": "Parameter", "Id": source_id},
                     "Weight": _number(value.get("Weight")),
-                    "Type": component_names[component] if 0 <= component < 3 else "Angle",
+                    "Type": component_names[component]
+                    if 0 <= component < 3
+                    else "Angle",
                     "Reflect": bool(value.get("IsInverted")),
                 }
             )
@@ -224,9 +274,19 @@ def physics3_from_rig(rig: dict[str, Any]) -> dict[str, Any] | None:
             if not destination:
                 continue
             component = int(_number(value.get("SourceComponent"), 2))
-            component_name = component_names[component] if 0 <= component < 3 else "Angle"
-            translation = value.get("TranslationScale") if isinstance(value.get("TranslationScale"), dict) else {}
-            scale = value.get("AngleScale") if component_name == "Angle" else translation.get(component_name.lower())
+            component_name = (
+                component_names[component] if 0 <= component < 3 else "Angle"
+            )
+            translation = (
+                value.get("TranslationScale")
+                if isinstance(value.get("TranslationScale"), dict)
+                else {}
+            )
+            scale = (
+                value.get("AngleScale")
+                if component_name == "Angle"
+                else translation.get(component_name.lower())
+            )
             outputs.append(
                 {
                     "Destination": {"Target": "Parameter", "Id": destination},
@@ -251,7 +311,11 @@ def physics3_from_rig(rig: dict[str, Any]) -> dict[str, Any] | None:
         input_count += len(inputs)
         output_count += len(outputs)
         vertex_count += len(vertices)
-        normalization = sub_rig.get("Normalization") if isinstance(sub_rig.get("Normalization"), dict) else {}
+        normalization = (
+            sub_rig.get("Normalization")
+            if isinstance(sub_rig.get("Normalization"), dict)
+            else {}
+        )
         settings.append(
             {
                 "Id": setting_id,
@@ -278,7 +342,10 @@ def physics3_from_rig(rig: dict[str, Any]) -> dict[str, Any] | None:
             },
             "Fps": _number(rig.get("Fps"), 60),
             "PhysicsDictionary": [
-                {"Id": setting["Id"], "Name": str(sub_rigs[index].get("Name") or setting["Id"])}
+                {
+                    "Id": setting["Id"],
+                    "Name": str(sub_rigs[index].get("Name") or setting["Id"]),
+                }
                 for index, setting in enumerate(settings)
             ],
         },
@@ -302,14 +369,22 @@ def _reference_id(value: Any) -> str:
     return str(raw) if raw else ""
 
 
-def _model_identity(match: re.Match[str]) -> tuple[str, str, str, str, int | None, bool]:
+def _model_identity(
+    match: re.Match[str],
+) -> tuple[str, str, str, str, int | None, bool]:
     _, character, raw_mode, sub_character, directory = match.groups()
     model_name = directory
     if character:
-        costume = re.sub(r"^(?:adv_)?live2d_[a-z0-9]+_[0-9]{3}_", "", model_name, flags=re.IGNORECASE)
+        costume = re.sub(
+            r"^(?:adv_)?live2d_[a-z0-9]+_[0-9]{3}_", "", model_name, flags=re.IGNORECASE
+        )
         # Production catalogs carry both ADV and LIVE prefabs for the same
         # character/costume. Keep historical ADV keys and namespace LIVE keys.
-        key = f"{character}_{costume}" if raw_mode != "live" else f"{character}_live-mode_{costume}"
+        key = (
+            f"{character}_{costume}"
+            if raw_mode != "live"
+            else f"{character}_live-mode_{costume}"
+        )
         return key, costume, raw_mode or "adv", character, int(character), False
     costume = re.sub(
         rf"^adv_live2d_sub_{re.escape(sub_character or '')}_",
@@ -318,17 +393,32 @@ def _model_identity(match: re.Match[str]) -> tuple[str, str, str, str, int | Non
         flags=re.IGNORECASE,
     )
     character_key = f"sub_{sub_character}"
-    return f"{character_key}_{costume}", costume or directory, "adv", character_key, None, True
+    return (
+        f"{character_key}_{costume}",
+        costume or directory,
+        "adv",
+        character_key,
+        None,
+        True,
+    )
 
 
 def _profile(records: dict[str, dict[str, Any]]) -> dict[str, Any]:
     for record in records.values():
         data = record.get("data")
-        if not isinstance(data, dict) or ("BasePosition" not in data and "BaseScale" not in data):
+        if not isinstance(data, dict) or (
+            "BasePosition" not in data and "BaseScale" not in data
+        ):
             continue
-        position = data.get("BasePosition") if isinstance(data.get("BasePosition"), dict) else {}
+        position = (
+            data.get("BasePosition")
+            if isinstance(data.get("BasePosition"), dict)
+            else {}
+        )
         return {
-            "basePosition": {axis: _number(position.get(axis)) for axis in ("x", "y", "z")},
+            "basePosition": {
+                axis: _number(position.get(axis)) for axis in ("x", "y", "z")
+            },
             "baseScale": _number(data.get("BaseScale"), 1),
             "defaultMotionName": str(data.get("DefaultMotionName") or ""),
             "defaultExpressionName": str(data.get("DefaultExpressionName") or ""),
@@ -338,21 +428,28 @@ def _profile(records: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
 
 def _anchors(records: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    transforms = {object_id: value for object_id, value in records.items() if value.get("type") == "Transform"}
+    transforms = {
+        object_id: value
+        for object_id, value in records.items()
+        if value.get("type") == "Transform"
+    }
     result = {}
     for key, game_object_name in (("head", "Head"), ("stomach", "Stomach")):
         game_object = next(
             (
                 value.get("data", {})
                 for value in records.values()
-                if value.get("type") == "GameObject" and value.get("data", {}).get("m_Name") == game_object_name
+                if value.get("type") == "GameObject"
+                and value.get("data", {}).get("m_Name") == game_object_name
             ),
             None,
         )
         if not game_object:
             continue
         components = game_object.get("m_Component") or []
-        transform_id = _reference_id(components[0].get("component")) if components else ""
+        transform_id = (
+            _reference_id(components[0].get("component")) if components else ""
+        )
         chain: list[dict[str, Any]] = []
         seen = set()
         while transform_id and transform_id not in seen and transform_id in transforms:
@@ -363,8 +460,16 @@ def _anchors(records: dict[str, dict[str, Any]]) -> dict[str, Any]:
         position = {"x": 0.0, "y": 0.0, "z": 0.0}
         scale = {"x": 1.0, "y": 1.0, "z": 1.0}
         for data in reversed(chain):
-            local_position = data.get("m_LocalPosition") if isinstance(data.get("m_LocalPosition"), dict) else {}
-            local_scale = data.get("m_LocalScale") if isinstance(data.get("m_LocalScale"), dict) else {}
+            local_position = (
+                data.get("m_LocalPosition")
+                if isinstance(data.get("m_LocalPosition"), dict)
+                else {}
+            )
+            local_scale = (
+                data.get("m_LocalScale")
+                if isinstance(data.get("m_LocalScale"), dict)
+                else {}
+            )
             for axis in position:
                 position[axis] += scale[axis] * _number(local_position.get(axis))
                 scale[axis] *= _number(local_scale.get(axis), 1) or 1
@@ -383,12 +488,19 @@ def _harmonic_motion(records: dict[str, dict[str, Any]]) -> dict[str, Any] | Non
         if isinstance(data.get("ChannelTimescales"), list):
             controller = {
                 "blendMode": int(_number(data.get("BlendMode"))),
-                "channelTimescales": [_number(value, 1) for value in data["ChannelTimescales"]] or [1],
+                "channelTimescales": [
+                    _number(value, 1) for value in data["ChannelTimescales"]
+                ]
+                or [1],
             }
             continue
-        if not all(key in data for key in ("NormalizedOrigin", "NormalizedRange", "Duration")):
+        if not all(
+            key in data for key in ("NormalizedOrigin", "NormalizedRange", "Duration")
+        ):
             continue
-        game_object = records.get(_reference_id(data.get("m_GameObject")), {}).get("data", {})
+        game_object = records.get(_reference_id(data.get("m_GameObject")), {}).get(
+            "data", {}
+        )
         parameter_id = str(game_object.get("m_Name") or "")
         duration = _number(data.get("Duration"))
         if parameter_id and duration > 0:
@@ -407,7 +519,9 @@ def _harmonic_motion(records: dict[str, dict[str, Any]]) -> dict[str, Any] | Non
     return {
         "blendMode": controller["blendMode"] if controller else 0,
         "channelTimescales": controller["channelTimescales"] if controller else [1],
-        "parameters": sorted(parameters, key=lambda value: (value["channel"], value["id"])),
+        "parameters": sorted(
+            parameters, key=lambda value: (value["channel"], value["id"])
+        ),
     }
 
 
@@ -457,7 +571,9 @@ def _motion_sync(records: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
             for mapping in setting.get("Mappings", []):
                 targets = [
                     {
-                        "id": parameter_ids.get(_reference_id(target.get("Parameter")), ""),
+                        "id": parameter_ids.get(
+                            _reference_id(target.get("Parameter")), ""
+                        ),
                         "value": _number(target.get("Value")),
                     }
                     for target in mapping.get("Targets", [])
@@ -465,9 +581,19 @@ def _motion_sync(records: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
                 targets = [target for target in targets if target["id"]]
                 audio_id = str(mapping.get("AudioParameterId") or "")
                 if audio_id and targets:
-                    mappings.append({"type": int(_number(mapping.get("Type"))), "audioParameterId": audio_id, "targets": targets})
+                    mappings.append(
+                        {
+                            "type": int(_number(mapping.get("Type"))),
+                            "audioParameterId": audio_id,
+                            "targets": targets,
+                        }
+                    )
             if parameters and audio_parameters and mappings:
-                post = setting.get("PostProcessing") if isinstance(setting.get("PostProcessing"), dict) else {}
+                post = (
+                    setting.get("PostProcessing")
+                    if isinstance(setting.get("PostProcessing"), dict)
+                    else {}
+                )
                 settings.append(
                     {
                         "id": str(setting.get("Id") or ""),
@@ -486,10 +612,16 @@ def _motion_sync(records: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
-def _moc_payload(store: UnityObjectStore, paths: list[str], model_root: str) -> tuple[bytes, str]:
+def _moc_payload(
+    store: UnityObjectStore, paths: list[str], model_root: str
+) -> tuple[bytes, str]:
     prefix = f"{model_root}/model/generated/"
     for source_path in paths:
-        if not source_path.startswith(prefix) or not source_path.endswith(".asset") or "masktexture" in source_path.casefold():
+        if (
+            not source_path.startswith(prefix)
+            or not source_path.endswith(".asset")
+            or "masktexture" in source_path.casefold()
+        ):
             continue
         data = store.source_data(source_path) or {}
         raw = data.get("_bytes")
@@ -518,7 +650,9 @@ def _local_resource_path(layout: Any, server: str, url: str) -> Path | None:
     return None
 
 
-def _texture_output(store: UnityObjectStore, source_path: str, expected_path: str) -> dict[str, Any] | None:
+def _texture_output(
+    store: UnityObjectStore, source_path: str, expected_path: str
+) -> dict[str, Any] | None:
     """Select the canonical Texture2D output for a model texture source."""
 
     descriptor = store.descriptor(source_path)
@@ -556,9 +690,54 @@ def _previous_texture_variants(
             continue
         index = variant.get("textureIndex")
         format_name = variant.get("format")
-        if isinstance(index, int) and not isinstance(index, bool) and isinstance(format_name, str):
+        if (
+            isinstance(index, int)
+            and not isinstance(index, bool)
+            and isinstance(format_name, str)
+        ):
             result.setdefault((index, format_name), variant)
     return result
+
+
+def _variant_matches_encoder_profile(
+    variant: dict[str, Any],
+    format_name: str,
+    tool_version: str,
+) -> bool:
+    """Check the producer identity and cache key of one reusable variant."""
+
+    if variant.get("format") != format_name:
+        return False
+    if variant.get("encoderProfile") != encoder_profile(format_name, tool_version):
+        return False
+    source_hash = variant.get("sourceTextureSha256")
+    width = variant.get("width")
+    height = variant.get("height")
+    if (
+        not isinstance(source_hash, str)
+        or not isinstance(width, int)
+        or isinstance(width, bool)
+    ):
+        return False
+    if (
+        not isinstance(height, int)
+        or isinstance(height, bool)
+        or width <= 0
+        or height <= 0
+    ):
+        return False
+    payload_hash = variant.get("sourcePayloadSha256")
+    if format_name == "astc6x6" and not isinstance(payload_hash, str):
+        return False
+    expected_cache_key = texture_variant_cache_key(
+        format_name,
+        source_hash,
+        width,
+        height,
+        tool_version,
+        source_payload_sha256=payload_hash if format_name == "astc6x6" else None,
+    )
+    return variant.get("cacheKey") == expected_cache_key
 
 
 def _restore_variant_path(value: Any, server: str) -> str:
@@ -577,11 +756,11 @@ def _texture_identity_paths(server: str, model: dict[str, Any]) -> list[str]:
         url = str(value or "")
         if url.startswith(f"/assets/{server}/"):
             # Unity source paths index into the bundle identities directly.
-            paths.append(url[len(f"/assets/{server}/"):])
+            paths.append(url[len(f"/assets/{server}/") :])
         elif url.startswith(f"/runtime/{server}/"):
             # Packed-model texture outputs live under the release runtime tree;
             # the URL strips the leading "runtime/" segment.
-            paths.append("runtime/" + url[len(f"/runtime/{server}/"):])
+            paths.append("runtime/" + url[len(f"/runtime/{server}/") :])
     return paths
 
 
@@ -625,7 +804,9 @@ def _preview_input_identity(
                 if descriptor_file is not None and descriptor_file.is_file()
                 else ""
             )
-            inputs.append([path, str(entry.get("selectedBundle") or ""), descriptor_sha])
+            inputs.append(
+                [path, str(entry.get("selectedBundle") or ""), descriptor_sha]
+            )
             continue
         file = layout.root.joinpath(*PurePosixPath(path).parts)
         inputs.append([path, "file", sha256_file(file) if file.is_file() else ""])
@@ -658,6 +839,7 @@ def build_live2d(
     source_id: str,
     build_id: str,
     *,
+    include_bc7: bool = False,
     reuse_manifest: dict[str, Any] | None = None,
     restore_output: Any = None,
     reuse_concurrency: int = 32,
@@ -704,6 +886,26 @@ def build_live2d(
             ktx_version = "unknown"
     else:
         ktx_version = "unavailable"
+    # Native ASTC packaging is the default producer path.  It remains
+    # optional at runtime because a clean build may not have the official KTX
+    # executable or a readable source manifest; canonical PNGs then remain
+    # the complete fallback.  BC7 is opt-in because it is a lossy desktop
+    # derivative of those PNGs.
+    native_texture_packaging = bool(ktx_executable and texture_source_root is not None)
+    if include_bc7 and not ktx_executable:
+        raise RuntimeError(
+            "Live2D BC7 packaging was requested, but the official KTX executable is unavailable; "
+            "omit --live2d-bc7 to use the canonical PNG/ASTC fallback"
+        )
+    if include_bc7 and texture_source_root is None:
+        raise RuntimeError(
+            "Live2D BC7 packaging was requested, but the source manifest is unavailable; "
+            "omit --live2d-bc7 to use the canonical PNG/ASTC fallback"
+        )
+    if include_bc7 and ktx_version == "unknown":
+        raise RuntimeError(
+            "Live2D BC7 packaging was requested, but the KTX encoder version could not be established"
+        )
 
     roots: dict[str, re.Match[str]] = {}
     for path in paths:
@@ -718,9 +920,14 @@ def build_live2d(
     adopted_model_keys: set[str] = set()
     local_asset_relatives: set[str] | None = None
     if delta is not None:
-        local_asset_relatives = {
-            file.relative_to(layout.assets).as_posix() for file in walk_files(layout.assets)
-        } if layout.assets.is_dir() else set()
+        local_asset_relatives = (
+            {
+                file.relative_to(layout.assets).as_posix()
+                for file in walk_files(layout.assets)
+            }
+            if layout.assets.is_dir()
+            else set()
+        )
 
     def adoptable(model_root: str, key: str) -> dict[str, Any] | None:
         """Adopt one model wholesale from the base release document.
@@ -735,6 +942,36 @@ def build_live2d(
         base = base_models.get(key)
         if not isinstance(base, dict):
             return None
+        runtime = base.get("runtime") if isinstance(base.get("runtime"), dict) else {}
+        raw_variants = runtime.get("textureVariants")
+        variants = (
+            [value for value in raw_variants if isinstance(value, dict)]
+            if isinstance(raw_variants, list)
+            else []
+        )
+        if include_bc7:
+            if not native_texture_packaging:
+                return None
+            for format_name in ("astc6x6", "bc7"):
+                matching = [
+                    value for value in variants if value.get("format") == format_name
+                ]
+                if not matching or any(
+                    not _variant_matches_encoder_profile(
+                        value, format_name, ktx_version
+                    )
+                    for value in matching
+                ):
+                    return None
+        elif native_texture_packaging:
+            astc_variants = [
+                value for value in variants if value.get("format") == "astc6x6"
+            ]
+            if not astc_variants or any(
+                not _variant_matches_encoder_profile(value, "astc6x6", ktx_version)
+                for value in astc_variants
+            ):
+                return None
         covered = False
         for value in paths:
             if not value.startswith(f"{model_root}/"):
@@ -750,14 +987,37 @@ def build_live2d(
             digest = str(descriptor.get("selectedBundle") or "")
             if not digest or not delta.reusable(digest):
                 return None
-        if covered and local_asset_relatives is not None and not any(
-            relative.startswith(f"{model_root}/") for relative in local_asset_relatives
+        if (
+            covered
+            and local_asset_relatives is not None
+            and not any(
+                relative.startswith(f"{model_root}/")
+                for relative in local_asset_relatives
+            )
         ):
-            return copy.deepcopy(base)
+            adopted = copy.deepcopy(base)
+            if not include_bc7:
+                adopted_runtime = (
+                    adopted.get("runtime")
+                    if isinstance(adopted.get("runtime"), dict)
+                    else None
+                )
+                if adopted_runtime is not None:
+                    adopted_variants = adopted_runtime.get("textureVariants")
+                    if isinstance(adopted_variants, list):
+                        adopted_runtime["textureVariants"] = [
+                            value
+                            for value in adopted_variants
+                            if not isinstance(value, dict)
+                            or value.get("format") != "bc7"
+                        ]
+            return adopted
         return None
 
     for model_root, match in sorted(roots.items()):
-        key, live2d_name, raw_mode, character_key, character_id, sub_character = _model_identity(match)
+        key, live2d_name, raw_mode, character_key, character_id, sub_character = (
+            _model_identity(match)
+        )
         if key in seen_keys:
             raise ValueError(f"duplicate Live2D key: {key}")
         seen_keys.add(key)
@@ -769,7 +1029,11 @@ def build_live2d(
                 continue
         model_name = PurePosixPath(model_root).name
         source_path = f"{model_root}/model/{model_name}.prefab"
-        descriptor = store.descriptor(source_path) if source_path in index.get("sources", {}) else None
+        descriptor = (
+            store.descriptor(source_path)
+            if source_path in index.get("sources", {})
+            else None
+        )
         records = None
 
         missing = []
@@ -783,7 +1047,9 @@ def build_live2d(
                 moc_source = ""
                 missing.append("moc3")
             else:
-                records = store.records(descriptor["selectedBundle"], descriptor["serializedFile"])
+                records = store.records(
+                    descriptor["selectedBundle"], descriptor["serializedFile"]
+                )
                 try:
                     moc = _packed_moc_payload(records)
                     moc_source = source_path
@@ -792,6 +1058,17 @@ def build_live2d(
                     moc_source = ""
                     missing.append("moc3")
         texture_prefix = f"{model_root}/model/"
+        selected_packed_outputs = sorted(
+            (
+                output
+                for output in (descriptor or {}).get("outputs", [])
+                if isinstance(output, dict)
+                and output.get("type") == "Texture2D"
+                and str(output.get("path") or "").endswith(".png")
+                and str(output.get("path") or "").startswith("runtime/unity/")
+            ),
+            key=lambda output: str(output["path"]),
+        )
         if delta is not None:
             # Textures of reusable bundles are not materialized locally in a
             # delta build; restore the canonical PNGs this model references.
@@ -809,7 +1086,9 @@ def build_live2d(
                 if not isinstance(source_entry, dict):
                     continue
                 try:
-                    source_descriptor = read_json(layout.metadata / str(source_entry["descriptor"]))
+                    source_descriptor = read_json(
+                        layout.metadata / str(source_entry["descriptor"])
+                    )
                 except (OSError, ValueError):
                     continue
                 digest = str(source_descriptor.get("selectedBundle") or "")
@@ -817,6 +1096,16 @@ def build_live2d(
                     continue
                 if delta.entry(f"assets/{value}") is not None:
                     delta.fetch_release_path(f"assets/{value}", asset_file)
+            # Packed Texture2D outputs are selected by the prefab descriptor,
+            # so restore those exact PNGs before the packed presence check or
+            # the optional native-source extraction below.
+            for output in selected_packed_outputs:
+                output_path = str(output["path"])
+                output_file = layout.root.joinpath(*PurePosixPath(output_path).parts)
+                if output_file.is_file():
+                    continue
+                if delta.entry(output_path) is not None:
+                    delta.fetch_release_path(output_path, output_file)
         texture_paths = [
             value
             for value in paths
@@ -827,25 +1116,18 @@ def build_live2d(
         ]
         textures = [f"/assets/{config.id}/{value}" for value in texture_paths]
         texture_outputs: list[dict[str, Any] | None] = [
-            _texture_output(store, value, f"assets/{value}")
-            for value in texture_paths
+            _texture_output(store, value, f"assets/{value}") for value in texture_paths
         ]
         if not textures and descriptor is not None:
-            packed_textures = sorted(
-                (
-                    output for output in descriptor.get("outputs", [])
-                    if output.get("type") == "Texture2D"
-                    and str(output.get("path") or "").endswith(".png")
-                    and str(output.get("path") or "").startswith("runtime/unity/")
-                ),
-                key=lambda output: str(output["path"]),
-            )
-            if all((layout.root / str(output["path"])).is_file() for output in packed_textures):
+            if all(
+                (layout.root / str(output["path"])).is_file()
+                for output in selected_packed_outputs
+            ):
                 textures = [
                     f"/runtime/{config.id}/{str(output['path']).removeprefix('runtime/')}"
-                    for output in packed_textures
+                    for output in selected_packed_outputs
                 ]
-                texture_outputs = list(packed_textures)
+                texture_outputs = list(selected_packed_outputs)
         if not textures:
             missing.append("textures")
         if missing:
@@ -862,7 +1144,9 @@ def build_live2d(
             continue
 
         if records is None:
-            records = store.records(descriptor["selectedBundle"], descriptor["serializedFile"])
+            records = store.records(
+                descriptor["selectedBundle"], descriptor["serializedFile"]
+            )
         runtime_dir = layout.runtime / "live2d" / key
 
         texture_references = [
@@ -872,7 +1156,9 @@ def build_live2d(
                 _local_resource_path(layout, config.id, texture) or Path(""),
                 output or {},
             )
-            for index, (texture, output) in enumerate(zip(textures, texture_outputs, strict=False))
+            for index, (texture, output) in enumerate(
+                zip(textures, texture_outputs, strict=False)
+            )
         ]
         texture_variants: list[dict[str, Any]] = []
         texture_variant_issues: list[TextureVariantIssue] = []
@@ -892,10 +1178,10 @@ def build_live2d(
             def package_texture(extracted: Any) -> None:
                 nonlocal native_texture_variant_reused
                 source_texture_sha256 = extracted.source_texture_sha256
-                for format_name, writer in (
-                    ("astc6x6", write_ktx2_astc),
-                    ("bc7", write_ktx2_bc7),
-                ):
+                writers = [("astc6x6", write_ktx2_astc)]
+                if include_bc7:
+                    writers.append(("bc7", write_ktx2_bc7))
+                for format_name, writer in writers:
                     try:
                         relative = f"textures/texture_{extracted.texture_index:02d}.{format_name}.ktx2"
                         output = runtime_dir / relative
@@ -906,26 +1192,36 @@ def build_live2d(
                             extracted.height,
                             ktx_version,
                             source_payload_sha256=(
-                                extracted.payload_sha256 if format_name == "astc6x6" else None
+                                extracted.payload_sha256
+                                if format_name == "astc6x6"
+                                else None
                             ),
                         )
-                        previous = previous_variants.get((extracted.texture_index, format_name))
+                        previous = previous_variants.get(
+                            (extracted.texture_index, format_name)
+                        )
                         restored = False
                         if restore_output is not None and isinstance(previous, dict):
-                            previous_source = _restore_variant_path(previous.get("source"), config.id)
+                            previous_source = _restore_variant_path(
+                                previous.get("source"), config.id
+                            )
                             if (
                                 previous.get("cacheKey") == cache_key
-                                and previous.get("sourceTextureSha256") == source_texture_sha256
+                                and previous.get("sourceTextureSha256")
+                                == source_texture_sha256
                                 and previous_source
                                 and isinstance(previous.get("sha256"), str)
                                 and isinstance(previous.get("byteLength"), int)
                                 and previous.get("byteLength") > 0
                             ):
                                 try:
-                                    restore_output(previous_source, previous["sha256"], output)
+                                    restore_output(
+                                        previous_source, previous["sha256"], output
+                                    )
                                     restored = (
                                         output.is_file()
-                                        and output.stat().st_size == previous["byteLength"]
+                                        and output.stat().st_size
+                                        == previous["byteLength"]
                                         and sha256_file(output) == previous["sha256"]
                                     )
                                 except Exception:
@@ -943,9 +1239,19 @@ def build_live2d(
                                     "format": format_name,
                                     "width": extracted.width,
                                     "height": extracted.height,
-                                    "flipY": format_name == "bc7",
+                                    "flipY": format_name == "astc6x6",
                                     "cacheKey": cache_key,
                                     "sourceTextureSha256": source_texture_sha256,
+                                    "encoderProfile": encoder_profile(
+                                        format_name, ktx_version
+                                    ),
+                                    **(
+                                        {
+                                            "sourcePayloadSha256": extracted.payload_sha256
+                                        }
+                                        if format_name == "astc6x6"
+                                        else {}
+                                    ),
                                 }
                             )
                             texture_variants.append(metadata)
@@ -993,7 +1299,11 @@ def build_live2d(
                     reference.texture,
                     "source-manifest-unavailable",
                     "optional native texture source manifest is unavailable; canonical PNG retained"
-                    + (f" ({texture_source_load_error})" if texture_source_load_error else ""),
+                    + (
+                        f" ({texture_source_load_error})"
+                        if texture_source_load_error
+                        else ""
+                    ),
                 )
                 for reference in texture_references
             )
@@ -1007,7 +1317,9 @@ def build_live2d(
                 TextureVariantIssue(
                     reference.texture_index,
                     reference.texture,
-                    "ktx-tool-unavailable" if ktx_executable is None else "selected-output-missing",
+                    "ktx-tool-unavailable"
+                    if ktx_executable is None
+                    else "selected-output-missing",
                     issue,
                 )
                 for reference in texture_references
@@ -1019,7 +1331,9 @@ def build_live2d(
         motion_references = []
         motion_prefix = f"{model_root}/common/motions/"
         for value in paths:
-            if not value.startswith(motion_prefix) or not value.casefold().endswith(".fade.asset"):
+            if not value.startswith(motion_prefix) or not value.casefold().endswith(
+                ".fade.asset"
+            ):
                 continue
             data = store.source_data(value)
             if not data:
@@ -1038,7 +1352,9 @@ def build_live2d(
                     "fadeOutTime": fade_out,
                 }
             )
-            motion_references.append({"File": relative, "FadeInTime": fade_in, "FadeOutTime": fade_out})
+            motion_references.append(
+                {"File": relative, "FadeInTime": fade_in, "FadeOutTime": fade_out}
+            )
         if not motions:
             packed_motions = sorted(
                 (
@@ -1056,21 +1372,27 @@ def build_live2d(
                 write_json(runtime_dir / relative, motion3_from_fade_asset(data))
                 fade_in = _number(data.get("FadeInTime"), 1)
                 fade_out = _number(data.get("FadeOutTime"), 1)
-                motions.append({
-                    "name": name,
-                    "sourcePath": source_path,
-                    "bundleObjectId": object_id,
-                    "runtime": _runtime_url(config.id, key, relative),
-                    "fadeInTime": fade_in,
-                    "fadeOutTime": fade_out,
-                })
-                motion_references.append({"File": relative, "FadeInTime": fade_in, "FadeOutTime": fade_out})
+                motions.append(
+                    {
+                        "name": name,
+                        "sourcePath": source_path,
+                        "bundleObjectId": object_id,
+                        "runtime": _runtime_url(config.id, key, relative),
+                        "fadeInTime": fade_in,
+                        "fadeOutTime": fade_out,
+                    }
+                )
+                motion_references.append(
+                    {"File": relative, "FadeInTime": fade_in, "FadeOutTime": fade_out}
+                )
 
         expressions = []
         expression_references = []
         expression_prefix = f"{model_root}/common/expressions/"
         for value in paths:
-            if not value.startswith(expression_prefix) or not value.casefold().endswith(".exp3.asset"):
+            if not value.startswith(expression_prefix) or not value.casefold().endswith(
+                ".exp3.asset"
+            ):
                 continue
             data = store.source_data(value)
             if not data:
@@ -1078,7 +1400,13 @@ def build_live2d(
             name = PurePosixPath(value).name.removesuffix(".exp3.asset")
             relative = f"expressions/{name}.exp3.json"
             write_json(runtime_dir / relative, exp3_from_expression_asset(data))
-            expressions.append({"name": name, "sourcePath": value, "runtime": _runtime_url(config.id, key, relative)})
+            expressions.append(
+                {
+                    "name": name,
+                    "sourcePath": value,
+                    "runtime": _runtime_url(config.id, key, relative),
+                }
+            )
             expression_references.append({"Name": name, "File": relative})
         if not expressions:
             packed_expressions = sorted(
@@ -1096,12 +1424,14 @@ def build_live2d(
                 name = expression_name.removesuffix(".exp3")
                 relative = f"expressions/{name}.exp3.json"
                 write_json(runtime_dir / relative, exp3_from_expression_asset(data))
-                expressions.append({
-                    "name": name,
-                    "sourcePath": source_path,
-                    "bundleObjectId": object_id,
-                    "runtime": _runtime_url(config.id, key, relative),
-                })
+                expressions.append(
+                    {
+                        "name": name,
+                        "sourcePath": source_path,
+                        "bundleObjectId": object_id,
+                        "runtime": _runtime_url(config.id, key, relative),
+                    }
+                )
                 expression_references.append({"Name": name, "File": relative})
 
         physics = next(
@@ -1127,7 +1457,11 @@ def build_live2d(
                 "Expressions": expression_references,
             },
             "Groups": [
-                {"Target": "Parameter", "Name": "EyeBlink", "Ids": ["ParamEyeLOpen", "ParamEyeROpen"]},
+                {
+                    "Target": "Parameter",
+                    "Name": "EyeBlink",
+                    "Ids": ["ParamEyeLOpen", "ParamEyeROpen"],
+                },
                 {"Target": "Parameter", "Name": "LipSync", "Ids": ["ParamMouthOpenY"]},
             ],
         }
@@ -1137,7 +1471,9 @@ def build_live2d(
         runtime = {
             "model": _runtime_url(config.id, key, "model3.json"),
             "moc": _runtime_url(config.id, key, "model.moc3"),
-            "physics": _runtime_url(config.id, key, "physics3.json") if physics else None,
+            "physics": _runtime_url(config.id, key, "physics3.json")
+            if physics
+            else None,
             "textures": textures,
             "textureVariants": sorted(
                 texture_variants,
@@ -1151,8 +1487,7 @@ def build_live2d(
             int(value.get("byteLength") or 0) for value in texture_variants
         )
         native_texture_variant_issues.extend(
-            {"live2dKey": key, **issue.as_dict()}
-            for issue in texture_variant_issues
+            {"live2dKey": key, **issue.as_dict()} for issue in texture_variant_issues
         )
         models[key] = {
             "live2dKey": key,
@@ -1183,7 +1518,9 @@ def build_live2d(
         if runtime.get("motionSync") is not None or not key.casefold().endswith("_low"):
             continue
         normal = models.get(key[:-4])
-        normal_motion_sync = normal.get("runtime", {}).get("motionSync") if normal else None
+        normal_motion_sync = (
+            normal.get("runtime", {}).get("motionSync") if normal else None
+        )
         if normal_motion_sync is not None:
             runtime["motionSync"] = copy.deepcopy(normal_motion_sync)
     # Adopted low models keep the base pair's motionSync; if their normal
@@ -1202,10 +1539,10 @@ def build_live2d(
         elif model.get("runtime", {}).get("motionSync") != sibling_sync:
             model["runtime"]["motionSync"] = copy.deepcopy(sibling_sync)
 
-    provision_file = PROJECT_ROOT / "public" / "cubism-runtime" / "vega-cubism-web-runtime.mjs"
-    provision_sha = (
-        sha256_file(provision_file) if provision_file.is_file() else ""
+    provision_file = (
+        PROJECT_ROOT / "public" / "cubism-runtime" / "vega-cubism-web-runtime.mjs"
     )
+    provision_sha = sha256_file(provision_file) if provision_file.is_file() else ""
     identities = {
         key: (
             str(base_models[key].get("previewInputSha256") or "")
@@ -1238,8 +1575,12 @@ def build_live2d(
         "sourceId": source_id,
         "modelCount": len(models),
         "previewSchema": PREVIEW_SCHEMA,
-        "previewRenderedCount": sum(1 for preview in previews.values() if preview.get("status") == "rendered"),
-        "previewUnavailableCount": sum(1 for preview in previews.values() if preview.get("status") != "rendered"),
+        "previewRenderedCount": sum(
+            1 for preview in previews.values() if preview.get("status") == "rendered"
+        ),
+        "previewUnavailableCount": sum(
+            1 for preview in previews.values() if preview.get("status") != "rendered"
+        ),
         "previewReusedCount": reuse_summary.get("restored", 0),
         "previewReuseRestoreFailureCount": reuse_summary.get("failed", 0),
         "nativeTextureVariantCount": native_texture_variant_count,

@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { LOCALES, localePath } from "../i18n/locales";
+import { announcementPath } from "../lib/announcements";
 import { ROUTES } from "../config/routes";
 import { canonicalPath, shouldNoindex } from "../lib/seo";
 import { searchableCatalogUrls } from "../lib/searchable-catalog";
@@ -25,6 +26,7 @@ export const GET: APIRoute = async () => {
   const urls = new Set<string>();
   for (const selected of servers) {
     const server = selected as ReleaseServer;
+    for (const locale of LOCALES) urls.add(`https://haneoka.org${announcementPath(server, locale)}`);
     const [catalogUrls, storyUrls, modelUrls, helpUrls] = await Promise.all([
       searchableCatalogUrls(server),
       searchableStoryUrls(server),

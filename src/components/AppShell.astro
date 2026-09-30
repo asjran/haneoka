@@ -26,6 +26,7 @@ const shellTitleKey = entity ? undefined : titleKey;
 const itemActive = (target: string) => isRouteActive(target, route);
 const navigationHref = (target: string) => {
   if (target === "/") return `/${server ?? "intl"}/${locale}/`;
+  if (target === "/announcements") return `/${server ?? "intl"}/${locale}/announcements/`;
   const resource = resourceCollectionHref(target, server ?? "intl", locale);
   if (resource) return resource;
   const href = localePath(target, locale);

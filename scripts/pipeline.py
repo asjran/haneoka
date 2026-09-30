@@ -14,6 +14,7 @@ from typing import Any
 from build.api import build_api
 from build.assets import merge_unity_shards
 from build.home_spots import build_home_spots, home_spot_source_bundle_paths
+from build.announcements import build_announcements
 from build.ktx2 import build_ktx2
 from build.live2d import build_live2d
 from build.release import assemble_release
@@ -103,7 +104,14 @@ def _release_summary(manifest: dict) -> dict:
         summary["bytes"] += int(entry.get("bytes") or 0)
     return {
         key: manifest.get(key)
-        for key in ("schema", "server", "sourceId", "releaseId", "entryCount", "totalBytes")
+        for key in (
+            "schema",
+            "server",
+            "sourceId",
+            "releaseId",
+            "entryCount",
+            "totalBytes",
+        )
     } | {"roles": roles}
 
 
@@ -215,7 +223,9 @@ def _current_package_document(config, concurrency: int) -> dict:
     pointer = store.get_json(f"servers/{config.id}/current.json")
     source_id = str((pointer or {}).get("sourceId") or "")
     manifest = (
-        store.get_json(f"servers/{config.id}/sources/{source_id}/source.json") if source_id else None
+        store.get_json(f"servers/{config.id}/sources/{source_id}/source.json")
+        if source_id
+        else None
     )
     package = (manifest or {}).get("package") or {}
     digest = next(
@@ -229,13 +239,19 @@ def _current_package_document(config, concurrency: int) -> dict:
     publisher = package.get("publisher")
     publisher = publisher if isinstance(publisher, dict) else {}
     return {
-        "available": bool(digest and (package.get("versionCode") or package.get("versionName"))),
+        "available": bool(
+            digest and (package.get("versionCode") or package.get("versionName"))
+        ),
         "sourceId": source_id,
         "versionCode": str(package.get("versionCode") or ""),
         "versionName": str(package.get("versionName") or ""),
         "sha256": digest,
         "casKey": cas_key(digest) if digest else "",
-        "publisher": {str(k): str(v) for k, v in publisher.items() if isinstance(k, str) and isinstance(v, str)},
+        "publisher": {
+            str(k): str(v)
+            for k, v in publisher.items()
+            if isinstance(k, str) and isinstance(v, str)
+        },
     }
 
 
@@ -298,7 +314,9 @@ def command_cdn_credential(args: argparse.Namespace) -> None:
         raw = os.environ.get(AUTHORIZATION_ENVIRONMENT, "").strip()
         if raw:
             value = f"Basic {raw}" if " " not in raw else raw
-    _print({"server": config.id, "origin": origin, "authorization": value, **discovered})
+    _print(
+        {"server": config.id, "origin": origin, "authorization": value, **discovered}
+    )
 
 
 def command_fetch_release_document(args: argparse.Namespace) -> None:
@@ -332,7 +350,14 @@ def command_fetch_release_document(args: argparse.Namespace) -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(body)
-    _print({"server": config.id, "releaseId": release_id, "path": args.path, "bytes": len(body)})
+    _print(
+        {
+            "server": config.id,
+            "releaseId": release_id,
+            "path": args.path,
+            "bytes": len(body),
+        }
+    )
 
 
 def command_verify_source(args: argparse.Namespace) -> None:
@@ -343,7 +368,9 @@ def command_index_source(args: argparse.Namespace) -> None:
     layout = source_layout(args.server, args.source)
     manifest = read_json(layout.manifest)
     manifest["schema"] = SOURCE_SCHEMA
-    manifest["unityIndex"] = index_unity_dependencies(layout.root, manifest.get("files", []))
+    manifest["unityIndex"] = index_unity_dependencies(
+        layout.root, manifest.get("files", [])
+    )
     write_json(layout.manifest, manifest, pretty=True)
     _print(_source_summary(verify_source(args.server, args.source, not args.fast)))
 
@@ -418,7 +445,9 @@ def command_extract_master(args: argparse.Namespace) -> None:
     identity = args.build or build_id(config, args.source)
     layout = build_layout(config.id, identity)
     manifest = extract_master(
-        _source_package(config.id, args.source), layout.master, config,
+        _source_package(config.id, args.source),
+        layout.master,
+        config,
         snapshot_root=_source_master_root(config.id, args.source),
     )
     _print(
@@ -518,16 +547,18 @@ def command_extract_cri(args: argparse.Namespace) -> None:
             store = R2Store(config, args.reuse_concurrency)
             snapshot = current_release_document(store, config, "metadata/cri.json")
         except Exception as error:
-            sys.stderr.write(f"CRI current-release reuse is unavailable; decoding all sources: {error}\n")
+            sys.stderr.write(
+                f"CRI current-release reuse is unavailable; decoding all sources: {error}\n"
+            )
     restore_output = None
     if delta is not None:
         # Pinned restore used only by the music-video re-mux fallback.
-        restore_output = (
-            lambda output, target: delta.fetch_release_path(str(output["path"]), target)
+        restore_output = lambda output, target: delta.fetch_release_path(
+            str(output["path"]), target
         )
     elif store is not None and isinstance(snapshot, dict):
-        restore_output = (
-            lambda output, target: restore_release_object(store, snapshot, output, target)
+        restore_output = lambda output, target: restore_release_object(
+            store, snapshot, output, target
         )
     result = extract_cri(
         config,
@@ -554,7 +585,9 @@ def command_extract_cri(args: argparse.Namespace) -> None:
 
 
 def _preview_reuse_inputs(
-    config: ServerConfig, document_path: str, reuse_concurrency: int,
+    config: ServerConfig,
+    document_path: str,
+    reuse_concurrency: int,
     delta: Any = None,
 ) -> tuple[dict | None, object | None]:
     """Load the pinned base release's stage document for preview reuse."""
@@ -596,12 +629,18 @@ def _preview_restore(store: Any, snapshot: dict) -> object:
             raise ValueError("current release snapshot has no path entries")
         entry = entries.get(path)
         if not isinstance(entry, dict) or str(entry.get("sha256") or "") != sha256:
-            raise ValueError(f"current release does not declare the reusable preview: {path}")
+            raise ValueError(
+                f"current release does not declare the reusable preview: {path}"
+            )
         if isinstance(store, R2Store):
             restore_release_object(
                 store,
                 snapshot,
-                {"path": path, "sha256": sha256, "bytes": int(entry.get("bytes") or -1)},
+                {
+                    "path": path,
+                    "sha256": sha256,
+                    "bytes": int(entry.get("bytes") or -1),
+                },
                 target,
             )
         else:
@@ -634,6 +673,7 @@ def command_build_live2d(args: argparse.Namespace) -> None:
         config,
         args.source,
         identity,
+        include_bc7=getattr(args, "live2d_bc7", False),
         reuse_manifest=reuse_manifest,
         restore_output=restore_output,
         reuse_concurrency=args.reuse_concurrency,
@@ -724,7 +764,14 @@ def command_build_home_spots(args: argparse.Namespace) -> None:
     _print(
         {
             "buildId": identity,
-            **_fields(result, "schema", "server", "sourceId", "sceneCount", "adoptedSceneCount"),
+            **_fields(
+                result,
+                "schema",
+                "server",
+                "sourceId",
+                "sceneCount",
+                "adoptedSceneCount",
+            ),
         }
     )
 
@@ -742,7 +789,12 @@ def command_build_api(args: argparse.Namespace) -> None:
         restore_output = lambda path, target: delta.fetch_release_path(path, target)  # noqa: E731
     _print(
         build_api(
-            config, args.source, identity, base_release_entries, restore_archive, restore_output
+            config,
+            args.source,
+            identity,
+            base_release_entries,
+            restore_archive,
+            restore_output,
         )
     )
 
@@ -753,18 +805,36 @@ def command_build_ktx2(args: argparse.Namespace) -> None:
     _print(build_ktx2(config.id, identity))
 
 
+def command_build_announcements(args: argparse.Namespace) -> None:
+    config = load_server_config(args.server)
+    identity = args.build or build_id(config, args.source)
+    _print(build_announcements(config.id, identity))
+
+
 def command_build_release(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
     base_manifest = None
     if args.delta_plan:
         base_manifest = _delta_context(config, args.delta_plan).base_manifest()
-    _print(_release_summary(assemble_release(config.id, args.source, identity, base_manifest)))
+    _print(
+        _release_summary(
+            assemble_release(config.id, args.source, identity, base_manifest)
+        )
+    )
 
 
-def _run_build(config: ServerConfig, source_id: str, identity: str, include_ktx2: bool) -> dict:
+def _run_build(
+    config: ServerConfig,
+    source_id: str,
+    identity: str,
+    include_ktx2: bool,
+    include_live2d_bc7: bool = False,
+) -> dict:
     extract_master(
-        _source_package(config.id, source_id), build_layout(config.id, identity).master, config,
+        _source_package(config.id, source_id),
+        build_layout(config.id, identity).master,
+        config,
         snapshot_root=_source_master_root(config.id, source_id),
     )
     # UnityPy decoding is CPU-heavy Python work. Use separate processes locally;
@@ -772,7 +842,14 @@ def _run_build(config: ServerConfig, source_id: str, identity: str, include_ktx2
     workers = min(config.extraction_shards, os.cpu_count() or 1, 4)
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = [
-            executor.submit(extract_shard, config.id, source_id, identity, index, config.extraction_shards)
+            executor.submit(
+                extract_shard,
+                config.id,
+                source_id,
+                identity,
+                index,
+                config.extraction_shards,
+            )
             for index in range(config.extraction_shards)
         ]
         for future in futures:
@@ -780,7 +857,12 @@ def _run_build(config: ServerConfig, source_id: str, identity: str, include_ktx2
     merge_unity_shards(config.id, source_id, identity, config.extraction_shards)
     stages = [
         lambda: extract_cri(config, source_id, identity),
-        lambda: build_live2d(config, source_id, identity),
+        lambda: build_live2d(
+            config,
+            source_id,
+            identity,
+            include_bc7=include_live2d_bc7,
+        ),
         lambda: build_spine(config, source_id, identity),
         lambda: build_home_spots(config, source_id, identity),
     ]
@@ -801,13 +883,17 @@ def command_run(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     if args.offline:
         if args.input:
-            raise ValueError("--offline cannot be combined with --input; use --source instead")
+            raise ValueError(
+                "--offline cannot be combined with --input; use --source instead"
+            )
         if not args.source:
             raise ValueError("--offline requires --source")
         if args.cache:
             raise ValueError("--cache is only valid when ingesting --input")
         if args.publish:
-            raise ValueError("--offline does not publish; publish a verified release separately")
+            raise ValueError(
+                "--offline does not publish; publish a verified release separately"
+            )
         source = _require_local_offline_source(config, args.source)
     else:
         if args.source:
@@ -815,14 +901,23 @@ def command_run(args: argparse.Namespace) -> None:
         if not args.input:
             raise ValueError("run requires --input, or --offline --source")
         source = ingest_package(
-            Path(args.input), config, Path(args.cache) if args.cache else None, args.concurrency
+            Path(args.input),
+            config,
+            Path(args.cache) if args.cache else None,
+            args.concurrency,
         )
 
     store = R2Store(config, args.concurrency) if args.publish else None
     if store:
         publish_source(store, config, source["sourceId"])
     identity = build_id(config, source["sourceId"])
-    release = _run_build(config, source["sourceId"], identity, args.ktx2)
+    release = _run_build(
+        config,
+        source["sourceId"],
+        identity,
+        args.ktx2,
+        getattr(args, "live2d_bc7", False),
+    )
     pointer = publish_release(store, config, release["releaseId"]) if store else None
     _print(
         {
@@ -930,7 +1025,7 @@ SONOLUS_INPUT_PREFIXES = (
     "runtime/unity-json/Assets/AddressableResources/Live/Images/lane_effect_white.png/",
     "runtime/unity/Assets/AddressableResources/Live/Images/lane_effect_white.png/",
 )
-SONOLUS_INPUT_EXACT_PATHS = ()
+SONOLUS_INPUT_EXACT_PATHS = ("metadata/cri.json",)
 
 
 def command_fetch_sonolus_inputs(args: argparse.Namespace) -> None:
@@ -1006,9 +1101,13 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--server", default="jp-cbt", help="server configuration id")
     commands = root.add_subparsers(dest="command", required=True)
 
-    ingest = commands.add_parser("ingest", help="normalize an APK, APKS/XAPK, or split APK directory")
+    ingest = commands.add_parser(
+        "ingest", help="normalize an APK, APKS/XAPK, or split APK directory"
+    )
     ingest.add_argument("--input", required=True)
-    ingest.add_argument("--cache", help="flat cache of exact original download filenames")
+    ingest.add_argument(
+        "--cache", help="flat cache of exact original download filenames"
+    )
     ingest.add_argument("--concurrency", type=int, default=12)
     ingest.add_argument(
         "--reuse",
@@ -1040,7 +1139,10 @@ def parser() -> argparse.ArgumentParser:
         help="report the effective CDN authorization and its source (server or secret)",
     )
     credential.set_defaults(run=command_cdn_credential)
-    probe = commands.add_parser("probe-source", help="identify package and live catalog without downloading bundles")
+    probe = commands.add_parser(
+        "probe-source",
+        help="identify package and live catalog without downloading bundles",
+    )
     probe.add_argument("--input", required=True)
     probe.set_defaults(run=command_probe_source)
 
@@ -1052,30 +1154,43 @@ def parser() -> argparse.ArgumentParser:
         "fetch-release-document",
         help="fetch one verified JSON document from a published release",
     )
-    document_fetch.add_argument("--release", help="release id; defaults to the current pointer")
+    document_fetch.add_argument(
+        "--release", help="release id; defaults to the current pointer"
+    )
     document_fetch.add_argument("--path", required=True)
     document_fetch.add_argument("--output", required=True)
     document_fetch.add_argument("--concurrency", type=int, default=8)
     document_fetch.set_defaults(run=command_fetch_release_document)
 
-    source_verify = commands.add_parser("verify-source", help="verify a local immutable source")
+    source_verify = commands.add_parser(
+        "verify-source", help="verify a local immutable source"
+    )
     source_verify.add_argument("--source", required=True)
-    source_verify.add_argument("--fast", action="store_true", help="skip content rehashing")
+    source_verify.add_argument(
+        "--fast", action="store_true", help="skip content rehashing"
+    )
     source_verify.set_defaults(run=command_verify_source)
 
     source_index = commands.add_parser(
-        "index-source", help="index exact Unity CAB dependencies in an existing local source"
+        "index-source",
+        help="index exact Unity CAB dependencies in an existing local source",
     )
     source_index.add_argument("--source", required=True)
-    source_index.add_argument("--fast", action="store_true", help="skip content rehashing")
+    source_index.add_argument(
+        "--fast", action="store_true", help="skip content rehashing"
+    )
     source_index.set_defaults(run=command_index_source)
 
-    master = commands.add_parser("extract-master", help="decrypt all Master tables from the normalized package")
+    master = commands.add_parser(
+        "extract-master", help="decrypt all Master tables from the normalized package"
+    )
     master.add_argument("--source", required=True)
     master.add_argument("--build")
     master.set_defaults(run=command_extract_master)
 
-    unity = commands.add_parser("extract-unity", help="process one deterministic Unity shard")
+    unity = commands.add_parser(
+        "extract-unity", help="process one deterministic Unity shard"
+    )
     unity.add_argument("--source", required=True)
     unity.add_argument("--build")
     unity.add_argument("--shard-index", type=int, required=True)
@@ -1110,7 +1225,9 @@ def parser() -> argparse.ArgumentParser:
     )
     merge.set_defaults(run=command_merge_unity)
 
-    cri = commands.add_parser("extract-cri", help="decode original and embedded CRI payloads")
+    cri = commands.add_parser(
+        "extract-cri", help="decode original and embedded CRI payloads"
+    )
     cri.add_argument("--source", required=True)
     cri.add_argument("--build")
     cri.add_argument("--concurrency", type=int, default=2)
@@ -1126,7 +1243,9 @@ def parser() -> argparse.ArgumentParser:
     cri.add_argument("--reuse-concurrency", type=int, default=32)
     cri.set_defaults(run=command_extract_cri)
 
-    live2d = commands.add_parser("build-live2d", help="build Live2D catalog/runtime derivatives")
+    live2d = commands.add_parser(
+        "build-live2d", help="build Live2D catalog/runtime derivatives"
+    )
     live2d.add_argument("--source", required=True)
     live2d.add_argument("--build")
     live2d.add_argument(
@@ -1137,6 +1256,11 @@ def parser() -> argparse.ArgumentParser:
     live2d.add_argument(
         "--delta-plan",
         help="delta plan from prepare-unity-reuse; adopt unchanged models from the pinned base release",
+    )
+    live2d.add_argument(
+        "--live2d-bc7",
+        action="store_true",
+        help="also produce lossy desktop BC7 KTX2 variants (native ASTC remains enabled by default)",
     )
     live2d.add_argument("--reuse-concurrency", type=int, default=32)
     live2d.set_defaults(run=command_build_live2d)
@@ -1179,10 +1303,20 @@ def parser() -> argparse.ArgumentParser:
     )
     api.set_defaults(run=command_build_api)
 
-    ktx2 = commands.add_parser("build-ktx2", help="build optional KTX2 runtime derivatives")
+    ktx2 = commands.add_parser(
+        "build-ktx2", help="build optional KTX2 runtime derivatives"
+    )
     ktx2.add_argument("--source", required=True)
     ktx2.add_argument("--build")
     ktx2.set_defaults(run=command_build_ktx2)
+
+    announcements = commands.add_parser(
+        "build-announcements",
+        help="collect live in-game announcements into the release",
+    )
+    announcements.add_argument("--source", required=True)
+    announcements.add_argument("--build")
+    announcements.set_defaults(run=command_build_announcements)
 
     release = commands.add_parser("build-release", help="assemble an immutable release")
     release.add_argument("--source", required=True)
@@ -1198,8 +1332,12 @@ def parser() -> argparse.ArgumentParser:
         help="run the complete local pipeline from an input package or a verified local source",
     )
     run_input = run.add_mutually_exclusive_group()
-    run_input.add_argument("--input", help="APK, APKS/XAPK, or split-APK directory to ingest")
-    run_input.add_argument("--source", help="existing local immutable source id (requires --offline)")
+    run_input.add_argument(
+        "--input", help="APK, APKS/XAPK, or split-APK directory to ingest"
+    )
+    run_input.add_argument(
+        "--source", help="existing local immutable source id (requires --offline)"
+    )
     run.add_argument(
         "--offline",
         action="store_true",
@@ -1207,22 +1345,45 @@ def parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--cache", help="flat cache of exact original download filenames")
     run.add_argument("--ktx2", action="store_true")
-    run.add_argument("--publish", action="store_true", help="publish the source and verified release to R2")
+    run.add_argument(
+        "--live2d-bc7",
+        action="store_true",
+        help="also produce lossy desktop BC7 KTX2 Live2D variants (native ASTC remains enabled by default)",
+    )
+    run.add_argument(
+        "--publish",
+        action="store_true",
+        help="publish the source and verified release to R2",
+    )
     run.add_argument("--concurrency", type=int, default=12)
     run.set_defaults(run=command_run)
 
-    release_verify = commands.add_parser("verify-release", help="verify a complete immutable release")
+    release_verify = commands.add_parser(
+        "verify-release", help="verify a complete immutable release"
+    )
     release_verify.add_argument("--release", required=True)
-    release_verify.add_argument("--fast", action="store_true", help="skip content rehashing")
+    release_verify.add_argument(
+        "--fast", action="store_true", help="skip content rehashing"
+    )
     release_verify.set_defaults(run=command_verify_release)
 
-    remote_verify = commands.add_parser("verify-remote", help="verify the selected release and objects in R2")
-    remote_verify.add_argument("--release", help="require current.json to select this release id")
-    remote_verify.add_argument("--fast", action="store_true", help="verify only the pointer and release manifest")
+    remote_verify = commands.add_parser(
+        "verify-remote", help="verify the selected release and objects in R2"
+    )
+    remote_verify.add_argument(
+        "--release", help="require current.json to select this release id"
+    )
+    remote_verify.add_argument(
+        "--fast",
+        action="store_true",
+        help="verify only the pointer and release manifest",
+    )
     remote_verify.add_argument("--concurrency", type=int, default=12)
     remote_verify.set_defaults(run=command_verify_remote)
 
-    source_publish = commands.add_parser("publish-source", help="publish source artifacts to R2 CAS")
+    source_publish = commands.add_parser(
+        "publish-source", help="publish source artifacts to R2 CAS"
+    )
     source_publish.add_argument("--source", required=True)
     source_publish.add_argument("--concurrency", type=int, default=64)
     source_publish.set_defaults(run=command_publish_source)
@@ -1235,9 +1396,13 @@ def parser() -> argparse.ArgumentParser:
     package_fetch.add_argument("--concurrency", type=int, default=12)
     package_fetch.set_defaults(run=command_fetch_package)
 
-    source_fetch = commands.add_parser("fetch-source", help="fetch selected immutable source files from R2")
+    source_fetch = commands.add_parser(
+        "fetch-source", help="fetch selected immutable source files from R2"
+    )
     source_fetch.add_argument("--source", required=True)
-    source_fetch.add_argument("--role", action="append", help="source file role to fetch; may be repeated")
+    source_fetch.add_argument(
+        "--role", action="append", help="source file role to fetch; may be repeated"
+    )
     source_fetch.add_argument("--shard-index", type=int)
     source_fetch.add_argument("--shard-count", type=int)
     source_fetch.add_argument(
@@ -1264,22 +1429,28 @@ def parser() -> argparse.ArgumentParser:
     sonolus_inputs.add_argument("--concurrency", type=int, default=12)
     sonolus_inputs.set_defaults(run=command_fetch_sonolus_inputs)
 
-    release_publish = commands.add_parser("publish-release", help="publish and atomically promote an R2 release")
+    release_publish = commands.add_parser(
+        "publish-release", help="publish and atomically promote an R2 release"
+    )
     release_publish.add_argument("--release", required=True)
     release_publish.add_argument(
-        "--fast", action="store_true", help="trust hashes from the immediately preceding release build"
+        "--fast",
+        action="store_true",
+        help="trust hashes from the immediately preceding release build",
     )
     release_publish.add_argument("--concurrency", type=int, default=64)
     release_publish.set_defaults(run=command_publish_release)
 
     source_prune = commands.add_parser(
-        "prune-sources", help="delete source manifests not referenced by a retained release"
+        "prune-sources",
+        help="delete source manifests not referenced by a retained release",
     )
     source_prune.add_argument("--concurrency", type=int, default=64)
     source_prune.set_defaults(run=command_prune_sources)
 
     release_prune = commands.add_parser(
-        "prune-releases", help="delete non-current R2 releases beyond the configured retention"
+        "prune-releases",
+        help="delete non-current R2 releases beyond the configured retention",
     )
     release_prune.add_argument("--concurrency", type=int, default=64)
     release_prune.set_defaults(run=command_prune_releases)
@@ -1301,7 +1472,8 @@ def parser() -> argparse.ArgumentParser:
     garupa_prune.set_defaults(run=command_prune_garupa_master)
 
     r2_gc = commands.add_parser(
-        "gc-r2", help="delete unreferenced objects from the shared R2 content-addressed store"
+        "gc-r2",
+        help="delete unreferenced objects from the shared R2 content-addressed store",
     )
     r2_gc.add_argument("--dry-run", action="store_true")
     r2_gc.add_argument("--minimum-age-hours", type=int, default=24)

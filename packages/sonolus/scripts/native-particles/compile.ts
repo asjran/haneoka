@@ -49,6 +49,8 @@ interface NativeEffectContract {
   nativeEffects: {
     profiles: readonly string[];
     profileQualities: readonly number[];
+    /** Authored NoteEffectSkin asset for each profile (defaults to effect001). */
+    profileSkins?: readonly ("effect001" | "effect001Simple")[];
     widths: readonly number[];
     planes: readonly { label: string; alpha1: number; slope: number }[];
     baseNames: Readonly<Record<string, string>>;
@@ -178,6 +180,7 @@ const majorityPlane = (samples: readonly QuadSample[]): number => {
 export const NATIVE_EFFECT_PROFILES = nativeEffects.profiles.map((prefix, index) => ({
   prefix,
   quality: nativeEffects.profileQualities[index]!,
+  noteEffectSkin: nativeEffects.profileSkins?.[index] ?? "effect001",
 }));
 
 /** MasterLiveQualitySettings _effectRenderingScale by quality (0 High, 2 Low). */
@@ -723,7 +726,11 @@ export interface CompileResult {
 
 export async function compileNativeParticles(options: {
   releaseRoot: string;
-  profiles?: ReadonlyArray<{ prefix: string; quality: number }>;
+  profiles?: ReadonlyArray<{
+    prefix: string;
+    quality: number;
+    noteEffectSkin?: "effect001" | "effect001Simple";
+  }>;
   log?: (line: string) => void;
   /** Diagnostics: only trace effects whose name passes. */
   only?: (name: string) => boolean;
@@ -732,7 +739,11 @@ export async function compileNativeParticles(options: {
   const profiles = options.profiles ?? NATIVE_EFFECT_PROFILES;
   const tracers = await Promise.all(
     profiles.map(async (profile) => {
-      const tracer = new EffectTracer({ releaseRoot: options.releaseRoot, currentQuality: profile.quality });
+      const tracer = new EffectTracer({
+        releaseRoot: options.releaseRoot,
+        currentQuality: profile.quality,
+        ...(profile.noteEffectSkin ? { noteEffectSkin: profile.noteEffectSkin } : {}),
+      });
       await tracer.load();
       return { profile, tracer };
     }),

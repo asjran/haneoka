@@ -13,6 +13,8 @@ import {
 } from "./bestdori";
 import { handleCommunityRequest } from "./community";
 import { handleCommunityActivityRequest } from "./community-activity";
+import { handleAnnouncementsRequest } from "./announcements";
+import { announcementDocumentRequest, rewriteAnnouncementDocument } from "../src/lib/announcement-document";
 import { handleModerationQueue, reconcileModerationState } from "./moderation";
 import { handleProfileRequest } from "./profile";
 import { handlePublicProfileRequest } from "./public-profile";
@@ -2080,6 +2082,7 @@ async function handleCatalogApi(
 const LATEST_CATALOG_RESERVED_SEGMENTS = new Set([
   "account",
   "admin",
+  "announcements",
   "auth",
   "catalog",
   "community",
@@ -2642,6 +2645,19 @@ async function documentEntityAvailability(
  */
 async function serveCanonicalResourceDocument(request: Request, env: Env): Promise<Response | null> {
   const requestedUrl = new URL(request.url);
+  const announcement = announcementDocumentRequest(requestedUrl.pathname);
+  if (announcement && (request.method === "GET" || request.method === "HEAD")) {
+    const shellUrl = new URL(requestedUrl);
+    shellUrl.pathname = announcement.shellPath;
+    const shell = await env.ASSETS.fetch(new Request(shellUrl, { method: "GET", headers: request.headers }));
+    if (!shell.ok) return new Response("Not found", { status: 404 });
+    const body = rewriteAnnouncementDocument(await shell.text(), announcement.id);
+    const headers = new Headers(shell.headers);
+    headers.delete("Content-Encoding");
+    headers.delete("ETag");
+    headers.set("Content-Length", String(new TextEncoder().encode(body).byteLength));
+    return new Response(request.method === "HEAD" ? null : body, { status: 200, headers });
+  }
   const segments = requestedUrl.pathname.split("/").filter(Boolean);
   if (
     (request.method === "GET" || request.method === "HEAD") &&
@@ -2806,6 +2822,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     return new Response(null, { status: 204, headers: sonolusRequest ? SONOLUS_JSON_HEADERS : CORS });
   if (!new Set(["GET", "HEAD"]).has(request.method))
     return new Response("method not allowed", { status: 405, headers: CORS });
+  const announcements = await handleAnnouncementsRequest(request, env, (serverSlug) =>
+    activeResourceServer(env, serverSlug),
+  );
+  if (announcements) return announcements;
   const gameClient = await handleGameClient(env, ctx, request, url);
   if (gameClient) return gameClient;
   const sonolus = await handleSonolus(env, ctx, request, url.pathname);

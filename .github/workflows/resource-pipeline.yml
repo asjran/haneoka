@@ -133,3 +133,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-cloudflare.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - name: Rebuild Sonolus presentation from promoted Intl resources
+        if: ${{ needs.pipeline_intl.result == 'success' && needs.pipeline_intl.outputs.release_promoted == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run sonolus.yml --repo "$GITHUB_REPOSITORY" --ref main

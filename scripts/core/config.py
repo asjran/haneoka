@@ -40,6 +40,7 @@ class ServerConfig:
     master_remote_root: str = ""
     master_version_endpoint: str = ""
     version_proxy_env: str = ""
+    announcements_endpoint: str = ""
 
 
 def validate_server_id(value: str) -> str:
@@ -70,7 +71,9 @@ def _validate_service_endpoint(value: str, file: Path) -> None:
     try:
         endpoint_address = ipaddress.ip_address(endpoint_hostname)
     except ValueError:
-        if endpoint_hostname == "localhost" or endpoint_hostname.endswith((".localhost", ".local")):
+        if endpoint_hostname == "localhost" or endpoint_hostname.endswith(
+            (".localhost", ".local")
+        ):
             raise ValueError(f"service endpoint must use a public host: {file}")
     else:
         if not endpoint_address.is_global:
@@ -103,6 +106,7 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         "catalog",
         "masterRemoteRoot",
         "masterVersionEndpoint",
+        "announcements",
     }
     unknown = sorted(set(value) - allowed)
     if unknown:
@@ -123,7 +127,10 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     if not isinstance(closed, bool):
         raise ValueError(f"invalid closed: {file}")
     required_strings = ("packageName", "unityVersion", "r2Bucket", "criHcaKey")
-    if any(not isinstance(value.get(key), str) or not value[key] for key in required_strings):
+    if any(
+        not isinstance(value.get(key), str) or not value[key]
+        for key in required_strings
+    ):
         raise ValueError(f"required server configuration string is missing: {file}")
     remote_root_value = value.get("remoteRoot")
     if isinstance(remote_root_value, str) and remote_root_value:
@@ -152,7 +159,9 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         try:
             remote_address = ipaddress.ip_address(remote_hostname)
         except ValueError:
-            if remote_hostname == "localhost" or remote_hostname.endswith((".localhost", ".local")):
+            if remote_hostname == "localhost" or remote_hostname.endswith(
+                (".localhost", ".local")
+            ):
                 raise ValueError(f"remoteRoot must use a public host: {file}")
         else:
             if not remote_address.is_global:
@@ -165,22 +174,35 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     if not value["criHcaKey"].isdigit():
         raise ValueError(f"invalid criHcaKey: {file}")
     crypto = value.get("masterCrypto", {})
-    if not isinstance(crypto, dict) or set(crypto) != {"salt", "key", "iv"} or any(
-        not isinstance(item, str) or not HEX_64.fullmatch(item) for item in crypto.values()
+    if (
+        not isinstance(crypto, dict)
+        or set(crypto) != {"salt", "key", "iv"}
+        or any(
+            not isinstance(item, str) or not HEX_64.fullmatch(item)
+            for item in crypto.values()
+        )
     ):
         raise ValueError(f"invalid masterCrypto: {file}")
     asset_version = value.get("assetVersion", {})
     if not isinstance(asset_version, dict):
         raise ValueError(f"invalid assetVersion block: {file}")
-    unknown_asset_version = sorted(set(asset_version) - {"endpoint", "catalogPath", "basicUser", "proxyEnv"})
+    unknown_asset_version = sorted(
+        set(asset_version) - {"endpoint", "catalogPath", "basicUser", "proxyEnv"}
+    )
     if unknown_asset_version:
-        raise ValueError(f"unknown assetVersion fields in {file}: {unknown_asset_version}")
+        raise ValueError(
+            f"unknown assetVersion fields in {file}: {unknown_asset_version}"
+        )
     version_proxy_env = str(asset_version.get("proxyEnv", "")).strip()
     if version_proxy_env and not ENV_NAME.fullmatch(version_proxy_env):
-        raise ValueError(f"assetVersion.proxyEnv must be an environment variable name: {file}")
+        raise ValueError(
+            f"assetVersion.proxyEnv must be an environment variable name: {file}"
+        )
     version_endpoint = str(asset_version.get("endpoint", "")).strip()
     if not version_endpoint and asset_version.get("endpoint") is not None:
-        raise ValueError(f"assetVersion.endpoint must be a non-empty string when present: {file}")
+        raise ValueError(
+            f"assetVersion.endpoint must be a non-empty string when present: {file}"
+        )
     if version_endpoint:
         _validate_service_endpoint(version_endpoint, file)
     master_version_endpoint = value.get("masterVersionEndpoint", "")
@@ -188,6 +210,17 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         raise ValueError(f"invalid masterVersionEndpoint: {file}")
     if master_version_endpoint:
         _validate_service_endpoint(master_version_endpoint, file)
+    announcements = value.get("announcements", {})
+    if not isinstance(announcements, dict):
+        raise ValueError(f"invalid announcements block: {file}")
+    unknown_announcements = sorted(set(announcements) - {"endpoint"})
+    if unknown_announcements:
+        raise ValueError(
+            f"unknown announcements fields in {file}: {unknown_announcements}"
+        )
+    announcements_endpoint = str(announcements.get("endpoint", "")).strip()
+    if announcements_endpoint:
+        _validate_service_endpoint(announcements_endpoint, file)
     if asset_version and not version_endpoint:
         raise ValueError(f"assetVersion requires its own endpoint: {file}")
     version_catalog_path = str(asset_version.get("catalogPath", "")).strip()
@@ -198,7 +231,9 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
             or "{hash}" not in version_catalog_path
             or "\\" in version_catalog_path
             or ".." in version_catalog_path.split("/")
-            or any(part in {".", ".."} for part in unquote(version_catalog_path).split("/"))
+            or any(
+                part in {".", ".."} for part in unquote(version_catalog_path).split("/")
+            )
             or unquote(unquote(version_catalog_path)) != unquote(version_catalog_path)
         ):
             raise ValueError(
@@ -206,7 +241,9 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
             )
     version_basic_user = str(asset_version.get("basicUser", "")).strip()
     if asset_version and (not version_basic_user or ":" in version_basic_user):
-        raise ValueError(f"assetVersion.basicUser must be a non-empty user name without ':' : {file}")
+        raise ValueError(
+            f"assetVersion.basicUser must be a non-empty user name without ':' : {file}"
+        )
     catalog = value.get("catalog", {})
     if not isinstance(catalog, dict):
         raise ValueError(f"invalid catalog block: {file}")
@@ -243,7 +280,9 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
             or unquote(master_url.path) != master_url.path
             or any(part in {".", ".."} for part in master_url.path.split("/"))
         ):
-            raise ValueError(f"masterRemoteRoot must use the configured CDN origin: {file}")
+            raise ValueError(
+                f"masterRemoteRoot must use the configured CDN origin: {file}"
+            )
     return ServerConfig(
         id=server,
         package_name=value["packageName"],
@@ -268,4 +307,5 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         file=file,
         master_remote_root=master_remote_root.rstrip("/"),
         master_version_endpoint=master_version_endpoint,
+        announcements_endpoint=announcements_endpoint,
     )

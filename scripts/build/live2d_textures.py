@@ -44,7 +44,7 @@ BC7_ENCODER_PROFILE = {
     "encode": "uastc",
     "transferFunction": "linear",
     "texcoordOrigin": "top-left",
-    "uastcQuality": 2,
+    "uastcQuality": 4,
     "zstd": 8,
     "threads": KTX_ENCODER_THREADS,
     "transcodeTarget": "bc7",
@@ -115,7 +115,9 @@ class KtxToolUnavailable(RuntimeError):
 def encoder_profile(format_name: str, tool_version: str) -> dict[str, Any]:
     """Return the semantic encoder identity used by reuse and provenance."""
 
-    profile = ASTC_CONTAINER_PROFILE if format_name == "astc6x6" else BC7_ENCODER_PROFILE
+    profile = (
+        ASTC_CONTAINER_PROFILE if format_name == "astc6x6" else BC7_ENCODER_PROFILE
+    )
     return {
         "tool": "ktx",
         "toolVersion": tool_version,
@@ -149,9 +151,7 @@ def texture_variant_cache_key(
     if format_name == "astc6x6":
         identity["sourcePayloadSha256"] = source_payload_sha256 or ""
 
-    return sha256_bytes(
-        stable_json(identity)
-    )
+    return sha256_bytes(stable_json(identity))
 
 
 def ktx_tool_version(executable: str | None = None) -> str:
@@ -179,9 +179,21 @@ def ktx_tool_version(executable: str | None = None) -> str:
 def find_ktx_executable(executable: str | None = None) -> str | None:
     """Resolve the pinned KTX executable without making it a build requirement."""
 
-    pinned = PROJECT_ROOT / "texture-tools" / "KTX-Software-4.4.2-Linux-x86_64" / "bin" / "ktx"
-    return executable or os.environ.get("KTX_EXECUTABLE") or (
-        str(pinned) if pinned.is_file() and os.access(pinned, os.X_OK) else shutil.which("ktx")
+    pinned = (
+        PROJECT_ROOT
+        / "texture-tools"
+        / "KTX-Software-4.4.2-Linux-x86_64"
+        / "bin"
+        / "ktx"
+    )
+    return (
+        executable
+        or os.environ.get("KTX_EXECUTABLE")
+        or (
+            str(pinned)
+            if pinned.is_file() and os.access(pinned, os.X_OK)
+            else shutil.which("ktx")
+        )
     )
 
 
@@ -229,7 +241,7 @@ def astc_payload_size(width: int, height: int) -> int:
     return blocks_x * blocks_y * ASTC_BLOCK_BYTES
 
 
-KTX2_MAGIC = b"\xABKTX 20\xBB\r\n\x1A\n"
+KTX2_MAGIC = b"\xabKTX 20\xbb\r\n\x1a\n"
 KTX2_ASTC_6X6_UNORM = 165
 KTX2_BC7_UNORM = 145
 KTX2_HEADER_BYTES = 104
@@ -286,24 +298,35 @@ def _validate_ktx2_file(
     if header[:12] != KTX2_MAGIC:
         raise ValueError("KTX2 output has an invalid identifier")
     if int.from_bytes(header[12:16], "little") != vk_format:
-        raise ValueError(f"KTX2 output has unexpected vkFormat: {int.from_bytes(header[12:16], 'little')}")
+        raise ValueError(
+            f"KTX2 output has unexpected vkFormat: {int.from_bytes(header[12:16], 'little')}"
+        )
     if int.from_bytes(header[16:20], "little") != 1:
         raise ValueError("KTX2 output has an unexpected typeSize")
-    if int.from_bytes(header[20:24], "little") != width or int.from_bytes(header[24:28], "little") != height:
+    if (
+        int.from_bytes(header[20:24], "little") != width
+        or int.from_bytes(header[24:28], "little") != height
+    ):
         raise ValueError("KTX2 dimensions do not match original Texture2D")
     if (
         int.from_bytes(header[28:32], "little") != 0
         or int.from_bytes(header[32:36], "little") != 0
         or int.from_bytes(header[36:40], "little") != 1
     ):
-        raise ValueError("KTX2 output must describe one 2D non-array, non-cubemap texture")
+        raise ValueError(
+            "KTX2 output must describe one 2D non-array, non-cubemap texture"
+        )
     if int.from_bytes(header[40:44], "little") != 1:
         raise ValueError("KTX2 output must contain exactly one level")
     if int.from_bytes(header[44:48], "little") != supercompression:
         raise ValueError("KTX2 output has an unexpected supercompression scheme")
     level_offset, level_length, level_uncompressed_length = _ktx2_level0(header)
     file_bytes = file.stat().st_size
-    if level_offset < KTX2_HEADER_BYTES or level_length <= 0 or level_offset + level_length > file_bytes:
+    if (
+        level_offset < KTX2_HEADER_BYTES
+        or level_length <= 0
+        or level_offset + level_length > file_bytes
+    ):
         raise ValueError("KTX2 level-0 range is invalid")
     if level_uncompressed_length != uncompressed_level_bytes:
         raise ValueError("KTX2 uncompressed level size does not match dimensions")
@@ -360,7 +383,9 @@ def _validate_zlib_level(
                     output = decoder.decompress(pending, limit)
                     produced += len(output)
                     if produced > expected_uncompressed:
-                        raise ValueError("KTX2 zlib level exceeds declared uncompressed size")
+                        raise ValueError(
+                            "KTX2 zlib level exceeds declared uncompressed size"
+                        )
                     if decoder.unused_data:
                         raise ValueError("KTX2 zlib level has trailing bytes")
                     pending = decoder.unconsumed_tail
@@ -466,7 +491,7 @@ def write_ktx2_bc7(
                 "--assign-texcoord-origin",
                 "top-left",
                 "--uastc-quality",
-                "2",
+                "4",
                 "--zstd",
                 "8",
                 "--threads",
@@ -479,12 +504,25 @@ def write_ktx2_bc7(
         if not uastc.is_file():
             raise RuntimeError("KTX2 UASTC create did not produce an output")
         _run_ktx(
-            [executable, "transcode", "--target", "bc7", "--zlib", "6", str(uastc), str(temporary)],
+            [
+                executable,
+                "transcode",
+                "--target",
+                "bc7",
+                "--zlib",
+                "6",
+                str(uastc),
+                str(temporary),
+            ],
             "transcode BC7",
         )
         if not temporary.is_file():
             raise RuntimeError("KTX2 BC7 transcode did not produce an output")
-        expected_uncompressed = ((_positive_int(extracted.width, "width") + 3) // 4) * ((_positive_int(extracted.height, "height") + 3) // 4) * 16
+        expected_uncompressed = (
+            ((_positive_int(extracted.width, "width") + 3) // 4)
+            * ((_positive_int(extracted.height, "height") + 3) // 4)
+            * 16
+        )
         _run_ktx([executable, "validate", str(temporary)], "validate BC7")
         _validate_ktx2_file(
             temporary,
@@ -520,10 +558,20 @@ def ktx2_variant_metadata(
         "container": "ktx2",
         "width": extracted.width,
         "height": extracted.height,
-        "flipY": format_name == "bc7",
+        # Unity's original ASTC blocks are authored with the opposite
+        # vertical origin from the canonical PNG. KTX-Software records the
+        # ASTC container as ``ru`` and the runtime must flip that upload;
+        # BC7 is encoded from the top-left PNG and keeps the PNG orientation.
+        "flipY": format_name == "astc6x6",
         "byteLength": output.stat().st_size,
         "sha256": sha256_file(output),
         "sourceTextureSha256": source_hash,
+        "encoderProfile": encoder_profile(format_name, tool_version),
+        **(
+            {"sourcePayloadSha256": extracted.payload_sha256}
+            if format_name == "astc6x6"
+            else {}
+        ),
         "cacheKey": texture_variant_cache_key(
             format_name,
             source_hash,
@@ -586,7 +634,9 @@ def _bundle_records(source_manifest: dict[str, Any]) -> dict[str, dict[str, Any]
         if not SHA256.fullmatch(digest):
             continue
         if digest in records and records[digest] != raw:
-            raise ValueError(f"source manifest has conflicting bundle records: {digest}")
+            raise ValueError(
+                f"source manifest has conflicting bundle records: {digest}"
+            )
         records[digest] = raw
     return records
 
@@ -616,7 +666,9 @@ def _bundle_paths(
     return main, dependencies
 
 
-def _find_objects(environment: Any, references: Iterable[tuple[str, str]]) -> dict[tuple[str, str], Any]:
+def _find_objects(
+    environment: Any, references: Iterable[tuple[str, str]]
+) -> dict[tuple[str, str], Any]:
     wanted = set(references)
     found: dict[tuple[str, str], Any] = {}
     for obj in environment.objects:
@@ -728,10 +780,16 @@ def extract_live2d_astc(
                         )
                     fetch_original(dependency_sha, path)
             wanted = [
-                (str(reference.output.get("serializedFile") or ""), str(reference.output.get("objectId") or ""))
+                (
+                    str(reference.output.get("serializedFile") or ""),
+                    str(reference.output.get("objectId") or ""),
+                )
                 for reference in bundle_references
             ]
-            if any(not serialized_file or not object_id for serialized_file, object_id in wanted):
+            if any(
+                not serialized_file or not object_id
+                for serialized_file, object_id in wanted
+            ):
                 raise ValueError("selected Texture2D output identity is incomplete")
             environment = load_unity_bundle(bundle_file, dependencies)
             objects: dict[tuple[str, str], Any] = {}

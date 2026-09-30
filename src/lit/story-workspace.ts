@@ -42,6 +42,7 @@ import { PaneFocus } from "./ui/pane";
 import { specList } from "./ui/spec";
 import { emptyState, errorState, loadingState } from "./ui/state";
 import { tile } from "./ui/tile";
+import { storyTile } from "./shared/story-tile";
 import { storyCastMedia } from "./ui/story-media";
 import { dialogueRow } from "./ui/dialogue-row";
 import { characterPair } from "./ui/character-pair";
@@ -1466,35 +1467,24 @@ export class StoryWorkspace extends LitElement {
     const chapter = this.chapterOf(episode);
     const band = Number(episode.bandId || chapter?.bandId || 0);
     const bandIcon = band ? String(this.bands.find((item) => Number(item.bandId) === band)?.icon || "") : "";
-    return tile({
-      kind: "story",
-      title,
-      titleLanguage: this.episodeTitleValue(episode).locale,
-      subtitle: this.tileSubtitleContent(episode),
-      adornment: bandIcon
-        ? html`
-            <img src=${this.imageForLocale(bandIcon)} alt="" width="16" height="16" loading="lazy" />
-          `
-        : undefined,
-      label: title,
-      image: this.episodeImage(episode),
-      imageFallback: String(chapter?.banner || ""),
-      placeholder: icon("auto_stories", 32),
-      media: this.episodeMedia(episode),
-      // Story art is a 16:9 banner and the media box is 16:9, so it fills
-      // without cropping. No inset: it is artwork, not a symbol.
-      fit: this.isBestdori() && !this.isCardSection() ? "fill" : this.isCardSection() ? "contain" : "cover",
-      natural: this.origin === "release" && !["home", "afterlive"].includes(this.mode),
-      onOpen: () => void this.openStory(id, episode),
-      onImageError: this.imageError,
-      marks: [
-        episode.episodeNumber
-          ? { at: "start" as const, text: `#${String(episode.episodeNumber).padStart(2, "0")}` }
-          : null,
-        this.duration(episode) ? { at: "bottom-end" as const, text: this.duration(episode) } : null,
-      ],
-    });
+    return tile(
+      storyTile(episode, {
+        title,
+        titleLanguage: this.episodeTitleValue(episode).locale,
+        subtitle: this.tileSubtitleContent(episode),
+        bandIcon: bandIcon ? this.imageForLocale(bandIcon) : "",
+        image: this.episodeImage(episode),
+        imageFallback: String(chapter?.banner || ""),
+        media: this.episodeMedia(episode),
+        fit: this.isBestdori() && !this.isCardSection() ? "fill" : this.isCardSection() ? "contain" : "cover",
+        natural: this.origin === "release" && !["home", "afterlive"].includes(this.mode),
+        onOpen: () => void this.openStory(id, episode),
+        onImageError: this.imageError,
+        duration: this.duration(episode),
+      }),
+    );
   }
+
   private renderTable(episodes: JsonRecord[]) {
     const columns: Array<{ label: string; numeric?: boolean; sticky?: boolean }> = [
       { label: "#", numeric: true },

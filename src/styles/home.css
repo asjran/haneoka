@@ -279,7 +279,7 @@
   /* Lists inside cards */
   .birthday-list,
   .community-hot-list,
-  .news-list {
+  .home-news .announcement-list {
     display: grid;
     margin: 0;
     padding: 0;
@@ -288,7 +288,7 @@
   /* Only the card's own inset differs from the component's 16dp keyline. */
   .birthday-list .list-item,
   .community-hot-list .list-item,
-  .news-list .list-item {
+  .home-news .announcement-list .list-item {
     padding-inline: 24px 20px;
   }
   .birthday-list__days.is-today {
@@ -308,13 +308,11 @@
     color: var(--md-sys-color-on-surface-variant);
     font: var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size) / 1 var(--app-font);
   }
-  .news-list__mark {
-    display: grid;
-    width: 40px;
-    height: 40px;
-    place-items: center;
-    border-radius: var(--md-sys-shape-corner-full);
-    background: var(--md-sys-color-surface-container-highest);
+  .home-news .home-card__header {
+    flex-wrap: wrap;
+  }
+  .home-news .state {
+    padding: 24px;
   }
 
   /* ---------- Directory: the whole catalogue, grouped, at the bottom ---------- */
@@ -433,7 +431,7 @@
     }
     .birthday-list .list-item,
     .community-hot-list .list-item,
-    .news-list .list-item {
+    .home-news .announcement-list .list-item {
       padding-inline: 16px 12px;
     }
   }

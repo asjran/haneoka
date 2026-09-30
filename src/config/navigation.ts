@@ -56,7 +56,7 @@ export const INFORMATION_DESTINATIONS = [
 ] as const;
 
 export const PRIMARY_DESTINATIONS: PrimaryDestination[] = [
-  { id: "home", route: "/", icon: "home", label: "home", match: ["/"] },
+  { id: "home", route: "/", icon: "home", label: "home", match: ["/", "/announcements"] },
   {
     id: "catalog",
     route: "/catalog",
@@ -76,6 +76,11 @@ export const PRIMARY_DESTINATIONS: PrimaryDestination[] = [
 ];
 
 const sections: NavSection[] = [
+  {
+    id: "home",
+    label: "home",
+    items: [{ route: "/announcements", icon: "newspaper", label: "announcements.title" }],
+  },
   {
     id: "library",
     label: "library",

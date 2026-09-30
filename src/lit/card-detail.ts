@@ -1,5 +1,6 @@
 import { html, nothing } from "lit";
 import "../styles/card-detail.css";
+import { renderLevelSwitch } from "./ui/level-switch";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
 
 type Item = Record<string, unknown>;
@@ -81,52 +82,6 @@ export function initializeCardDetailState(c: Controller, item: Item) {
   c.detailLevel = cardControlData(c, item).levels.at(-1) || 1;
 }
 
-function renderLevelSwitch(
-  c: Controller,
-  label: string,
-  levels: number[],
-  value: number,
-  update: (value: number) => void,
-) {
-  void c;
-  if (levels.length < 2) return nothing;
-  const index = Math.max(0, levels.indexOf(value));
-  return html`
-    <div class="detail-level-switch">
-      <span class="detail-level-switch__value">
-        <small>${label}</small>
-        <strong>${value}</strong>
-      </span>
-      <button
-        class="icon-button"
-        ?disabled=${index === 0}
-        @click=${() => update(levels[index - 1] || value)}
-        aria-label=${`${label} ${levels[index - 1] || value}`}
-      >
-        <svg class="material-icon" width="18" height="18"><use href="/icons.svg#remove"></use></svg>
-      </button>
-      <md-slider
-        class="md3-slider"
-        min="0"
-        max=${levels.length - 1}
-        step="1"
-        .value=${String(index)}
-        @input=${(event: Event) => update(levels[Number((event.target as HTMLElement & { value?: number }).value)] || value)}
-        aria-label=${label}
-        aria-valuetext=${String(value)}
-      ></md-slider>
-      <button
-        class="icon-button"
-        ?disabled=${index === levels.length - 1}
-        @click=${() => update(levels[index + 1] || value)}
-        aria-label=${`${label} ${levels[index + 1] || value}`}
-      >
-        <svg class="material-icon" width="18" height="18"><use href="/icons.svg#add"></use></svg>
-      </button>
-    </div>
-  `;
-}
-
 export function renderCardStats(c: Controller, item: Item) {
   if (!["member", "support"].includes(c.profile.presentation)) return nothing;
   const data = cardControlData(c, item);
@@ -151,12 +106,12 @@ export function renderCardStats(c: Controller, item: Item) {
     <section class="detail-section card-stat-section">
       ${renderDetailSectionHeading(c.label("stats", "Stats"), "stats")}
       <div class="card-detail-controls">
-        ${renderLevelSwitch(c, c.label("level", "Level"), data.levels, c.detailLevel, (value) => {
+        ${renderLevelSwitch(c.label("level", "Level"), data.levels, c.detailLevel, (value) => {
           c.detailLevel = value;
           c.persistCardDetailQuery();
         })}${
           data.support
-            ? renderLevelSwitch(c, c.label("rank", "Rank"), data.rank, c.detailRank, (value) => {
+            ? renderLevelSwitch(c.label("rank", "Rank"), data.rank, c.detailRank, (value) => {
                 c.detailRank = value;
                 const next = cardControlData(c, item).levels;
                 if (!next.includes(c.detailLevel)) c.detailLevel = next.at(-1) || 1;
@@ -164,13 +119,12 @@ export function renderCardStats(c: Controller, item: Item) {
               })
             : html`
                 <div class="card-detail-controls__pair">
-                  ${renderLevelSwitch(c, c.label("training", "Training"), data.training, c.detailTraining, (value) => {
+                  ${renderLevelSwitch(c.label("training", "Training"), data.training, c.detailTraining, (value) => {
                     c.detailTraining = value;
                     const next = cardControlData(c, item).levels;
                     if (!next.includes(c.detailLevel)) c.detailLevel = next.at(-1) || 1;
                     c.persistCardDetailQuery();
                   })}${renderLevelSwitch(
-                    c,
                     c.label("awakening", "Awakening"),
                     data.awakening,
                     c.detailAwakening,
@@ -181,11 +135,10 @@ export function renderCardStats(c: Controller, item: Item) {
                   )}
                 </div>
                 <div class="card-detail-controls__pair">
-                  ${renderLevelSwitch(c, c.label("liveSkill", "LIVE Skill"), data.live, c.detailLiveLevel, (value) => {
+                  ${renderLevelSwitch(c.label("liveSkill", "LIVE Skill"), data.live, c.detailLiveLevel, (value) => {
                     c.detailLiveLevel = value;
                     c.persistCardDetailQuery();
                   })}${renderLevelSwitch(
-                    c,
                     c.label("gekisouSkill", "Gekisou Skill"),
                     data.gekisou,
                     c.detailGekisouLevel,

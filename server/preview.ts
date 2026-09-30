@@ -22,6 +22,7 @@ import {
   RuntimeChartDataProvider,
 } from "@haneoka/sonolus";
 import { localReleaseFile, releaseWorkspace, type ReleaseWorkspace } from "./releaseWorkspace.ts";
+import { announcementDocumentRequest, rewriteAnnouncementDocument } from "../src/lib/announcement-document.ts";
 import {
   isReleaseServer,
   legacyEntityRedirectTarget,
@@ -275,6 +276,7 @@ function isApplicationWorkerRequest(pathname: string): boolean {
     "/api/auth",
     "/api/v1/account",
     "/api/v1/admin",
+    "/api/v1/announcements",
     "/api/v1/community",
     "/api/v1/garupa",
     "/api/v1/home",
@@ -1075,6 +1077,22 @@ function localReleaseRegistry(): JsonObject {
 }
 
 function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerResponse, url: URL): boolean {
+  const announcement = announcementDocumentRequest(url.pathname);
+  if (announcement) {
+    const file = safeFile(DIST, `${announcement.shellPath.slice(1)}index.html`);
+    if (!file) {
+      json(res, 404, { error: { code: "document_not_found", message: "Announcement document not found" } });
+      return true;
+    }
+    const body = rewriteAnnouncementDocument(fs.readFileSync(file, "utf8"), announcement.id);
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Length": Buffer.byteLength(body),
+      "Cache-Control": "no-cache",
+    });
+    res.end(req.method === "HEAD" ? undefined : body);
+    return true;
+  }
   const route = parseResourceRoute(url.pathname);
   if (!route) return false;
 

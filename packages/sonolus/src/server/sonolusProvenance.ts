@@ -20,6 +20,7 @@ export const SONOLUS_INPUT_PREFIXES = [
 ] as const;
 
 const PROVENANCE_SCHEMA = "haneoka-sonolus-input-provenance-v1";
+const SONOLUS_INPUT_EXACT_PATHS = ["metadata/cri.json"] as const;
 const SHA256 = /^[a-f0-9]{64}$/u;
 
 type JsonRecord = Record<string, unknown>;
@@ -288,7 +289,7 @@ export function validateSonolusInputProvenance(
     throw new Error(`fetched Sonolus input provenance is missing: ${sidecar}`);
   }
   if (existsSync(sidecar)) {
-    return validateFetchedProvenance(sidecar, workspace, SONOLUS_INPUT_PREFIXES, []);
+    return validateFetchedProvenance(sidecar, workspace, SONOLUS_INPUT_PREFIXES, SONOLUS_INPUT_EXACT_PATHS);
   }
-  return validateLocalRelease(workspace, root, SONOLUS_INPUT_PREFIXES, []);
+  return validateLocalRelease(workspace, root, SONOLUS_INPUT_PREFIXES, SONOLUS_INPUT_EXACT_PATHS);
 }

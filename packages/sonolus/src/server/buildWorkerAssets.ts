@@ -20,6 +20,7 @@ import type {
 } from "@sonolus/core";
 import {
   OUR_NOTES_LANE_SKIN_NAMES,
+  OUR_NOTES_NOTE_SE_GROUP_IDS,
   OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
   OUR_NOTES_NOTE_SE_GROUP_NAMES,
   OUR_NOTES_NOTE_SKIN_NAMES,
@@ -542,18 +543,18 @@ async function main() {
     data: addFile(requireFile(resolve(resourceDir, "particle.data"))),
     texture: addFile(requireFile(resolve(resourceDir, "particle.texture.png"))),
   };
-  const effect: EffectItem = {
-    ...itemBase(
-      OUR_NOTES_SONOLUS_ITEM_NAMES.effect,
-      SONOLUS_ITEM_VERSIONS.effect,
-      nativeEnglishTitle(nativeLabels, OUR_NOTES_SONOLUS_ITEM_NAMES.effect),
-      "Our Notes",
-      "haneoka",
-    ),
-    thumbnail: emptySrl,
-    data: addFile(requireFile(resolve(resourceDir, "effect.data"))),
-    audio: addFile(requireFile(resolve(resourceDir, "effect.audio"))),
-  };
+  const effectItems: EffectItem[] = OUR_NOTES_NOTE_SE_GROUP_IDS.map((group) => {
+    const name = OUR_NOTES_SONOLUS_ITEM_NAMES.effects[group];
+    const effectResourceDir = resolve(resourceDir, "effects", String(group));
+    return {
+      ...itemBase(name, SONOLUS_ITEM_VERSIONS.effect, nativeEnglishTitle(nativeLabels, name), "Our Notes", "haneoka"),
+      thumbnail: emptySrl,
+      data: addFile(requireFile(resolve(effectResourceDir, "effect.data"))),
+      audio: addFile(requireFile(resolve(effectResourceDir, "effect.audio"))),
+    };
+  });
+  const effect = effectItems[0];
+  if (!effect) throw new Error("Native effect item list is empty");
   const backgroundItems: BackgroundItem[] = ([0, 1, 2, 3, 4, 5] as const).map((stageId) => {
     const name = OUR_NOTES_SONOLUS_ITEM_NAMES.stages[stageId];
     const image = `/assets/${releaseServer}/Assets/AddressableResources/Band/${stageId}/live_stage/lightweight_background.png`;
@@ -691,7 +692,7 @@ async function main() {
   }
   assertItemVersions("skin", skinItems);
   assertItemVersions("background", backgroundItems);
-  assertItemVersions("effect", [effect]);
+  assertItemVersions("effect", effectItems);
   assertItemVersions("particle", [particle]);
   assertItemVersions("engine", [engine]);
 
@@ -735,7 +736,7 @@ async function main() {
   }
   writeGroup("skins", "skin", skinItems);
   writeGroup("backgrounds", "background", backgroundItems);
-  writeGroup("effects", "effect", [effect]);
+  writeGroup("effects", "effect", effectItems);
   writeGroup("particles", "particle", [particle]);
   writeGroup("engines", "engine", [engine]);
 

@@ -1,5 +1,9 @@
 import { resourceCollectionHref, entityHref } from "../lib/resource-route";
 import { readReleaseServer } from "../lib/release-server";
+import { announcementPath } from "../lib/announcements";
+import { announcementText } from "./shared/announcement";
+import "./announcement-feed";
+import "../styles/announcements.css";
 import type { Locale } from "../i18n/locales";
 import { clientText } from "../i18n/client";
 import { SONOLUS_SERVER_LINK } from "../config/sonolus";
@@ -414,8 +418,7 @@ export class HomeDashboard extends LitElement {
     const now = Date.now();
     if (startAt > now) return this.countdown(startAt, false);
     if (endAt && endAt >= now) return this.countdown(endAt, true);
-    if (endAt)
-      return this.text("endedAgo", "Ended {time} ago").replace("{time}", this.spanText(now - endAt));
+    if (endAt) return this.text("endedAgo", "Ended {time} ago").replace("{time}", this.spanText(now - endAt));
     return this.countdown(startAt, false);
   }
   private countdown(at: number, ending: boolean) {
@@ -432,8 +435,7 @@ export class HomeDashboard extends LitElement {
     const remaining = at - Date.now();
     const days = Math.round(remaining / 86400000);
     if (days === 0) {
-      if (remaining > 0)
-        return this.text("releasesIn", "Added in {time}").replace("{time}", this.spanText(remaining));
+      if (remaining > 0) return this.text("releasesIn", "Added in {time}").replace("{time}", this.spanText(remaining));
       return this.text("releasedToday", "Added today");
     }
     const span = this.text("spanDays", "{count}d").replace("{count}", this.count(Math.abs(days)));
@@ -923,47 +925,19 @@ export class HomeDashboard extends LitElement {
     `;
   }
   private renderNews() {
-    const sources = [
-      ["Our Notes", "bdon.biligames.com", "https://bdon.biligames.com/news/"],
-      ["BanG Dream!", "bang-dream.com", "https://bang-dream.com/news"],
-    ];
     return html`
-      <section class="home-card" aria-labelledby="home-news-title">
+      <section class="home-card home-news" aria-labelledby="home-news-title">
         ${this.moduleHeader(
           icon("newspaper"),
-          this.text("newsTitle", "News"),
+          announcementText(this.locale, "title", "Announcements"),
           "home-news-title",
           html`
-            <span class="home-card__meta">${this.text("officialSources", "Official sources")}</span>
+            <a class="button button--text" href=${announcementPath(readReleaseServer(), this.locale as Locale)}>
+              ${announcementText(this.locale, "viewAll", "View all")}${icon("arrow_forward", 18)}
+            </a>
           `,
         )}
-        <ul class="news-list" role="list">
-          ${sources.map(
-            ([name, host, href]) => html`
-              <li>
-                <a class="list-item list-item--interactive" href=${href} target="_blank" rel="noopener noreferrer">
-                  <span class="list-item__leading news-list__mark" aria-hidden="true">${icon("public", 20)}</span>
-                  <span class="list-item__body">
-                    <span class="list-item__headline">${name}</span>
-                    <span class="list-item__supporting">${host}</span>
-                  </span>
-                  <span class="list-item__trailing">${icon("open_in_new", 18)}</span>
-                </a>
-              </li>
-            `,
-          )}
-          <li>
-            <div class="list-item">
-              <span class="list-item__leading news-list__mark" aria-hidden="true">${icon("calendar_month", 20)}</span>
-              <span class="list-item__body">
-                <span class="list-item__headline">${this.text("scheduleTitle", "Event schedule")}</span>
-                <span class="list-item__supporting">
-                  ${this.text("scheduleEmpty", "There is no event schedule available for this server yet.")}
-                </span>
-              </span>
-            </div>
-          </li>
-        </ul>
+        <announcement-feed locale=${this.locale} limit="5"></announcement-feed>
       </section>
     `;
   }
@@ -978,7 +952,7 @@ export class HomeDashboard extends LitElement {
       songs: this.text("latestSongs", "Songs"),
       birthdays: this.text("birthdaysTitle", "Birthday countdown"),
       community: this.text("communityTitle", "Trending community"),
-      news: this.text("newsTitle", "News"),
+      news: announcementText(this.locale, "title", "Announcements"),
     }[id];
   }
   private renderDialog() {
@@ -1060,7 +1034,9 @@ export class HomeDashboard extends LitElement {
         <footer class="home-footer">
           <p>haneoka · ${this.text("fanArchive", "Unofficial archive and community")}</p>
           <nav aria-label=${this.text("legalNavigation", "Policies and project information")}>
-            <a class="text-link" href="https://bdon.moe" target="_blank" rel="noreferrer">${icon("favorite", 14)} MoeNotes ${icon("open_in_new", 14)}</a>
+            <a class="text-link" href="https://bdon.moe" target="_blank" rel="noreferrer">
+              ${icon("favorite", 14)} MoeNotes ${icon("open_in_new", 14)}
+            </a>
             <a class="text-link" href="/privacy">${this.text("privacy", "Privacy Policy")}</a>
             <a class="text-link" href="/terms">${this.text("terms", "Terms of Use")}</a>
             <a class="text-link" href="/about">${this.text("about", "About")}</a>

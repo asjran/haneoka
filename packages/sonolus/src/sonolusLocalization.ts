@@ -9,6 +9,13 @@ export type SonolusJsonPrimitive = boolean | null | number | string;
 export type SonolusJsonValue = SonolusJsonPrimitive | readonly SonolusJsonValue[] | SonolusJsonObject;
 export type SonolusJsonObject = { [key: string]: SonolusJsonValue };
 
+const OUR_NOTES_EFFECT_ITEM_NAMES = Object.freeze({
+  1: "ourNotesEffect",
+  2: "ourNotesEffectSolid",
+  3: "ourNotesEffectWood",
+  4: "ourNotesEffectTyping",
+} as const);
+
 export interface OurNotesSonolusNativeLabels {
   readonly noteSkins: SonolusStringLabelMap;
   readonly laneSkins: SonolusStringLabelMap;
@@ -18,7 +25,8 @@ export interface OurNotesSonolusNativeLabels {
 }
 
 export const OUR_NOTES_SONOLUS_ITEM_NAMES = Object.freeze({
-  effect: "ourNotesEffect",
+  effect: OUR_NOTES_EFFECT_ITEM_NAMES[1],
+  effects: OUR_NOTES_EFFECT_ITEM_NAMES,
   particle: "ourNotesParticle",
   skins: Object.freeze({
     skin001: "ourNotesSkin",
@@ -56,12 +64,16 @@ export function createOurNotesSonolusItemLabels(
   source: OurNotesSonolusNativeLabels,
 ): Readonly<Record<string, SonolusLocalizedLabels>> {
   const itemLabels: Record<string, SonolusLocalizedLabels> = {
-    [OUR_NOTES_SONOLUS_ITEM_NAMES.effect]: requiredLabel(source.noteSeGroups, "1", "note SE group"),
     [OUR_NOTES_SONOLUS_ITEM_NAMES.particle]: requiredLabel(source.noteEffectSkins, "effect001", "note effect skin"),
     [OUR_NOTES_SONOLUS_ITEM_NAMES.skins.skin001]: requiredLabel(source.noteSkins, "skin001", "note skin"),
     [OUR_NOTES_SONOLUS_ITEM_NAMES.skins.skin002]: requiredLabel(source.noteSkins, "skin002", "note skin"),
     [OUR_NOTES_SONOLUS_ITEM_NAMES.skins.skin003]: requiredLabel(source.noteSkins, "skin003", "note skin"),
   };
+
+  for (const group of [1, 2, 3, 4] as const) {
+    const itemName = OUR_NOTES_SONOLUS_ITEM_NAMES.effects[group];
+    itemLabels[itemName] = requiredLabel(source.noteSeGroups, group, "note SE group");
+  }
 
   requiredLabel(source.laneSkins, "skin001", "lane skin");
   for (const stageId of [0, 1, 2, 3, 4, 5]) {

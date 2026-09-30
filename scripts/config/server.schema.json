@@ -149,6 +149,18 @@
     "masterVersionEndpoint": {
       "type": "string",
       "format": "uri"
+    },
+    "announcements": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Live in-game announcement collection against the game service.",
+      "required": ["endpoint"],
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
     }
   },
   "dependentRequired": {

@@ -108,9 +108,11 @@ const COMMON_FLAT_KEYS = [
 ] as const;
 
 const CATALOG_ROOT_KEYS = [
+  "announcements",
   "searchPage",
   "catalog",
   "catalogCompat",
+  "chartPlayer",
   "itemsPage",
   "bandItemsPage",
   "liveMusicTypes",
@@ -118,6 +120,7 @@ const CATALOG_ROOT_KEYS = [
 ] as const;
 
 const HOME_ROOT_KEYS = [
+  "announcements",
   "homePage",
   "catalogCompat.banners",
   "catalogCompat.noBanner",

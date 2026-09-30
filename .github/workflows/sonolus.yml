@@ -77,7 +77,7 @@ jobs:
         with:
           path: .dependencies/sonolus-our-notes/.build-matrix/${{ matrix.facet }}/dist
           # Exact-key match only (no restore-keys): a stale output must never ship.
-          key: sonolus-engine-${{ matrix.facet }}-v4-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles(format('.dependencies/sonolus-our-notes/{0}/**', matrix.facet), '.dependencies/sonolus-our-notes/shared/**', '.dependencies/sonolus-our-notes/scripts/build.ts', '.dependencies/sonolus-our-notes/esbuild.config.ts', '.dependencies/sonolus-our-notes/tsconfig.base.json', '.dependencies/sonolus-our-notes/package.json', '.dependencies/sonolus-our-notes/pnpm-lock.yaml', '.dependencies/sonolus-our-notes/dev-bgm.ts') }}
+          key: sonolus-engine-${{ matrix.facet }}-v5-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles(format('.dependencies/sonolus-our-notes/{0}/**', matrix.facet), '.dependencies/sonolus-our-notes/shared/**', '.dependencies/sonolus-our-notes/contract/**', '.dependencies/sonolus-our-notes/scripts/build.ts', '.dependencies/sonolus-our-notes/scripts/generate-native-arrow-data.ts', '.dependencies/sonolus-our-notes/esbuild.config.ts', '.dependencies/sonolus-our-notes/tsconfig.base.json', '.dependencies/sonolus-our-notes/package.json', '.dependencies/sonolus-our-notes/pnpm-lock.yaml', '.dependencies/sonolus-our-notes/dev-bgm.ts') }}
 
       - name: Compile ${{ matrix.facet }} facet
         if: steps.engine-cache.outputs.cache-hit != 'true'
@@ -88,7 +88,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .dependencies/sonolus-our-notes/.build-matrix/${{ matrix.facet }}/dist
-          key: sonolus-engine-${{ matrix.facet }}-v4-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles(format('.dependencies/sonolus-our-notes/{0}/**', matrix.facet), '.dependencies/sonolus-our-notes/shared/**', '.dependencies/sonolus-our-notes/scripts/build.ts', '.dependencies/sonolus-our-notes/esbuild.config.ts', '.dependencies/sonolus-our-notes/tsconfig.base.json', '.dependencies/sonolus-our-notes/package.json', '.dependencies/sonolus-our-notes/pnpm-lock.yaml', '.dependencies/sonolus-our-notes/dev-bgm.ts') }}
+          key: sonolus-engine-${{ matrix.facet }}-v5-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles(format('.dependencies/sonolus-our-notes/{0}/**', matrix.facet), '.dependencies/sonolus-our-notes/shared/**', '.dependencies/sonolus-our-notes/contract/**', '.dependencies/sonolus-our-notes/scripts/build.ts', '.dependencies/sonolus-our-notes/scripts/generate-native-arrow-data.ts', '.dependencies/sonolus-our-notes/esbuild.config.ts', '.dependencies/sonolus-our-notes/tsconfig.base.json', '.dependencies/sonolus-our-notes/package.json', '.dependencies/sonolus-our-notes/pnpm-lock.yaml', '.dependencies/sonolus-our-notes/dev-bgm.ts') }}
 
       - name: Upload ${{ matrix.facet }} facet artifact
         # Always uploaded, even on a cache hit (re-uploaded from the restored
