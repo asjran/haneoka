@@ -1,0 +1,56 @@
+@layer pages {
+  .song-gekisou-stages {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .song-gekisou-stages li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .song-gekisou-stage__icon {
+    display: block;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    background: var(--md-sys-color-primary);
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+  }
+  .song-gekisou-stages li > span:last-child {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .song-gekisou-stages small {
+    color: var(--md-sys-color-on-surface-variant);
+    font: var(--md-sys-typescale-label-small-weight)
+      var(--md-sys-typescale-label-small-size)/var(--md-sys-typescale-label-small-line-height) var(--app-font);
+  }
+  .song-gekisou-stages strong {
+    font: var(--md-sys-typescale-title-small-weight)
+      var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height) var(--app-font);
+  }
+  @media (max-width: 599px) {
+    .song-gekisou-stages {
+      gap: 8px;
+    }
+    .song-gekisou-stages li {
+      gap: 6px;
+    }
+    .song-gekisou-stage__icon {
+      flex-basis: 24px;
+      width: 24px;
+      height: 24px;
+    }
+  }
+}

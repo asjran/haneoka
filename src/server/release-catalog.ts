@@ -503,6 +503,18 @@ export class ReleaseCatalog {
     return this.readApiJson(this.manifest.summary);
   }
 
+  readSource(sourcePath: string): CatalogRecord {
+    const source = safeRelativePath(sourcePath, "source descriptor path");
+    if (!source.startsWith("Assets/") && !source.startsWith("Packages/"))
+      throw new ReleaseCatalogError("catalog_path_missing", 404, "Source descriptor is outside asset storage");
+    const relative = `metadata/sources/${source}.json`;
+    if (!this.releaseManifest.entries.has(relative))
+      throw new ReleaseCatalogError("catalog_path_missing", 404, `Source descriptor is not declared: ${source}`);
+    const file = releaseFile(this.releaseRoot, relative);
+    if (!fs.existsSync(file)) missingFile(file, true);
+    return readObjectFile(file, "Source descriptor");
+  }
+
   readUiMarks(): Record<string, string> {
     const relative = "metadata/sources/Assets/AddressableResources/UI/Atlas/FixUiSpriteAtlas.spriteatlasv2.json";
     if (!this.releaseManifest.entries.has(relative)) {

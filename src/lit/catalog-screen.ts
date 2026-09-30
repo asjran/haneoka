@@ -1,3 +1,4 @@
+import { gekisouMissionIcons } from "../lib/gekisou";
 import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { readPageData } from "../lib/page-data";
 import { releaseChartLevelName } from "@haneoka/sonolus";
@@ -26,6 +27,7 @@ import { LitElement, html, nothing } from "lit";
 import { clientText } from "../i18n/client";
 import {
   catalogUrl,
+  fetchJson,
   currentReleaseServer,
   formatList as formatLocalizedList,
   gameDateTime,
@@ -780,6 +782,7 @@ export class CatalogScreen extends LitElement {
     window.removeEventListener(DENSITY_EVENT, this.onDensity);
     window.removeEventListener("keydown", this.onKeydown);
     window.removeEventListener("haneoka-audio-state", this.onAudioState);
+    this.missionIconRequests.cancel();
     super.disconnectedCallback();
   }
   private onDensity = () => (this.density = currentDensity());
@@ -3493,9 +3496,41 @@ export class CatalogScreen extends LitElement {
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
     const difficulty = song?.[String(this.detailDifficulty)] as Item | undefined;
     return {
+      icons: this.missionIcons,
       ...((song?.gekisou as Item | undefined) || {}),
       ...((difficulty?.gekisou as Item | undefined) || {}),
     };
+  }
+  private missionIconRequests = new RequestScope();
+  private missionIconSource = "";
+  private missionIcons: Record<string, string> = {};
+  private missionIconProvision?: Promise<void>;
+  private ensureMissionIcons() {
+    if (this.settings.origin === "bestdori") return;
+    const server = this.dataServer();
+    if (this.missionIconSource !== server) {
+      this.missionIconRequests.cancel();
+      this.missionIconSource = server;
+      this.missionIcons = {};
+      this.missionIconProvision = undefined;
+    }
+    if (Object.keys(this.missionIcons).length || this.missionIconProvision) return;
+    const signal = this.missionIconRequests.begin();
+    const pending = fetchJson<unknown>(
+      catalogUrl("sources/Assets/AddressableResources/Live/Images/Atlas/LiveAtlas.spriteatlasv2", "", server),
+      { signal },
+    )
+      .then((descriptor) => {
+        if (this.isConnected && this.missionIconRequests.current(signal)) {
+          this.missionIcons = gekisouMissionIcons(descriptor, server);
+          this.requestUpdate();
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.missionIconProvision === pending) this.missionIconProvision = undefined;
+      });
+    this.missionIconProvision = pending;
   }
   private sonolusUrl(item: Item) {
     if (this.profile.presentation !== "song") return "";
@@ -4189,26 +4224,26 @@ export class CatalogScreen extends LitElement {
                           (skill) => html`
                             <div class="skill-row">
                               ${
-                                  (skill as Item).icon
-                                    ? html`
-                                        <img src=${String((skill as Item).icon)} alt="" />
-                                      `
-                                    : nothing
-                                }
+                                (skill as Item).icon
+                                  ? html`
+                                      <img src=${String((skill as Item).icon)} alt="" />
+                                    `
+                                  : nothing
+                              }
                               <span>
                                 <small>${this.label(`${group}Skill`, group)}</small>
                                 <strong lang=${this.localizedLanguage((skill as Item).skillName)}>
                                   ${this.localized((skill as Item).skillName) || group}
                                 </strong>
                                 ${
-                                    this.skillDescription(skill as Item, this.skillLevel(group, item))
-                                      ? html`
-                                          <p lang=${this.localizedLanguage((skill as Item).description)}>
-                                            ${this.skillDescription(skill as Item, this.skillLevel(group, item))}
-                                          </p>
-                                        `
-                                      : nothing
-                                  }${this.renderSkillCost(group, item)}
+                                  this.skillDescription(skill as Item, this.skillLevel(group, item))
+                                    ? html`
+                                        <p lang=${this.localizedLanguage((skill as Item).description)}>
+                                          ${this.skillDescription(skill as Item, this.skillLevel(group, item))}
+                                        </p>
+                                      `
+                                    : nothing
+                                }${this.renderSkillCost(group, item)}
                               </span>
                             </div>
                           `,

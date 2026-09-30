@@ -69,6 +69,7 @@ function readLocalPath(catalog: ReleaseCatalog, route: string): unknown {
   const parts = url.pathname.slice(1).split("/").map(decodeURIComponent);
   const [resource, action, name, id] = parts;
   if (resource === "ui-marks" && parts.length === 1) return catalog.readUiMarks();
+  if (resource === "sources" && parts.length > 1) return catalog.readSource(parts.slice(1).join("/"));
   if (resource === "catalog") {
     return action === "summary" ? catalog.readSummary() : catalog.manifest.document;
   }

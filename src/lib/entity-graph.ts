@@ -1,3 +1,4 @@
+import { gekisouMissionIcons } from "./gekisou";
 /** Build-time, release-pinned data closures consumed by static and interactive entity views. */
 import {
   asRecord,
@@ -189,7 +190,7 @@ interface Graph {
   views: Record<string, Rows>;
   skillReference: RecordValue;
   songMeta: Map<string, RecordValue>;
-  gekisou: RecordValue;
+  missionIcons: Record<string, string>;
   collections: Map<string, Array<[string, RecordValue]>>;
   stories: RecordValue;
   live2d: Array<[string, RecordValue]>;
@@ -218,7 +219,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     supportCards,
     stamps,
     songs,
-    gekisouCatalog,
+    missionAtlas,
     stories,
     live2d,
     friendships,
@@ -239,7 +240,11 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     required("support-cards"),
     required("stamps"),
     required("songs?projection=4"),
-    fetchOptionalStaticCatalog("gekisou", server, release),
+    fetchOptionalStaticCatalog(
+      "sources/Assets/AddressableResources/Live/Images/Atlas/LiveAtlas.spriteatlasv2",
+      server,
+      release,
+    ),
     required("stories?projection=4"),
     required("live2d"),
     required("friendships"),
@@ -264,7 +269,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     },
     skillReference: asRecord(skillReference) || {},
     songMeta: new Map(entries(songMeta)),
-    gekisou: asRecord(gekisouCatalog.value) || {},
+    missionIcons: gekisouMissionIcons(missionAtlas.value, server),
     collections: new Map([
       ["cards", entries(cards)],
       ["support-cards", entries(supportCards)],
@@ -292,27 +297,10 @@ function songGekisouProjection(graph: Graph, item: RecordValue, meta?: RecordVal
   const metaTypes = Array.isArray(metaGekisou.missionTypes) ? metaGekisou.missionTypes : [];
   const itemTypes = Array.isArray(itemGekisou.missionTypes) ? itemGekisou.missionTypes : [];
   const missionTypes = metaTypes.length ? metaTypes : itemTypes.length ? itemTypes : patternSource;
-  const bonusRows = rows(graph.gekisou.rankingScoreBonuses);
-  const rankBonusTop = missionPattern.map((pattern) => {
-    const row = Number.isInteger(pattern)
-      ? bonusRows.find(
-          (candidate) =>
-            Number(field(candidate, "missionPattern", "_missionPattern")) === pattern &&
-            Number(field(candidate, "rank", "_rank")) === 1,
-        )
-      : undefined;
-    const bonus = row ? Number(field(row, "scoreBonusPercent", "_scoreBonusPercent")) : Number.NaN;
-    return Number.isFinite(bonus) ? bonus : undefined;
-  });
-  const projection: RecordValue = { ...metaGekisou };
+  const projection: RecordValue = { ...metaGekisou, icons: graph.missionIcons };
+  delete projection.rankBonusTop;
   if (missionPattern.length && !Array.isArray(projection.missionPattern)) projection.missionPattern = missionPattern;
   if (missionTypes.length) projection.missionTypes = missionTypes;
-  if (
-    rankBonusTop.length &&
-    rankBonusTop.every((value) => value !== undefined) &&
-    !Array.isArray(projection.rankBonusTop)
-  )
-    projection.rankBonusTop = rankBonusTop;
   return projection;
 }
 

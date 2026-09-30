@@ -2106,7 +2106,7 @@
       "noProfileCard": "No profile card",
       "noSupportCard": "No support card"
     },
-    "gekisouStages": "Gekisou stages"
+    "gekisouStages": "GEKISO Sections"
   },
   "chartPlayer": {
     "play": "Play",
@@ -2259,9 +2259,9 @@
   "luck": "Luck expected",
   "gekisouSegment": "Gekisou segment",
   "gekisouJustable": "Justable",
-  "gekisouMissionCombo": "Combo",
-  "gekisouMissionLuck": "Luck",
-  "gekisouMissionJustCount": "Just count",
+  "gekisouMissionCombo": "COMBO",
+  "gekisouMissionLuck": "LUCK",
+  "gekisouMissionJustCount": "JUST",
   "gekisouMissionAll": "All",
   "gekisouMissionNone": "None",
   "metaEffCurrent": "Current-deck efficiency",
