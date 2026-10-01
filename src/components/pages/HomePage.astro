@@ -1,9 +1,36 @@
 ---
 import type { Locale } from "../../i18n/locales";
-const { locale } = Astro.props as { locale: Locale };
+import type { ReleaseServer } from "../../lib/release-server";
+import { renderHome } from "../../server/render-home";
+const { locale, server = "intl" } = Astro.props as { locale: Locale; server?: ReleaseServer };
+const home = await renderHome(server, locale);
 ---
 
-<home-dashboard locale={locale}></home-dashboard>
+<home-dashboard locale={locale} server={server} data-prerendered>
+  <Fragment set:html={home.html} />
+  {home.seed && <script type="application/json" data-home-seed set:html={home.seed} />}
+</home-dashboard>
+<script is:inline>
+  (() => {
+    const home = document.currentScript?.previousElementSibling;
+    const board = home?.querySelector(".home-board");
+    if (!board) return;
+    try {
+      const state = JSON.parse(localStorage.getItem("haneoka:home-layout:v4") || "null");
+      const ids = ["birthdays", "community", "news", "cards", "songs"];
+      if (Array.isArray(state?.order) && state.order.length === ids.length && ids.every(id => state.order.includes(id))) {
+        for (const id of state.order) {
+          const slot = board.querySelector(`.home-board__slot--${id}`);
+          if (slot) board.append(slot);
+        }
+      }
+      for (const id of ids) {
+        const slot = board.querySelector(`.home-board__slot--${id}`);
+        if (slot) slot.hidden = Boolean(state?.hidden?.[id]);
+      }
+    } catch {}
+  })();
+</script>
 <script>
   import "../../lit/home-dashboard";
 </script>

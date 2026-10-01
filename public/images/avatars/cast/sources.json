@@ -1,0 +1,442 @@
+[
+  {
+    "id": "hina-youmiya",
+    "photoSourcePage": "https://www.aoni.co.jp/search/yomiya-hina.html",
+    "photoSourceURL": "https://www.aoni.co.jp/search/items/yomiya-hina.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        4480,
+        6720
+      ],
+      "boxXYXY": [
+        0,
+        1608,
+        4480,
+        6088
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "rin-tateishi",
+    "photoSourcePage": "https://hibiki-cast.jp/hibiki_f/tateishi_rin/",
+    "photoSourceURL": "https://hibiki-cast.jp/wordpress/wp-content/uploads/2021/02/05123329/%E3%80%90%E9%9F%BF%E3%80%91%E7%AB%8B%E7%9F%B3%E5%87%9B-2-scaled.jpeg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1857,
+        2560
+      ],
+      "boxXYXY": [
+        292,
+        67,
+        1483,
+        1258
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "hina-aoki",
+    "photoSourcePage": "https://hibiki-cast.jp/hibiki_f/aoki_hina/",
+    "photoSourceURL": "https://hibiki-cast.jp/wordpress/wp-content/uploads/2021/02/05122800/%E3%80%90%E9%9F%BF%E3%80%91%E9%9D%92%E6%9C%A8%E9%99%BD%E8%8F%9C-1-scaled.jpeg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1842,
+        2560
+      ],
+      "boxXYXY": [
+        304,
+        84,
+        1590,
+        1370
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "mika-kohinata",
+    "photoSourcePage": "https://www.s-inc.jp/mika-kohinata",
+    "photoSourceURL": "https://www.s-inc.jp/wp-content/uploads/2021/02/7cfeebe1ac24d1c5920c33b76fa6d751-scaled.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1707,
+        2560
+      ],
+      "boxXYXY": [
+        432,
+        404,
+        1173,
+        1145
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "yuzuki-watase",
+    "photoSourcePage": "https://hibiki-cast.jp/hibiki_f/watase_yuzuki/",
+    "photoSourceURL": "https://hibiki-cast.jp/wordpress/wp-content/uploads/2020/04/24120141/%E3%80%90%E9%9F%BF%E3%80%91%E6%B8%A1%E7%80%AC%E7%B5%90%E6%9C%88-7-scaled.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1914,
+        2560
+      ],
+      "boxXYXY": [
+        336,
+        115,
+        1600,
+        1379
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "kanon-takao",
+    "photoSourcePage": "https://ancheri.co.jp/talent/kanon_takao.html",
+    "photoSourceURL": "https://ancheri.co.jp/_src/89366520/prof_kanon_takao.png?v=1790551138702",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        450,
+        520
+      ],
+      "boxXYXY": [
+        82,
+        0,
+        422,
+        340
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "chiharu",
+    "photoSourcePage": "https://hibiki-cast.jp/hibiki_f/chiharu/",
+    "photoSourceURL": "https://hibiki-cast.jp/wordpress/wp-content/uploads/2021/09/千春_新宣材_reサイズ.jpeg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1696,
+        2359
+      ],
+      "boxXYXY": [
+        168,
+        0,
+        1256,
+        1088
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "asaki-yuikawa",
+    "photoSourcePage": "https://www.imenterprise.jp/profile.php?id=178",
+    "photoSourceURL": "https://www.imenterprise.jp/files/img/YUIKAWAASAKI20250315041441.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        500,
+        750
+      ],
+      "boxXYXY": [
+        31,
+        56,
+        408,
+        433
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "yurie-igoma",
+    "photoSourcePage": "https://www.81produce.co.jp/actor_search/index.php/item?cell003=%E3%81%82%E8%A1%8C&cell004=&cell028=&cell029=%E5%A5%B3%E6%80%A7&id=395&keyword=&label=1&name=%E4%BC%8A%E9%A7%92%E3%80%80%E3%82%86%E3%82%8A%E3%81%88",
+    "photoSourceURL": "https://www.81produce.co.jp/dcms_media/image/igoma_yurie.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        850,
+        1142
+      ],
+      "boxXYXY": [
+        96,
+        71,
+        754,
+        729
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "hinano-sakikawa",
+    "photoSourcePage": "https://stay-luck.com/talent/sakikawa-hinano/",
+    "photoSourceURL": "https://stay-luck.com/files/咲川ひなの.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1681,
+        2520
+      ],
+      "boxXYXY": [
+        468,
+        534,
+        1515,
+        1581
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "may-tachibana",
+    "photoSourcePage": "https://www.amuse.co.jp/artist/A9019/",
+    "photoSourceURL": "https://www.amuse.co.jp/artist/33ecf604aff3dad2966f36c3cd470e3bf2b8ad04.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        2000,
+        1333
+      ],
+      "boxXYXY": [
+        667,
+        0,
+        1573,
+        906
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "sakura-suzumi",
+    "photoSourcePage": "https://www.sma.co.jp/s/sma/artist/657?ima=0000&link=ROBO004",
+    "photoSourceURL": "https://www.sma.co.jp/images/15/171/0b5e2062d95d4ca1e3fc32038c51c.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1800,
+        1200
+      ],
+      "boxXYXY": [
+        580,
+        12,
+        1123,
+        555
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "nina-hanamiya",
+    "photoSourcePage": "https://www.aoni.co.jp/search/hanamiya-niina.html",
+    "photoSourceURL": "https://www.aoni.co.jp/search/items/hanamiya-nina.jpeg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1365,
+        2048
+      ],
+      "boxXYXY": [
+        103,
+        280,
+        1365,
+        1542
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "hana-hishikawa",
+    "photoSourcePage": "https://www.raccoon-dog.co.jp/talent/r20-hishikawa.html",
+    "photoSourceURL": "https://www.raccoon-dog.co.jp/talent/talentpic/r20.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        300,
+        400
+      ],
+      "boxXYXY": [
+        1,
+        0,
+        290,
+        289
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "hikaru-tono",
+    "photoSourcePage": "https://hibiki-cast.jp/hibiki_f/tono_hikaru/",
+    "photoSourceURL": "https://hibiki-cast.jp/wordpress/wp-content/uploads/2018/01/3GK0917-1.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        3651,
+        5477
+      ],
+      "boxXYXY": [
+        837,
+        117,
+        3179,
+        2459
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "mei-okada",
+    "photoSourcePage": "http://acecrew.co.jp/actor/mei-okada",
+    "photoSourceURL": "http://acecrew.co.jp/wp-content/uploads/2023/03/岡田宣材写真_レタッチ済み_1-1-scaled.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1659,
+        2560
+      ],
+      "boxXYXY": [
+        442,
+        94,
+        1350,
+        1002
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "ria-yakushiji",
+    "photoSourcePage": "https://yu-rin.com/pro-woman/yakushiji-ria",
+    "photoSourceURL": "https://yu-rin.com/data/202601/img696de1c76b60b.png",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1188,
+        1600
+      ],
+      "boxXYXY": [
+        14,
+        0,
+        866,
+        852
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "rico-sasaki",
+    "photoSourcePage": "https://www.tv-asahi-music.co.jp/artist/",
+    "photoSourceURL": "https://www.tv-asahi-music.co.jp/artist/CONTENT_20260831185640",
+    "sourceKind": "agency-artist-roster",
+    "crop": {
+      "sourceSize": [
+        600,
+        600
+      ],
+      "boxXYXY": [
+        205,
+        45,
+        386,
+        226
+      ],
+      "outputSize": [
+        181,
+        181
+      ]
+    }
+  },
+  {
+    "id": "coco-hayashi",
+    "photoSourcePage": "https://liberte2024.com/talent/hayashicoco",
+    "photoSourceURL": "https://storage.googleapis.com/studio-design-asset-files/projects/4BqN7djear/s-1200x1800_v-frms_webp_64a491ae-5702-4918-8860-f23086d70a89.jpg",
+    "sourceKind": "agency-profile",
+    "crop": {
+      "sourceSize": [
+        1200,
+        1800
+      ],
+      "boxXYXY": [
+        320,
+        102,
+        999,
+        781
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  },
+  {
+    "id": "akane-yonezawa",
+    "photoSourcePage": "https://akaneyonezawa.com/profile",
+    "photoSourceURL": "https://storage.googleapis.com/image.fanicon.net/cms/1753898789641_wpIUrqk95f.jpg",
+    "sourceKind": "personal-official-profile",
+    "crop": {
+      "sourceSize": [
+        4752,
+        3168
+      ],
+      "boxXYXY": [
+        1971,
+        745,
+        2590,
+        1364
+      ],
+      "outputSize": [
+        256,
+        256
+      ]
+    }
+  }
+]

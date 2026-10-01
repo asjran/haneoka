@@ -1696,7 +1696,11 @@
     "moveUp": "上移",
     "moveDown": "下移",
     "resetLayout": "恢复默认布局",
-    "daysAwayOne": "{count}天"
+    "daysAwayOne": "{count}天",
+    "latestCards": "近期卡牌",
+    "viewDetails": "查看详情",
+    "eventTracker": "活动追踪",
+    "eventStory": "活动故事"
   },
   "liveMusicTypes": {
     "red": "绯红属性",

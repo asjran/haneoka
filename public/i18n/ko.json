@@ -1696,7 +1696,11 @@
     "moveUp": "위로 이동",
     "moveDown": "아래로 이동",
     "resetLayout": "기본 레이아웃 복원",
-    "daysAwayOne": "{count}일"
+    "daysAwayOne": "{count}일",
+    "latestCards": "최근 카드",
+    "viewDetails": "자세히 보기",
+    "eventTracker": "이벤트 추적",
+    "eventStory": "이벤트 스토리"
   },
   "liveMusicTypes": {
     "red": "레드 타입",

@@ -1696,7 +1696,11 @@
     "moveUp": "Move up",
     "moveDown": "Move down",
     "resetLayout": "Restore default layout",
-    "daysAwayOne": "{count} day"
+    "daysAwayOne": "{count} day",
+    "latestCards": "Latest cards",
+    "viewDetails": "View details",
+    "eventTracker": "Event tracker",
+    "eventStory": "Event story"
   },
   "liveMusicTypes": {
     "red": "Ruby Type",

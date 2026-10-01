@@ -14,6 +14,6 @@ const seoTitle = t(locale, "seo.homeTitle", "BanG Dream! Our Notes Archive");
 
 <Base locale={locale} route="/" canonicalRoute={canonicalRoute} title={title} titleKey="homePage.overview" seoTitleValues={{ [locale]: seoTitle }}>
   <AppShell locale={locale} server={server} route="/" title={title} titleKey="homePage.overview">
-    <HomePage locale={locale} />
+    <HomePage locale={locale} server={server} />
   </AppShell>
 </Base>
