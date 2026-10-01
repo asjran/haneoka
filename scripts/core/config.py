@@ -49,6 +49,8 @@ class ServerConfig:
     version_proxy_env: str = ""
     announcements_endpoint: str = ""
     announcements_regions: tuple[AnnouncementRegion, ...] = ()
+    announcements_proxy_env: str = ""
+    announcements_language: str = ""
 
 
 def validate_server_id(value: str) -> str:
@@ -221,12 +223,18 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
     announcements = value.get("announcements", {})
     if not isinstance(announcements, dict):
         raise ValueError(f"invalid announcements block: {file}")
-    unknown_announcements = sorted(set(announcements) - {"endpoint", "serverList"})
+    unknown_announcements = sorted(set(announcements) - {"endpoint", "serverList", "proxyEnv", "language"})
     if unknown_announcements:
         raise ValueError(
             f"unknown announcements fields in {file}: {unknown_announcements}"
         )
     announcements_endpoint = str(announcements.get("endpoint", "")).strip()
+    announcements_language = str(announcements.get("language", "")).strip()
+    if announcements_language and not re.fullmatch(r"[a-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", announcements_language):
+        raise ValueError(f"announcements.language must be an explicit source language tag: {file}")
+    announcements_proxy_env = str(announcements.get("proxyEnv", "")).strip()
+    if announcements_proxy_env and not ENV_NAME.fullmatch(announcements_proxy_env):
+        raise ValueError(f"announcements.proxyEnv must be an environment variable name: {file}")
     if announcements_endpoint:
         _validate_service_endpoint(announcements_endpoint, file)
     server_list = announcements.get("serverList", {})
@@ -368,4 +376,6 @@ def load_server_config(server: str = "jp-cbt") -> ServerConfig:
         master_version_endpoint=master_version_endpoint,
         announcements_endpoint=announcements_endpoint,
         announcements_regions=tuple(announcements_regions),
+        announcements_proxy_env=announcements_proxy_env,
+        announcements_language=announcements_language,
     )

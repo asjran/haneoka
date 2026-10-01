@@ -1,4 +1,10 @@
-import { normalizeAuthorLocale, resolveLocalizedValue, scriptForLanguageTag, type AuthorLocale } from "@haneoka/i18n";
+import {
+  contentLocaleFallbacks,
+  normalizeAuthorLocale,
+  resolveLocalizedValue,
+  scriptForLanguageTag,
+  type AuthorLocale,
+} from "@haneoka/i18n";
 
 export const TEXT_LOCALES = ["ja", "en", "zh-TW", "zh-CN", "ko"] as const;
 
@@ -27,13 +33,15 @@ const canonicalLocale = (locale: string): string => {
  */
 export function localizedFallbacks(locale: string): string[] {
   const requested = canonicalLocale(locale);
+  const language = normalizeAuthorLocale(requested) ? new Intl.Locale(requested) : undefined;
+  const script = language?.maximize().script;
   return [
     ...new Set(
-      requested === "zh" || /^zh-(?:CN|Hans)(?:-|$)/u.test(requested)
+      language?.language === "zh" && script === "Hans"
         ? [requested, "zh-CN", "zh-Hans", "zh-TW", "zh-Hant", "ja", "en", "ko"]
-        : /^zh-(?:TW|HK|MO|Hant)(?:-|$)/u.test(requested)
+        : language?.language === "zh" && script === "Hant"
           ? [requested, "zh-TW", "zh-Hant", "ja", "en", "zh-CN", "ko"]
-          : [requested, requested.split("-")[0]!, "ja", "en", "zh-TW", "zh-CN", "ko"],
+          : [...contentLocaleFallbacks(requested), "ja", "en", "zh-TW", "zh-CN", "ko"],
     ),
   ];
 }

@@ -1,3 +1,5 @@
+import { preferredDeviceLocale } from "../i18n/negotiation";
+import { clientText } from "../i18n/client";
 import { LitElement, html, nothing, type PropertyValues } from "lit";
 import { isLocale, type Locale } from "../i18n/locales";
 import {
@@ -27,6 +29,7 @@ export class AnnouncementDetail extends LitElement {
   declare phase: AnnouncementPhase;
   declare entry: Announcement | undefined;
   private requests = new RequestScope();
+  private loadedLocale?: string;
   private body?: HTMLDivElement;
   private route = parseAnnouncementRoute(typeof location === "undefined" ? "" : navigationDocumentUrl().pathname);
   private localeListener = (event: Event) => {
@@ -35,7 +38,7 @@ export class AnnouncementDetail extends LitElement {
   };
   constructor() {
     super();
-    this.locale = this.route?.locale || "en";
+    this.locale = this.route?.locale || preferredDeviceLocale();
     this.phase = "loading";
   }
   createRenderRoot() {
@@ -52,6 +55,10 @@ export class AnnouncementDetail extends LitElement {
     super.disconnectedCallback();
   }
   protected updated(changed: PropertyValues) {
+    if (changed.has("locale") && this.loadedLocale !== this.locale) {
+      void this.load();
+      return;
+    }
     if (changed.has("locale"))
       this.body
         ?.querySelectorAll(".announcement-table-scroll")
@@ -67,7 +74,7 @@ export class AnnouncementDetail extends LitElement {
   }
   private syncMetadata() {
     if (!this.route?.id || !this.isConnected) return;
-    const address = announcementPath(this.route.server, this.route.locale, this.route.id);
+    const address = announcementPath(this.route.server, this.locale, this.route.id);
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     const origin = canonical ? new URL(canonical.href, location.origin).origin : location.origin;
     const href = new URL(address, origin).href;
@@ -82,8 +89,9 @@ export class AnnouncementDetail extends LitElement {
         ).href;
       else alternate.href = alternate.href.replace("/announcements/detail/", `/announcements/${this.route.id}/`);
     }
-    if (!this.entry) return;
-    const title = `${this.entry.title} · haneoka`;
+    const displayTitle = this.entry?.title || announcementText(this.locale, "title", "Announcements");
+    const siteTitle = clientText(this.locale, "seo.siteTitle", "BanG Dream! Our Notes Archive");
+    const title = `${displayTitle} · haneoka - ${siteTitle}`;
     document.title = title;
     for (const selector of ['meta[property="og:title"]', 'meta[name="twitter:title"]'])
       document.querySelector(selector)?.setAttribute("content", title);
@@ -102,7 +110,7 @@ export class AnnouncementDetail extends LitElement {
             const last = node.itemListElement?.at(-1);
             if (last) {
               last.item = href;
-              last.name = this.entry.title;
+              last.name = displayTitle;
             }
           }
         }
@@ -113,6 +121,7 @@ export class AnnouncementDetail extends LitElement {
     }
   }
   private async load() {
+    this.loadedLocale = this.locale;
     const signal = this.requests.begin();
     this.route = parseAnnouncementRoute(navigationDocumentUrl().pathname);
     this.entry = undefined;
@@ -122,9 +131,10 @@ export class AnnouncementDetail extends LitElement {
       return;
     }
     this.phase = "loading";
+    updateEntityHeading(this, announcementText(this.locale, "title", "Announcements"), this.locale);
     this.syncMetadata();
     try {
-      const entry = await fetchAnnouncement(this.route.server, this.route.id, signal);
+      const entry = await fetchAnnouncement(this.route.server, this.route.id, signal, this.locale);
       if (!this.requests.current(signal)) return;
       const body = document.createElement("div");
       body.className = "prose announcement-body";

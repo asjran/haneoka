@@ -45,6 +45,7 @@ export const I18N_NAMESPACES = [
 export type MainI18nNamespace = (typeof I18N_NAMESPACES)[number];
 
 const COMMON_FLAT_KEYS = [
+  "seo.siteTitle",
   "refresh",
   "settings",
   "search",

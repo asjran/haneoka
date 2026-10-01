@@ -48,8 +48,6 @@ _IMAGE_TYPES = {
     "image/png": "png",
     "image/webp": "webp",
 }
-_TRADITIONAL_MARKERS = set("臺灣國體發佈預告轉蛋護維獎勵與為進行這裡說明謝謝")
-_SIMPLIFIED_MARKERS = set("台湾国体发布预告转蛋护维护奖励与为进行这里说明谢谢")
 
 
 @dataclass(frozen=True)
@@ -371,43 +369,6 @@ def _entry(fields: dict[int, list[int | bytes]]) -> dict[str, Any]:
     return entry
 
 
-def _visible_text(html: str) -> str:
-    value = re.sub(
-        r"<!--.*?-->|<style\b[^>]*>.*?</style>|<script\b[^>]*>.*?</script>",
-        " ",
-        html,
-        flags=re.I | re.S,
-    )
-    value = re.sub(r"<[^>]+>", " ", value)
-    return re.sub(r"\s+", " ", value).strip()
-
-
-def _source_language(server: str, title: str, html: str) -> str | None:
-    text = f"{title} {_visible_text(html)}"
-    han_count = len(re.findall(r"[\u4e00-\u9fff]", text))
-    kana_count = len(re.findall(r"[\u3041-\u3096\u30a1-\u30fa]", text))
-    if kana_count and (
-        server in {"jp", "jp-cbt"} or kana_count >= max(2, han_count * 0.12)
-    ):
-        return "ja"
-    if re.search(r"[\uac00-\ud7af]", text):
-        return "ko"
-    if re.search(r"[\u4e00-\u9fff]", text):
-        traditional = sum(character in _TRADITIONAL_MARKERS for character in text)
-        simplified = sum(character in _SIMPLIFIED_MARKERS for character in text)
-        if traditional > simplified and traditional:
-            return "zh-Hant"
-        if simplified > traditional and simplified:
-            return "zh-Hans"
-    if re.search(r"[A-Za-z]", text) and not re.search(
-        r"[\u3041-\u3096\u30a1-\u30fa\uac00-\ud7af\u4e00-\u9fff]", text
-    ):
-        return "en"
-    if server in {"jp", "jp-cbt"} and text:
-        return "ja"
-    return None
-
-
 def _fetch_announcement_html(
     endpoint: str,
     announcement_id: int,
@@ -654,7 +615,7 @@ def _collect_from_endpoint(
 ) -> AnnouncementCollection:
     endpoint = endpoint.rstrip("/")
     platform_header = {"x-platform": config.platform} if config.platform else {}
-    proxy = proxy_from_env(config.version_proxy_env)
+    proxy = proxy_from_env(config.announcements_proxy_env)
     allowed_hosts = frozenset(
         {
             *extra_media_hosts,
@@ -756,11 +717,13 @@ def _collect_from_endpoint(
                 asset = media_by_url.get(url)
                 if asset is not None:
                     media_by_filename[asset.filename] = asset
-        language = source_region.language if source_region else _source_language(
-            config.id, str(announcement.get("title") or ""), html
-        )
+        # Region/bootstrap identity (or an explicitly configured sole source)
+        # defines language. HTML templates and title characters are not evidence.
+        language = source_region.language if source_region else config.announcements_language
         if language:
             announcement["sourceLanguage"] = language
+            announcement["sourceLanguageOrigin"] = "regional-bootstrap" if source_region else "configured-source"
+            announcement["sourceEndpoint"] = endpoint
         for item_id, field, url in image_requests:
             if item_id != announcement_id:
                 continue
@@ -825,7 +788,7 @@ def collect_announcements(
     if not endpoint:
         raise ValueError(f"no announcements endpoint for {config.id}")
     platform_header = {"x-platform": config.platform} if config.platform else {}
-    proxy = proxy_from_env(config.version_proxy_env)
+    proxy = proxy_from_env(config.announcements_proxy_env)
     if config.announcements_regions and not client_version:
         raise ValueError(f"no source package versionName is available for {config.id}")
     regional_servers = _fetch_regional_announcement_servers(

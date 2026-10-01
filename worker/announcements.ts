@@ -1,3 +1,7 @@
+import { normalizeAuthorLocale } from "@haneoka/i18n";
+import { negotiateRequestLocale } from "../src/i18n/negotiation";
+import { selectAnnouncementLocale } from "../src/lib/announcements";
+
 const CORS: Readonly<Record<string, string>> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
@@ -45,6 +49,7 @@ function jsonResponse(request: Request, value: JsonValue, fetchedAt: string | nu
     "Cache-Control": "public, max-age=60, must-revalidate",
     "Content-Type": "application/json; charset=utf-8",
   });
+  if (!new URL(request.url).searchParams.has("locale")) headers.set("Vary", "Accept-Language, Cookie");
   if (fetchedAt) headers.set("X-Haneoka-Announcement-Fetched-At", fetchedAt);
   return new Response(request.method === "HEAD" ? null : JSON.stringify(value), { status: 200, headers });
 }
@@ -238,12 +243,18 @@ export async function handleAnnouncementsRequest(
   if (serverValue instanceof Response) return serverValue;
   const server = await resolveServer(serverValue);
   if (!server) return errorResponse(request, 404, "server_not_found", "Server not found");
+  const localeValues = url.searchParams.getAll("locale");
+  const requestedLocale = localeValues.length ? normalizeAuthorLocale(localeValues[0] || "")
+    : negotiateRequestLocale(request.headers.get("cookie") || "", request.headers.get("accept-language") || "");
+  if (localeValues.length > 1 || !requestedLocale)
+    return errorResponse(request, 400, "invalid_locale", "Locale must be one valid language tag");
   const current = await snapshot(env, server);
+  const selection = selectAnnouncementLocale(current?.records || [], requestedLocale);
 
   if (listMatch) {
     const limit = listLimit(request);
     if (limit instanceof Response) return limit;
-    const records = current?.records.slice(0, limit).map((record) => publicRecord(record, false));
+    const records = selection.entries.slice(0, limit).map((record) => publicRecord(record, false));
     if (records?.some((record): record is null => record === null)) {
       throw new Error("invalid announcement summary");
     }
@@ -253,14 +264,17 @@ export async function handleAnnouncementsRequest(
         server: server.slug,
         available: current?.available === true,
         fetchedAt: current?.fetchedAt ?? null,
-        announcements: (records || []) as JsonObject[],
+        requestedLocale,
+        actualSourceLocale: selection.actualSourceLocale,
+        availableSourceLocales: selection.availableSourceLocales,
+        announcements: (records || []).map((record) => ({ ...record, actualSourceLocale: selection.actualSourceLocale })) as JsonObject[],
       },
       current?.fetchedAt ?? null,
     );
   }
 
   const announcementId = Number(detailMatch?.[1] || "0");
-  const record = current?.records.find((value) => value.id === announcementId);
+  const record = selection.entries.find((value) => value.id === announcementId);
   if (!record) return errorResponse(request, 404, "announcement_not_found", "Announcement not found");
   return jsonResponse(
     request,
@@ -269,6 +283,8 @@ export async function handleAnnouncementsRequest(
       available: current?.available === true,
       fetchedAt: current?.fetchedAt ?? null,
       ...publicRecord(record, true),
+      requestedLocale,
+      actualSourceLocale: selection.actualSourceLocale,
     },
     current?.fetchedAt ?? null,
   );

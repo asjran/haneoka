@@ -97,6 +97,11 @@
           "type": "string",
           "minLength": 1,
           "description": "CDN basic-auth user name paired with the server-delivered password."
+        },
+        "proxyEnv": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Environment variable holding this server's version-service proxy URL."
         }
       }
     },
@@ -159,6 +164,16 @@
         "endpoint": {
           "type": "string",
           "format": "uri"
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[a-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+          "description": "Explicit author language of a single configured announcement source; regional sources use their own language."
+        },
+        "proxyEnv": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Environment variable holding this server's announcement-service proxy URL."
         },
         "serverList": {
           "type": "object",

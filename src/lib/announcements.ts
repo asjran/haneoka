@@ -1,3 +1,6 @@
+import { normalizeAuthorLocale, matchLocale } from "@haneoka/i18n";
+import { localizedFallbacks } from "./localized-text";
+import { preferredDeviceLocale } from "../i18n/negotiation";
 import { isLocale, type Locale } from "../i18n/locales";
 import { isReleaseServer, type ReleaseServer } from "./resource-route";
 
@@ -17,6 +20,7 @@ export interface Announcement {
   bannerWidth?: number;
   bannerHeight?: number;
   sourceLanguage?: string;
+  actualSourceLocale?: string;
   sourceRegion?: string;
   sourceId?: number;
   html?: string;
@@ -26,10 +30,15 @@ export interface AnnouncementList {
   available: boolean;
   fetchedAt: string | null;
   announcements: Announcement[];
+  requestedLocale: string;
+  actualSourceLocale: string | null;
+  availableSourceLocales: string[];
 }
 export class AnnouncementRequestError extends Error {
-  constructor(readonly status: number) {
+  readonly status: number;
+  constructor(status: number) {
     super(`Announcement request failed: ${status}`);
+    this.status = status;
   }
 }
 export const announcementId = (value: unknown): number | undefined => {
@@ -49,13 +58,37 @@ export function parseAnnouncementRoute(pathname: string) {
   const id = announcementId(parts[3]);
   return parts.length === 4 && id ? { server: parts[0], locale: parts[1], id } : undefined;
 }
+/** Select one existing author-language pool before limits or detail lookup. */
+export function selectAnnouncementLocale<T extends { sourceLanguage?: unknown }>(entries: readonly T[], locale: string) {
+  const groups = new Map<string, T[]>();
+  for (const entry of entries) {
+    const source = typeof entry.sourceLanguage === "string" ? normalizeAuthorLocale(entry.sourceLanguage) : null;
+    if (!source || source === "und") continue;
+    const group = groups.get(source) || [];
+    group.push(entry);
+    groups.set(source, group);
+  }
+  const availableSourceLocales = [...groups.keys()];
+  for (const candidate of localizedFallbacks(locale)) {
+    const canonical = normalizeAuthorLocale(candidate);
+    if (!canonical) continue;
+    const exact = groups.has(canonical) ? canonical : undefined;
+    // Central UI matching handles author tags such as zh-Hant vs zh-TW.
+    const matched = matchLocale(canonical);
+    const source = exact || (matched === canonical ? availableSourceLocales.find((tag) => matchLocale(tag) === matched) : undefined);
+    if (source) return { actualSourceLocale: source, availableSourceLocales, entries: groups.get(source)! };
+  }
+  return { actualSourceLocale: null, availableSourceLocales, entries: [] as T[] };
+}
+
 export function announcementLanguage(entry: Announcement, server: ReleaseServer): string {
   try {
-    if (entry.sourceLanguage) return Intl.getCanonicalLocales(entry.sourceLanguage)[0] || "und";
+    const source = entry.actualSourceLocale || entry.sourceLanguage;
+    if (source) return Intl.getCanonicalLocales(source)[0] || "und";
   } catch {
     /* Invalid publisher language metadata uses an explicit unknown language. */
   }
-  return server === "jp" ? "ja" : "und";
+  return "und";
 }
 export const sortAnnouncements = (entries: readonly Announcement[]): Announcement[] =>
   [...entries].sort(
@@ -91,7 +124,7 @@ const validAnnouncement = (value: unknown): value is Announcement =>
   ["category", "startAt", "endAt", "updatedAt"].every(
     (key) => typeof value[key] === "number" && Number.isSafeInteger(value[key]) && Number(value[key]) >= 0,
   ) &&
-  ["bodyImage", "banner", "sourceLanguage", "html"].every(
+  ["bodyImage", "banner", "sourceLanguage", "actualSourceLocale", "html"].every(
     (key) => value[key] === undefined || typeof value[key] === "string",
   ) &&
   ((value.sourceRegion === undefined && value.sourceId === undefined) ||
@@ -116,24 +149,35 @@ async function request(path: string, signal: AbortSignal): Promise<unknown> {
     signal.removeEventListener("abort", cancel);
   }
 }
-export async function fetchAnnouncements(server: ReleaseServer, signal: AbortSignal): Promise<AnnouncementList> {
-  const value = await request(`/api/v1/announcements?server=${encodeURIComponent(server)}`, signal);
+export async function fetchAnnouncements(server: ReleaseServer, signal: AbortSignal, locale: string = preferredDeviceLocale()): Promise<AnnouncementList> {
+  const requestedLocale = normalizeAuthorLocale(locale);
+  if (!requestedLocale) throw new TypeError("Invalid announcement locale");
+  const value = await request(`/api/v1/announcements?${new URLSearchParams({ server, locale: requestedLocale })}`, signal);
   if (
     !record(value) ||
     value.server !== server ||
+    value.requestedLocale !== requestedLocale ||
+    !(value.actualSourceLocale === null || typeof value.actualSourceLocale === "string") ||
+    !Array.isArray(value.availableSourceLocales) ||
     typeof value.available !== "boolean" ||
     (value.fetchedAt !== null && typeof value.fetchedAt !== "string") ||
     !Array.isArray(value.announcements) ||
     value.announcements.length > 100 ||
-    !value.announcements.every(validAnnouncement)
+    !value.announcements.every(validAnnouncement) ||
+    value.announcements.some((entry) => normalizeAuthorLocale(entry.sourceLanguage || "") !== value.actualSourceLocale)
   )
     throw new TypeError("Invalid announcement list");
   return value as unknown as AnnouncementList;
 }
-export async function fetchAnnouncement(server: ReleaseServer, id: number, signal: AbortSignal): Promise<Announcement> {
-  const value = await request(`/api/v1/announcements/${id}?server=${encodeURIComponent(server)}`, signal);
+export async function fetchAnnouncement(server: ReleaseServer, id: number, signal: AbortSignal, locale: string = preferredDeviceLocale()): Promise<Announcement> {
+  const requestedLocale = normalizeAuthorLocale(locale);
+  if (!requestedLocale) throw new TypeError("Invalid announcement locale");
+  const value = await request(`/api/v1/announcements/${id}?${new URLSearchParams({ server, locale: requestedLocale })}`, signal);
+  if (!record(value) || value.server !== server || value.requestedLocale !== requestedLocale)
+    throw new TypeError("Announcement detail identity mismatch");
   const entry = record(value) && "announcement" in value ? value.announcement : value;
-  if (!validAnnouncement(entry) || entry.id !== id || (entry.html !== undefined && typeof entry.html !== "string"))
+  if (!validAnnouncement(entry) || entry.id !== id || typeof entry.actualSourceLocale !== "string" ||
+      normalizeAuthorLocale(entry.sourceLanguage || "") !== entry.actualSourceLocale || (entry.html !== undefined && typeof entry.html !== "string"))
     throw new TypeError("Invalid announcement detail");
   return entry;
 }

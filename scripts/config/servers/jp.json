@@ -25,6 +25,8 @@
     "iv": "9b94c91e242a562e97fcd505b75a5129b2b80632a269034cf942ec7293d489a1"
   },
   "announcements": {
-    "endpoint": "https://api.bang-dream-on.jp"
+    "language": "ja",
+    "endpoint": "https://api.bang-dream-on.jp",
+    "proxyEnv": "JP_VERSION_PROXY"
   }
 }

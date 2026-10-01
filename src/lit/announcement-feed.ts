@@ -1,4 +1,5 @@
-import { LitElement, html } from "lit";
+import { preferredDeviceLocale } from "../i18n/negotiation";
+import { LitElement, html, type PropertyValues } from "lit";
 import { isLocale, localeFromPath, type Locale } from "../i18n/locales";
 import { fetchAnnouncements, sortAnnouncements, type Announcement } from "../lib/announcements";
 import { readReleaseServer } from "../lib/release-server";
@@ -19,6 +20,7 @@ export class AnnouncementFeed extends LitElement {
   declare phase: AnnouncementPhase;
   declare entries: Announcement[];
   private requests = new RequestScope();
+  private loadedLocale?: string;
   private server = readReleaseServer();
   private localeListener = (event: Event) => {
     const locale = (event as CustomEvent).detail;
@@ -26,7 +28,7 @@ export class AnnouncementFeed extends LitElement {
   };
   constructor() {
     super();
-    this.locale = localeFromPath(typeof location === "undefined" ? "" : navigationDocumentUrl().pathname) || "en";
+    this.locale = localeFromPath(typeof location === "undefined" ? "" : navigationDocumentUrl().pathname) || preferredDeviceLocale();
     this.limit = 0;
     this.phase = "loading";
     this.entries = [];
@@ -44,13 +46,17 @@ export class AnnouncementFeed extends LitElement {
     removeEventListener("haneoka:locale-ready", this.localeListener);
     super.disconnectedCallback();
   }
+  protected updated(changed: PropertyValues) {
+    if (changed.has("locale") && this.loadedLocale !== this.locale) void this.load();
+  }
   private async load() {
+    this.loadedLocale = this.locale;
     const signal = this.requests.begin();
     this.server = readReleaseServer();
     this.phase = "loading";
     this.entries = [];
     try {
-      const value = await fetchAnnouncements(this.server, signal);
+      const value = await fetchAnnouncements(this.server, signal, this.locale);
       if (!this.requests.current(signal)) return;
       this.entries = sortAnnouncements(value.announcements);
       this.phase = value.available ? "ready" : "unavailable";
