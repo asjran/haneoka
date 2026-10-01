@@ -12,13 +12,14 @@
 // the Git submodule pin is the caller's job (the scheduled
 // sonolus-toolchain-update workflow does exactly that).
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceFile = join(repositoryRoot, "pnpm-workspace.yaml");
 const enginePackageFile = join(repositoryRoot, ".dependencies", "sonolus-our-notes", "package.json");
+const engineWorkspaceFile = join(repositoryRoot, ".dependencies", "sonolus-our-notes", "pnpm-workspace.yaml");
 
 // package -> where the pin lives. free-pack has no app-version coupling but
 // is kept in lockstep so the engine and server never mix release generations.
@@ -53,6 +54,15 @@ async function main() {
     return;
   }
   for (const { pkg, from, to } of updates) console.log(`${pkg}: ${from} -> ${to}`);
+  const compilerUpdate = updates.find(({ pkg }) => pkg === "@sonolus/sonolus.js-compiler");
+  const compilerPatches = [workspaceFile, engineWorkspaceFile].flatMap(readCompilerPatches);
+  if (compilerUpdate && compilerPatches.length) {
+    throw new Error(
+      `Sonolus compiler ${compilerUpdate.from} -> ${compilerUpdate.to} requires patch migration review ` +
+        `before any toolchain manifest update or push. Active exact patches: ` +
+        compilerPatches.map(({ version, file }) => `${version} (${file})`).join(", "),
+    );
+  }
   if (mode === "check") {
     process.exitCode = 1;
     return;
@@ -122,4 +132,26 @@ function rewriteEnginePackage(updates) {
 
 function readLines(path) {
   return readFileSync(path, "utf8").split("\n");
+}
+
+function readCompilerPatches(file) {
+  if (!existsSync(file)) return [];
+  const lines = readLines(file);
+  const body = [];
+  let indentation;
+  for (const line of lines) {
+    const header = /^(\s*)patchedDependencies:\s*(.*)$/u.exec(line);
+    if (header) {
+      indentation = header[1].length;
+      body.push(header[2]);
+      continue;
+    }
+    if (indentation === undefined || !line.trim() || line.trimStart().startsWith("#")) continue;
+    const leading = /^\s*/u.exec(line)[0].length;
+    if (leading <= indentation) break;
+    body.push(line);
+  }
+  return [...body.join("\n").matchAll(
+    /(["']?)@sonolus\/sonolus\.js-compiler@(\d+\.\d+\.\d+)\1\s*:\s*\S/gu,
+  )].map((match) => ({ version: match[2], file }));
 }
