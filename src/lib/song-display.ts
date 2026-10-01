@@ -33,7 +33,10 @@ export function observeSongDisplay(update: () => void): () => void {
   };
 }
 export function songTitle(song: Record<string, unknown>, locale: string) {
-  const value = song.musicTitle || song.title || song.name;
-  const resolved = resolveLocalizedText(value, japaneseSongTitles() ? "ja" : locale);
+  const requested = japaneseSongTitles() ? "ja" : locale;
+  const resolved =
+    [song.musicTitle, song.title, song.name]
+      .map((value) => resolveLocalizedText(value, requested))
+      .find((value) => value.text) ?? resolveLocalizedText(undefined, requested);
   return { ...resolved, text: resolved.text || String(song.musicId || song.id || "—") };
 }

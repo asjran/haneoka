@@ -4,7 +4,6 @@ import AppShell from "../AppShell.astro";
 import { catalogConfig } from "../../config/catalog-labels";
 import { findRoute, titleOf } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
-import { t } from "../../i18n/messages";
 import {
   resourceKindForCollection,
   chartPath,
@@ -93,7 +92,7 @@ const entity = canonical
     titleKey={canonical ? undefined : collectionRoute.titleKey}
     entity={entity}
   >
-    <script type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
     <catalog-screen config={screenConfig} data-prerendered data-page-data={pageDataId} set:html={body}></catalog-screen>
   </AppShell>
 </Base>

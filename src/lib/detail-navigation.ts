@@ -80,12 +80,13 @@ export async function navigateDetailPage(href: string, historyMode: "push" | "re
     const { navigate } = await import("astro:transitions/client");
     await navigate(target.href, { history: historyMode });
   } catch {
-    window.location.assign(target.href);
+    if (historyMode === "replace") window.location.replace(target.href);
+    else window.location.assign(target.href);
   }
 }
 
 export function entityReturnHref(): string | undefined {
-  const value = new URL(location.href).searchParams.get("return");
+  const value = navigationDocumentUrl().searchParams.get("return");
   if (value?.startsWith("/")) {
     try {
       const target = new URL(value, location.origin);
@@ -98,7 +99,8 @@ export function entityReturnHref(): string | undefined {
 /** Apply runtime return state to static app-bar links on every kind of detail page. */
 export function syncEntityNavigation(): void {
   let back = document.querySelector<HTMLAnchorElement>("[data-entity-back]");
-  const selection = parseEntitySelection(location.pathname);
+  const documentUrl = navigationDocumentUrl();
+  const selection = parseEntitySelection(documentUrl.pathname);
   if (!back && selection?.source === "canonical") {
     const slot = document.querySelector<HTMLElement>("[data-top-app-bar-leading]");
     if (slot) {
@@ -110,7 +112,6 @@ export function syncEntityNavigation(): void {
         ? resourceCollectionHref(collection, selection.route.server, selection.route.locale) ||
           resourcePath({ ...selection.route, id: undefined })
         : resourcePath({ ...selection.route, id: undefined });
-      back.dataset.astroHistory = "replace";
       back.dataset.i18nAriaLabel = "back";
       back.setAttribute("aria-label", clientText(selection.route.locale, "back", "Back"));
       const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -128,12 +129,12 @@ export function syncEntityNavigation(): void {
     }
   }
   if (!back) return;
-  if (selection?.source === "canonical") back.dataset.astroHistory = "replace";
+  if (selection?.source === "canonical") delete back.dataset.astroHistory;
   const returnTo = entityReturnHref();
   if (!returnTo) return;
   back.href = returnTo;
   for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-entity-navigation]")) {
-    const target = new URL(link.dataset.entityBaseHref || link.href, location.href);
+    const target = new URL(link.dataset.entityBaseHref || link.href, documentUrl);
     if (target.origin !== location.origin) continue;
     target.searchParams.set("return", returnTo);
     link.href = target.href;
