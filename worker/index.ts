@@ -2792,10 +2792,43 @@ function redirectToCanonical(url: URL): Response {
 }
 
 async function serveStaticAsset(request: Request, env: Env): Promise<Response> {
-  if (!env.ASSETS) return new Response("not found", { status: 404 });
-  const response = await env.ASSETS.fetch(request);
-  if (response.status !== 404) return response;
   const url = new URL(request.url);
+  const response = env.ASSETS ? await env.ASSETS.fetch(request) : new Response("not found", { status: 404 });
+  if (url.pathname.startsWith("/embed/")) {
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    headers.set("Access-Control-Expose-Headers", "Content-Encoding, ETag, Accept-Ranges, Content-Range");
+    headers.delete("Access-Control-Allow-Credentials");
+    if (response.ok || response.status === 304) {
+      const types: Readonly<Record<string, string>> = {
+        ".js": "text/javascript; charset=utf-8",
+        ".mjs": "text/javascript; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".map": "application/json; charset=utf-8",
+        ".glsl": "text/plain; charset=utf-8",
+        ".woff2": "font/woff2",
+        ".woff": "font/woff",
+        ".ttf": "font/ttf",
+        ".otf": "font/otf",
+        ".wasm": "application/wasm",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+      };
+      const type = types[extension(url.pathname)];
+      if (type) headers.set("Content-Type", type);
+    }
+    return new Response(request.method === "HEAD" ? null : response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+  if (!env.ASSETS || response.status !== 404) return response;
   // SPA sub-routes of the tools are served through their entry page. The
   // entry lives under a locale prefix and so do the addresses that reach this
   // fallback (unprefixed ones were redirected earlier), so match the segment
@@ -2950,6 +2983,7 @@ function negotiateLocale(request: Request): "ja" | "en" | "zh-TW" | "zh-CN" | "k
 }
 
 const WORKER_FIRST_PREFIXES = [
+  "/embed/",
   "/api/",
   "/artifacts/",
   "/assets/",

@@ -64,7 +64,8 @@
     "sonolus:release": "node packages/sonolus/scripts/build-native-effect-assets.ts && node packages/sonolus/scripts/build-original-assets.ts && node packages/sonolus/scripts/build-worker-assets.ts",
     "sonolus:payload": "node packages/sonolus/scripts/build-native-effect-assets.ts && node packages/sonolus/scripts/build-original-assets.ts && SONOLUS_ENGINE_ONLY=1 SONOLUS_OUTPUT_DIR=data/sonolus/current node packages/sonolus/scripts/build-worker-assets.ts",
     "sonolus:build": "pnpm --filter @haneoka/sonolus-our-notes build && pnpm sonolus:payload",
-    "build:frontend": "pnpm prepare:frontend && astro build && pnpm finalize:frontend"
+    "build:embeds": "node scripts/build-embeds.mjs",
+    "build:frontend": "pnpm prepare:frontend && pnpm build:embeds && astro build && pnpm finalize:frontend"
   },
   "dependencies": {
     "@bbob/parser": "catalog:",
