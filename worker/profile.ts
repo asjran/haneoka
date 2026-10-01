@@ -360,7 +360,8 @@ const deleteProfile = async (request: Request, env: Env): Promise<Response> => {
          )`,
     ).bind(session.user.id, session.user.id, now, profile.profileVersion + 1),
   ]);
-  if (Number(results[0]?.meta.changes || 0) !== 1) {
+  // D1 changes includes rows purged by account lifecycle triggers.
+  if (Number(results[0]?.meta.changes || 0) < 1) {
     if (profile.role === "admin") {
       const available = await env.DB.prepare(
         `SELECT 1 AS present

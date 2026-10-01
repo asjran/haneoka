@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
+import { luckCategory, tickToTimeMs } from "../../src/lib/team-builder/song-metrics.ts";
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -11,6 +12,7 @@ interface ScoreEvent {
   timeMs: number;
   operateType: number;
   judgementType: number;
+  luckCategory: 0 | 1 | null;
 }
 
 interface MetricBpmChange {
@@ -89,18 +91,6 @@ new Function("module", "exports", "require", source)(compiled, compiled.exports,
 const convertChart = compiled.exports.convertChart;
 if (typeof convertChart !== "function") throw new Error("canonical convertChart export is missing");
 
-function tickToTimeMs(changes: readonly MetricBpmChange[], tick: number): number {
-  const first = changes[0];
-  if (!first) return Math.floor((Number(tick) * 60000) / (120 * 480));
-  let segment = first;
-  for (const change of changes) {
-    if (Number(change.tick) <= Number(tick)) segment = change;
-    else break;
-  }
-  const denominator = Math.fround(Number(segment.bpm) * 480);
-  return Math.floor(Number(segment.timeMs) + ((Number(tick) - Number(segment.tick)) * 60000) / denominator);
-}
-
 function parseFiles(sourceText: string): Record<string, string> {
   const value = JSON.parse(sourceText) as JsonValue;
   if (!value || Array.isArray(value) || typeof value !== "object") {
@@ -125,6 +115,7 @@ for (const [key, file] of Object.entries(files)) {
       timeMs: Number(note.timeMs),
       operateType: Number(note.operateType),
       judgementType: Number(note.judgementType ?? 0),
+      luckCategory: luckCategory(Number(note.operateType)),
     }));
   const bpmChanges = chart.bpmChanges.map((change) => ({
     tick: Number(change.tick),

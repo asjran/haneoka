@@ -1609,9 +1609,21 @@ def _reference_skill_profile(data: BuildData) -> tuple[float, float, float]:
 # judgement types; SlideEnd (11), Trace (21) and SlideEndTrace (22) cannot be
 # Just, which caps the theoretical per-segment Just count of gekisou charts.
 JUSTABLE_NOTE_JUDGEMENT_TYPES = frozenset({1, 2, 5, 10, 12, 15})
-# Flick-family judgement types charge the luck gauge on note category 1
-# (MasterLiveGekisouLuckBasePoint ships only category 0/1 rows).
-LUCK_CATEGORY_1_JUDGEMENT_TYPES = frozenset({5, 12})
+# LuckGekisouLotteryMachine.GetBasePoint/IsSubNote uses operation, not judgement.
+LUCK_CATEGORY_1_OPERATE_TYPES = frozenset({21, 60, 61, 62, 63, 120})
+LUCK_NO_CHARGE_OPERATE_TYPES = frozenset({0, 80, 82, 100, 101, 102, 103, 104, 105, 121, 122})
+
+
+def _native_luck_category(note: dict[str, Any]) -> int | None:
+    if "luckCategory" in note:
+        category = note["luckCategory"]
+        if category is not None and (type(category) is not int or category not in (0, 1)):
+            raise ValueError("canonical node has an invalid native luck category")
+        return category
+    operation = int(note.get("operateType") or 0)
+    if operation in LUCK_NO_CHARGE_OPERATE_TYPES:
+        return None
+    return 1 if operation in LUCK_CATEGORY_1_OPERATE_TYPES else 0
 
 
 def _luck_expectations(data: BuildData) -> dict[tuple[int, int], float]:
@@ -1808,9 +1820,9 @@ def _gekisou_chart_metrics(
         )
         luck = sum(
             luck_perfect_cat1
-            if int(note.get("judgementType") or 0) in LUCK_CATEGORY_1_JUDGEMENT_TYPES
+            if _native_luck_category(note) == 1
             else luck_perfect_cat0
-            for note in segment_notes
+            for note in segment_notes if _native_luck_category(note) is not None
         )
         rush_expected = 0
         if luck >= gauge_max:
@@ -1870,6 +1882,8 @@ def _gekisou_chart_metrics(
         "scoreTop": score_top,
         "metaStatus": "available",
         "scoreKind": "gekisou-relative",
+        "nativeRewardEstimate": False,
+        "approximationReasons": ["rush-state-machine-not-resolved", "standing-rush-score-proxy"],
         "metricSources": {
             "segments": "canonical score.events sliced by score.passthrough.fever ranges",
             "justable": (
@@ -1878,8 +1892,9 @@ def _gekisou_chart_metrics(
                 "for SlideEnd/Trace/SlideEndTrace"
             ),
             "luckExpected": (
-                "weight mean of MasterLiveGekisouLuckBasePoint (category 1 assumed for "
-                "flick-family judgement types; Just assumed to charge the PERFECT rows)"
+                "linear weight mean of MasterLiveGekisouLuckBasePoint; native operation category "
+                "(21/60/61/62/63/120 subnotes, flick40/41/42 category0, GUIDE no charge); "
+                "JUST/PERFECT share the PERFECT distribution"
             ),
             "rushExpected": (
                 "expected gauge cycles: first trigger at gekisou_luck_gauge_max, "
@@ -2256,6 +2271,7 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                 _present(
                     difficulty=index,
                     difficultyName=name,
+                    scoreId=score_id,
                     playLevel=play_level,
                     displayLevel=display_level,
                     sortLevel=sort_level,

@@ -25,6 +25,7 @@ export const SPINE_I18N_NAMESPACE = "spine" as const;
 export const LIVE2D_I18N_NAMESPACE = "live2d" as const;
 export const HELP_I18N_NAMESPACE = "help" as const;
 export const STAMP_MAKER_I18N_NAMESPACE = "stampMaker" as const;
+export const TEAM_BUILDER_I18N_NAMESPACE = "teamBuilder" as const;
 
 export const I18N_NAMESPACES = [
   COMMON_I18N_NAMESPACE,
@@ -42,6 +43,7 @@ export const I18N_NAMESPACES = [
   LIVE2D_I18N_NAMESPACE,
   HELP_I18N_NAMESPACE,
   STAMP_MAKER_I18N_NAMESPACE,
+  TEAM_BUILDER_I18N_NAMESPACE,
 ] as const;
 
 export type MainI18nNamespace = (typeof I18N_NAMESPACES)[number];
@@ -198,6 +200,7 @@ const namespaceRootKeys: Readonly<Record<MainI18nNamespace, readonly string[]>> 
   live2d: LIVE2D_ROOT_KEYS,
   help: HELP_ROOT_KEYS,
   stampMaker: STAMP_MAKER_ROOT_KEYS,
+  teamBuilder: ["teamBuilder", "liveMusicTypes"],
 };
 
 const FEATURE_SCALAR_EXCLUSIONS = new Set<string>([
@@ -301,6 +304,7 @@ export const featureNamespaceForRoute = (route = "/"): MainI18nNamespace => {
     pathname === "/tools/stamp-maker" || pathname.startsWith("/tools/stamp-maker/")
   )
     return STAMP_MAKER_I18N_NAMESPACE;
+  if (pathname === "/team-builder" || pathname.startsWith("/team-builder/")) return TEAM_BUILDER_I18N_NAMESPACE;
   if (pathname.includes("anon-tokyo")) return ANON_I18N_NAMESPACE;
   if (pathname.includes("chart-editor") || pathname.includes("story-editor")) return EDITOR_I18N_NAMESPACE;
   if (pathname.includes("stories")) return STORY_I18N_NAMESPACE;

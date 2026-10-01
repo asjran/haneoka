@@ -19,6 +19,8 @@ import { handleAnnouncementsRequest } from "./announcements";
 import { announcementDocumentRequest, rewriteAnnouncementDocument } from "../src/lib/announcement-document";
 import { handleModerationQueue, reconcileModerationState } from "./moderation";
 import { handleProfileRequest } from "./profile";
+import { handleTeamInventoryRequest } from "./team-inventory";
+import { handleTeamBuilderData } from "./team-builder-data";
 import { handlePublicProfileRequest } from "./public-profile";
 import { cleanupCommunityUploads, handleUploadRequest } from "./uploads";
 import {
@@ -3062,6 +3064,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     if (admin) return admin;
     const profile = await handleProfileRequest(request, env);
     if (profile) return profile;
+    const teamInventory = await handleTeamInventoryRequest(request, env);
+    if (teamInventory) return teamInventory;
     const publicProfile = await handlePublicProfileRequest(request, env);
     if (publicProfile) return publicProfile;
     const avatar = await handleAvatarRequest(request, env);
@@ -3102,6 +3106,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (garupaPlaylists) return garupaPlaylists;
   const releaseRegistry = await handleReleaseRegistryApi(env, ctx, request, url.pathname);
   if (releaseRegistry) return releaseRegistry;
+  const teamBuilderData = await handleTeamBuilderData(request, (catalogRequest) =>
+    handleCatalogApi(env, ctx, catalogRequest, new URL(catalogRequest.url).pathname),
+  );
+  if (teamBuilderData) return teamBuilderData;
   const latestCatalog = await handleLatestCatalogApi(env, ctx, request, url.pathname);
   if (latestCatalog) return latestCatalog;
   const api = await handleCatalogApi(env, ctx, request, url.pathname);
