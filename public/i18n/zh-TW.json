@@ -1494,7 +1494,23 @@
     "retry": "重試",
     "refresh": "重新整理",
     "loadMore": "載入更多",
-    "empty": "沒有可顯示的項目。"
+    "empty": "沒有可顯示的項目。",
+    "ip": {
+      "address": "IP 位址",
+      "country": "國家",
+      "region": "地區",
+      "city": "城市",
+      "postalCode": "郵遞區號",
+      "coordinates": "約略座標",
+      "timezone": "時區",
+      "asn": "ASN",
+      "organization": "網路組織",
+      "approximate": "IP 地理位置為約略位置。",
+      "lastVisit": "最近造訪",
+      "unknown": "未知",
+      "details": "IP 詳細資訊",
+      "visitSampling": "已登入請求每分鐘記錄一次；IP 變更會立即記錄。"
+    }
   },
   "aboutPage": {
     "eyebrow": "讓故事延展的檔案館與開放工具鏈",

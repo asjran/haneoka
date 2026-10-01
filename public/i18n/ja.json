@@ -1494,7 +1494,23 @@
     "retry": "再試行",
     "refresh": "更新",
     "loadMore": "さらに読み込む",
-    "empty": "表示する項目はありません。"
+    "empty": "表示する項目はありません。",
+    "ip": {
+      "address": "IPアドレス",
+      "country": "国",
+      "region": "地域",
+      "city": "都市",
+      "postalCode": "郵便番号",
+      "coordinates": "おおよその座標",
+      "timezone": "タイムゾーン",
+      "asn": "ASN",
+      "organization": "ネットワーク組織",
+      "approximate": "IP位置情報はおおよその位置です。",
+      "lastVisit": "最近のアクセス",
+      "unknown": "不明",
+      "details": "IPの詳細",
+      "visitSampling": "認証済みリクエストは1分間隔で記録し、IPの変更はすぐに記録します。"
+    }
   },
   "aboutPage": {
     "eyebrow": "物語を広げるアーカイブとオープンなツールチェーン",

@@ -141,6 +141,17 @@ END;
 
 CREATE INDEX user_createdAt_idx ON "user"(createdAt);
 
+-- Latest authenticated visit is private metadata; legacy users start without a row.
+CREATE TABLE community_user_last_visit (
+  user_id TEXT PRIMARY KEY NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  visited_at INTEGER NOT NULL CHECK (visited_at >= 0),
+  ip_address TEXT,
+  ip_country_code TEXT,
+  ip_region_code TEXT,
+  ip_region_name TEXT,
+  ip_details_json TEXT CHECK (ip_details_json IS NULL OR (json_valid(ip_details_json) AND json_type(ip_details_json) = 'object'))
+);
+
 -- Public numeric identities are deliberately separate from Better Auth's opaque
 -- text identifiers. Every account uses the same positive sequence; permissions
 -- are derived only from the separately audited profile role.
@@ -382,6 +393,9 @@ CREATE TABLE community_post_revision (
     )
   ),
   created_at INTEGER NOT NULL,
+  ip_details_json TEXT CHECK (
+    ip_details_json IS NULL OR (json_valid(ip_details_json) AND json_type(ip_details_json) = 'object')
+  ),
   PRIMARY KEY (post_id, revision_number)
 );
 
@@ -407,6 +421,9 @@ CREATE TABLE community_post_state_event (
   ip_region_name TEXT CHECK (ip_region_name IS NULL OR length(ip_region_name) <= 120),
   ip_address TEXT CHECK (ip_address IS NULL OR length(ip_address) BETWEEN 3 AND 45),
   created_at INTEGER NOT NULL,
+  ip_details_json TEXT CHECK (
+    ip_details_json IS NULL OR (json_valid(ip_details_json) AND json_type(ip_details_json) = 'object')
+  ),
   FOREIGN KEY (post_id, revision_number)
     REFERENCES community_post_revision(post_id, revision_number) ON DELETE RESTRICT
 );
@@ -445,6 +462,9 @@ CREATE TABLE community_comment_revision (
     )
   ),
   created_at INTEGER NOT NULL,
+  ip_details_json TEXT CHECK (
+    ip_details_json IS NULL OR (json_valid(ip_details_json) AND json_type(ip_details_json) = 'object')
+  ),
   PRIMARY KEY (comment_id, revision_number)
 );
 
@@ -465,6 +485,9 @@ CREATE TABLE community_comment_state_event (
   ip_region_name TEXT CHECK (ip_region_name IS NULL OR length(ip_region_name) <= 120),
   ip_address TEXT CHECK (ip_address IS NULL OR length(ip_address) BETWEEN 3 AND 45),
   created_at INTEGER NOT NULL,
+  ip_details_json TEXT CHECK (
+    ip_details_json IS NULL OR (json_valid(ip_details_json) AND json_type(ip_details_json) = 'object')
+  ),
   FOREIGN KEY (comment_id, revision_number)
     REFERENCES community_comment_revision(comment_id, revision_number) ON DELETE RESTRICT
 );

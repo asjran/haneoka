@@ -1494,7 +1494,23 @@
     "retry": "다시 시도",
     "refresh": "새로 고침",
     "loadMore": "더 불러오기",
-    "empty": "표시할 항목이 없습니다."
+    "empty": "표시할 항목이 없습니다.",
+    "ip": {
+      "address": "IP 주소",
+      "country": "국가",
+      "region": "지역",
+      "city": "도시",
+      "postalCode": "우편번호",
+      "coordinates": "대략적인 좌표",
+      "timezone": "시간대",
+      "asn": "ASN",
+      "organization": "네트워크 조직",
+      "approximate": "IP 위치 정보는 대략적인 위치입니다.",
+      "lastVisit": "최근 방문",
+      "unknown": "알 수 없음",
+      "details": "IP 상세 정보",
+      "visitSampling": "인증된 요청은 1분마다 기록하며 IP 변경은 즉시 기록합니다."
+    }
   },
   "aboutPage": {
     "eyebrow": "이야기를 확장하는 아카이브와 오픈 툴체인",

@@ -1494,7 +1494,23 @@
     "retry": "Retry",
     "refresh": "Refresh",
     "loadMore": "Load more",
-    "empty": "Nothing to display."
+    "empty": "Nothing to display.",
+    "ip": {
+      "address": "IP address",
+      "country": "Country",
+      "region": "Region",
+      "city": "City",
+      "postalCode": "Postal code",
+      "coordinates": "Approximate coordinates",
+      "timezone": "Time zone",
+      "asn": "ASN",
+      "organization": "Network organization",
+      "approximate": "IP geolocation is approximate.",
+      "lastVisit": "Recent visit",
+      "unknown": "Unknown",
+      "details": "IP details",
+      "visitSampling": "Authenticated requests are sampled once a minute; IP changes are recorded immediately."
+    }
   },
   "aboutPage": {
     "eyebrow": "A living archive and open toolchain",

@@ -1494,7 +1494,23 @@
     "retry": "重试",
     "refresh": "刷新",
     "loadMore": "加载更多",
-    "empty": "暂无内容。"
+    "empty": "暂无内容。",
+    "ip": {
+      "address": "IP 地址",
+      "country": "国家",
+      "region": "地区",
+      "city": "城市",
+      "postalCode": "邮政编码",
+      "coordinates": "大致坐标",
+      "timezone": "时区",
+      "asn": "ASN",
+      "organization": "网络组织",
+      "approximate": "IP 地理位置为大致位置。",
+      "lastVisit": "最近访问",
+      "unknown": "未知",
+      "details": "IP 详细信息",
+      "visitSampling": "已登录请求每分钟记录一次；IP 变更会立即记录。"
+    }
   },
   "aboutPage": {
     "eyebrow": "让故事延展的档案馆与开放工具链",
