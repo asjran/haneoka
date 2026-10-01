@@ -31,6 +31,8 @@ import {
 } from "@sonolus/express";
 import { packPath } from "@sonolus/free-pack";
 import { chartToLevelData, convertChart } from "@haneoka/cassiopeia-plugin-sonolus";
+import { OUR_NOTES_NOTE_SE_GROUP_IDS, OUR_NOTES_NOTE_SE_GROUP_NAMES } from "@haneoka/cassiopeia-plugin-our-notes";
+import { encodeSonolusLocalizedText, OUR_NOTES_SONOLUS_ITEM_NAMES } from "../sonolusLocalization";
 import { SONOLUS_ITEM_VERSIONS } from "./itemVersions";
 import { buildLevelMetas, type BandRow, type LevelMeta, type MusicRow, type ScoreRow, type TextRow } from "./levelMeta";
 import { resolveSonolusReleaseWorkspace } from "./releaseWorkspace";
@@ -261,7 +263,6 @@ function main() {
   // are fatal: no pixel/8bit replacement is visually equivalent.
   const resourceDir = resolve(ROOT, "packages/sonolus/dist/our-notes");
   const PARTICLE_NAME = "ourNotesParticle";
-  const EFFECT_NAME = "ourNotesEffect";
   const requiredResourceFiles = [
     "skins/skin001/skin.data",
     "skins/skin001/skin.texture.png",
@@ -275,8 +276,10 @@ function main() {
     "particle.data",
     "particle.texture.png",
     "particle.thumbnail.png",
-    "effect.data",
-    "effect.audio",
+    ...OUR_NOTES_NOTE_SE_GROUP_IDS.flatMap((group) => [
+      `effects/${group}/effect.data`,
+      `effects/${group}/effect.audio`,
+    ]),
   ] as const;
   const missingResourceFiles = requiredResourceFiles.filter((file) => !existsSync(resolve(resourceDir, file)));
   if (missingResourceFiles.length) {
@@ -324,20 +327,25 @@ function main() {
     texture: s.add(readFileSync(resolve(resourceDir, "particle.texture.png"))),
   };
   s.particle.items.push(particle);
-  const effect: EffectItemModel = {
-    name: EFFECT_NAME,
-    version: SONOLUS_ITEM_VERSIONS.effect,
-    title: { ja: "Our Notes", en: "Our Notes" },
-    subtitle: { ja: "オリジナルノートSE", en: "Original note sounds" },
-    author: { en: "haneoka" },
-    tags: [],
-    thumbnail: banner,
-    data: s.add(readFileSync(resolve(resourceDir, "effect.data"))),
-    audio: s.add(readFileSync(resolve(resourceDir, "effect.audio"))),
-  };
-  s.effect.items.push(effect);
+  const effectItems: EffectItemModel[] = OUR_NOTES_NOTE_SE_GROUP_IDS.map((group) => {
+    const effectResourceDir = resolve(resourceDir, "effects", String(group));
+    return {
+      name: OUR_NOTES_SONOLUS_ITEM_NAMES.effects[group],
+      version: SONOLUS_ITEM_VERSIONS.effect,
+      title: { ja: encodeSonolusLocalizedText(OUR_NOTES_NOTE_SE_GROUP_NAMES[group]!, "ja") },
+      subtitle: { ja: "オリジナルノートSE", en: "Original note sounds" },
+      author: { en: "haneoka" },
+      tags: [],
+      thumbnail: banner,
+      data: s.add(readFileSync(resolve(effectResourceDir, "effect.data"))),
+      audio: s.add(readFileSync(resolve(effectResourceDir, "effect.audio"))),
+    };
+  });
+  s.effect.items.push(...effectItems);
+  const defaultEffect = effectItems[0];
+  if (!defaultEffect) throw new Error("Native effect item list is empty");
   const engineParticle = PARTICLE_NAME;
-  const engineEffect = EFFECT_NAME;
+  const engineEffect = defaultEffect.name;
 
   // --- BACKGROUNDS = both original lightweight concert stages. Sonolus can
   // override an engine default per play, so expose both instead of baking a
