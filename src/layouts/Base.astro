@@ -10,7 +10,7 @@ import { ClientRouter } from "astro:transitions";
 import { LOCALES, localeFromPath, localePath, localeTag, type Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
 import { createServerI18nContext, serializeI18nSeed } from "../i18n/server";
-import { canonicalPath, pageDescription, pageStructuredData, shouldNoindex } from "../lib/seo";
+import { canonicalPath, pageSummary, pageTitle, pageStructuredData, shouldNoindex } from "../lib/seo";
 interface Props {
   locale: Locale;
   title: string;
@@ -40,20 +40,12 @@ const {
 } = Astro.props;
 const noindex = Astro.props.noindex || shouldNoindex(route);
 const origin = Astro.site?.origin ?? "https://haneoka.org";
-const formatTitle = (value: string) => (value === "haneoka" ? value : `${value} · haneoka`);
 const isLocalizedRoute = canonicalRoute
   ? localeFromPath(canonicalRoute) !== undefined
   : localeFromPath(Astro.url.pathname) !== undefined;
-// Catalogue pages spell out where they sit: "楽曲 · カタログ · haneoka".
-const withCatalogHierarchy = (target: Locale, value: string) => {
-  if (!route.startsWith("/catalog/") || route === "/catalog") return value;
-  const hub = t(target, "catalog", "Catalog");
-  return value.includes(` · ${hub} ·`) || value.endsWith(` · ${hub}`) ? value : `${value} · ${hub}`;
-};
 const localizedTitle = seoTitleValues?.[locale] ?? (titleKey ? t(locale, titleKey, title) : title);
-const fullTitle = formatTitle(withCatalogHierarchy(locale, localizedTitle));
-const customDescription = description?.trim() && description.trim() !== title.trim() ? description : undefined;
-const pageSummary = seoDescriptionValues?.[locale] ?? customDescription ?? pageDescription(locale, route, localizedTitle);
+const fullTitle = pageTitle(locale, route, localizedTitle);
+const summary = pageSummary(locale, route, localizedTitle, seoDescriptionValues?.[locale] ?? description);
 const publicRoute = canonicalRoute ?? (isLocalizedRoute ? localePath(route, locale) : route);
 // Each locale's page canonicalizes to itself and points at its language
 // siblings, so every language can rank on its own URL.
@@ -67,7 +59,7 @@ const languageAlternates = isLocalizedRoute
     }))
   : [];
 const structuredData = JSON.stringify(
-  pageStructuredData(origin, route, locale, fullTitle, pageSummary, isLocalizedRoute, publicRoute),
+  pageStructuredData(origin, route, locale, fullTitle, summary, isLocalizedRoute, publicRoute),
 ).replaceAll("<", "\\u003c");
 const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed());
 ---
@@ -118,13 +110,13 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
       })();
     </script>
     <title>{fullTitle}</title>
-    <meta name="description" content={pageSummary} />
+    <meta name="description" content={summary} />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="haneoka" />
     <meta property="og:title" content={fullTitle} />
     <meta
       property="og:description"
-      content={pageSummary}
+      content={summary}
 
     />
     <meta property="og:url" content={canonicalHref} />
@@ -137,7 +129,7 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
     <meta name="twitter:title" content={fullTitle} />
     <meta
       name="twitter:description"
-      content={pageSummary}
+      content={summary}
 
     />
     <meta name="twitter:image" content={`${origin}/images/haneoka-social-card.png`} />

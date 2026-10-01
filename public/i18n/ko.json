@@ -2162,28 +2162,32 @@
   "seo": {
     "homeTitle": "BanG Dream! Our Notes 자료 아카이브",
     "descriptions": {
-      "home": "커뮤니티가 운영하는 BanG Dream! Our Notes 비공식 자료 아카이브입니다. 곡, 멤버, 카드, 캐릭터, 스토리와 이벤트 자료를 정리해 브라우저에서 볼 수 있습니다.",
-      "catalog": "곡, 멤버, 카드, 캐릭터와 스토리를 포함한 BanG Dream! Our Notes 비공식 자료 아카이브를 둘러보세요.",
-      "catalogItem": "BanG Dream! Our Notes의 {title} 데이터와 관련 항목을 확인하세요.",
-      "about": "haneoka는 BanG Dream! Our Notes 참고 자료를 정리하고 브라우저에서 볼 수 있도록 커뮤니티가 운영하는 비공식 프로젝트입니다.",
-      "community": "BanG Dream! Our Notes 관련 커뮤니티 게시물을 둘러보세요.",
-      "communityTags": "BanG Dream! Our Notes 커뮤니티에서 사용하는 태그를 둘러보세요.",
-      "communityPlaylists": "BanG Dream! Our Notes 커뮤니티가 공유한 플레이리스트를 둘러보세요.",
-      "communitySongs": "BanG Dream! Girls Band Party! 곡 정보를 둘러보세요.",
-      "communityStories": "GBP 이벤트, 밴드, 메인, 에어리어 대화와 카드 스토리를 둘러보세요.",
-      "terms": "haneoka와 커뮤니티 기능 이용에 관한 약관과 규칙을 확인하세요.",
-      "privacy": "haneoka의 계정 정보, 쿠키 및 기타 데이터 처리 방식을 확인하세요.",
-      "general": "커뮤니티가 운영하는 BanG Dream! Our Notes 비공식 자료 아카이브 haneoka의 {title} 페이지입니다."
+      "home": "haneoka에서 BanG Dream! Our Notes의 곡과 채보, 멤버 카드, 서포트 카드, 캐릭터, 스토리와 이벤트를 살펴보세요. Live2D, Spine과 홈 장면을 미리 보고 게임 공지와 커뮤니티 게시물도 확인할 수 있습니다.",
+      "catalog": "haneoka에서 BanG Dream! Our Notes의 곡과 채보, 멤버 카드, 서포트 카드, 캐릭터, 스토리와 이벤트를 살펴보세요. Live2D, Spine과 홈 장면을 미리 보고 게임 공지와 커뮤니티 게시물도 확인할 수 있습니다.",
+      "catalogItem": "haneoka에서 {title}의 상세 정보와 관련 항목을 확인하세요. BanG Dream! Our Notes의 곡, 카드, 캐릭터, 스토리와 게임 시스템을 연결하는 자료실입니다.",
+      "about": "haneoka의 자료 탐색, 스토리와 채보 플레이어, Live2D와 Spine 도구, 커뮤니티와 공개 API를 알아보세요. Vega, Altair, Deneb, Cassiopeia의 역할과 오픈 소스 저장소, 프로젝트의 기술 구성을 확인할 수 있습니다.",
+      "community": "BanG Dream! Our Notes 커뮤니티의 게시물, 토론과 창작물을 찾아보세요. 댓글과 답글, 좋아요, 북마크와 작성자 팔로우를 이용하고 관련 곡, 캐릭터와 스토리도 살펴볼 수 있습니다.",
+      "communityTags": "BanG Dream! Our Notes 커뮤니티에서 사용하는 태그를 둘러보세요. BanG Dream! Our Notes 커뮤니티의 게시물, 토론과 창작물을 찾아보세요. 댓글과 답글, 좋아요, 북마크와 작성자 팔로우를 이용하고 관련 곡, 캐릭터와 스토리도 살펴볼 수 있습니다.",
+      "communityPlaylists": "BanG Dream! Our Notes 커뮤니티가 공유한 플레이리스트를 둘러보세요. BanG Dream! Our Notes 커뮤니티의 게시물, 토론과 창작물을 찾아보세요. 댓글과 답글, 좋아요, 북마크와 작성자 팔로우를 이용하고 관련 곡, 캐릭터와 스토리도 살펴볼 수 있습니다.",
+      "communitySongs": "BanG Dream! Girls Band Party! 곡 정보를 둘러보세요. BanG Dream! Our Notes 커뮤니티의 게시물, 토론과 창작물을 찾아보세요. 댓글과 답글, 좋아요, 북마크와 작성자 팔로우를 이용하고 관련 곡, 캐릭터와 스토리도 살펴볼 수 있습니다.",
+      "communityStories": "GBP 이벤트, 밴드, 메인, 에어리어 대화와 카드 스토리를 둘러보세요. BanG Dream! Our Notes 커뮤니티의 게시물, 토론과 창작물을 찾아보세요. 댓글과 답글, 좋아요, 북마크와 작성자 팔로우를 이용하고 관련 곡, 캐릭터와 스토리도 살펴볼 수 있습니다.",
+      "terms": "haneoka 사이트와 커뮤니티 이용 규칙을 확인하세요. 계정, 게시물, 업로드, 신고와 검토의 요건 및 자료 이용, 저작권과 서비스에 관한 조건을 안내합니다.",
+      "privacy": "haneoka의 계정 정보, 쿠키, 커뮤니티 내용, 업로드 파일과 방문 기록 처리 방식을 확인하세요. 데이터 이용과 보관, 보안, 사용자 권리, 개인정보 설정과 연락 방법을 안내합니다.",
+      "general": "haneoka의 {title}에서 BanG Dream! Our Notes 게임 정보, 미리보기 도구와 커뮤니티 공유 내용을 살펴보세요. 관련 항목을 따라 곡, 캐릭터, 카드와 스토리를 더 알아볼 수 있습니다.",
+      "announcements": "BanG Dream! Our Notes의 공지, 이벤트 소식, 모집 안내, 점검과 알려진 문제를 확인하세요. 전체 본문, 이미지와 게시 시각을 읽고 선택한 서버와 이용 가능한 언어에 맞는 최신 소식을 찾아보세요."
     },
     "resources": {
-      "songs": "BanG Dream! Our Notes 곡의 제작진, 채보 난이도, 노트 수와 공개 정보.",
-      "characters": "BanG Dream! Our Notes 캐릭터 일러스트, 프로필, 소속 밴드, 카드와 관련 스토리.",
-      "member-cards": "멤버 카드의 능력치, 스킬, 육성 단계와 단계별 필요 재료.",
-      "support-cards": "서포트 카드의 능력치, 스킬, 랭크와 육성 정보.",
-      "band-items": "밴드 아이템의 효과와 레벨별 강화 재료.",
-      "live2d": "Live2D 모델 미리보기, 모션과 표정 전환, 파라미터 조정 및 이미지 내보내기.",
-      "spine": "Spine 모델 목록, 애니메이션 미리보기 및 투명 PNG 이미지 내보내기."
-    }
+      "songs": "BanG Dream! Our Notes 곡의 제작진, 채보 난이도, 노트 수와 공개 정보. haneoka에서 이 항목의 상세 정보와 관련 항목을 확인하세요. BanG Dream! Our Notes의 곡, 카드, 캐릭터, 스토리와 게임 시스템을 연결하는 자료실입니다.",
+      "characters": "BanG Dream! Our Notes 캐릭터 일러스트, 프로필, 소속 밴드, 카드와 관련 스토리. haneoka에서 이 항목의 상세 정보와 관련 항목을 확인하세요. BanG Dream! Our Notes의 곡, 카드, 캐릭터, 스토리와 게임 시스템을 연결하는 자료실입니다.",
+      "member-cards": "멤버 카드의 능력치, 스킬, 육성 단계와 단계별 필요 재료. haneoka에서 이 항목의 상세 정보와 관련 항목을 확인하세요. BanG Dream! Our Notes의 곡, 카드, 캐릭터, 스토리와 게임 시스템을 연결하는 자료실입니다.",
+      "support-cards": "서포트 카드의 능력치, 스킬, 랭크와 육성 정보. haneoka에서 이 항목의 상세 정보와 관련 항목을 확인하세요. BanG Dream! Our Notes의 곡, 카드, 캐릭터, 스토리와 게임 시스템을 연결하는 자료실입니다.",
+      "band-items": "밴드 아이템의 효과와 레벨별 강화 재료. haneoka에서 이 항목의 상세 정보와 관련 항목을 확인하세요. BanG Dream! Our Notes의 곡, 카드, 캐릭터, 스토리와 게임 시스템을 연결하는 자료실입니다.",
+      "live2d": "Live2D 모델 미리보기, 모션과 표정 전환, 파라미터 조정 및 이미지 내보내기. haneoka에서 이 항목의 상세 정보와 관련 항목을 확인하세요. BanG Dream! Our Notes의 곡, 카드, 캐릭터, 스토리와 게임 시스템을 연결하는 자료실입니다.",
+      "spine": "Spine 모델 목록, 애니메이션 미리보기 및 투명 PNG 이미지 내보내기. haneoka에서 이 항목의 상세 정보와 관련 항목을 확인하세요. BanG Dream! Our Notes의 곡, 카드, 캐릭터, 스토리와 게임 시스템을 연결하는 자료실입니다.",
+      "stories": "BanG Dream! Our Notes의 밴드, 이벤트, 인연, 홈과 라이브 후 스토리를 살펴보세요. 캐릭터 아이콘과 대사를 읽고 이미지와 영상을 펼치거나 플레이어에서 장면과 모델의 연출을 확인할 수 있습니다.",
+      "events": "BanG Dream! Our Notes 이벤트의 일정, 플레이 방식, 보상과 관련 스토리를 확인하세요. 연계된 모집, 픽업 카드와 곡을 살펴보고 이벤트 내용과 게임 소식을 함께 찾아보세요."
+    },
+    "siteTitle": "BanG Dream! Our Notes 자료실"
   },
   "lookX": "수평 시선",
   "lookY": "수직 시선",

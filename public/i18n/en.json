@@ -2162,28 +2162,32 @@
   "seo": {
     "homeTitle": "BanG Dream! Our Notes Archive",
     "descriptions": {
-      "home": "An unofficial BanG Dream! Our Notes archive maintained by the community. Browse songs, members, cards, characters, stories, and event data.",
-      "catalog": "Browse the community-maintained, unofficial BanG Dream! Our Notes archive, including songs, members, cards, characters, and stories.",
-      "catalogItem": "{title}: game data and related entries from BanG Dream! Our Notes.",
-      "about": "Haneoka is a community-maintained, unofficial project for organizing and browsing BanG Dream! Our Notes reference data.",
-      "community": "Browse community posts related to BanG Dream! Our Notes.",
-      "communityTags": "Browse tags used in the BanG Dream! Our Notes community.",
-      "communityPlaylists": "Browse playlists shared by the BanG Dream! Our Notes community.",
-      "communitySongs": "Browse song information from BanG Dream! Girls Band Party!.",
-      "communityStories": "Browse GBP event, band, main, area conversation, and card stories.",
-      "terms": "Read the terms and rules for using haneoka and its community features.",
-      "privacy": "Read how haneoka handles account information, cookies, and other data.",
-      "general": "{title} in the community-maintained, unofficial BanG Dream! Our Notes archive, haneoka."
+      "home": "Explore BanG Dream! Our Notes on haneoka: songs and charts, member and support cards, characters, stories and events. Preview Live2D, Spine and home scenes, read game announcements and join the community.",
+      "catalog": "Explore BanG Dream! Our Notes on haneoka: songs and charts, member and support cards, characters, stories and events. Preview Live2D, Spine and home scenes, read game announcements and join the community.",
+      "catalogItem": "Explore detailed information about {title} and its related entries on haneoka, the BanG Dream! Our Notes resource archive for songs, cards, characters, stories and game systems.",
+      "about": "Discover haneoka’s game archive, story and chart players, Live2D and Spine tools, community and public APIs. Learn how Vega, Altair, Deneb and Cassiopeia work together, explore the open-source repositories and follow the project’s technology.",
+      "community": "Discover BanG Dream! Our Notes community posts, discussions and creative contributions. Comment and reply, like or bookmark interesting posts, follow authors and explore related songs, characters and stories.",
+      "communityTags": "Find BanG Dream! Our Notes community topics and creative contributions by tag. Explore related posts and authors, join discussions, and save or share the game content that interests you.",
+      "communityPlaylists": "Discover BanG Dream! Our Notes playlists shared by the community. Browse song covers, bands and track details, listen to music, bookmark favourite playlists and explore related songs and charts.",
+      "communitySongs": "Explore BanG Dream! Girls Band Party! songs with multilingual titles, bands, credits and chart difficulties. View covers and release information, open song details and chart previews, and access Sonolus levels.",
+      "communityStories": "Read BanG Dream! Girls Band Party! event, band, main, area, after-live and card stories. Follow dialogue with character portraits, view complete card artwork and use the available content-language fallback.",
+      "terms": "Read the rules for using haneoka and its community. Learn the requirements for accounts, posts, uploads, reports and moderation, and review resource use, copyright and service terms.",
+      "privacy": "Learn how haneoka handles account details, cookies, community content, uploaded files and visit records. Read about data use, storage, security, user rights, privacy settings and contact options.",
+      "general": "Explore {title} on haneoka, with BanG Dream! Our Notes game information, preview tools and community contributions. Follow related entries to discover songs, characters, cards and stories.",
+      "announcements": "Read BanG Dream! Our Notes announcements, event news, recruitment notices, maintenance updates and known issues. View full articles, images and publication dates in the available language for your selected server."
     },
     "resources": {
-      "songs": "Song credits, chart difficulties, note counts, and release details for BanG Dream! Our Notes.",
-      "characters": "Character portraits, profiles, bands, cards, and related stories from BanG Dream! Our Notes.",
-      "member-cards": "Member card stats, skills, progression stages, and materials required for each upgrade.",
-      "support-cards": "Support card stats, skills, ranks, and progression details.",
-      "band-items": "Band item effects and materials required for each upgrade level.",
-      "live2d": "Preview Live2D models, switch motions and expressions, adjust parameters, and export images.",
-      "spine": "Browse Spine models, preview animations, and export transparent PNG images."
-    }
+      "songs": "Explore BanG Dream! Our Notes song credits, bands and release information. Compare chart difficulties and note counts, open the chart player or chart image, view rankings and access Sonolus levels.",
+      "characters": "Explore BanG Dream! Our Notes character artwork, profiles and bands. Browse related cards, voices, Live2D models and stories, and follow connections to performances, relationships and game content.",
+      "member-cards": "Browse BanG Dream! Our Notes member card artwork, attributes, rarity, power and performance skills. Compare level and rank progression, review materials for the current upgrade and explore character stories.",
+      "support-cards": "Explore BanG Dream! Our Notes support card artwork, attributes, rarity, stats and skills. Review level and rank progression, required upgrade materials, related characters and other connected game information.",
+      "band-items": "Compare BanG Dream! Our Notes band item effects, unlock conditions and level progression. Review coins and materials for the current upgrade and explore related bands, characters and items.",
+      "live2d": "Browse BanG Dream! Our Notes Live2D models, switch motions and expressions, and adjust parameters and parts. Use pose and screenshot tools, explore characters and costumes, and download model resources.",
+      "spine": "Explore BanG Dream! Our Notes Spine models and animations for characters, scenes and decorations. Adjust the preview, export transparent PNG images and discover related models and game content.",
+      "stories": "Explore BanG Dream! Our Notes band, event, relationship, home and after-live stories. Read dialogue with character portraits and expandable media, or open the story player for scenes, models and performances.",
+      "events": "Explore BanG Dream! Our Notes event schedules, gameplay, rewards and related stories. Browse linked recruitment, featured cards and songs to understand the event and follow game updates."
+    },
+    "siteTitle": "BanG Dream! Our Notes Resource Archive"
   },
   "lookX": "Look horizontally",
   "lookY": "Look vertically",

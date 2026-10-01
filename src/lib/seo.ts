@@ -38,6 +38,22 @@ export function shouldNoindex(route: string): boolean {
   );
 }
 
+const withoutSiteSuffix = (title: string): string =>
+  title.replace(/\s*·\s*haneoka(?:\s*-\s*BanG Dream! Our Notes.*)?$/u, "").trim();
+
+export function pageTitle(locale: Locale, route: string, title: string): string {
+  const name = route === "/" ? t(locale, "home", "Home") : withoutSiteSuffix(title);
+  const site = serverText(locale, "seo.siteTitle", undefined, "BanG Dream! Our Notes Archive");
+  return `${name && name !== "haneoka" ? `${name} · ` : ""}haneoka - ${site}`;
+}
+
+export function pageSummary(locale: Locale, route: string, title: string, description?: string): string {
+  const context = pageDescription(locale, route, title);
+  const supplied = description?.trim();
+  if (!supplied || supplied === title.trim() || context.includes(supplied)) return context;
+  return supplied.length >= context.length ? supplied : `${supplied} ${context}`;
+}
+
 export function pageStructuredData(
   origin: string,
   route: string,
@@ -97,7 +113,7 @@ export function pageStructuredData(
       : parent && parent.route !== "/" && canonicalPath(parent.route) !== canonicalPath(route)
         ? [{ name: t(locale, parent.label, parent.id), item: address(parent.route) }]
         : []),
-    { name: name.replace(/ · haneoka$/, ""), item: url },
+    { name: withoutSiteSuffix(name), item: url },
   ];
   return {
     "@context": "https://schema.org",
@@ -113,33 +129,35 @@ export function pageStructuredData(
 }
 
 export function pageDescription(locale: Locale, route: string, title: string): string {
-  const resource = route.startsWith("/catalog/")
-    ? serverText(locale, `seo.resources.${route.slice(9)}`, undefined, "")
-    : "";
+  const kind =
+    parseResourceRoute(route)?.kind ?? (route.startsWith("/catalog/") ? route.slice(9).split("/")[0] : undefined);
+  const resource = kind ? serverText(locale, `seo.resources.${kind}`, undefined, "") : "";
   if (resource) return resource;
   const key =
     route === "/"
       ? "home"
-      : route === "/catalog"
-        ? "catalog"
-        : route.startsWith("/catalog/")
-          ? "catalogItem"
-          : route === "/about"
-            ? "about"
-            : route === "/community/tags"
-              ? "communityTags"
-              : route === "/community/playlists"
-                ? "communityPlaylists"
-                : route === "/community/songs-bestdori"
-                  ? "communitySongs"
-                  : route.startsWith("/community/stories-bestdori/")
-                    ? "communityStories"
-                    : route.startsWith("/community")
-                      ? "community"
-                      : route === "/terms"
-                        ? "terms"
-                        : route === "/privacy"
-                          ? "privacy"
-                          : "general";
+      : /\/announcements(?:\/|$)/u.test(route)
+        ? "announcements"
+        : route === "/catalog"
+          ? "catalog"
+          : route.startsWith("/catalog/")
+            ? "catalogItem"
+            : route === "/about"
+              ? "about"
+              : route === "/community/tags"
+                ? "communityTags"
+                : route === "/community/playlists"
+                  ? "communityPlaylists"
+                  : route === "/community/songs-bestdori"
+                    ? "communitySongs"
+                    : route.startsWith("/community/stories-bestdori/")
+                      ? "communityStories"
+                      : route.startsWith("/community")
+                        ? "community"
+                        : route === "/terms"
+                          ? "terms"
+                          : route === "/privacy"
+                            ? "privacy"
+                            : "general";
   return serverText(locale, `seo.descriptions.${key}`, { title }, title).trim();
 }
