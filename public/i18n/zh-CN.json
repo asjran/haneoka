@@ -2381,5 +2381,10 @@
   },
   "cardTypes": {
     "permanent": "常驻"
-  }
+  },
+  "importPose": "导入姿势 JSON",
+  "exportPose": "导出姿势 JSON",
+  "resetTransform": "重置位置与缩放",
+  "invalidModelPackage": "模型格式与资源不匹配，无法导出。",
+  "emptyModelResource": "模型资源为空，请重试。"
 }

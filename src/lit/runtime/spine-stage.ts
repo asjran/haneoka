@@ -30,6 +30,28 @@ type Batcher = THREE.Mesh & {
   material: THREE.Material[];
 };
 
+async function readAsset<T>(url: string, signal: AbortSignal, read: (response: Response) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal.reason);
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) abort();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("Spine asset request timed out", "TimeoutError")),
+    30_000,
+  );
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Spine asset request failed: HTTP ${response.status}`);
+    return await read(response);
+  } catch (error) {
+    if (controller.signal.aborted) throw controller.signal.reason;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
+  }
+}
+
 export function installPainterOrder(mesh: Spine.SkeletonMesh, spine: typeof Spine) {
   const internals = mesh as unknown as { nextBatch(): Batcher };
   const next = internals.nextBatch.bind(mesh);
@@ -71,6 +93,8 @@ export class SpineStage {
   private background: SpineBackground = null;
   private transform: SpineTransform = { offsetX: 0, offsetY: 0, scale: 1 };
   private fit?: { centerX: number; centerY: number; width: number; height: number };
+  private bounds?: { x: number; y: number; width: number; height: number };
+  private authoredBounds?: { x: number; y: number; width: number; height: number };
   private skin = "";
 
   constructor(private readonly host: HTMLElement) {}
@@ -101,15 +125,12 @@ export class SpineStage {
       const pages = (entry.atlases || []).flatMap((atlas) => atlas.pages || []).filter((page) => page.name && page.url);
       if (runtime?.status !== "ready" || !atlasUrl || !jsonUrl || !pages.length)
         throw new Error("Spine model is not browser-ready");
-      const [three, spine, atlasResponse, jsonResponse] = await Promise.all([
+      const [three, spine, atlasText, skeletonJson] = await Promise.all([
         import("three"),
         import("@esotericsoftware/spine-threejs"),
-        fetch(atlasUrl, { signal: controller.signal }),
-        fetch(jsonUrl, { signal: controller.signal }),
+        readAsset(atlasUrl, controller.signal, (response) => response.text()),
+        readAsset(jsonUrl, controller.signal, (response) => response.json()),
       ]);
-      check();
-      if (!atlasResponse.ok || !jsonResponse.ok) throw new Error("Spine runtime asset request failed");
-      const atlasText = await atlasResponse.text();
       check();
       const atlas = new spine.TextureAtlas(atlasText);
       partial.atlas = atlas;
@@ -118,9 +139,9 @@ export class SpineStage {
       for (const page of atlas.pages) {
         const resource = exactPages.get(page.name);
         if (!resource?.url) throw new Error(`Missing atlas page: ${page.name}`);
-        const response = await fetch(resource.url, { signal: controller.signal });
-        if (!response.ok) throw new Error(`Texture request failed: ${page.name}`);
-        const bitmap = await createImageBitmap(await response.blob(), {
+        const blob = await readAsset(resource.url, controller.signal, (response) => response.blob());
+        check();
+        const bitmap = await createImageBitmap(blob, {
           premultiplyAlpha: page.pma ? "none" : "premultiply",
           colorSpaceConversion: "none",
         });
@@ -130,9 +151,16 @@ export class SpineStage {
       }
       const parser = new spine.SkeletonJson(new spine.AtlasAttachmentLoader(atlas));
       parser.scale = Number(runtime.scale ?? entry.scale ?? 1);
-      const skeletonJson = await jsonResponse.json();
       check();
       const skeletonData = parser.readSkeletonData(skeletonJson);
+      // Some animations begin with every attachment hidden. The exported
+      // skeleton bounds reserve their framing until those attachments appear.
+      this.authoredBounds = {
+        x: skeletonData.x * parser.scale,
+        y: skeletonData.y * parser.scale,
+        width: skeletonData.width * parser.scale,
+        height: skeletonData.height * parser.scale,
+      };
       const mesh = new spine.SkeletonMesh({
         skeletonData,
         twoColorTint: true,
@@ -169,8 +197,10 @@ export class SpineStage {
       this.observer = new ResizeObserver(() => this.resize());
       this.observer.observe(this.host);
       this.resize();
+      if (!this.fit || !this.captureFrame()) throw new Error("Spine model has no renderable frame");
       this.frame = requestAnimationFrame(this.render);
     } catch (error) {
+      controller.abort();
       if (!committed) this.releaseResources(partial);
       else if (this.active?.renderer === partial.renderer) this.dispose();
       throw error;
@@ -186,12 +216,31 @@ export class SpineStage {
     stage.renderer.render(stage.scene, stage.camera);
     return true;
   }
+  captureSupersampled(copy: (canvas: HTMLCanvasElement) => void): boolean {
+    const stage = this.active;
+    if (!stage || stage.renderer.getContext().isContextLost()) return false;
+    const canvas = stage.renderer.domElement;
+    const { width, height } = canvas;
+    const size = viewerBufferSize(width, height, stage.renderer.getContext(), 4_000_000);
+    try {
+      stage.renderer.setSize(size.width, size.height, false);
+      if (!this.captureFrame()) return false;
+      copy(canvas);
+      return true;
+    } finally {
+      stage.renderer.setSize(width, height, false);
+      this.captureFrame();
+    }
+  }
   skins(): string[] {
     const skins = this.active?.mesh.skeleton.data.skins;
     return Array.isArray(skins) ? skins.map((value) => String(value.name || "")).filter(Boolean) : [];
   }
   skinName(): string {
     return this.skin;
+  }
+  animationName(): string {
+    return this.animation;
   }
   setSkin(name: string): boolean {
     const stage = this.active;
@@ -203,6 +252,7 @@ export class SpineStage {
     this.applyPlaybackRate(stage.mesh.state);
     stage.mesh.update(0);
     this.skin = value;
+    this.bounds = undefined;
     this.resize();
     return true;
   }
@@ -217,9 +267,9 @@ export class SpineStage {
   }
   setTransform(transform: SpineTransform): SpineTransform {
     this.transform = {
-      offsetX: Math.min(1.25, Math.max(-1.25, Number.isFinite(transform.offsetX) ? transform.offsetX : 0)),
-      offsetY: Math.min(1.25, Math.max(-1.25, Number.isFinite(transform.offsetY) ? transform.offsetY : 0)),
-      scale: Math.min(4, Math.max(0.5, Number.isFinite(transform.scale) ? transform.scale : 1)),
+      offsetX: Number.isFinite(transform.offsetX) ? transform.offsetX : 0,
+      offsetY: Number.isFinite(transform.offsetY) ? transform.offsetY : 0,
+      scale: Math.min(4, Math.max(0.25, Number.isFinite(transform.scale) ? transform.scale : 1)),
     };
     this.applyCameraTransform();
     return { ...this.transform };
@@ -245,7 +295,7 @@ export class SpineStage {
     }
   }
   play(name: string) {
-    if (!this.active || !name) return false;
+    if (!this.active || !name || !this.active.mesh.skeleton.data.findAnimation(name)) return false;
     this.animation = name;
     this.active.mesh.state.setAnimation(0, name, this.loop);
     this.applyPlaybackRate(this.active.mesh.state);
@@ -262,12 +312,15 @@ export class SpineStage {
     const size = viewerBufferSize(width, height, gl);
     stage.renderer.setPixelRatio(1);
     stage.renderer.setSize(size.width, size.height, false);
-    const bounds = stage.mesh.skeleton.getBoundsRect();
+    // Keep the fitted pose stable while resizing an animated viewport.
+    let bounds = this.bounds ?? stage.mesh.skeleton.getBoundsRect();
+    if (!(bounds.width > 0 && bounds.height > 0) && this.authoredBounds) bounds = this.authoredBounds;
     if (
       !(bounds.width > 0 && bounds.height > 0) ||
       !Number.isFinite(bounds.x + bounds.y + bounds.width + bounds.height)
     )
       return;
+    this.bounds = { ...bounds };
     const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
     const aspect = width / height;
     let w = bounds.width * 1.12;
@@ -298,6 +351,8 @@ export class SpineStage {
     this.lastFrame = 0;
     this.observer?.disconnect();
     this.fit = undefined;
+    this.bounds = undefined;
+    this.authoredBounds = undefined;
     this.skin = "";
     const stage = this.active;
     this.active = undefined;

@@ -707,11 +707,23 @@
       height: clamp(300px, 50dvh, 460px);
     }
   }
-  @media (min-width: 960px) {
+  /* Keep controls visible below the pinned preview in short windows. The
+   * same height applies before hydration and after either runtime mounts. */
+  @media (max-width: 959px) and (max-height: 599px) {
+    .viewer-ssr-stage,
     .viewer-detail--page .viewer-detail__runtime {
+      height: min(50vh, calc(var(--shell-stage-block) - var(--shell-progress-height) - 128px));
+      height: min(50dvh, calc(var(--shell-stage-block) - var(--shell-progress-height) - 128px));
+    }
+    .viewer-detail:not(.viewer-detail--page) > .viewer-detail__body {
+      grid-template-rows: min(50dvh, calc(var(--shell-stage-block) - 128px)) minmax(0, 1fr);
+    }
+  }
+  @media (min-width: 960px) {
+    .viewer-detail--page .viewer-detail__runtime,
+    .viewer-ssr-stage {
       min-height: 260px;
-      max-height: max(260px, calc(100vh - var(--md-comp-top-app-bar-safe-height) - 2 * var(--pane-gutter)));
-      max-height: max(260px, calc(100dvh - var(--md-comp-top-app-bar-safe-height) - 2 * var(--pane-gutter)));
+      max-height: max(260px, calc(var(--shell-stage-block) - var(--shell-progress-height) - 2 * var(--pane-gutter)));
     }
     .viewer-ssr-stage {
       width: calc(min(100%, var(--content-max)) - (2 * var(--pane-gutter)) - 360px - var(--pane-gap));

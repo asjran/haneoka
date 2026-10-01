@@ -1,7 +1,7 @@
 import { readPageData } from "../lib/page-data";
 import { navigationDocumentUrl } from "../lib/document-url";
 import "../styles/model-tile.css";
-import { saveCanvasFrame } from "../lib/canvas-capture";
+import { canvasToPngBlob, downloadBlob } from "../lib/canvas-capture";
 import { facet } from "./ui/facet";
 import { collectionList, collectionTable, collectionView, viewSwitch, type CollectionView } from "./ui/collection-view";
 import { LitElement, html, nothing } from "lit";
@@ -100,6 +100,7 @@ export class SpineWorkspace extends LitElement {
   private initializationTimer?: number;
   private ssrStageRemoved = false;
   private dragging = false;
+  private dragPointer?: number;
   private dragLastX = 0;
   private dragLastY = 0;
   private placement = { offsetX: 0, offsetY: 0, scale: 1 };
@@ -184,6 +185,7 @@ export class SpineWorkspace extends LitElement {
     this.lazyImages.disconnect();
     this.disposeMedia?.();
     this.paneFocus.detach();
+    this.endDrag();
     this.stage?.dispose();
     this.stage = undefined;
     this.modelPhase = "idle";
@@ -257,8 +259,9 @@ export class SpineWorkspace extends LitElement {
     this.selected = id;
     this.detail = null;
     this.modelError = "";
+    this.captureMessage = "";
     this.modelPhase = "loading";
-    this.dragging = false;
+    this.endDrag();
     this.dragEnabled = false;
     this.skins = [];
     this.skin = "";
@@ -299,8 +302,12 @@ export class SpineWorkspace extends LitElement {
       }
     } catch (error) {
       if (generation === this.generation && !controller.signal.aborted && this.isConnected) {
+        console.warn("Spine model failed to load", error);
         this.modelPhase = "error";
-        this.modelError = error instanceof Error ? error.message : String(error);
+        this.modelError =
+          error instanceof Error && error.name === "TimeoutError"
+            ? uiText(this.locale, "requestTimedOut")
+            : uiText(this.locale, "unavailable");
       }
     }
   }
@@ -346,15 +353,24 @@ export class SpineWorkspace extends LitElement {
     this.offsetY = applied.offsetY;
   }
   private beginDrag(event: PointerEvent) {
-    if (this.modelPhase !== "ready" || !this.dragEnabled || event.button !== 0) return;
+    if (
+      this.modelPhase !== "ready" ||
+      !this.dragEnabled ||
+      !event.isPrimary ||
+      event.button !== 0 ||
+      this.dragPointer != null
+    )
+      return;
     this.dragging = true;
+    this.dragPointer = event.pointerId;
     this.dragLastX = event.clientX;
     this.dragLastY = event.clientY;
     event.preventDefault();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    this.setDragCursor();
   }
   private moveDrag(event: PointerEvent) {
-    if (!this.dragging) return;
+    if (!this.dragging || event.pointerId !== this.dragPointer) return;
     const host = event.currentTarget as HTMLElement;
     const rect = host.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
@@ -369,18 +385,47 @@ export class SpineWorkspace extends LitElement {
     this.dragLastY = event.clientY;
   }
   private endDrag(event?: PointerEvent) {
-    if (!this.dragging) return;
+    if (event && event.pointerId !== this.dragPointer) return;
+    const pointer = this.dragPointer;
     this.dragging = false;
-    if (event && (event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId))
-      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+    this.dragPointer = undefined;
+    const host = this.querySelector<HTMLElement>("[data-spine-stage]");
+    if (pointer != null && host?.hasPointerCapture(pointer)) host.releasePointerCapture(pointer);
+    this.setDragCursor();
     this.applyPlacement(true);
+  }
+  private setDragCursor() {
+    const canvas = this.querySelector<HTMLCanvasElement>("[data-spine-stage] canvas");
+    if (canvas) canvas.style.cursor = this.dragEnabled ? (this.dragging ? "grabbing" : "grab") : "default";
   }
   private toggleDrag() {
     this.dragEnabled = !this.dragEnabled;
-    if (!this.dragEnabled) {
-      this.dragging = false;
-      this.resetPlacement();
-    }
+    if (!this.dragEnabled) this.endDrag();
+    this.setDragCursor();
+  }
+  private zoomAtPointer(event: WheelEvent) {
+    if (!this.dragEnabled || this.modelPhase !== "ready" || !Number.isFinite(event.deltaY)) return;
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
+    const previous = this.placement.scale;
+    const scale = Math.min(4, Math.max(0.25, previous * Math.exp(-delta * 0.002)));
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = ((event.clientY - rect.top) / rect.height) * 2 - 1;
+    this.placement = {
+      scale,
+      offsetX: this.placement.offsetX + x * (1 / scale - 1 / previous),
+      offsetY: this.placement.offsetY + y * (1 / scale - 1 / previous),
+    };
+    this.applyPlacement();
+  }
+  private replay() {
+    this.stage?.replay();
+    this.paused = false;
+  }
+  private playAnimation(name: string) {
+    if (this.stage?.play(name)) this.paused = false;
   }
   private setPlaybackSpeed(value: number) {
     this.playbackSpeed = Math.min(2, Math.max(0.25, Number.isFinite(value) ? value : 1));
@@ -474,6 +519,9 @@ export class SpineWorkspace extends LitElement {
     );
     // tile() defers its artwork as `data-src`; this is what promotes it.
     this.lazyImages.observe(this);
+    this.setDragCursor();
+    const skinSelect = this.querySelector<HTMLElement & { value: string }>("[data-spine-skin]");
+    if (skinSelect && this.skin && skinSelect.value !== this.skin) skinSelect.value = this.skin;
   }
   private removeSsrStageWhenOwned() {
     if (this.ssrStageRemoved || !this.entityId) return;
@@ -488,6 +536,7 @@ export class SpineWorkspace extends LitElement {
     this.generation += 1;
     this.selectionRequest?.abort();
     this.selectionRequest = undefined;
+    this.endDrag();
     this.stage?.dispose();
     this.stage = undefined;
     this.selected = "";
@@ -512,14 +561,27 @@ export class SpineWorkspace extends LitElement {
     if (next) void this.select(String(next.id));
   }
   private async captureStage() {
-    const canvas = this.querySelector<HTMLCanvasElement>(".viewer-detail__runtime canvas");
-    if (!canvas || this.capturing) return;
+    const stage = this.stage;
+    const generation = this.generation;
+    const selected = this.selected;
+    if (!stage || this.modelPhase !== "ready" || this.capturing) return;
     this.capturing = true;
     this.captureMessage = "";
     try {
-      await saveCanvasFrame(canvas, `${this.selected || "stage"}.png`, () => this.stage?.captureFrame() ?? false);
+      const snapshot = document.createElement("canvas");
+      const context = snapshot.getContext("2d");
+      if (!context) throw new Error("Image capture is unavailable");
+      const rendered = stage.captureSupersampled((canvas) => {
+        snapshot.width = canvas.width;
+        snapshot.height = canvas.height;
+        context.drawImage(canvas, 0, 0);
+      });
+      if (!rendered) throw new Error("Canvas is not ready");
+      const blob = await canvasToPngBlob(snapshot);
+      if (generation !== this.generation || !this.isConnected) return;
+      await downloadBlob(blob, `${selected || "stage"}.png`);
     } catch {
-      this.captureMessage = uiText(this.locale, "captureFailed");
+      if (generation === this.generation) this.captureMessage = uiText(this.locale, "captureFailed");
     } finally {
       this.capturing = false;
     }
@@ -679,15 +741,20 @@ export class SpineWorkspace extends LitElement {
     return (selected && this.preview(selected)) || this.previewSrc;
   }
   private previewRatio(detail?: Value | null): string {
-    const values = [detail?.preview, this.models.find((model) => String(model.id) === this.selected)?.preview];
+    const page = this.entityId ? readPageData<{ id: string; model: Value }>(this) : undefined;
+    const values = [
+      detail?.preview,
+      this.models.find((model) => String(model.id) === this.selected)?.preview,
+      page?.id === this.entityId ? page.model.preview : undefined,
+    ];
     for (const value of values) {
       if (!value || typeof value !== "object") continue;
       const preview = value as Value;
       const width = Number(preview.width || preview.imageWidth || preview.naturalWidth || 0);
       const height = Number(preview.height || preview.imageHeight || preview.naturalHeight || 0);
-      if (width > 0 && height > 0) return `${width} / ${height}`;
+      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) return `${width} / ${height}`;
       const ratio = Number(preview.aspectRatio || preview.ratio || 0);
-      if (ratio > 0) return `${ratio}`;
+      if (Number.isFinite(ratio) && ratio > 0) return `${ratio}`;
     }
     return "";
   }
@@ -829,6 +896,8 @@ export class SpineWorkspace extends LitElement {
               @pointermove=${this.moveDrag}
               @pointerup=${this.endDrag}
               @pointercancel=${this.endDrag}
+              @lostpointercapture=${this.endDrag}
+              @wheel=${this.zoomAtPointer}
             ></div>
             ${
               this.modelPhase === "loading"
@@ -881,17 +950,7 @@ export class SpineWorkspace extends LitElement {
                       </button>
                       <button
                         class="icon-button runtime-button"
-                        @click=${this.resetPlacement}
-                        aria-label=${uiText(this.locale, "reset")}
-                        title=${uiText(this.locale, "reset")}
-                      >
-                        <svg class="material-icon" width="22" height="22">
-                          <use href="/icons.svg#restart_alt"></use>
-                        </svg>
-                      </button>
-                      <button
-                        class="icon-button runtime-button"
-                        @click=${() => this.stage?.replay()}
+                        @click=${this.replay}
                         aria-label=${uiText(this.locale, "replay")}
                       >
                         <svg class="material-icon" width="22" height="22"><use href="/icons.svg#replay"></use></svg>
@@ -984,6 +1043,7 @@ export class SpineWorkspace extends LitElement {
             <section ?hidden=${!this.skins.length}>
               <h3>${uiText(this.locale, "spinePage.skins")}</h3>
               <md-outlined-select
+                data-spine-skin
                 class="viewer-inspector-select"
                 label=${uiText(this.locale, "spinePage.skins")}
                 .value=${this.skin}
@@ -1005,7 +1065,7 @@ export class SpineWorkspace extends LitElement {
                 <span>${uiText(this.locale, "zoom")}</span>
                 <md-slider
                   aria-label=${uiText(this.locale, "zoom")}
-                  min="0.5"
+                  min="0.25"
                   max="4"
                   step="0.01"
                   .value=${String(this.zoom)}
@@ -1030,8 +1090,9 @@ export class SpineWorkspace extends LitElement {
                       <md-outlined-select
                         class="viewer-inspector-select"
                         label=${uiText(this.locale, "animations")}
+                        .value=${this.stage?.animationName() || ""}
                         @change=${(event: Event) =>
-                          this.stage?.play(
+                          this.playAnimation(
                             animationName((event.target as HTMLElement & { value?: string }).value || ""),
                           )}
                       >

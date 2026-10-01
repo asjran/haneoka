@@ -2381,5 +2381,10 @@
   },
   "cardTypes": {
     "permanent": "恒常"
-  }
+  },
+  "importPose": "ポーズ JSON を読み込む",
+  "exportPose": "ポーズ JSON を書き出す",
+  "resetTransform": "位置とズームをリセット",
+  "invalidModelPackage": "モデル形式とリソースが一致しないため、書き出せません。",
+  "emptyModelResource": "モデルのリソースが空です。再試行してください。"
 }

@@ -29,6 +29,14 @@ const canonicalHref = resourcePath({ server, locale, kind: "spine", id: page.id 
 const route = canonical ? canonicalHref : `${sectionRoute}/${page.id}`;
 const pageDataId = `model-page-${page.kind}-${page.id}`;
 const payload = { schema: "haneoka-model-page-v1", id: page.id, server, model: page.model };
+const preview = page.model.preview as Record<string, unknown> | undefined;
+const previewWidth = Number(preview?.width || preview?.imageWidth || preview?.naturalWidth || 0);
+const previewHeight = Number(preview?.height || preview?.imageHeight || preview?.naturalHeight || 0);
+const previewRatio = Number(preview?.aspectRatio || preview?.ratio || 0);
+const stageRatio =
+  Number.isFinite(previewWidth) && Number.isFinite(previewHeight) && previewWidth > 0 && previewHeight > 0
+    ? `${previewWidth} / ${previewHeight}`
+    : Number.isFinite(previewRatio) && previewRatio > 0 ? String(previewRatio) : "3 / 4";
 const seoTitleValues = Object.fromEntries(
   LOCALES.map((target) => {
     const subtitle = page.subtitles[target];
@@ -79,9 +87,9 @@ const seoTitleValues = Object.fromEntries(
       preview-src={canonical ? page.image : undefined}
     >
       {canonical && (
-        <figure class="viewer-ssr-stage" style="--viewer-stage-ratio: 3 / 4" aria-label={page.titles[locale]}>
+        <figure class="viewer-ssr-stage" style={`--viewer-stage-ratio: ${stageRatio}`} aria-label={page.titles[locale]}>
           {page.image ? (
-            <img src={page.image} alt={page.titles[locale]} decoding="async" />
+            <img src={page.image} alt="" aria-hidden="true" decoding="async" />
           ) : (
             <span class="viewer-stage__placeholder" aria-hidden="true"></span>
           )}

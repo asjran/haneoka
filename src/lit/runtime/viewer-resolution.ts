@@ -3,11 +3,12 @@ export function viewerBufferSize(
   width: number,
   height: number,
   gl: WebGLRenderingContext | WebGL2RenderingContext,
+  capturePixelBudget?: number,
 ): { width: number; height: number } {
   const w = Math.max(1, Number.isFinite(width) ? width : 1);
   const h = Math.max(1, Number.isFinite(height) ? height : 1);
   const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-  const pixelBudget = memory !== undefined && memory <= 4 ? 1_000_000 : 2_000_000;
+  const pixelBudget = capturePixelBudget ?? (memory !== undefined && memory <= 4 ? 1_000_000 : 2_000_000);
   const limit = Math.min(
     Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)),
     Number(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)),

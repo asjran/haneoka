@@ -2381,5 +2381,10 @@
   },
   "cardTypes": {
     "permanent": "상시"
-  }
+  },
+  "importPose": "포즈 JSON 가져오기",
+  "exportPose": "포즈 JSON 내보내기",
+  "resetTransform": "위치 및 확대 초기화",
+  "invalidModelPackage": "모델 형식과 리소스가 일치하지 않습니다.",
+  "emptyModelResource": "모델 리소스가 비어 있습니다. 다시 시도해 주세요."
 }

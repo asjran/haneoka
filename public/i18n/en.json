@@ -2381,5 +2381,10 @@
   },
   "cardTypes": {
     "permanent": "Permanent"
-  }
+  },
+  "importPose": "Import pose JSON",
+  "exportPose": "Export pose JSON",
+  "resetTransform": "Reset position and zoom",
+  "invalidModelPackage": "The model format and resources do not match.",
+  "emptyModelResource": "A model resource is empty. Please retry."
 }

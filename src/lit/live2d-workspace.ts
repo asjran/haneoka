@@ -180,7 +180,9 @@ export class Live2DWorkspace extends LitElement {
   private captureUpdatedAt = 0;
   private pendingPoseCapture = false;
   private initialPartOpacities: Record<string, number> = {};
+  private partOverrides: Record<string, number> = {};
   private dragging = false;
+  private dragPointerId: number | null = null;
   private dragLastX = 0;
   private dragLastY = 0;
   private initializationTimer?: number;
@@ -324,6 +326,7 @@ export class Live2DWorkspace extends LitElement {
     this.selectionAbortController?.abort();
     this.selectionAbortController = undefined;
     this.abortPackaging();
+    this.endDrag();
     this.releaseViewer();
     this.modelPhase = "idle";
     this.modelError = "";
@@ -452,8 +455,8 @@ export class Live2DWorkspace extends LitElement {
     const controller = new AbortController();
     this.selectionAbortController = controller;
     this.abortPackaging();
+    this.endDrag();
     this.releaseViewer();
-    this.dragging = false;
     this.selected = key;
     this.detail = null;
     this.modelPhase = "loading";
@@ -464,6 +467,7 @@ export class Live2DWorkspace extends LitElement {
     this.pendingPoseCapture = false;
     this.parts = [];
     this.initialPartOpacities = {};
+    this.partOverrides = {};
     this.poses = this.readPoses(key);
     this.poseId = "";
     this.renamingPose = false;
@@ -577,7 +581,7 @@ export class Live2DWorkspace extends LitElement {
       await viewer!.load({
         modelUrl,
         textureVariants: Array.isArray(readPath(detail, "runtime.textureVariants"))
-          ? readPath(detail, "runtime.textureVariants") as CubismTextureVariant[]
+          ? (readPath(detail, "runtime.textureVariants") as CubismTextureVariant[])
           : undefined,
         harmonicMotion: this.harmonicMotionData(detail),
         defaultMotionName: defaultMotion || undefined,
@@ -614,7 +618,10 @@ export class Live2DWorkspace extends LitElement {
     viewer.setPaused(this.paused);
     viewer.setPoseFrozen(poseFrozen);
     viewer.setParameterOverrides(poseFrozen ? this.parameterOverrides : {});
-    for (const part of this.parts) viewer.setPartOpacity(part.id, part.opacity);
+    const parts = poseFrozen
+      ? this.parts.map((part) => [part.id, part.opacity] as const)
+      : Object.entries(this.partOverrides);
+    for (const [id, opacity] of parts) viewer.setPartOpacity(id, opacity);
     viewer.setLoopMotion(this.loopMotion && defaultMotion ? defaultMotion : null);
     const match = /^#?([0-9a-f]{6})$/i.exec(this.backgroundColor.trim());
     if (this.backgroundTransparent || !match) {
@@ -738,17 +745,30 @@ export class Live2DWorkspace extends LitElement {
     const controller = this.selectionAbortController;
     try {
       const parsed = JSON.parse(await file.text()) as Value;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
       if (!controller || !this.isActiveSelection(generation, controller, key)) return;
       const source = parsed.parameters && typeof parsed.parameters === "object" ? (parsed.parameters as Value) : parsed;
+      if (
+        Array.isArray(source) ||
+        !Object.entries(source).some(
+          ([id, value]) =>
+            this.parameters.some((parameter) => parameter.id === id) &&
+            typeof value === "number" &&
+            Number.isFinite(value),
+        )
+      )
+        throw new Error();
       const values: Record<string, number> = {};
       // Imported poses are normalized to a complete snapshot. A sparse file
       // keeps the current value for omitted parameters instead of allowing
       // those channels to be re-evaluated by a later model update.
-      for (const parameter of this.parameters) {
-        const value = Number(source[parameter.id]);
-        const next = Number.isFinite(value) ? value : parameter.value;
+      for (const parameter of this.viewer?.parameters() || this.parameters) {
+        const value = source[parameter.id];
+        const next = typeof value === "number" && Number.isFinite(value) ? value : parameter.value;
         values[parameter.id] = Math.min(parameter.maximum, Math.max(parameter.minimum, next));
       }
+      this.modelError = "";
+      this.poseId = "";
       this.cancelPosePreview();
       this.parameterMode = "pose";
       this.parameterOverrides = values;
@@ -757,8 +777,8 @@ export class Live2DWorkspace extends LitElement {
       const parts = parsed.parts && typeof parsed.parts === "object" ? (parsed.parts as Value) : null;
       if (parts) {
         for (const [id, raw] of Object.entries(parts)) {
-          const opacity = Number(raw);
-          if (!Number.isFinite(opacity)) continue;
+          const opacity = raw;
+          if (typeof opacity !== "number" || !Number.isFinite(opacity)) continue;
           this.applyPartOpacity(id, Math.min(1, Math.max(0, opacity)));
         }
       }
@@ -781,11 +801,7 @@ export class Live2DWorkspace extends LitElement {
         type: "application/json",
       },
     );
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `${this.selected || "live2d"}.pose.json`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 0);
+    void downloadBlob(blob, `${this.selected || "live2d"}.pose.json`);
   }
   private applyTransform() {
     this.viewer?.setTransform({ offsetX: this.offsetX, offsetY: this.offsetY, scale: this.modelScale });
@@ -819,11 +835,7 @@ export class Live2DWorkspace extends LitElement {
     if (kind === "drag") {
       this.dragEnabled = !this.dragEnabled;
       if (!this.dragEnabled) {
-        // Return to the fitted placement when leaving placement mode.
-        this.dragging = false;
-        this.offsetX = 0;
-        this.offsetY = 0;
-        this.applyTransform();
+        this.endDrag();
       }
     }
     if (kind === "transparent") {
@@ -849,6 +861,9 @@ export class Live2DWorkspace extends LitElement {
     });
   }
   private applyPartOpacity(id: string, opacity: number) {
+    if (!this.parts.some((part) => part.id === id) || !Number.isFinite(opacity)) return;
+    opacity = Math.min(1, Math.max(0, opacity));
+    this.partOverrides = { ...this.partOverrides, [id]: opacity };
     this.viewer?.setPartOpacity(id, opacity);
     this.parts = this.parts.map((part) => (part.id === id ? { ...part, opacity } : part));
   }
@@ -858,7 +873,7 @@ export class Live2DWorkspace extends LitElement {
   private resetParts() {
     for (const part of this.parts) {
       const opacity = this.initialPartOpacities[part.id] ?? 1;
-      this.viewer?.setPartOpacity(part.id, opacity);
+      this.applyPartOpacity(part.id, opacity);
     }
     this.parts = this.parts.map((part) => ({ ...part, opacity: this.initialPartOpacities[part.id] ?? 1 }));
   }
@@ -915,7 +930,7 @@ export class Live2DWorkspace extends LitElement {
     const parts = this.viewer?.parts() || this.parts;
     this.parts = parts.map((part) => {
       const opacity = this.initialPartOpacities[part.id] ?? 1;
-      this.viewer?.setPartOpacity(part.id, opacity);
+      this.applyPartOpacity(part.id, opacity);
       return { ...part, opacity };
     });
   }
@@ -938,7 +953,7 @@ export class Live2DWorkspace extends LitElement {
     const parts = this.viewer?.parts() || this.parts;
     this.parts = parts.map((part) => {
       const opacity = pose.parts?.[part.id] ?? this.initialPartOpacities[part.id] ?? 1;
-      this.viewer?.setPartOpacity(part.id, opacity);
+      this.applyPartOpacity(part.id, opacity);
       return { ...part, opacity };
     });
   }
@@ -961,14 +976,17 @@ export class Live2DWorkspace extends LitElement {
     this.poseNameDraft = "";
   }
   private beginDrag(event: PointerEvent) {
-    if (this.modelPhase !== "ready" || !this.dragEnabled || event.button !== 0) return;
+    if (this.modelPhase !== "ready" || !this.dragEnabled || !event.isPrimary || event.button !== 0) return;
+    event.preventDefault();
     this.dragging = true;
+    this.dragPointerId = event.pointerId;
+    this.requestUpdate();
     this.dragLastX = event.clientX;
     this.dragLastY = event.clientY;
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   }
   private moveDrag(event: PointerEvent) {
-    if (!this.dragging) return;
+    if (!this.dragging || event.pointerId !== this.dragPointerId) return;
     const canvas = event.currentTarget as HTMLElement;
     const rect = canvas.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
@@ -981,8 +999,36 @@ export class Live2DWorkspace extends LitElement {
     this.dragLastX = event.clientX;
     this.dragLastY = event.clientY;
   }
-  private endDrag() {
+  private endDrag(event?: PointerEvent) {
+    if (event && event.pointerId !== this.dragPointerId) return;
+    const canvas = this.querySelector<HTMLCanvasElement>(".viewer-detail__runtime canvas");
+    const pointerId = this.dragPointerId;
     this.dragging = false;
+    this.dragPointerId = null;
+    if (pointerId !== null && canvas?.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+    this.requestUpdate();
+  }
+  private zoomAtPointer(event: WheelEvent) {
+    if (!this.dragEnabled || this.modelPhase !== "ready" || !Number.isFinite(event.deltaY)) return;
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
+    const scale = Math.min(4, Math.max(0.25, this.modelScale * Math.exp(-delta * 0.002)));
+    const ratio = scale / this.modelScale;
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = ((event.clientY - rect.top) / rect.height) * 2 - 1;
+    this.offsetX = x - (x - this.offsetX) * ratio;
+    this.offsetY = y - (y - this.offsetY) * ratio;
+    this.modelScale = scale;
+    this.applyTransform();
+  }
+  private resetTransform() {
+    this.endDrag();
+    this.modelScale = 1;
+    this.offsetX = 0;
+    this.offsetY = 0;
+    this.applyTransform();
   }
   private character(id: number) {
     return this.characters.find((item) => Number(item.characterId) === id);
@@ -1135,8 +1181,8 @@ export class Live2DWorkspace extends LitElement {
     this.selectionAbortController?.abort();
     this.selectionAbortController = undefined;
     this.abortPackaging();
+    this.endDrag();
     this.releaseViewer();
-    this.dragging = false;
     this.selected = "";
     this.detail = null;
     this.modelPhase = "idle";
@@ -1152,6 +1198,8 @@ export class Live2DWorkspace extends LitElement {
   private async captureStage() {
     const canvas = this.querySelector<HTMLCanvasElement>(".viewer-detail__runtime canvas");
     if (!canvas || this.capturing) return;
+    const generation = this.generation;
+    const selected = this.selected;
     this.capturing = true;
     this.captureMessage = "";
     try {
@@ -1159,7 +1207,10 @@ export class Live2DWorkspace extends LitElement {
       const height = Math.max(1, canvas.height);
       // The runtime scales its current drawing buffer, which may already be
       // supersampled. Count those pixels once when applying the capture budget.
-      const scale = Math.sqrt(CAPTURE_PIXEL_BUDGET / (width * height));
+      const gl = canvas.getContext("webgl2");
+      if (!gl || gl.isContextLost()) throw new Error("Canvas is not ready");
+      const size = viewerBufferSize(width, height, gl, CAPTURE_PIXEL_BUDGET);
+      const scale = Math.min(size.width / width, size.height / height);
       const snapshot = document.createElement("canvas");
       const context = snapshot.getContext("2d");
       if (!context) throw new Error("Image capture is unavailable");
@@ -1169,9 +1220,13 @@ export class Live2DWorkspace extends LitElement {
         context.drawImage(source, 0, 0);
       });
       if (rendered !== true) throw new Error("Canvas is not ready");
-      await downloadBlob(await canvasToPngBlob(snapshot), `${this.selected || "viewer"}.png`);
+      const blob = await canvasToPngBlob(snapshot);
+      if (generation !== this.generation || !this.isConnected) return;
+      await downloadBlob(blob, `${selected || "viewer"}.png`);
     } catch {
-      this.captureMessage = uiText(this.locale, "captureFailed");
+      if (generation === this.generation && this.isConnected) {
+        this.captureMessage = uiText(this.locale, "captureFailed");
+      }
     } finally {
       this.capturing = false;
     }
@@ -1192,19 +1247,13 @@ export class Live2DWorkspace extends LitElement {
     this.packaging = true;
     this.packagingProgress = { stage: "manifest", completed: 0, loadedBytes: 0 };
     this.packagingError = "";
+    let exporter: typeof import("../lib/live2d-export") | undefined;
     try {
       const sourceURL = new URL(modelPath, location.href).toString();
-      const exporter = (await import("@haneoka/vega-plugin-cubism/export")) as unknown as {
-        exportCubismModel(options: {
-          modelUrl: string;
-          name?: string;
-          signal?: AbortSignal;
-          onProgress?(progress: PackagingProgress): void;
-        }): Promise<{ fileName: string; bytes: Uint8Array }>;
-      };
+      exporter = await import("../lib/live2d-export");
       if (controller.signal.aborted || this.packagingAbortController !== controller || this.selected !== selectedKey)
         return;
-      const result = await exporter.exportCubismModel({
+      const result = await exporter.exportLive2DModel({
         modelUrl: sourceURL,
         name: selectedKey,
         signal: controller.signal,
@@ -1224,7 +1273,12 @@ export class Live2DWorkspace extends LitElement {
     } catch (error) {
       if (this.isAbortError(error) || controller.signal.aborted) return;
       if (this.packagingAbortController === controller) {
-        this.packagingError = error instanceof Error ? error.message : String(error);
+        this.packagingError =
+          exporter && error instanceof exporter.Live2DExportError
+            ? uiText(this.locale, error.messageKey)
+            : error instanceof Error
+              ? error.message
+              : String(error);
       }
     } finally {
       if (this.packagingAbortController === controller) {
@@ -1557,16 +1611,18 @@ export class Live2DWorkspace extends LitElement {
             }
             <canvas
               aria-label=${uiText(this.locale, "live2d")}
-              style=${this.dragEnabled ? "touch-action: none" : ""}
+              style=${this.dragEnabled ? `touch-action: none; cursor: ${this.dragging ? "grabbing" : "grab"}` : ""}
               @pointerdown=${this.beginDrag}
               @pointermove=${(event: PointerEvent) => {
                 this.moveDrag(event);
-                if (this.sway && this.parameterMode !== "pose") {
+                if (!this.dragging && this.sway && this.parameterMode !== "pose") {
                   this.viewer?.setLookAtClientPosition(event.clientX, event.clientY);
                 }
               }}
               @pointerup=${this.endDrag}
               @pointercancel=${this.endDrag}
+              @lostpointercapture=${this.endDrag}
+              @wheel=${this.zoomAtPointer}
               @pointerleave=${() => {
                 if (this.sway && this.parameterMode !== "pose") this.applyLook();
               }}
@@ -1746,6 +1802,9 @@ export class Live2DWorkspace extends LitElement {
             </section>
             <section class="viewer-transform-controls">
               <h3>${uiText(this.locale, "transform")}</h3>
+              <button class="button button--text" @click=${this.resetTransform}>
+                ${uiText(this.locale, "resetTransform")}
+              </button>
               <label>
                 <span>${uiText(this.locale, "scale")}</span>
                 <md-slider
@@ -1853,14 +1912,32 @@ export class Live2DWorkspace extends LitElement {
                         <div class="viewer-parameter-toolbar">
                           <span>${uiText(this.locale, "parameterMode")}</span>
                           <span class="viewer-parameter-actions">
-                            <label class="button button--tonal">
-                              ${uiText(this.locale, "import")}
-                              <input type="file" accept="application/json,.json" @change=${this.importParameters} />
-                            </label>
-                            <button class="button button--tonal" @click=${this.exportParameters}>
-                              ${uiText(this.locale, "export")}
+                            <button
+                              class="button button--tonal"
+                              style="flex: 1 1 max-content"
+                              @click=${() => this.querySelector<HTMLInputElement>("[data-pose-import]")?.click()}
+                            >
+                              ${uiText(this.locale, "importPose")}
                             </button>
-                            <button class="button button--text" @click=${this.resetParameters}>
+                            <input
+                              data-pose-import
+                              aria-label=${uiText(this.locale, "importPose")}
+                              type="file"
+                              accept="application/json,.json"
+                              @change=${this.importParameters}
+                            />
+                            <button
+                              class="button button--tonal"
+                              style="flex: 1 1 max-content"
+                              @click=${this.exportParameters}
+                            >
+                              ${uiText(this.locale, "exportPose")}
+                            </button>
+                            <button
+                              class="button button--text"
+                              style="flex: 1 1 max-content"
+                              @click=${this.resetParameters}
+                            >
                               ${uiText(this.locale, "reset")}
                             </button>
                           </span>

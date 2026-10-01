@@ -1,5 +1,5 @@
 import { LitElement, html } from "lit";
-import type { Material, Mesh } from "three";
+import type { Material, Mesh, Object3D } from "three";
 
 export class ModelPreviewStage extends LitElement {
   static properties = { src: { type: String }, phase: { state: true }, error: { state: true } };
@@ -28,19 +28,20 @@ export class ModelPreviewStage extends LitElement {
     super.disconnectedCallback();
   }
   updated(changed: Map<string, unknown>) {
-    if (changed.has("src") && changed.get("src") !== undefined) void this.load();
+    if (changed.has("src")) void this.load();
   }
   private async load() {
     const src = this.src;
-    if (!src) return;
     const generation = ++this.generation;
     this.disposeRuntime?.();
     this.disposeRuntime = undefined;
     this.phase = "loading";
     this.error = "";
+    if (!src || !this.isConnected) return;
     await this.updateComplete;
     const host = this.querySelector<HTMLElement>(".model-preview-stage__canvas");
     if (!host || generation !== this.generation) return;
+    let dispose: (() => void) | undefined;
     try {
       const [THREE, { GLTFLoader }, { OrbitControls }] = await Promise.all([
         import("three"),
@@ -64,9 +65,43 @@ export class ModelPreviewStage extends LitElement {
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.screenSpacePanning = true;
+      let frame = 0;
+      let mixer: InstanceType<typeof THREE.AnimationMixer> | null = null;
+      const disposeObject = (root: Object3D) => {
+        root.traverse((object) => {
+          const mesh = object as Mesh;
+          mesh.geometry?.dispose();
+          const materials: Material[] = Array.isArray(mesh.material)
+            ? mesh.material
+            : mesh.material
+              ? [mesh.material]
+              : [];
+          materials.forEach((material) => {
+            for (const value of Object.values(material)) if (value instanceof THREE.Texture) value.dispose();
+            material.dispose();
+          });
+        });
+      };
+      let disposed = false;
+      dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        cancelAnimationFrame(frame);
+        observer?.disconnect();
+        controls.dispose();
+        mixer?.stopAllAction();
+        if (mixer) mixer.uncacheRoot(mixer.getRoot());
+        disposeObject(scene);
+        renderer.dispose();
+        renderer.forceContextLoss();
+        renderer.domElement.remove();
+      };
+      let observer: ResizeObserver | undefined;
+      this.disposeRuntime = dispose;
       const gltf = await new GLTFLoader().loadAsync(src);
       if (generation !== this.generation) {
-        renderer.dispose();
+        disposeObject(gltf.scene);
+        dispose();
         return;
       }
       scene.add(gltf.scene);
@@ -82,8 +117,7 @@ export class ModelPreviewStage extends LitElement {
       camera.updateProjectionMatrix();
       controls.target.set(0, 0, 0);
       controls.update();
-      let frame = 0;
-      const mixer = gltf.animations.length ? new THREE.AnimationMixer(gltf.scene) : null;
+      mixer = gltf.animations.length ? new THREE.AnimationMixer(gltf.scene) : null;
       gltf.animations.forEach((clip) => mixer?.clipAction(clip).play());
       const resize = () => {
         const width = Math.max(1, host.clientWidth);
@@ -92,7 +126,7 @@ export class ModelPreviewStage extends LitElement {
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
       };
-      const observer = new ResizeObserver(resize);
+      observer = new ResizeObserver(resize);
       observer.observe(host);
       resize();
       let previousTime = performance.now();
@@ -104,29 +138,11 @@ export class ModelPreviewStage extends LitElement {
         frame = requestAnimationFrame(render);
       };
       render();
-      this.disposeRuntime = () => {
-        cancelAnimationFrame(frame);
-        observer.disconnect();
-        controls.dispose();
-        mixer?.stopAllAction();
-        scene.traverse((object) => {
-          const mesh = object as Mesh;
-          mesh.geometry?.dispose();
-          const materials: Material[] = Array.isArray(mesh.material)
-            ? mesh.material
-            : mesh.material
-              ? [mesh.material]
-              : [];
-          materials.forEach((material) => {
-            for (const value of Object.values(material)) if (value instanceof THREE.Texture) value.dispose();
-            material.dispose();
-          });
-        });
-        renderer.dispose();
-        renderer.domElement.remove();
-      };
       this.phase = "ready";
     } catch (error) {
+      dispose?.();
+      if (generation !== this.generation) return;
+      if (this.disposeRuntime === dispose) this.disposeRuntime = undefined;
       this.phase = "error";
       this.error = error instanceof Error ? error.message : String(error);
     }
