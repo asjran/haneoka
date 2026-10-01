@@ -41,11 +41,10 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
   const stage = container.ownerDocument.createElement("div");
   stage.style.cssText = "position:relative;width:100%;height:100%;min-height:1px;overflow:hidden;";
   stage.lang = loader.locale;
-  // A reserved corner row keeps attribution clear of the renderer's menus,
-  // subtitles and progress controls in every viewport.
+  // Attribution overlays the scene without reducing its viewport.
   const brand = createHaneokaBranding(container.ownerDocument, { corner: options.brandingCorner ?? "top-left" });
   const viewport = container.ownerDocument.createElement("div");
-  viewport.style.cssText = "position:absolute;inset:calc(48px + env(safe-area-inset-top,0px)) 0 0;overflow:hidden;";
+  viewport.style.cssText = "position:absolute;inset:0;overflow:hidden;";
   stage.append(brand, viewport);
   container.append(stage);
   let phase: StoryEmbedPhase = "loading";
@@ -273,7 +272,7 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
       });
       controller.signal.throwIfAborted();
       // The shell fullscreens player.root. Keep both attribution and the
-      // reserved scene area inside that root, including in native fullscreen.
+      // full scene area inside that root, including in native fullscreen.
       const scene = container.ownerDocument.createElement("div");
       scene.style.cssText = `${viewport.style.cssText}container-type:size;`;
       scene.append(...Array.from(player.root.childNodes));

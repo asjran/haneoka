@@ -4,22 +4,14 @@
   height: 100%;
   min-height: 1px;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
   color: var(--md-sys-color-on-surface);
   font-family: var(--md-ref-typeface-plain, inherit);
 }
 .haneoka-chart-embed__viewport {
-  position: relative;
-  width: 100%;
-  flex: 1;
+  position: absolute;
+  inset: 0;
   min-height: 1px;
   overflow: hidden;
-}
-.haneoka-chart-embed__branding {
-  position: relative;
-  flex: none;
-  height: calc(48px + env(safe-area-inset-bottom, 0px));
 }
 .haneoka-chart-embed .our-notes-player {
   position: relative;

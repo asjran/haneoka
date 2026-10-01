@@ -20,7 +20,7 @@ export function createHaneokaBranding(
   anchor.dataset.haneokaBrand = "";
   const vertical = corner.startsWith("top") ? "top" : "bottom";
   const horizontal = corner.endsWith("left") ? "left" : "right";
-  anchor.style.cssText = `position:absolute;${vertical}:env(safe-area-inset-${vertical},0px);${horizontal}:env(safe-area-inset-${horizontal},0px);z-index:60;display:grid;place-items:center;width:48px;height:48px;box-sizing:border-box;border-radius:var(--md-sys-shape-corner-full,999px);color:var(--md-sys-color-on-surface,CanvasText);background:var(--md-sys-color-surface,Canvas);text-decoration:none;touch-action:manipulation;`;
+  anchor.style.cssText = `position:absolute;${vertical}:env(safe-area-inset-${vertical},0px);${horizontal}:env(safe-area-inset-${horizontal},0px);z-index:60;display:grid;place-items:center;width:48px;height:48px;box-sizing:border-box;border-radius:var(--md-sys-shape-corner-full,999px);color:var(--md-sys-color-on-surface,CanvasText);background:transparent;text-decoration:none;touch-action:manipulation;`;
   const template = document.createElement("template");
   const id = `haneoka-embed-brand-${++sequence}`;
   template.innerHTML = ICON.replace(/(?:softGlow|trailGlow|starGlow)/gu, (name) => `${id}-${name}`);
@@ -30,6 +30,7 @@ export function createHaneokaBranding(
   svg.setAttribute("focusable", "false");
   svg.setAttribute("width", "28");
   svg.setAttribute("height", "28");
+  svg.style.opacity = "0.55";
   anchor.append(svg);
   const stop = (event: Event) => event.stopPropagation();
   for (const type of ["click", "pointerdown", "pointerup", "touchstart", "touchend", "keydown", "keyup"])

@@ -1,6 +1,6 @@
 # @haneoka/embed-cassiopeia
 
-Mount a Cassiopeia chart player inside an ordinary website. The default player uses the existing Vue player, Three renderer, Our Notes plugin and Web audio/input host. A custom renderer can use authored artwork with the kernel and Web host. Each mount owns its DOM, media, input, renderer and resource loader. A shared Haneoka icon links to https://haneoka.org/ in the host’s reserved bottom corner. It remains visible when the inner player enters fullscreen; skin changes retain one link, and disposal removes it.
+Mount a Cassiopeia chart player inside an ordinary website. The default player uses the existing Vue player, Three renderer, Our Notes plugin and Web audio/input host. A custom renderer can use authored artwork with the kernel and Web host. Each mount owns its DOM, media, input, renderer and resource loader. A shared Haneoka icon links to https://haneoka.org/ as a semi-transparent watermark over the host’s top-left corner, without reducing the playback area. It remains visible when the inner player enters fullscreen; skin changes retain one link, and disposal removes it.
 
 ## Distribution status
 

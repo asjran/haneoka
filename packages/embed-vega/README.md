@@ -213,7 +213,7 @@ The runtime module and Core files are provisioned under their respective license
 
 ## Haneoka attribution
 
-Every mounted player displays the Haneoka icon linking to https://haneoka.org/ in a new tab. This identifies the playback engine, including for your own documents; your story and assets retain their own authorship and licenses. The icon uses a reserved 48-pixel corner row plus the top safe area, keeping menus, subtitles and progress controls clear. Set `brandingCorner: "top-right"` to move it to the other top corner. The attribution is always enabled.
+Every mounted player displays the Haneoka icon linking to https://haneoka.org/ in a new tab. This identifies the playback engine, including for your own documents; your story and assets retain their own authorship and licenses. The semi-transparent icon floats over the scene in the top-left corner without reserving a row or reducing the playback area. Set `brandingCorner: "top-right"` to move it to the other top corner. The attribution is always enabled.
 
 Other embed hosts can reuse `createHaneokaBranding(document, { corner })` from `@haneoka/embed-core/branding`. It returns an anchor for the host to append and remove. Its import leaves the DOM untouched; the icon is inline and makes no asset request.
 
