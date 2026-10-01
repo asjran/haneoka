@@ -1,0 +1,19 @@
+---
+import Base from "../layouts/Base.astro";
+import AppShell from "./AppShell.astro";
+import type { Locale } from "../i18n/locales";
+import type { ReleaseServer } from "../lib/release-server";
+import { t } from "../i18n/messages";
+import "../styles/stamp-maker.css";
+
+const { locale, server, textlessSrc } = Astro.props as { locale: Locale; server?: ReleaseServer; textlessSrc?: string };
+const title = t(locale, "stampMaker.title", "Stamp maker");
+const route = "/tools/stamp-maker";
+---
+
+<Base locale={locale} route={route} title={title} titleKey="stampMaker.title">
+  <AppShell locale={locale} route={route} title={title} titleKey="stampMaker.title" server={server}>
+    <stamp-maker locale={locale} server={server} textless-src={textlessSrc}></stamp-maker>
+  </AppShell>
+</Base>
+<script>import "../lit/stamp-maker";</script>

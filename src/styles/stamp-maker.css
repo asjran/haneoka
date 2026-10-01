@@ -1,0 +1,166 @@
+@layer pages {
+  stamp-maker {
+    display: block;
+  }
+  .stamp-maker {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 400px);
+    align-items: start;
+    gap: var(--pane-gap);
+    padding: var(--pane-gutter);
+    max-width: 1100px;
+    margin-inline: auto;
+  }
+  .stamp-maker__preview-pane {
+    position: sticky;
+    top: calc(var(--top-bar-height) + 8px);
+    min-width: 0;
+  }
+  .stamp-maker__preview {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: var(--md-sys-shape-corner-large);
+    background-color: var(--md-sys-color-surface-container-low);
+    background-image: conic-gradient(
+      var(--md-sys-color-surface-container-high) 25%,
+      transparent 0 50%,
+      var(--md-sys-color-surface-container-high) 0 75%,
+      transparent 0
+    );
+    background-size: 24px 24px;
+  }
+  .stamp-maker__preview canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    touch-action: none;
+    cursor: grab;
+  }
+  .stamp-maker__preview canvas:active {
+    cursor: grabbing;
+  }
+  .stamp-maker__preview canvas:focus-visible {
+    outline: 3px solid var(--md-sys-color-primary);
+    outline-offset: -3px;
+  }
+  .stamp-maker__overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: var(--md-sys-color-surface-container);
+    padding: 16px;
+    text-align: center;
+  }
+  .stamp-maker__row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+  .stamp-maker__chosen {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size) /
+      var(--md-sys-typescale-body-medium-line-height) var(--app-font);
+  }
+  .stamp-maker__slider {
+    display: grid;
+    gap: 4px;
+  }
+  .stamp-maker__slider > span {
+    display: flex;
+    justify-content: space-between;
+    color: var(--md-sys-color-on-surface-variant);
+    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size) /
+      var(--md-sys-typescale-label-large-line-height) var(--app-font);
+  }
+  .stamp-maker__position {
+    flex-wrap: nowrap;
+  }
+  .stamp-maker__position md-outlined-text-field {
+    width: 0;
+    min-width: 0;
+    flex: 1;
+  }
+  .stamp-maker__colors {
+    gap: 16px;
+  }
+  .stamp-maker__colors label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    font-size: var(--md-sys-typescale-body-medium-size);
+  }
+  .stamp-maker__colors input {
+    width: 48px;
+    height: 48px;
+    padding: 4px;
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface);
+    cursor: pointer;
+  }
+  .stamp-maker__export {
+    padding-top: 8px;
+  }
+  .stamp-maker__export .button {
+    flex: 1;
+  }
+  .stamp-maker__chooser {
+    width: min(900px, calc(100vw - 24px));
+    max-height: calc(100dvh - 32px);
+    padding: 0;
+    border: 0;
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    color: var(--md-sys-color-on-surface);
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .stamp-maker__chooser::backdrop {
+    background: color-mix(in srgb, var(--md-sys-color-scrim) 40%, transparent);
+  }
+  .stamp-maker__chooser .sheet__header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .stamp-maker__grid {
+    --tile-min: 132px;
+    padding: 16px;
+  }
+  .stamp-maker .field-note {
+    margin: 0;
+  }
+  @media (max-width: 959px) {
+    .stamp-maker {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .stamp-maker__preview-pane {
+      z-index: 2;
+      background: var(--md-sys-color-surface);
+      padding-bottom: 8px;
+    }
+    .stamp-maker__preview {
+      width: min(100%, 280px, 32dvh);
+      margin-inline: auto;
+    }
+    .stamp-maker__grid {
+      --tile-min: 112px;
+      --tile-gap: 8px;
+      padding: 12px;
+    }
+  }
+}

@@ -1,7 +1,8 @@
 import type { Locale } from "../i18n/locales";
 import { group, t } from "../i18n/messages";
 
-export type PageKind = "home" | "index" | "catalog" | "tgw-card" | "missions" | "event-tracker" | "legal" | "notice";
+export type PageKind =
+  "home" | "index" | "catalog" | "tgw-card" | "missions" | "event-tracker" | "stamp-maker" | "legal" | "notice";
 export interface RouteDefinition {
   route: string;
   kind: PageKind;
@@ -100,6 +101,7 @@ export const ROUTES: RouteDefinition[] = [
   },
   { route: "/catalog/assets", kind: "notice", key: "assets", titleKey: "assets" },
   { route: "/catalog/events/tracker", kind: "event-tracker", key: "event-tracker", titleKey: "eventTracker.title" },
+  { route: "/tools/stamp-maker", kind: "stamp-maker", key: "stamp-maker", titleKey: "stampMaker.title" },
   ...appPages.map(([route, titleKey]) => ({
     route,
     kind: "notice" as const,

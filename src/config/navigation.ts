@@ -62,7 +62,7 @@ export const PRIMARY_DESTINATIONS: PrimaryDestination[] = [
     route: "/catalog",
     icon: "category",
     label: "catalog",
-    match: ["/catalog", "/community/stories-bestdori", "/community/songs-bestdori", "/community/playlists"],
+    match: ["/catalog", "/tools", "/community/stories-bestdori", "/community/songs-bestdori", "/community/playlists"],
   },
   {
     id: "community",
@@ -127,6 +127,7 @@ const sections: NavSection[] = [
       { route: "/catalog/spine", icon: "accessibility_new", label: "spine" },
       { route: "/catalog/assets", icon: "folder_open", label: "assets" },
       { route: "/catalog/help", icon: "help", label: "help" },
+      { route: "/tools/stamp-maker", icon: "image", label: "stampMaker.title" },
     ],
   },
   {
