@@ -547,7 +547,7 @@ async function main() {
     const effectResourceDir = resolve(resourceDir, "effects", String(group));
     return {
       ...itemBase(name, SONOLUS_ITEM_VERSIONS.effect, nativeTitle(nativeLabels, name), "Our Notes", "haneoka"),
-      thumbnail: emptySrl,
+      thumbnail: banner,
       data: addFile(requireFile(resolve(effectResourceDir, "effect.data"))),
       audio: addFile(requireFile(resolve(effectResourceDir, "effect.audio"))),
     };
@@ -575,7 +575,7 @@ async function main() {
     background: backgroundMyGO,
     effect,
     particle,
-    thumbnail: emptySrl,
+    thumbnail: banner,
     playData: addFile(requireFile(resolve(engineDir, "EnginePlayData"))),
     watchData: addFile(requireFile(resolve(engineDir, "EngineWatchData"))),
     previewData: addFile(requireFile(resolve(engineDir, "EnginePreviewData"))),
