@@ -383,7 +383,7 @@ jobs:
   unity:
     name: Unity shard ${{ matrix.shard }}
     needs: prepare
-    if: needs.prepare.outputs.skip != 'true'
+    if: needs.prepare.outputs.skip != 'true' && needs.prepare.outputs.unity_matrix != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
@@ -484,7 +484,9 @@ jobs:
   release:
     name: Assemble and publish release
     needs: [prepare, unity]
-    if: needs.prepare.outputs.skip != 'true'
+    # A Master/catalog-only update has no pending Unity shards. Release still
+    # composes the pinned base after Unity is intentionally skipped.
+    if: ${{ always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' && (needs.unity.result == 'success' || (needs.unity.result == 'skipped' && needs.prepare.outputs.delta == 'true' && needs.prepare.outputs.unity_matrix == '[]')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
