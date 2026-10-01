@@ -43,9 +43,12 @@ let provision: Promise<CubismProvision> | undefined;
 const cubismAdapter = (): CubismRuntimeAdapter => {
   let resolved: CubismRuntimeAdapter | undefined;
   const runtime = async () => {
-    provision ??= import(
-      /* @vite-ignore */ new URL(CUBISM_WEB_RUNTIME_URL, document.baseURI).href
-    ) as Promise<CubismProvision>;
+    provision ??= (
+      import(/* @vite-ignore */ new URL(CUBISM_WEB_RUNTIME_URL, document.baseURI).href) as Promise<CubismProvision>
+    ).catch((error: unknown) => {
+      provision = undefined;
+      throw error;
+    });
     resolved ??= (await provision).createCubismWebRuntimeAdapter({
       id: "haneoka.web-cubism-runtime",
       runtime: CUBISM_CORE_URLS,
@@ -102,13 +105,13 @@ export class VegaStoryStage extends LitElement {
     providerBase: { type: String, attribute: "provider-base" },
     phase: { state: true },
     issue: { state: true },
+    transportIssue: { state: true },
     autoMode: { state: true },
     ordinal: { state: true },
     maximum: { state: true },
     transportVisible: { state: true },
     fullscreenActive: { state: true },
     transportCollapsed: { state: true },
-    transportAutoHidden: { state: true },
     started: { state: true },
   };
   declare story: RecordValue;
@@ -117,6 +120,7 @@ export class VegaStoryStage extends LitElement {
   declare providerBase: string;
   declare phase: "loading" | "booting" | "ready" | "error";
   declare issue: string;
+  declare transportIssue: string;
   /** AUTO advance, mirrored from the player for the transport button. */
   declare autoMode: boolean;
   /** Current and last reachable story line, the slider's whole range. */
@@ -125,7 +129,6 @@ export class VegaStoryStage extends LitElement {
   declare transportVisible: boolean;
   declare fullscreenActive: boolean;
   declare transportCollapsed: boolean;
-  declare transportAutoHidden: boolean;
   declare started: boolean;
   private loadedKey = "";
   private appliedLocale = "";
@@ -142,10 +145,10 @@ export class VegaStoryStage extends LitElement {
   private scrubbing = false;
   private resumeAfterScrub = false;
   private transportSeekRevision = 0;
+  private failedSeek?: { ordinal: number; resume: boolean };
   private viewportFullscreen: ViewportFullscreenController;
   private transportVisibility = new PlaybackControlsController((snapshot) => {
     this.transportCollapsed = snapshot.collapsed;
-    this.transportAutoHidden = snapshot.autoHidden;
   });
 
   constructor() {
@@ -156,13 +159,13 @@ export class VegaStoryStage extends LitElement {
     this.providerBase = "";
     this.phase = "loading";
     this.issue = "";
+    this.transportIssue = "";
     this.autoMode = false;
     this.ordinal = 0;
     this.maximum = 0;
     this.transportVisible = false;
     this.fullscreenActive = false;
     this.transportCollapsed = false;
-    this.transportAutoHidden = false;
     this.started = false;
     this.viewportFullscreen = new ViewportFullscreenController({
       owner: this,
@@ -194,12 +197,13 @@ export class VegaStoryStage extends LitElement {
     if (document.fullscreenElement === this && typeof document.exitFullscreen === "function") {
       void document.exitFullscreen().catch(() => undefined);
     }
-    void this.disposePlayer();
+    void this.disposePlayer().catch((error) => console.error("[vega-story] disconnected cleanup failed", error));
     super.disconnectedCallback();
   }
   updated() {
     this.transportVisibility.bind(this.querySelector<HTMLElement>(".playback-controls"));
-    this.transportVisibility.setFullscreen(this.fullscreenActive);
+    // Story controls occupy their own layout row. Explicit expansion persists
+    // during fullscreen playback until the user collapses it from the menu.
     if (!this.isConnected || !this.story?.storyId) return;
     // The story/runtime and Live2D resource URLs do not vary by UI locale.
     // Keep one player alive when only the shell language changes; the resolver
@@ -269,6 +273,7 @@ export class VegaStoryStage extends LitElement {
       }) as AdvStory;
       this.phase = "booting";
       this.playerState = createVegaPlayerState();
+      this.playerState.paused = true;
       loadingReporter.update({ stageLabel: this.bootStageLabel() });
       await this.updateComplete;
       if (!active()) return;
@@ -316,7 +321,7 @@ export class VegaStoryStage extends LitElement {
       signal.addEventListener(
         "abort",
         () => {
-          void engine.dispose().catch(() => undefined);
+          void engine.dispose().catch((error) => console.error("[vega-story] aborted boot cleanup failed", error));
         },
         { once: true },
       );
@@ -337,11 +342,11 @@ export class VegaStoryStage extends LitElement {
           initialSettings: this.legacySettings(),
         },
       });
-      this.stopBootStateObserver();
       if (!active()) {
-        await engine.dispose();
+        await engine.dispose().catch((error) => console.error("[vega-story] stale boot cleanup failed", error));
         return;
       }
+      this.stopBootStateObserver();
       this.handle = player;
       player.shell?.setSetting("uiLanguage", this.locale);
       player.player.setLocale(this.locale, { refresh: true });
@@ -365,12 +370,16 @@ export class VegaStoryStage extends LitElement {
       this.stopCompletionObserver = player.player.subscribePresentationObserver(completion);
       completion();
     } catch (error) {
-      if (!active()) return;
+      if (!active()) {
+        if (!(error instanceof Error && error.name === "AbortError"))
+          console.error("[vega-story] superseded boot failed", error);
+        return;
+      }
       console.error(error);
       this.issue = error instanceof Error ? error.message : String(error);
       loadingReporter.fail(error);
       this.phase = "error";
-      await this.disposePlayer();
+      await this.disposePlayer().catch((error) => console.error("[vega-story] failed boot cleanup failed", error));
     }
   }
 
@@ -402,8 +411,13 @@ export class VegaStoryStage extends LitElement {
     }
   }
   private localizedTextResolver() {
+    const sourceLocales: Record<string, string> = { jp: "ja", en: "en", tw: "zh-TW", cn: "zh-CN", kr: "ko" };
+    const sourceLocale = this.providerBase
+      ? (typeof this.story.sourceLocale === "string" ? this.story.sourceLocale.trim() : "") ||
+        sourceLocales[String(this.story.sourceServer || "").toLowerCase()]
+      : undefined;
     return (value: unknown): StoryResolvedText => {
-      const resolved = resolveLocalizedText(value, this.locale);
+      const resolved = resolveLocalizedText(value, this.locale, sourceLocale);
       return { text: resolved.text, lang: resolved.locale };
     };
   }
@@ -481,7 +495,7 @@ export class VegaStoryStage extends LitElement {
         progress: timeline.ratio,
         progressEnabled: timeline.maximum > 0,
         progressLabel: timeline.label || undefined,
-        playbackControlsVisible: this.transportVisible && !this.transportCollapsed && !this.transportAutoHidden,
+        playbackControlsVisible: this.transportVisible && !this.transportCollapsed,
       };
     };
     return {
@@ -605,6 +619,8 @@ export class VegaStoryStage extends LitElement {
     if (!handle) return;
     const player = handle.player;
     const revision = ++this.transportSeekRevision;
+    this.transportIssue = "";
+    this.failedSeek = undefined;
     // A change-only interaction has the same ownership as a pointer preview.
     if (!this.scrubbing) {
       this.resumeAfterScrub = player.state.playing && !player.state.paused;
@@ -618,10 +634,12 @@ export class VegaStoryStage extends LitElement {
       await player.seekTo(player.resolveSeekRatio(value / maximum), { resume: false });
       if (this.handle !== handle || !this.isConnected || revision !== this.transportSeekRevision) return;
     } catch (error) {
-      // Malformed/unavailable targets are a no-op: keep the last reachable
-      // line instead of surfacing an error panel during playback.
       if (this.handle !== handle || !this.isConnected || revision !== this.transportSeekRevision) return;
-      console.warn("[vega-story] transport seek failed; keeping the current line", error);
+      // Core restores the previous checkpoint after a failed target. Keep its
+      // canvas mounted and offer a retry of the requested line and play intent.
+      this.transportIssue = error instanceof Error ? error.message : String(error);
+      this.failedSeek = { ordinal: value, resume: this.resumeAfterScrub };
+      this.resumeAfterScrub = false;
     }
     if (this.resumeAfterScrub && player.state.ready && (!handle.shell || handle.shell.snapshot().screen === "game")) {
       player.resume();
@@ -631,6 +649,17 @@ export class VegaStoryStage extends LitElement {
     this.scrubbing = false;
     this.transportVisibility.setScrubbing(false);
   }
+
+  private retryTransportSeek = () => {
+    const failed = this.failedSeek;
+    const player = this.handle?.player;
+    if (!failed || !player) return;
+    this.scrubbing = true;
+    this.resumeAfterScrub = failed.resume;
+    this.transportVisibility.setScrubbing(true);
+    player.pause();
+    void this.commitTransportSeek(failed.ordinal);
+  };
 
   /**
    * Native element fullscreen where WebKit allows it; on iOS Safari, which has
@@ -699,11 +728,14 @@ export class VegaStoryStage extends LitElement {
     this.transportSeekRevision++;
     this.scrubbing = false;
     this.resumeAfterScrub = false;
+    this.failedSeek = undefined;
+    this.transportIssue = "";
     cancelAnimationFrame(this.transportFrame);
     this.stopBootStateObserver();
     this.stopCompletionObserver?.();
     this.stopCompletionObserver = undefined;
     const engine = this.engine;
+    const handle = this.handle;
     this.engine = undefined;
     this.handle = undefined;
     this.transportVisible = false;
@@ -714,7 +746,14 @@ export class VegaStoryStage extends LitElement {
     this.maximum = 0;
     this.playerState = undefined;
     this.appliedLocale = "";
-    await engine?.dispose().catch(() => undefined);
+    // Engine finalizers dispose UI before the player. Start the player's
+    // idempotent teardown independently so a slow UI/plugin finalizer cannot
+    // retain episode file leases, decoded audio or model resources.
+    const playerDisposal = Promise.resolve().then(() => handle?.player.dispose({ releaseTextures: true }));
+    const engineDisposal = Promise.resolve().then(() => engine?.dispose());
+    const results = await Promise.allSettled([playerDisposal, engineDisposal]);
+    const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+    if (errors.length) throw new AggregateError(errors, "Failed to dispose Vega story player");
   }
 
   private retryPlayer = () => {
@@ -773,6 +812,18 @@ export class VegaStoryStage extends LitElement {
             : nothing
         }
         ${this.renderTransport()}
+        ${
+          this.phase === "ready" && this.transportIssue
+            ? html`
+                <div class="vega-story-runtime__transport-error" role="alert">
+                  <p>${this.transportIssue}</p>
+                  <button class="button button--tonal" type="button" @click=${this.retryTransportSeek}>
+                    ${uiText(this.locale, "retry")}
+                  </button>
+                </div>
+              `
+            : nothing
+        }
       </section>
     `;
   }
@@ -789,15 +840,14 @@ export class VegaStoryStage extends LitElement {
     return html`
       <footer
         class="chart-runtime__controls playback-controls"
-        ?hidden=${!this.transportVisible}
+        ?hidden=${!this.transportVisible || this.transportCollapsed}
         data-collapsed=${this.transportCollapsed ? "true" : "false"}
-        data-auto-hidden=${this.transportAutoHidden ? "true" : "false"}
         aria-label=${uiText(this.locale, "morePlaybackControls")}
       >
         <div
           class="playback-controls__expanded"
-          ?inert=${this.transportCollapsed || this.transportAutoHidden}
-          aria-hidden=${this.transportCollapsed || this.transportAutoHidden}
+          ?inert=${this.transportCollapsed}
+          aria-hidden=${this.transportCollapsed}
         >
           <button
             class="icon-button"
