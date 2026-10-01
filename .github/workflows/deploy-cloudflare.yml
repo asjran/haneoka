@@ -61,7 +61,7 @@ jobs:
           restore-keys: static-catalog-v1-${{ runner.os }}-
 
       - name: Build production assets before database changes
-        run: pnpm build
+        run: pnpm build:packages && pnpm build:frontend && pnpm runtime:cubism:verify-output
         env:
           STATIC_RESOURCE_SERVERS: intl,jp
           STATIC_CATALOG_SOURCE: http
