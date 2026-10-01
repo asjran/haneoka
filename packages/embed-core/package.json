@@ -1,0 +1,63 @@
+{
+  "name": "@haneoka/embed-core",
+  "version": "0.1.0",
+  "description": "Portable data sources and resource loading for Haneoka embeds and authored content",
+  "type": "module",
+  "license": "MPL-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./haneoka": {
+      "types": "./dist/haneoka.d.ts",
+      "import": "./dist/haneoka.js",
+      "default": "./dist/haneoka.js"
+    },
+    "./package.json": "./package.json",
+    "./branding": {
+      "types": "./dist/branding.d.ts",
+      "import": "./dist/branding.js",
+      "default": "./dist/branding.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "@haneoka/api-client": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@haneoka/api-client": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@haneoka/api-client": "^0.1.0",
+    "typescript": "^6.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haneoka-gakuen/haneoka.git",
+    "directory": "packages/embed-core"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "name": "@haneoka/embed-vega",
+  "version": "0.1.0",
+  "description": "Mount a standalone Vega story player in any website",
+  "type": "module",
+  "license": "MPL-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./haneoka": {
+      "types": "./dist/haneoka.d.ts",
+      "import": "./dist/haneoka.js",
+      "default": "./dist/haneoka.js"
+    },
+    "./package.json": "./package.json",
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js",
+      "default": "./dist/theme.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@haneoka/embed-core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@haneoka/vega": "^0.1.0",
+    "@haneoka/vega-renderer-three": "^0.1.0",
+    "@haneoka/vega-ui-portable": "^0.1.0",
+    "@haneoka/vega-plugin-richtext": "^0.1.0",
+    "@haneoka/vega-shell-default": "^0.1.0",
+    "@haneoka/vega-theme-haneoka": "^0.1.0",
+    "@haneoka/vega-plugin-haneoka": "^0.1.0",
+    "@haneoka/vega-plugin-cubism": "^0.1.0",
+    "howler": ">=2.2.0 <3",
+    "three": ">=0.184.0 <0.185.0",
+    "@haneoka/api-client": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@haneoka/vega-shell-default": {
+      "optional": true
+    },
+    "@haneoka/vega-theme-haneoka": {
+      "optional": true
+    },
+    "@haneoka/vega-plugin-haneoka": {
+      "optional": true
+    },
+    "@haneoka/vega-plugin-cubism": {
+      "optional": true
+    },
+    "@haneoka/api-client": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haneoka-gakuen/haneoka.git",
+    "directory": "packages/embed-vega"
+  }
+}

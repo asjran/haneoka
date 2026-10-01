@@ -780,6 +780,117 @@ importers:
 
   packages/community-media: {}
 
+  packages/embed-cassiopeia:
+    dependencies:
+      '@haneoka/api-client':
+        specifier: ^0.1.0
+        version: link:../api-client
+      '@haneoka/cassiopeia':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/cassiopeia
+      '@haneoka/cassiopeia-host-web':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/cassiopeia-host-web
+      '@haneoka/cassiopeia-plugin-our-notes':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/cassiopeia-plugin-our-notes
+      '@haneoka/cassiopeia-renderer-three':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/cassiopeia-renderer-three
+      '@haneoka/cassiopeia-ui-vue':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/cassiopeia-ui-vue
+      '@haneoka/embed-core':
+        specifier: ^0.1.0
+        version: link:../embed-core
+      three:
+        specifier: '>=0.184.0 <0.185.0'
+        version: 0.184.0
+      vue:
+        specifier: '>=3.5.0 <4'
+        version: 3.5.39(typescript@6.0.3)
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/embed-core:
+    devDependencies:
+      '@haneoka/api-client':
+        specifier: ^0.1.0
+        version: link:../api-client
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/embed-home-spot:
+    dependencies:
+      '@esotericsoftware/spine-threejs':
+        specifier: 4.2.119
+        version: 4.2.119(three@0.184.0)
+      '@haneoka/api-client':
+        specifier: ^0.1.0
+        version: link:../api-client
+      '@haneoka/embed-core':
+        specifier: ^0.1.0
+        version: link:../embed-core
+      '@haneoka/vega-plugin-haneoka':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega-plugin-haneoka
+      three:
+        specifier: '>=0.184.0 <0.185.0'
+        version: 0.184.0
+    devDependencies:
+      '@types/three':
+        specifier: ^0.184.1
+        version: 0.184.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/embed-vega:
+    dependencies:
+      '@haneoka/api-client':
+        specifier: ^0.1.0
+        version: link:../api-client
+      '@haneoka/embed-core':
+        specifier: ^0.1.0
+        version: link:../embed-core
+      '@haneoka/vega':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega
+      '@haneoka/vega-plugin-cubism':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega-plugin-cubism
+      '@haneoka/vega-plugin-haneoka':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega-plugin-haneoka
+      '@haneoka/vega-plugin-richtext':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega-plugin-richtext
+      '@haneoka/vega-renderer-three':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega-renderer-three
+      '@haneoka/vega-shell-default':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega-shell-default
+      '@haneoka/vega-theme-haneoka':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega-theme-haneoka
+      '@haneoka/vega-ui-portable':
+        specifier: ^0.1.0
+        version: link:../../.dependencies/vega-ui-portable
+      howler:
+        specifier: '>=2.2.0 <3'
+        version: 2.2.4
+      three:
+        specifier: '>=0.184.0 <0.185.0'
+        version: 0.184.0
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/i18n:
     devDependencies:
       typescript:

@@ -1,0 +1,64 @@
+{
+  "name": "@haneoka/embed-home-spot",
+  "version": "0.1.0",
+  "description": "Mount a standalone Three/Spine Home Spot scene with portable data sources",
+  "type": "module",
+  "license": "MPL-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./haneoka": {
+      "types": "./dist/haneoka.d.ts",
+      "import": "./dist/haneoka.js",
+      "default": "./dist/haneoka.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@haneoka/embed-core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@haneoka/vega-plugin-haneoka": "^0.1.0",
+    "three": ">=0.184.0 <0.185.0",
+    "@esotericsoftware/spine-threejs": "4.2.119",
+    "@haneoka/api-client": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@haneoka/api-client": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "@types/three": "^0.184.1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haneoka-gakuen/haneoka.git",
+    "directory": "packages/embed-home-spot"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
