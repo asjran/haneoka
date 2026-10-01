@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile, mkdir, rename, lstat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, lstat, readdir, link, copyFile, rm } from "node:fs/promises";
 import path from "node:path";
 
 const origin = "https://haneoka.org";
@@ -30,7 +30,11 @@ async function download(url, maximumBytes, deadline) {
     redirect: "error",
     signal: AbortSignal.any([AbortSignal.timeout(20000), deadline]),
   });
-  if (!response.ok) throw new Error(`Compatibility HTTP ${response.status}: ${url.pathname}`);
+  if (!response.ok) {
+    const error = new Error(`Compatibility HTTP ${response.status}: ${url.pathname}`);
+    error.status = response.status;
+    throw error;
+  }
   const reader = response.body.getReader();
   const chunks = [];
   let length = 0;
@@ -102,7 +106,19 @@ export async function restorePublishedEmbedCompatibility(directory) {
   const output = path.resolve(directory);
   const deadline = AbortSignal.timeout(300000);
   await mkdir(output, { recursive: true });
-  const liveBytes = await download(new URL(inventoryUrl), 512 * 1024, deadline);
+  let liveBytes;
+  try {
+    liveBytes = await download(new URL(inventoryUrl), 512 * 1024, deadline);
+  } catch (error) {
+    // Recover the promised r22 only from its exact hash-verified inventory.
+    // Missing aliases after a bad deployment must not prevent their repair.
+    if (error.status !== 404) throw error;
+    liveBytes = await readFile(path.join(output, legacyRelease, "manifest.json"));
+    const cached = inventory(liveBytes);
+    if (cached.value.release !== legacyRelease || cached.value.sha256 !== legacyDigest)
+      throw new Error("Unverified legacy cache fallback");
+    console.log("Published inventory is 404; repairing from verified immutable r22 cache");
+  }
   const live = inventory(liveBytes);
   if (live.value.release === legacyRelease && live.value.sha256 !== legacyDigest)
     throw new Error("Legacy embed identity mismatch");
@@ -161,4 +177,34 @@ export async function restorePublishedEmbedCompatibility(directory) {
   const report = { releases: inventories.map((item) => item.value.release), downloaded, reused, downloadedBytes };
   console.log(`Preserved published embed URLs: ${JSON.stringify(report)}`);
   return report;
+}
+
+/** Materialize the generated/cache closure into Astro's actual publicDir. */
+export async function stageEmbedDistribution(directory, publicDirectory) {
+  const source = path.resolve(directory),
+    output = path.resolve(publicDirectory);
+  await mkdir(output, { recursive: true });
+  let staged = 0;
+  for (const entry of await readdir(source, { recursive: true, withFileTypes: true })) {
+    if (entry.isSymbolicLink()) throw new Error("Embed staging rejects symlinks");
+    if (!entry.isFile() || /\.(?:compat|tmp)-/u.test(entry.name)) continue;
+    const file = path.join(entry.parentPath, entry.name);
+    const target = path.join(output, path.relative(source, file));
+    await mkdir(path.dirname(target), { recursive: true });
+    const temporary = `${target}.stage-${process.pid}`;
+    try {
+      await link(file, temporary);
+    } catch (error) {
+      if (error.code !== "EXDEV") throw error;
+      await copyFile(file, temporary);
+    }
+    try {
+      await rename(temporary, target);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+    staged++;
+  }
+  console.log(`Staged ${staged} generated embed files for Astro publicDir`);
+  return staged;
 }

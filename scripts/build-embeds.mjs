@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import ts from "typescript";
-import { restorePublishedEmbedCompatibility } from "./restore-embed-compat.mjs";
+import { restorePublishedEmbedCompatibility, stageEmbedDistribution } from "./restore-embed-compat.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const output = path.join(root, "public/embed");
@@ -334,6 +334,10 @@ for (const name of Object.keys(entries)) {
 const temporary = path.join(output, `manifest.json.tmp-${process.pid}`);
 await writeFile(temporary, JSON.stringify(manifest, null, 2) + "\n");
 await rename(temporary, path.join(output, "manifest.json"));
+// prepare:frontend runs before this generator; Astro reads .generated-public,
+// not public/. Materialize the new closure after it has been generated.
+await stageEmbedDistribution(output, path.join(root, ".generated-public/embed"));
+
 if (metadataArg) {
   const report = metadataPath;
   const inputHashes = Object.fromEntries(consumedInputs);
