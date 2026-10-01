@@ -90,7 +90,7 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
         const detail = await fetchOptionalStaticCatalog(`events/${entry.id}`, server, release);
         const value = { ...entry, ...((detail.value as JsonRecord) || {}) };
         return {
-          ...pick(value, ["id", "title", "image", "backgroundImage", "startAt", "endAt", "eventType"]),
+          ...pick(value, ["id", "title", "image", "backgroundImage", "logo", "startAt", "endAt", "eventType"]),
           homeStoryId: String(((value.story as JsonRecord)?.episodes as JsonRecord[] | undefined)?.[0]?.storyKey || ""),
           effects: rows(value.effects).map((effect) => ({
             targets: Object.fromEntries(

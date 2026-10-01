@@ -22,8 +22,8 @@ import {
   type JsonRecord,
 } from "./shared/catalog";
 import { CATALOG_HUB, NAV_SECTIONS, type NavItem } from "../config/navigation";
-import { tile, mediaProgress } from "./ui/tile";
-import { eventBanner } from "./ui/event-artwork";
+import { tile } from "./ui/tile";
+import { eventArtwork } from "./ui/event-artwork";
 import { liveMusicTypeMark, songTile } from "./shared/song-tile";
 import { LazyImages, localeTaggedCandidates, localizedAssetUrl, nextImageCandidate } from "./ui/lazy-images";
 
@@ -794,7 +794,7 @@ export class HomeDashboard extends LitElement {
                     href=${entityHref({ server: this.sourceServer(), locale: this.locale as Locale, kind: "events", id: event.id })}
                     aria-label=${event.title}
                   >
-                    ${mediaProgress()} ${eventBanner(event.image, event.title)}
+                    ${eventArtwork(String(event.details.backgroundImage || event.image), String(event.details.logo || ""), event.title)}
                   </a>
                   <div class="home-event__body">
                     <div class="home-event__chips">
