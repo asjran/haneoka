@@ -17,6 +17,7 @@ export default defineConfig({
   prefetch: true,
   build: { inlineStylesheets: "auto" },
   vite: {
+    worker: { format: "es" },
     build: {
       cssMinify: "lightningcss",
       target: "es2022",

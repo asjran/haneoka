@@ -69,7 +69,9 @@ jobs:
 
       - name: Build production assets before database changes
         run: |
-          pnpm build:packages && pnpm build:frontend && pnpm runtime:cubism:verify-output
+          pnpm build:packages
+          pnpm build:frontend
+          pnpm runtime:cubism:verify-output
           for entry in core vega cassiopeia home-spot vega-theme api-client; do
             test -s ".output/public/embed/${entry}.js"
           done
