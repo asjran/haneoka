@@ -77,7 +77,7 @@ const PROFILE_BAND_SEED: Record<string, string> = {
 };
 /** Fixed in-repo avatars: the birthday list never depends on release assets. */
 const CHARACTER_AVATAR = (id: unknown) => `/images/avatars/characters/${String(id || "")}.png`;
-const CAST_AVATAR = (id: string) => `/images/avatars/cast/${id}.jpg`;
+const CAST_AVATAR = (id: string) => `/images/avatars/cast/${id}.jpg?v=official-20261002`;
 /**
  * The bottom directory is the navigation drawer's own catalogue listing: the
  * same NAV_SECTIONS, restricted to the routes the catalogue serves, with
