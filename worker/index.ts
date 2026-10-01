@@ -23,10 +23,10 @@ import { handlePublicProfileRequest } from "./public-profile";
 import { cleanupCommunityUploads, handleUploadRequest } from "./uploads";
 import {
   projectCatalogCharts,
+  RevisionCache,
   sonolusLevelName,
   sonolusPlaylistName,
   SonolusLevelService,
-  RevisionCache,
 } from "@haneoka/sonolus-core";
 import {
   OUR_NOTES_LANE_SKIN_NAMES,
@@ -2303,10 +2303,12 @@ function ourNotesSonolusCatalogProvider(env: Env, releases: readonly Release[], 
         }),
       );
       const charts = new Map<string, (typeof catalogs)[number]["charts"][number]>();
+      const aliases: (typeof catalogs)[number]["charts"][number][] = [];
       for (const catalog of catalogs) {
         for (const chart of catalog.charts) {
           const key = `${chart.songId}\u0000${chart.difficulty.toLocaleLowerCase("en-US")}`;
           if (!charts.has(key)) charts.set(key, chart);
+          else aliases.push(chart);
         }
       }
       return { charts: [...charts.values()], aliases, revision: { id: revision } };
@@ -2375,6 +2377,21 @@ function bestdoriSonolusDataProvider(upstreamBase: string | undefined): RuntimeC
       console.warn(`Ignoring invalid Bestdori Sonolus chart ${chart.name}`, error);
     },
   });
+}
+
+const sonolusBannerCache = new RevisionCache<JsonObject | undefined>(3);
+
+function sonolusThumbnailDocument(value: JsonValue, fallback: JsonObject | undefined): JsonValue {
+  if (Array.isArray(value)) return value.map((entry) => sonolusThumbnailDocument(entry, fallback));
+  if (!isJsonObject(value)) return value;
+  const result: JsonObject = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if ((key === "thumbnail" || key === "cover") && isJsonObject(entry)) {
+      const url = typeof entry.url === "string" && entry.url ? entry.url : undefined;
+      result[key] = url ? { ...entry, url: new URL(url, `https://${CANONICAL_HOST}`).href } : (fallback ?? entry);
+    } else result[key] = sonolusThumbnailDocument(entry, fallback);
+  }
+  return result;
 }
 
 function sonolusServerBanner(value: unknown): JsonObject | undefined {
@@ -2448,6 +2465,7 @@ async function localizeStaticSonolusDocument(
   request: Request,
   response: Response,
   localization: string | null,
+  fallbackThumbnail?: JsonObject,
 ): Promise<Response> {
   if (response.status < 200 || response.status >= 300) return response;
   const document = sonolusThumbnailDocument(parseJson(await response.text()), fallbackThumbnail);
@@ -2503,12 +2521,23 @@ async function handleSonolus(
     ? `${ourNotesRevision}:${bestdoriSonolusRevision(Date.now(), env.BESTDORI_UPSTREAM_BASE)}`
     : ourNotesRevision;
   const cacheRequest = releaseCacheRequest(request, revision);
+  let fallbackThumbnail: JsonObject | undefined;
   try {
     // Runtime documents (engine/template/banner) are server-wide rather than
     // chart data. Choose the first active server slug deterministically; chart
     // data itself remains pinned to the exact release encoded in each data ID.
     const readRawJson = async (releasePath: string) =>
       (await readGlobalSonolusJson(env, releasePath)) ?? readReleaseJson(env, canonicalRelease, releasePath);
+    const banner = await sonolusBannerCache.getOrCreate(ourNotesRevision, async () => {
+      const value = sonolusServerBanner(await readRawJson("runtime/sonolus/info"));
+      if (!value || typeof value.url !== "string" || !value.url) return undefined;
+      return { ...value, url: new URL(value.url, `https://${CANONICAL_HOST}`).href };
+    });
+    fallbackThumbnail = banner;
+    const readJson = async (releasePath: string) => {
+      const value = await readRawJson(releasePath);
+      return value === null ? null : sonolusThumbnailDocument(value, banner);
+    };
     const catalogProvider = isBestdoriCatalog
       ? bestdoriSonolusCatalogProvider(env.BESTDORI_UPSTREAM_BASE, revision)
       : ourNotesSonolusCatalogProvider(env, releases, revision);
@@ -2523,12 +2552,10 @@ async function handleSonolus(
       ...(isBestdoriCatalog
         ? {
             levelInfoTitle: "GBP Charts",
-      const aliases: (typeof catalogs)[number]["charts"][number][] = [];
             playlistInfoTitle: "GBP Playlists",
             playlistName: (songId: string) => sonolusPlaylistName("gbp", songId),
             quickSearchValues: "source=bestdori",
           }
-          else aliases.push(chart);
         : {}),
       levelTemplateProvider: new ReleaseLevelTemplateProvider({
         readJson,
@@ -2602,21 +2629,6 @@ async function handleSonolus(
   const repository = relative.startsWith("sonolus/repository/");
   const staticDocument = !repository && !relative.startsWith("sonolus/licenses/");
   const contentType = repository ? "application/octet-stream" : "application/json; charset=utf-8";
-const sonolusBannerCache = new RevisionCache<JsonObject | undefined>(3);
-
-function sonolusThumbnailDocument(value: JsonValue, fallback: JsonObject | undefined): JsonValue {
-  if (Array.isArray(value)) return value.map((entry) => sonolusThumbnailDocument(entry, fallback));
-  if (!isJsonObject(value)) return value;
-  const result: JsonObject = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if ((key === "thumbnail" || key === "cover") && isJsonObject(entry)) {
-      const url = typeof entry.url === "string" && entry.url ? entry.url : undefined;
-      result[key] = url ? { ...entry, url: new URL(url, `https://${CANONICAL_HOST}`).href } : (fallback ?? entry);
-    } else result[key] = sonolusThumbnailDocument(entry, fallback);
-  }
-  return result;
-}
-
   const response = await edgeCached(cacheRequest, ctx, MEDIA_CACHE_TTL, async () => {
     const sourceRequest = staticDocument ? sonolusDocumentSourceRequest(request) : request;
     const source =
@@ -2672,7 +2684,6 @@ async function serveStaticAsset(request: Request, env: Env): Promise<Response> {
         const resolved = location ? new URL(location, candidate) : null;
         const direct =
           resolved && resolved.origin === url.origin ? await env.ASSETS.fetch(new Request(resolved, request)) : null;
-  fallbackThumbnail?: JsonObject,
         if (direct && direct.status !== 404 && direct.status < 300) return direct;
         continue;
       }
@@ -2728,23 +2739,12 @@ async function serveCanonicalResourceDocument(request: Request, env: Env): Promi
     shellUrl.pathname = announcement.shellPath;
     const shell = await env.ASSETS.fetch(new Request(shellUrl, { method: "GET", headers: request.headers }));
     if (!shell.ok) return new Response("Not found", { status: 404 });
-  let fallbackThumbnail: JsonObject | undefined;
     const body = rewriteAnnouncementDocument(await shell.text(), announcement.id);
     const headers = new Headers(shell.headers);
     headers.delete("Content-Encoding");
     headers.delete("ETag");
     headers.set("Content-Length", String(new TextEncoder().encode(body).byteLength));
     return new Response(request.method === "HEAD" ? null : body, { status: 200, headers });
-    const banner = await sonolusBannerCache.getOrCreate(ourNotesRevision, async () => {
-      const value = sonolusServerBanner(await readRawJson("runtime/sonolus/info"));
-      if (!value || typeof value.url !== "string" || !value.url) return undefined;
-      return { ...value, url: new URL(value.url, `https://${CANONICAL_HOST}`).href };
-    });
-    fallbackThumbnail = banner;
-    const readJson = async (releasePath: string) => {
-      const value = await readRawJson(releasePath);
-      return value === null ? null : sonolusThumbnailDocument(value, banner);
-    };
   }
   const segments = requestedUrl.pathname.split("/").filter(Boolean);
   if (
