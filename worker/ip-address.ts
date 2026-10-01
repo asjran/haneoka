@@ -60,3 +60,6 @@ export const requestIpMetadata = (request: Request): RequestIpMetadata => {
     regionName,
   };
 };
+
+export const publicIpLocation = (countryCode: string | null): { countryCode: string } | null =>
+  countryCode && /^[A-Z]{2}$/u.test(countryCode) && countryCode !== "XX" ? { countryCode } : null;

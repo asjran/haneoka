@@ -4,7 +4,7 @@ import { authConfiguration, getAuthSession, type AuthSession } from "./auth";
 import { communityAccessState } from "./access";
 import { COMMENT_LAST_EDITED_AT_SELECT } from "./community-revision";
 import { handleCommunitySocialRequest } from "./community-social";
-import { requestIpMetadata } from "./ip-address";
+import { publicIpLocation, requestIpMetadata } from "./ip-address";
 import { communityPostModerationText, inspectCommunityText, scheduleEntityModeration } from "./moderation";
 import { requestClientMetadata, type BrowserFamily, type OsFamily } from "./user-agent";
 import { avatarUrlSelect } from "./avatar-url";
@@ -131,7 +131,7 @@ type PublicPost = Omit<
 > & {
   avatarSeed: string;
   device: { browserFamily: BrowserFamily | null; osFamily: OsFamily | null } | null;
-  ipLocation: { countryCode: string; regionCode: string | null; regionName: string | null } | null;
+  ipLocation: { countryCode: string } | null;
 };
 
 interface PostTagRow {
@@ -301,16 +301,14 @@ const publicAuthoredContent = <T extends AuthorFields & DeviceFields & IpLocatio
 ): Omit<T, "authorId" | "browserFamily" | "ipCountryCode" | "ipRegionCode" | "ipRegionName" | "osFamily"> & {
   avatarSeed: string;
   device: { browserFamily: BrowserFamily | null; osFamily: OsFamily | null } | null;
-  ipLocation: { countryCode: string; regionCode: string | null; regionName: string | null } | null;
+  ipLocation: { countryCode: string } | null;
 } => {
-  const { authorId, browserFamily, ipCountryCode, ipRegionCode, ipRegionName, osFamily, ...publicValue } = value;
+  const { authorId, browserFamily, ipCountryCode, ipRegionCode: _ipRegionCode, ipRegionName: _ipRegionName, osFamily, ...publicValue } = value;
   return {
     ...publicValue,
     avatarSeed: authorId,
     device: browserFamily || osFamily ? { browserFamily, osFamily } : null,
-    ipLocation: ipCountryCode
-      ? { countryCode: ipCountryCode, regionCode: ipRegionCode, regionName: ipRegionName }
-      : null,
+    ipLocation: publicIpLocation(ipCountryCode),
   };
 };
 

@@ -1,7 +1,7 @@
 import { communityAccessState, type CommunityRestrictionKind } from "./access";
 import { getAuthSession, type AuthSession } from "./auth";
 import { COMMENT_LAST_EDITED_AT_SELECT } from "./community-revision";
-import { requestIpMetadata } from "./ip-address";
+import { publicIpLocation, requestIpMetadata } from "./ip-address";
 import { inspectCommunityText, scheduleEntityModeration } from "./moderation";
 import { requestClientMetadata, type BrowserFamily, type OsFamily } from "./user-agent";
 import { avatarUrlSelect } from "./avatar-url";
@@ -1049,13 +1049,7 @@ const commentValue = (row: CommentResponseRow) => ({
   updatedAt: row.updatedAt,
   lastEditedAt: row.lastEditedAt,
   device: row.browserFamily || row.osFamily ? { browserFamily: row.browserFamily, osFamily: row.osFamily } : null,
-  ipLocation: row.ipCountryCode
-    ? {
-        countryCode: row.ipCountryCode,
-        regionCode: row.ipRegionCode,
-        regionName: row.ipRegionName,
-      }
-    : null,
+  ipLocation: publicIpLocation(row.ipCountryCode),
   authorUid: row.authorUid,
   avatarSeed: row.authorId,
   authorName: row.authorName,

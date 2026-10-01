@@ -1,5 +1,6 @@
 import { getAuthSession } from "./auth";
 import { COMMENT_LAST_EDITED_AT_SELECT } from "./community-revision";
+import { publicIpLocation } from "./ip-address";
 
 const ACTIVITY_PATH = "/api/v1/community/me/comments";
 const DEFAULT_LIMIT = 20;
@@ -14,6 +15,9 @@ interface CommentActivityRow {
   deletedAt: number | null;
   hiddenAt: number | null;
   id: string;
+  ipCountryCode: string | null;
+  ipRegionCode: string | null;
+  ipRegionName: string | null;
   lastEditedAt: number;
   moderationRevision: number;
   moderationStatus: "allow" | "block" | "pending" | "review";
@@ -118,6 +122,8 @@ const listOwnComments = async (request: Request, env: Env, url: URL): Promise<Re
             comment.moderation_revision AS moderationRevision,
             comment.created_at AS createdAt, comment.updated_at AS updatedAt,
             ${COMMENT_LAST_EDITED_AT_SELECT} AS lastEditedAt,
+            comment.ip_country_code AS ipCountryCode,
+            comment.ip_region_code AS ipRegionCode, comment.ip_region_name AS ipRegionName,
             comment.deleted_at AS deletedAt, comment.hidden_at AS hiddenAt,
             CASE WHEN ${accessiblePost} THEN post.title ELSE NULL END AS postTitle,
             CASE WHEN ${accessiblePost} THEN 1 ELSE 0 END AS postAccessible,
@@ -156,6 +162,7 @@ const listOwnComments = async (request: Request, env: Env, url: URL): Promise<Re
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       lastEditedAt: row.lastEditedAt,
+      ipLocation: publicIpLocation(row.ipCountryCode),
       deletedAt: row.deletedAt,
       hiddenAt: row.hiddenAt,
       viewer: { canDelete: row.canDelete === 1, canEdit: row.canEdit === 1 },
