@@ -64,7 +64,7 @@
     "sonolus:release": "node packages/sonolus/scripts/build-native-sound-assets.ts && node packages/sonolus/scripts/build-original-assets.ts && pnpm sonolus:release:prepared",
     "sonolus:payload": "node packages/sonolus/scripts/build-native-sound-assets.ts && node packages/sonolus/scripts/build-original-assets.ts && pnpm sonolus:payload:prepared",
     "sonolus:build": "pnpm sonolus:engine && pnpm sonolus:payload",
-    "build:embeds": "node scripts/build-embeds.mjs",
+    "build:embeds": "node scripts/build-embeds.mjs --regenerate",
     "build:frontend": "pnpm prepare:frontend && pnpm build:embeds && astro build && pnpm finalize:frontend",
     "sonolus:engine": "SONOLUS_BUILD_JOBS=1 SONOLUS_COMPILER_WORKERS=1 pnpm --filter @haneoka/sonolus-our-notes build",
     "sonolus:release:prepared": "node packages/sonolus/scripts/build-worker-assets.ts",

@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFile, writeFile, mkdir, rename, access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import ts from "typescript";
+import { restorePublishedEmbedCompatibility } from "./restore-embed-compat.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const output = path.join(root, "public/embed");
@@ -14,14 +16,21 @@ const metadataArg = process.argv.find((arg) => arg.startsWith("--metadata="));
 const metadataPath = metadataArg ? path.resolve(metadataArg.slice("--metadata=".length)) : undefined;
 if (metadataPath?.startsWith(path.join(root, "public") + path.sep))
   throw new Error("Build metadata belongs outside public");
-const regenerate = process.argv.includes("--regenerate");
+const regenerate = !process.argv.includes("--verify");
+const producerReceiptArg = process.argv.find((arg) => arg.startsWith("--producer-receipt="));
 if (
   process.argv.some(
-    (arg) => arg.startsWith("--") && arg !== metadataArg && arg !== "--regenerate" && arg !== "--verify",
+    (arg) =>
+      arg.startsWith("--") &&
+      arg !== metadataArg &&
+      arg !== producerReceiptArg &&
+      arg !== "--regenerate" &&
+      arg !== "--verify",
   )
 )
   throw new Error("Usage: node scripts/build-embeds.mjs [--verify | --regenerate [--metadata=/absolute/report.json]]");
-if (regenerate && process.argv.includes("--verify")) throw new Error("Choose verify or regenerate");
+if (process.argv.includes("--regenerate") && process.argv.includes("--verify"))
+  throw new Error("Choose verify or regenerate");
 if (!regenerate) {
   if (metadataArg) throw new Error("--metadata records regeneration inputs; use --regenerate explicitly");
   const manifest = JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"));
@@ -83,8 +92,58 @@ for (const relative of [
   const manifest = JSON.parse(await readFile(path.join(directory, "package.json"), "utf8"));
   packages.set(manifest.name, { directory, manifest });
 }
+// Optional exact-HEAD producer snapshots allow a release while another task
+// has subsequent source work in the shared checkout. This is a build path,
+// never a runtime compatibility adapter.
+const exactProducers = new Set();
+if (producerReceiptArg) {
+  const receipt = JSON.parse(await readFile(producerReceiptArg.slice("--producer-receipt=".length), "utf8"));
+  for (const record of receipt.records) {
+    const manifest = JSON.parse(await readFile(path.join(record.directory, "package.json"), "utf8"));
+    const current = execFileSync("git", ["-C", record.repository, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    if (current !== record.commit)
+      execFileSync("git", ["-C", record.repository, "merge-base", "--is-ancestor", record.commit, "origin/main"]);
+    for (const [file, sha256] of Object.entries(record.sourceHashes)) {
+      const source = await readFile(path.join(record.directory, file));
+      const head = execFileSync(
+        "git",
+        ["-C", record.repository, "show", `${record.commit}:${record.gitPrefix ?? ""}${file}`],
+        {
+          maxBuffer: 16 * 1024 * 1024,
+        },
+      );
+      if (hash(source) !== sha256 || hash(head) !== sha256)
+        throw new Error(`Producer source mismatch: ${manifest.name}/${file}`);
+    }
+    for (const [file, expected] of Object.entries(record.products))
+      if (hash(await readFile(path.join(record.directory, file))) !== expected.sha256)
+        throw new Error(`Producer artifact mismatch: ${manifest.name}/${file}`);
+    packages.set(manifest.name, { directory: record.directory, manifest });
+    exactProducers.add(manifest.name);
+  }
+}
+// Regeneration is a new source epoch. Do not compile an active gameplay WIP
+// or use its ignored dist as a substitute for committed producer sources.
+for (const [name, { directory }] of packages) {
+  if (exactProducers.has(name)) continue;
+  const tracked = execFileSync("git", ["-C", directory, "diff", "--name-only", "HEAD", "--", "src"], {
+    encoding: "utf8",
+  });
+  const untracked = execFileSync("git", ["-C", directory, "ls-files", "--others", "--exclude-standard", "src"], {
+    encoding: "utf8",
+  });
+  const dirty = `${tracked}\n${untracked}`
+    .split("\n")
+    .filter(Boolean)
+    .filter((file) => !(name === "@haneoka/vega-plugin-cubism" && file.startsWith("src/web-runtime/")));
+  if (dirty.length)
+    throw new Error(`Commit/pin the reviewed producer source before regeneration: ${name}: ${dirty.join(", ")}`);
+}
+const compatibility = await restorePublishedEmbedCompatibility(output);
+
 const chartStyle = await readFile(path.join(root, "packages/embed-cassiopeia/src/style.css"), "utf8");
 const entries = {
+  "api-client": `export * from "@haneoka/api-client";export * from "@haneoka/api-client/haneoka";`,
   core: `export * from "@haneoka/embed-core";export * from "@haneoka/embed-core/haneoka";export * from "@haneoka/embed-core/branding";`,
   vega: `export * from "@haneoka/embed-vega";export * from "@haneoka/embed-vega/haneoka";`,
   "home-spot": `export * from "@haneoka/embed-home-spot";export * from "@haneoka/embed-home-spot/haneoka";`,
@@ -288,6 +347,7 @@ if (metadataArg) {
         inputs: inputHashes,
         metafile: result.metafile,
         chartStylesInlined: true,
+        compatibility,
       },
       null,
       2,

@@ -4,6 +4,7 @@ node_modules/
 .pnpm-store/
 
 # Framework and build outputs
+/public/embed/
 dist
 .astro/
 .generated-public/

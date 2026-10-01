@@ -60,6 +60,13 @@ jobs:
           key: static-catalog-v1-${{ runner.os }}-${{ github.run_id }}
           restore-keys: static-catalog-v1-${{ runner.os }}-
 
+      - name: Reuse verified immutable embed compatibility files
+        uses: actions/cache@v6
+        with:
+          path: public/embed
+          key: embed-compat-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: embed-compat-v1-${{ runner.os }}-
+
       - name: Build production assets before database changes
         run: pnpm build:packages && pnpm build:frontend && pnpm runtime:cubism:verify-output
         env:
