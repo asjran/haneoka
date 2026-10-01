@@ -19,7 +19,14 @@ async function download(url, maximumBytes, deadline) {
     url.password
   )
     throw new Error(`Invalid compatibility URL: ${url.href}`);
-  const response = await fetch(url, {
+  // Workers assets canonicalize reserved filename characters (notably @)
+  // to percent encoding. Request that exact URL instead of following redirects.
+  const requestUrl = new URL(url);
+  requestUrl.pathname = url.pathname
+    .split("/")
+    .map((part) => encodeURIComponent(decodeURIComponent(part)))
+    .join("/");
+  const response = await fetch(requestUrl, {
     redirect: "error",
     signal: AbortSignal.any([AbortSignal.timeout(20000), deadline]),
   });
