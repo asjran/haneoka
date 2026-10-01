@@ -1081,6 +1081,10 @@ export class CatalogScreen extends LitElement {
     return `/assets/${source.replace(/^\/+/, "")}`;
   }
   private detailImage(item: Item) {
+    if (this.settings.resource === "events") {
+      const background = this.imageSource(item.backgroundImage);
+      if (background) return background;
+    }
     const preferred =
       this.profile.presentation === "member" || this.profile.presentation === "support"
         ? readPath(item, "images.full")
