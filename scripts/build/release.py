@@ -13,6 +13,7 @@ from build.catalog_storage import compile_catalog_storage, compile_source_index_
 from build.game_client import assemble_game_client
 from core.manifests import read_json, write_json
 from core.paths import build_layout, server_layout
+from core.paths import validate_release_path
 from core.process import hardlink_or_copy, walk_files
 from extract.master import ENCRYPTED_DIRECTORY
 from verify.release import (
@@ -74,7 +75,7 @@ def _copy_release_metadata(
         target,
         [file for file in walk_files(source) if file != source / "source-index.json"],
     )
-    for name in ("cri.json", "live2d.json"):
+    for name in ("cri.json", "live2d.json", "runtime-textures.json"):
         _remove_build_identity(target / name)
     compile_source_index_storage(
         source / "source-index.json",
@@ -108,7 +109,32 @@ def _copy_decoded_master(source: Path, target: Path) -> None:
     )
 
 
-def _expected_delta_paths(build, server: str) -> tuple[set[str], set[str]]:
+def _runtime_texture_records(build, server: str, source_id: str | None = None) -> dict[str, dict]:
+    file = build.metadata / "runtime-textures.json"
+    if not file.is_file():
+        return {}
+    document = read_json(file)
+    if (document.get("schema") != "haneoka-runtime-textures-v1" or document.get("server") != server
+            or not isinstance(document.get("sourceId"), str)
+            or (source_id is not None and document.get("sourceId") != source_id)):
+        raise ValueError("runtime texture manifest identity does not match this release")
+    records = {}
+    for variant in document.get("variants", []):
+        url = variant.get("source")
+        prefix = f"/runtime/{server}/"
+        if not isinstance(url, str) or not url.startswith(prefix):
+            raise ValueError("runtime texture variant has a cross-server or invalid output URL")
+        path = validate_release_path("runtime/" + unquote(url.removeprefix(prefix)))
+        if not path.endswith(".ktx2") or path in records:
+            raise ValueError(f"runtime texture output path is invalid/repeated: {path}")
+        if (not isinstance(variant.get("byteLength"), int) or variant["byteLength"] <= 0
+                or not isinstance(variant.get("sha256"), str) or len(variant["sha256"]) != 64):
+            raise ValueError(f"runtime texture output has incomplete byte identity: {path}")
+        records[path] = variant
+    return records
+
+
+def _expected_delta_paths(build, server: str, source_id: str | None = None) -> tuple[set[str], set[str]]:
     """Derive the release paths this build must contain, from its local documents.
 
     Returns ``(expected, assets_pngs)``.  Everything the stages declared —
@@ -186,6 +212,12 @@ def _expected_delta_paths(build, server: str) -> tuple[set[str], set[str]]:
             expected,
             assets_pngs,
         )
+    texture_file = build.metadata / "runtime-textures.json"
+    if texture_file.is_file():
+        expected.add("metadata/runtime-textures.json")
+        records = _runtime_texture_records(build, server, source_id)
+        expected.update(records)
+        _collect_document_paths(read_json(texture_file), server, expected, assets_pngs)
     return expected, assets_pngs
 
 
@@ -216,6 +248,7 @@ def _base_fill_entries(
     build,
     server: str,
     base_manifest: dict,
+    source_id: str | None = None,
 ) -> list[dict]:
     """Compose the manifest entries for a delta build.
 
@@ -228,19 +261,28 @@ def _base_fill_entries(
 
     local_entries = release_entries(staging)
     local_paths = {str(entry["path"]) for entry in local_entries}
-    expected, _assets_pngs = _expected_delta_paths(build, server)
+    expected, _assets_pngs = _expected_delta_paths(build, server, source_id)
     base_entries = {
         str(entry.get("path")): entry
         for entry in base_manifest.get("entries", [])
         if isinstance(entry, dict) and isinstance(entry.get("path"), str)
     }
-    # Optional KTX2 derivatives mirror the assets tree one-to-one, but only
-    # when the base release actually carries encoders: a base built without
-    # KTX2 declares none, and expecting them would fail composition.
-    for png in [path for path in expected if path.startswith("assets/") and path.casefold().endswith(".png")]:
-        ktx2_path = f"runtime/ktx2/{png.removeprefix('assets/')[:-4]}.ktx2"
-        if ktx2_path in base_entries:
-            expected.add(ktx2_path)
+    # Native identities come from the current manifest, never PNG->legacy Basis naming.
+    texture_records = _runtime_texture_records(build, server, source_id)
+    local_by_path = {entry["path"]: entry for entry in local_entries}
+    for path, variant in texture_records.items():
+        actual = local_by_path.get(path) or base_entries.get(path)
+        if actual is None or actual.get("sha256") != variant["sha256"] or actual.get("bytes") != variant["byteLength"]:
+            raise ValueError(f"runtime texture output differs from its explicit payload identity: {path}")
+        texture = variant.get("texture")
+        png = None
+        for prefix, tree in ((f"/assets/{server}/", "assets/"), (f"/runtime/{server}/", "runtime/")):
+            if isinstance(texture, str) and texture.startswith(prefix):
+                png = validate_release_path(tree + unquote(texture.removeprefix(prefix)))
+                break
+        source_entry = local_by_path.get(png) or base_entries.get(png)
+        if source_entry is None or source_entry.get("sha256") != variant.get("sourceTextureSha256"):
+            raise ValueError(f"runtime texture canonical PNG identity changed: {texture}")
 
     entries = list(local_entries)
     missing = sorted(expected - local_paths)
@@ -300,7 +342,7 @@ def assemble_release(server: str, source_id: str, build_id: str, base_manifest: 
                 staging,
                 server,
                 source_id,
-                _base_fill_entries(staging, build, server, base_manifest),
+                _base_fill_entries(staging, build, server, base_manifest, source_id),
             )
         if staging.exists():
             shutil.rmtree(staging)

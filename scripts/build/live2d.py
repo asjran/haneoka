@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from core.config import ServerConfig
+from core.ktx_metadata import native_variant_metadata
 from core.hashes import sha256_bytes, sha256_file
 from core.manifests import atomic_write, read_json, stable_json, write_json
 from core.paths import PROJECT_ROOT, build_layout
@@ -708,7 +709,10 @@ def _variant_matches_encoder_profile(
 
     if variant.get("format") != format_name:
         return False
-    if variant.get("encoderProfile") != encoder_profile(format_name, tool_version):
+    mips = variant.get("mipCount", 1) if format_name == "astc6x6" else 1
+    if not isinstance(mips, int) or isinstance(mips, bool) or mips < 1:
+        return False
+    if variant.get("encoderProfile") != encoder_profile(format_name, tool_version, mip_count=mips):
         return False
     source_hash = variant.get("sourceTextureSha256")
     width = variant.get("width")
@@ -736,6 +740,7 @@ def _variant_matches_encoder_profile(
         height,
         tool_version,
         source_payload_sha256=payload_hash if format_name == "astc6x6" else None,
+        mip_count=mips,
     )
     return variant.get("cacheKey") == expected_cache_key
 
@@ -939,6 +944,7 @@ def build_live2d(
         local file can only come from a changed or new bundle).
         """
 
+        nonlocal native_texture_variant_reused
         base = base_models.get(key)
         if not isinstance(base, dict):
             return None
@@ -949,6 +955,44 @@ def build_live2d(
             if isinstance(raw_variants, list)
             else []
         )
+        covered = False
+        for value in paths:
+            if not value.startswith(f"{model_root}/"):
+                continue
+            entry = (index.get("sources") or {}).get(value)
+            if not isinstance(entry, dict):
+                continue
+            covered = True
+            try:
+                descriptor = read_json(layout.metadata / str(entry["descriptor"]))
+            except (OSError, ValueError):
+                return None
+            digest = str(descriptor.get("selectedBundle") or "")
+            if not digest or not delta.reusable(digest):
+                return None
+        if not covered or local_asset_relatives is None or any(
+            relative.startswith(f"{model_root}/") for relative in local_asset_relatives
+        ):
+            return None
+        refreshed = []
+        for variant in variants:
+            if variant.get("format") not in {"astc6x6", "bc7"}:
+                return None
+            if variant.get("format") == "bc7" and not include_bc7:
+                continue
+            relative = _restore_variant_path(variant.get("source"), config.id)
+            if not relative:
+                return None
+            output = layout.root / relative
+            try:
+                if not output.is_file():
+                    delta.fetch_release_path(relative, output)
+                if output.stat().st_size != variant.get("byteLength") or sha256_file(output) != variant.get("sha256"):
+                    return None
+                refreshed.append(native_variant_metadata(variant, output))
+            except (OSError, ValueError):
+                return None
+        variants = refreshed
         if include_bc7:
             if not native_texture_packaging:
                 return None
@@ -972,21 +1016,6 @@ def build_live2d(
                 for value in astc_variants
             ):
                 return None
-        covered = False
-        for value in paths:
-            if not value.startswith(f"{model_root}/"):
-                continue
-            entry = (index.get("sources") or {}).get(value)
-            if not isinstance(entry, dict):
-                continue
-            covered = True
-            try:
-                descriptor = read_json(layout.metadata / str(entry["descriptor"]))
-            except (OSError, ValueError):
-                return None
-            digest = str(descriptor.get("selectedBundle") or "")
-            if not digest or not delta.reusable(digest):
-                return None
         if (
             covered
             and local_asset_relatives is not None
@@ -996,6 +1025,8 @@ def build_live2d(
             )
         ):
             adopted = copy.deepcopy(base)
+            adopted["runtime"]["textureVariants"] = variants
+            native_texture_variant_reused += len(variants)
             if not include_bc7:
                 adopted_runtime = (
                     adopted.get("runtime")
@@ -1196,6 +1227,7 @@ def build_live2d(
                                 if format_name == "astc6x6"
                                 else None
                             ),
+                            mip_count=extracted.mip_count if format_name == "astc6x6" else 1,
                         )
                         previous = previous_variants.get(
                             (extracted.texture_index, format_name)
@@ -1229,31 +1261,12 @@ def build_live2d(
                                 if not restored:
                                     output.unlink(missing_ok=True)
                         if restored:
-                            metadata = dict(previous)
-                            metadata.update(
-                                {
-                                    "textureIndex": extracted.texture_index,
-                                    "texture": extracted.texture,
-                                    "source": _runtime_url(config.id, key, relative),
-                                    "container": "ktx2",
-                                    "format": format_name,
-                                    "width": extracted.width,
-                                    "height": extracted.height,
-                                    "flipY": format_name == "astc6x6",
-                                    "cacheKey": cache_key,
-                                    "sourceTextureSha256": source_texture_sha256,
-                                    "encoderProfile": encoder_profile(
-                                        format_name, ktx_version
-                                    ),
-                                    **(
-                                        {
-                                            "sourcePayloadSha256": extracted.payload_sha256
-                                        }
-                                        if format_name == "astc6x6"
-                                        else {}
-                                    ),
-                                }
+                            metadata = ktx2_variant_metadata(
+                                extracted, _runtime_url(config.id, key, relative), output,
+                                format_name=format_name, tool_version=ktx_version,
+                                source_texture_sha256=source_texture_sha256,
                             )
+                            metadata = native_variant_metadata(metadata, output)
                             texture_variants.append(metadata)
                             native_texture_variant_reused += 1
                             continue
@@ -1290,6 +1303,7 @@ def build_live2d(
                     if delta is not None
                     else None
                 ),
+                allow_mips=True,
             )
             texture_variant_issues.extend(extraction_issues)
         elif texture_references and ktx_executable and texture_source_root is None:
@@ -1569,6 +1583,10 @@ def build_live2d(
     for key, model in models.items():
         model["preview"] = previews[key]
 
+    # Adopted models also contain real validated variants; count the final graph.
+    native_texture_variant_count = sum(len(model["runtime"].get("textureVariants", [])) for model in models.values())
+    native_texture_variant_bytes = sum(int(variant.get("byteLength") or 0)
+        for model in models.values() for variant in model["runtime"].get("textureVariants", []))
     result = {
         "schema": "haneoka-live2d-build-v1",
         "server": config.id,

@@ -21,6 +21,10 @@ on:
         type: string
       ktx2:
         required: false
+        default: true
+        type: boolean
+      basis_reencode:
+        required: false
         default: false
         type: boolean
       force:
@@ -581,37 +585,6 @@ jobs:
         run: >-
           sudo install "${{ runner.temp }}/haneoka-tools/vgmstream/r2117/vgmstream-cli"
           /usr/local/bin/vgmstream-cli
-      - name: Restore pinned Basis Universal encoder
-        if: ${{ inputs.ktx2 }}
-        id: basisu-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: ${{ runner.temp }}/haneoka-tools/basisu/1aab02ba2df16ad873229030ea191ea8c10e3fc9/basisu
-          key: basisu-1aab02ba2df16ad873229030ea191ea8c10e3fc9-${{ runner.os }}-${{ runner.arch }}
-      - name: Build pinned Basis Universal encoder
-        if: inputs.ktx2 && steps.basisu-cache.outputs.cache-hit != 'true'
-        run: |
-          git init "$RUNNER_TEMP/basis-universal"
-          git -C "$RUNNER_TEMP/basis-universal" remote add origin https://github.com/BinomialLLC/basis_universal.git
-          git -C "$RUNNER_TEMP/basis-universal" fetch --depth=1 origin 1aab02ba2df16ad873229030ea191ea8c10e3fc9
-          git -C "$RUNNER_TEMP/basis-universal" checkout --detach FETCH_HEAD
-          cmake -S "$RUNNER_TEMP/basis-universal" -B "$RUNNER_TEMP/basis-universal/build" -DCMAKE_BUILD_TYPE=Release -DBASISU_SSE=TRUE
-          cmake --build "$RUNNER_TEMP/basis-universal/build" --config Release --parallel 2
-          mkdir -p "${{ runner.temp }}/haneoka-tools/basisu/1aab02ba2df16ad873229030ea191ea8c10e3fc9"
-          install "$RUNNER_TEMP/basis-universal/bin/basisu" \
-            "${{ runner.temp }}/haneoka-tools/basisu/1aab02ba2df16ad873229030ea191ea8c10e3fc9/basisu"
-      - name: Save pinned Basis Universal encoder
-        if: inputs.ktx2 && steps.basisu-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ runner.temp }}/haneoka-tools/basisu/1aab02ba2df16ad873229030ea191ea8c10e3fc9/basisu
-          key: basisu-1aab02ba2df16ad873229030ea191ea8c10e3fc9-${{ runner.os }}-${{ runner.arch }}
-      - name: Install pinned Basis Universal encoder
-        if: ${{ inputs.ktx2 }}
-        run: >-
-          sudo install
-          "${{ runner.temp }}/haneoka-tools/basisu/1aab02ba2df16ad873229030ea191ea8c10e3fc9/basisu"
-          /usr/local/bin/basisu
       - name: Restore Master stage from private R2
         run: |
           build_root="data/servers/$RESOURCE_SERVER/builds/${{ needs.prepare.outputs.build_id }}"
@@ -767,11 +740,6 @@ jobs:
             pids+=("$!")
           fi
           names+=(cri live2d spine home-spots)
-          if [[ "${{ inputs.ktx2 }}" == "true" ]]; then
-            run_stage ktx2 python scripts/pipeline.py --server "$RESOURCE_SERVER" build-ktx2 --source "$SOURCE_ID" --build "$BUILD_ID" &
-            pids+=("$!")
-            names+=(ktx2)
-          fi
           failed=0
           for index in "${!pids[@]}"; do
             if ! wait "${pids[$index]}"; then
@@ -780,6 +748,19 @@ jobs:
             cat "$RUNNER_TEMP/${names[$index]}.log"
           done
           exit "$failed"
+      - name: Package selected runtime texture blocks
+        if: ${{ inputs.ktx2 || inputs.basis_reencode }}
+        run: |
+          extra=()
+          if [[ "${{ needs.prepare.outputs.delta }}" == "true" ]]; then
+            extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
+          fi
+          if [[ "${{ inputs.basis_reencode }}" == "true" ]]; then
+            extra+=(--basis-reencode)
+          fi
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" build-ktx2 \
+            --source "${{ needs.prepare.outputs.source_id }}" \
+            --build "${{ needs.prepare.outputs.build_id }}" "${extra[@]}"
       - name: Release decoded CRI source copies
         run: |
           # Immutable originals remain in R2 CAS. No subsequent build stage

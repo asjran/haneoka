@@ -2,7 +2,7 @@
 
 This module deliberately owns the source side and KTX2 packaging of native
 texture delivery. It resolves a selected ``Texture2D`` output back to the
-source bundle and extracts the original level-0 blocks without invoking a
+source bundle and extracts the original blocks without invoking a
 decoder. ASTC blocks are wrapped unchanged; the optional desktop BC7 variant
 is encoded from the canonical PNG with the pinned KTX-Software profile.
 
@@ -77,7 +77,7 @@ class TextureVariantIssue:
 
 @dataclass(frozen=True)
 class ExtractedAstcTexture:
-    """Validated original ASTC level-0 data and its Unity identity."""
+    """Validated original ASTC data and its Unity identity."""
 
     texture_index: int
     texture: str
@@ -88,6 +88,7 @@ class ExtractedAstcTexture:
     object_id: str
     bundle_sha256: str
     payload: bytes
+    mip_count: int = 1
 
     @property
     def source_texture_sha256(self) -> str:
@@ -112,12 +113,16 @@ class KtxToolUnavailable(RuntimeError):
     """The optional official KTX-Software command is not installed."""
 
 
-def encoder_profile(format_name: str, tool_version: str) -> dict[str, Any]:
+def encoder_profile(format_name: str, tool_version: str, *, mip_count: int = 1) -> dict[str, Any]:
     """Return the semantic encoder identity used by reuse and provenance."""
 
-    profile = (
-        ASTC_CONTAINER_PROFILE if format_name == "astc6x6" else BC7_ENCODER_PROFILE
-    )
+    profiles = {"astc6x6": ASTC_CONTAINER_PROFILE, "bc7": BC7_ENCODER_PROFILE}
+    if format_name not in profiles:
+        raise ValueError(f"unsupported native texture format: {format_name}")
+    profile = profiles[format_name]
+    if format_name == "astc6x6" and mip_count != 1:
+        profile = {key: value for key, value in profile.items() if key != "level"}
+        profile["preservedMipCount"] = _positive_int(mip_count, "mip count")
     return {
         "tool": "ktx",
         "toolVersion": tool_version,
@@ -134,6 +139,7 @@ def texture_variant_cache_key(
     tool_version: str,
     *,
     source_payload_sha256: str | None = None,
+    mip_count: int = 1,
 ) -> str:
     """Identify one deterministic KTX2 variant without hashing encoded bytes.
 
@@ -146,7 +152,7 @@ def texture_variant_cache_key(
         "sourceTextureSha256": source_texture_sha256,
         "width": width,
         "height": height,
-        "profile": encoder_profile(format_name, tool_version),
+        "profile": encoder_profile(format_name, tool_version, mip_count=mip_count),
     }
     if format_name == "astc6x6":
         identity["sourcePayloadSha256"] = source_payload_sha256 or ""
@@ -288,6 +294,7 @@ def _validate_ktx2_file(
     supercompression: int,
     uncompressed_level_bytes: int,
     compressed_level_bytes: int | None = None,
+    orientation: str | None = None,
 ) -> tuple[int, int, int]:
     """Validate the small KTX2 header/index without loading the level payload."""
 
@@ -332,9 +339,50 @@ def _validate_ktx2_file(
         raise ValueError("KTX2 uncompressed level size does not match dimensions")
     if compressed_level_bytes is not None and level_length != compressed_level_bytes:
         raise ValueError("KTX2 level-0 size does not match source payload")
+    if orientation is not None:
+        _validate_ktx2_sampling(file, header, orientation)
     if supercompression == 3:
         _validate_zlib_level(file, level_offset, level_length, uncompressed_level_bytes)
     return level_offset, level_length, level_uncompressed_length
+
+
+def _validate_ktx2_sampling(file: Path, header: bytes, orientation: str) -> None:
+    """Check the sampling contract consumed by the Cubism native uploader."""
+
+    file_bytes = file.stat().st_size
+    with file.open("rb") as stream:
+        def metadata(offset_field: int, length_field: int) -> bytes:
+            offset = int.from_bytes(header[offset_field:offset_field + 4], "little")
+            length = int.from_bytes(header[length_field:length_field + 4], "little")
+            if offset < KTX2_HEADER_BYTES or length > 65536 or offset + length > file_bytes:
+                raise ValueError("KTX2 sampling metadata range is invalid")
+            stream.seek(offset)
+            return stream.read(length)
+
+        dfd = metadata(48, 52)
+        if len(dfd) < 28 or dfd[14] != 1 or dfd[15] & 1:
+            raise ValueError("KTX2 native texture requires linear transfer and straight alpha")
+        kvd = metadata(56, 60)
+    values: dict[bytes, bytes] = {}
+    position = 0
+    while position < len(kvd):
+        if position + 4 > len(kvd):
+            raise ValueError("KTX2 sampling metadata is truncated")
+        length = int.from_bytes(kvd[position:position + 4], "little")
+        position += 4
+        padded = (length + 3) & ~3
+        if not length or position + padded > len(kvd):
+            raise ValueError("KTX2 sampling metadata length is invalid")
+        item = kvd[position:position + length]
+        key, separator, value = item.partition(b"\0")
+        if not separator or key in values:
+            raise ValueError("KTX2 sampling metadata key is invalid")
+        values[key] = value.rstrip(b"\0")
+        position += padded
+    if values.get(b"KTXorientation") != orientation.encode("ascii"):
+        raise ValueError("KTX2 orientation does not match the encoder profile")
+    if values.get(b"KTXswizzle", b"rgba") != b"rgba":
+        raise ValueError("KTX2 native texture requires RGBA channel order")
 
 
 def _compare_level(file: Path, offset: int, expected: bytes) -> None:
@@ -420,6 +468,11 @@ def write_ktx2_astc(
     filesystem.
     """
 
+    if extracted.mip_count != 1:
+        return write_ktx2_astc_mips(
+            extracted.width, extracted.height, extracted.payload, extracted.mip_count,
+            output, executable=executable,
+        )
     executable = find_ktx_executable(executable)
     if not executable:
         raise KtxToolUnavailable("official KTX-Software executable is unavailable")
@@ -455,6 +508,7 @@ def write_ktx2_astc(
             supercompression=0,
             uncompressed_level_bytes=len(extracted.payload),
             compressed_level_bytes=len(extracted.payload),
+            orientation="ru",
         )
         _compare_level(temporary, level_offset, extracted.payload)
         return _finalize_ktx2(temporary, output)
@@ -531,10 +585,76 @@ def write_ktx2_bc7(
             vk_format=KTX2_BC7_UNORM,
             supercompression=3,
             uncompressed_level_bytes=expected_uncompressed,
+            orientation="rd",
         )
         return _finalize_ktx2(temporary, output)
     finally:
         uastc.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
+
+
+def write_ktx2_astc_mips(
+    width: int, height: int, payload: bytes, mip_count: int, output: Path,
+    *, executable: str | None = None,
+) -> Path:
+    """Preserve an original ASTC 6x6 mip chain for a runtime atlas."""
+
+    width = _positive_int(width, "width")
+    height = _positive_int(height, "height")
+    mip_count = _positive_int(mip_count, "mip count")
+    if mip_count > max(width, height).bit_length():
+        raise ValueError("ASTC mip count exceeds texture dimensions")
+    sizes = [astc_payload_size(max(1, width >> level), max(1, height >> level))
+             for level in range(mip_count)]
+    if len(payload) != sum(sizes):
+        raise ValueError("ASTC mip payload size does not match dimensions")
+    executable = find_ktx_executable(executable)
+    if not executable:
+        raise KtxToolUnavailable("official KTX-Software executable is unavailable")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = _temporary_sibling(output, ".mips.ktx2")
+    raw_files = []
+    try:
+        position = 0
+        for level, size in enumerate(sizes):
+            raw = _temporary_sibling(output, f".level{level}.raw")
+            raw_files.append(raw)
+            raw.write_bytes(payload[position:position + size])
+            position += size
+        _run_ktx([
+            executable, "create", "--raw", "--format", "ASTC_6x6_UNORM_BLOCK",
+            "--width", str(width), "--height", str(height), "--levels", str(mip_count),
+            "--assign-texcoord-origin", "bottom-left",
+            *(str(raw) for raw in raw_files), str(temporary),
+        ], "create ASTC mip chain")
+        _run_ktx([executable, "validate", str(temporary)], "validate ASTC mip chain")
+        with temporary.open("rb") as stream:
+            header = stream.read(80 + 24 * mip_count)
+        if (len(header) != 80 + 24 * mip_count or header[:12] != KTX2_MAGIC
+                or int.from_bytes(header[12:16], "little") != KTX2_ASTC_6X6_UNORM
+                or int.from_bytes(header[16:20], "little") != 1
+                or int.from_bytes(header[20:24], "little") != width
+                or int.from_bytes(header[24:28], "little") != height
+                or any(header[28:36]) or int.from_bytes(header[36:40], "little") != 1
+                or int.from_bytes(header[40:44], "little") != mip_count
+                or int.from_bytes(header[44:48], "little") != 0):
+            raise ValueError("KTX2 ASTC mip header differs from the source layout")
+        _validate_ktx2_sampling(temporary, header, "ru")
+        position = 0
+        for level, size in enumerate(sizes):
+            index = 80 + 24 * level
+            offset = int.from_bytes(header[index:index + 8], "little")
+            length = int.from_bytes(header[index + 8:index + 16], "little")
+            unpacked = int.from_bytes(header[index + 16:index + 24], "little")
+            if (length != size or unpacked != size or offset < len(header)
+                    or offset + size > temporary.stat().st_size):
+                raise ValueError("KTX2 ASTC mip range differs from the source layout")
+            _compare_level(temporary, offset, payload[position:position + size])
+            position += size
+        return _finalize_ktx2(temporary, output)
+    finally:
+        for raw in raw_files:
+            raw.unlink(missing_ok=True)
         temporary.unlink(missing_ok=True)
 
 
@@ -558,6 +678,17 @@ def ktx2_variant_metadata(
         "container": "ktx2",
         "width": extracted.width,
         "height": extracted.height,
+        "requiresTranscoding": False,
+        "lossyReencoded": format_name == "bc7",
+        "orientation": "ru" if format_name == "astc6x6" else "rd",
+        "transferFunction": "linear",
+        "alphaMode": "straight",
+        "mipCount": extracted.mip_count if format_name == "astc6x6" else 1,
+        "gpuByteLength": (
+            len(extracted.payload)
+            if format_name == "astc6x6"
+            else ((extracted.width + 3) // 4) * ((extracted.height + 3) // 4) * 16
+        ),
         # Unity's original ASTC blocks are authored with the opposite
         # vertical origin from the canonical PNG. KTX-Software records the
         # ASTC container as ``ru`` and the runtime must flip that upload;
@@ -566,7 +697,10 @@ def ktx2_variant_metadata(
         "byteLength": output.stat().st_size,
         "sha256": sha256_file(output),
         "sourceTextureSha256": source_hash,
-        "encoderProfile": encoder_profile(format_name, tool_version),
+        "encoderProfile": encoder_profile(
+            format_name, tool_version,
+            mip_count=extracted.mip_count if format_name == "astc6x6" else 1,
+        ),
         **(
             {"sourcePayloadSha256": extracted.payload_sha256}
             if format_name == "astc6x6"
@@ -581,11 +715,12 @@ def ktx2_variant_metadata(
             source_payload_sha256=(
                 extracted.payload_sha256 if format_name == "astc6x6" else None
             ),
+            mip_count=extracted.mip_count if format_name == "astc6x6" else 1,
         ),
     }
 
 
-def extract_astc_texture(obj: Any) -> tuple[int, int, bytes]:
+def extract_astc_texture(obj: Any, *, allow_mips: bool = False) -> tuple[int, int, bytes]:
     """Validate a UnityPy Texture2D and return its original ASTC blocks.
 
     ``Texture2D.get_image_data`` is intentionally used instead of a decoded
@@ -601,8 +736,11 @@ def extract_astc_texture(obj: Any) -> tuple[int, int, bytes]:
         raise ValueError(f"unsupported Unity texture format: {texture_format}")
     width = _positive_int(_raw_field(texture, "m_Width", "width"), "width")
     height = _positive_int(_raw_field(texture, "m_Height", "height"), "height")
-    if _required_mip_count(texture) != 1:
+    mip_count = _required_mip_count(texture)
+    if mip_count != 1 and not allow_mips:
         raise ValueError("native ASTC variant requires one mip level")
+    if mip_count > max(width, height).bit_length():
+        raise ValueError("ASTC mip count exceeds texture dimensions")
     if _required_texture_dimension(texture) != 2:
         raise ValueError("native ASTC variant requires a 2D texture")
     if _required_image_count(texture) != 1:
@@ -611,7 +749,8 @@ def extract_astc_texture(obj: Any) -> tuple[int, int, bytes]:
     if not isinstance(payload, (bytes, bytearray, memoryview)):
         raise ValueError("Unity Texture2D returned a non-byte image payload")
     payload = bytes(payload)
-    expected = astc_payload_size(width, height)
+    expected = sum(astc_payload_size(max(1, width >> level), max(1, height >> level))
+                   for level in range(mip_count))
     if len(payload) != expected:
         raise ValueError(
             f"ASTC payload size mismatch for {width}x{height}: "
@@ -689,6 +828,7 @@ def extract_live2d_astc(
     bundle_records: dict[str, dict[str, Any]] | None = None,
     source_root: Path | None = None,
     fetch_original: Callable[[str, Path], None] | None = None,
+    allow_mips: bool = False,
 ) -> tuple[list[ExtractedAstcTexture], list[TextureVariantIssue]]:
     """Extract selected Live2D Texture2D blocks, one source bundle at a time.
 
@@ -809,7 +949,7 @@ def extract_live2d_astc(
                         )
                         continue
                     try:
-                        width, height, payload = extract_astc_texture(obj)
+                        width, height, payload = extract_astc_texture(obj, allow_mips=allow_mips)
                         value = ExtractedAstcTexture(
                             reference.texture_index,
                             reference.texture,
@@ -820,6 +960,7 @@ def extract_live2d_astc(
                             identity[1],
                             bundle_sha,
                             payload,
+                            _required_mip_count(obj.read()) if allow_mips else 1,
                         )
                         if on_texture is not None:
                             try:

@@ -32,6 +32,7 @@ from core.paths import build_layout
 from core.unity_objects import iter_unity_object_archive
 from build.anon_tokyo import build_anon_tokyo_catalog
 from build.collectibles import build_backgrounds, build_stickers
+from build.runtime_texture_projection import RuntimeTextureProjection
 from build.game_systems import build_game_systems
 from build.tgw_card import build_tgw_card
 from build.live2d_preview import PREVIEW_SCHEMA as LIVE2D_PREVIEW_SCHEMA
@@ -7693,6 +7694,7 @@ def build_api(
     documents["tgw-card"] = build_tgw_card(data, documents, RESOURCE_TYPES)
     if tuple(documents) != CATALOG_RESOURCES:
         raise AssertionError("catalog resource contract and builder are out of sync")
+    RuntimeTextureProjection(data, source_id).apply(documents)
     _enrich_image_variants(data, documents)
     layout.api.mkdir(parents=True, exist_ok=True)
     for resource, document in documents.items():

@@ -802,7 +802,24 @@ def command_build_api(args: argparse.Namespace) -> None:
 def command_build_ktx2(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
-    _print(build_ktx2(config.id, identity))
+    texture_metadata = read_json(build_layout(config.id, identity).metadata / "spine.json")
+    if texture_metadata.get("server") != config.id or texture_metadata.get("sourceId") != args.source:
+        raise ValueError("runtime texture selection metadata belongs to a different server/source")
+    delta = _delta_context(config, args.delta_plan) if args.delta_plan else None
+    if delta is not None and delta.source_id != args.source:
+        raise ValueError("texture delta source does not match the requested source")
+    stores = []
+
+    def fetch_original(digest: str, target: Path) -> None:
+        if delta is not None:
+            delta.fetch_original_bundle(digest, target)
+            return
+        if not stores:
+            stores.append(R2Store(config, 2))
+        stores[0].download_file(cas_key(digest), target, expected_sha256=digest)
+
+    _print(build_ktx2(config.id, identity, source_id=args.source,
+                      fetch_original=fetch_original, allow_basis_reencode=args.basis_reencode))
 
 
 def command_build_announcements(args: argparse.Namespace) -> None:
@@ -830,6 +847,7 @@ def _run_build(
     identity: str,
     include_ktx2: bool,
     include_live2d_bc7: bool = False,
+    include_basis_reencode: bool = False,
 ) -> dict:
     extract_master(
         _source_package(config.id, source_id),
@@ -866,11 +884,16 @@ def _run_build(
         lambda: build_spine(config, source_id, identity),
         lambda: build_home_spots(config, source_id, identity),
     ]
-    if include_ktx2:
-        stages.append(lambda: build_ktx2(config.id, identity))
     with ThreadPoolExecutor(max_workers=len(stages)) as executor:
         for future in [executor.submit(stage) for stage in stages]:
             future.result()
+    # Runtime metadata is a prerequisite for exact atlas selection.
+    if include_ktx2 or include_basis_reencode:
+        texture_metadata = read_json(build_layout(config.id, identity).metadata / "spine.json")
+        if texture_metadata.get("server") != config.id or texture_metadata.get("sourceId") != source_id:
+            raise ValueError("runtime texture selection metadata belongs to a different server/source")
+        build_ktx2(config.id, identity, source_id=source_id,
+                   allow_basis_reencode=include_basis_reencode)
     build_api(config, source_id, identity)
     # NOTE: the Sonolus payload is intentionally NOT built here. It is decoupled
     # from the resource pipeline (it is slow and changes independently): the engine
@@ -917,6 +940,7 @@ def command_run(args: argparse.Namespace) -> None:
         identity,
         args.ktx2,
         getattr(args, "live2d_bc7", False),
+        getattr(args, "basis_reencode", False),
     )
     pointer = publish_release(store, config, release["releaseId"]) if store else None
     _print(
@@ -1304,10 +1328,12 @@ def parser() -> argparse.ArgumentParser:
     api.set_defaults(run=command_build_api)
 
     ktx2 = commands.add_parser(
-        "build-ktx2", help="build optional KTX2 runtime derivatives"
+        "build-ktx2", help="package selected original runtime texture blocks"
     )
     ktx2.add_argument("--source", required=True)
     ktx2.add_argument("--build")
+    ktx2.add_argument("--delta-plan", help="pinned source/CAS restore plan for selected texture bundles and dependencies")
+    ktx2.add_argument("--basis-reencode", action="store_true", help="opt in to lossy runtime-only Basis derivatives; canonical PNGs stay unchanged")
     ktx2.set_defaults(run=command_build_ktx2)
 
     announcements = commands.add_parser(
@@ -1344,7 +1370,8 @@ def parser() -> argparse.ArgumentParser:
         help="build only --source already stored locally; never contacts the game CDN or R2",
     )
     run.add_argument("--cache", help="flat cache of exact original download filenames")
-    run.add_argument("--ktx2", action="store_true")
+    run.add_argument("--ktx2", action="store_true", help="package original runtime blocks after runtime stages")
+    run.add_argument("--basis-reencode", action="store_true", help="opt in to lossy runtime-only Basis derivatives")
     run.add_argument(
         "--live2d-bc7",
         action="store_true",
