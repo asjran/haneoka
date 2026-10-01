@@ -17,6 +17,7 @@ import {
   type VegaPlayerHandle,
 } from "@haneoka/vega/engine";
 import type { StoryResolvedText } from "@haneoka/vega/runtime";
+import { iterateAdvCommands } from "@haneoka/vega/renderer-kit";
 import type { CubismRuntimeAdapter } from "@haneoka/vega-plugin-cubism";
 import { createCubismPlugin } from "@haneoka/vega-plugin-cubism";
 import { hydrateStoryPayload } from "@haneoka/vega-plugin-haneoka";
@@ -271,6 +272,22 @@ export class VegaStoryStage extends LitElement {
         assets: { ...assets, live2d: live2d.map((entry, index) => ({ id: keys[index], ...(entry as RecordValue) })) },
         runtime: resolvedRuntime,
       }) as AdvStory;
+      const preparationPlan: Array<{
+        index: number;
+        category: "Voice" | "Se";
+        sound: NonNullable<NonNullable<AdvStory["commands"]>[number]["se"]>;
+      }> = [];
+      for (const [index, root] of (hydrated.commands ?? []).entries()) {
+        for (const command of iterateAdvCommands([root])) {
+          for (const sound of command.voices ?? []) preparationPlan.push({ index, category: "Voice", sound });
+          for (const sound of [command.se, command.chatSound]) {
+            if (sound?.playableUrl) preparationPlan.push({ index, category: "Se", sound });
+          }
+        }
+      }
+      if (hydrated.runtime) {
+        Object.assign(hydrated.runtime, { audio: { ...hydrated.runtime.audio, preparationPlan } });
+      }
       this.phase = "booting";
       this.playerState = createVegaPlayerState();
       this.playerState.paused = true;
@@ -551,6 +568,12 @@ export class VegaStoryStage extends LitElement {
       const handle = this.handle;
       if (!handle) return;
       const state = handle.player.state;
+      if (state.ready) {
+        const sounds = handle.player.SoundManager as typeof handle.player.SoundManager & {
+          prepareForCommand?(index: number): void;
+        };
+        sounds.prepareForCommand?.(state.commandIndex);
+      }
       if (state.playing && !this.started) this.started = true;
       const shell = handle.shell;
       const screen = shell?.currentScreen ?? shell?.snapshot().screen ?? "game";
