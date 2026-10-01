@@ -83,8 +83,8 @@ const identity = {
 const special = new Map<string, SpriteSource>([
   ["lane_base", { x: 0, y: 2048, w: 2048, h: 1644 }],
   ["slide_line", { x: 0, y: 3692, w: 100, h: 48 }],
-  // The connector shader selects V=.5. The fixed strips keep the transverse
-  // mask while removing transparent-row bleed at both longitudinal edges.
+  // The legacy fixed strips retain the transverse mask without transparent
+  // rows bleeding into the longitudinal edges.
   ["slide_line_fixed_v", { x: 401, y: 3693, w: 100, h: 8 }],
   ["slide_line_normal", { x: 505, y: 3693, w: 100, h: 8 }],
   ["slide_line_pressed", { x: 609, y: 3693, w: 100, h: 8 }],
@@ -93,8 +93,8 @@ const special = new Map<string, SpriteSource>([
   ["preview_border", { x: 829, y: 3693, w: 8, h: 8 }],
   ["preview_divider", { x: 841, y: 3693, w: 8, h: 8 }],
   ["sim_line", { x: 853, y: 3693, w: 8, h: 8 }],
-  ["guideline_gradient", { x: 326, y: 3692, w: 1, h: 2 }],
-  ["guideline_space", { x: 328, y: 3692, w: 1, h: 1 }],
+  ["guideline_gradient", { x: 864, y: 3694, w: 8, h: 64 }],
+  ["guideline_space", { x: 879, y: 3694, w: 8, h: 8 }],
   ["judgment_line", { x: 330, y: 3692, w: 1, h: 1 }],
   ["lane_tap", { x: 104, y: 3692, w: 96, h: 96 }],
   ["lane_tap_tl", { x: 104, y: 3692, w: 46, h: 46 }],
@@ -787,10 +787,13 @@ function validateBounds(
 }
 
 // Live/Unlit/SlideLine fragment composite (HoldRibbon): the authored
-// gradient runs along the line's length; the cross-section is the grayscale
-// art tinted by that gradient plus glow rails on the outer edges.
+// gradient runs along the line's length. The selected material's unbound
+// MainTex uses white; the strip mask supplies coverage at the outer edges.
 const SLIDE_STRIP_X = { normal: 505, pressed: 609, missed: 713 } as const;
-const SLIDE_SOURCE_ROW = 3693;
+const SLIDE_LEGACY_ROW = 3693;
+// Use the legacy strip's middle row as a coverage mask. The selected native
+// material itself has a white MainTex and does not sample this grayscale art.
+const SLIDE_MASK_ROW = 3692 + 24;
 const SLIDE_STRIP_WIDTH = 100;
 /** The authored grayscale line art spans x=6..93 of the 100px row. */
 const SLIDE_ART_SPAN = { left: 6, right: 93 } as const;
@@ -814,10 +817,11 @@ function sampleSlideGradient(gradient: SlideGradient, time: number): [number, nu
   const channel = (offset: number): number =>
     Math.min(1, Math.max(0, left[offset]! + (right[offset]! - left[offset]!) * amount));
   const alphaKeys = gradient.alpha;
+  // Each alpha stop is [time, alpha], matching the authored Gradient keys.
   const a0 = alphaKeys[1] ?? 1;
-  const a1 = alphaKeys[2] ?? a0;
+  const a1 = alphaKeys[3] ?? a0;
   const t0 = alphaKeys[0] ?? 0;
-  const t1 = alphaKeys[3] ?? 1;
+  const t1 = alphaKeys[2] ?? 1;
   const alphaAmount = Math.min(1, Math.max(0, (time - t0) / Math.max(1e-6, t1 - t0)));
   return [channel(1), channel(2), channel(3), a0 + (a1 - a0) * alphaAmount];
 }
@@ -848,13 +852,20 @@ function hsvToRgb(h: number, s: number, v: number): readonly [number, number, nu
   return table[((i % 6) + 6) % 6]!;
 }
 
-function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNoteSkin): void {
+export function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNoteSkin): void {
   // Keep the legacy midpoint aliases and sixteen authored length samples.
   // Runtime selects a sample using the whole line's progress, independently
   // of viewport clipping. Every sample preserves the same cross-section.
   const style = OUR_NOTES_SLIDE_LINE_STYLES[skinName];
+  // InitializeElement applies the reciprocal of the normal gradient's
+  // maximum alpha through the material's _Color.a, for every line state.
+  let normalMaxAlpha = 0;
+  for (let sample = 0; sample < 256; sample += 1) {
+    normalMaxAlpha = Math.max(normalMaxAlpha, sampleSlideGradient(style.normal, sample / 255)[3]);
+  }
+  const alphaScale = normalMaxAlpha > 0 ? 1 / normalMaxAlpha : 1;
   const stride = texture.width * 4;
-  const sourceOffset = SLIDE_SOURCE_ROW * stride;
+  const sourceOffset = SLIDE_MASK_ROW * stride;
   const states: ReadonlyArray<[keyof typeof SLIDE_STRIP_X, SlideGradient, number]> = [
     ["normal", style.normal, style.glow.enabledScale],
     ["pressed", style.pressed, style.glow.pressedScale],
@@ -863,26 +874,25 @@ function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNoteSkin)
   for (const [state, gradient, stateScale] of states) {
     const targetX = SLIDE_STRIP_X[state];
     for (let cell = -1; cell < 16; cell++) {
-      const targetY = cell < 0 ? SLIDE_SOURCE_ROW : 3720 + cell * 10;
+      const targetY = cell < 0 ? SLIDE_LEGACY_ROW : 3720 + cell * 10;
       const [baseR, baseG, baseB, baseA] = sampleSlideGradient(gradient, cell < 0 ? 0.5 : (cell + 0.5) / 16);
       for (let column = 0; column < SLIDE_STRIP_WIDTH; column += 1) {
         const sourceOffsetPixel = sourceOffset + Math.min(99, column) * 4;
-        const gray = texture.pixels[sourceOffsetPixel]! / 255;
         const sourceA = texture.pixels[sourceOffsetPixel + 3]! / 255;
         // Glow rides the authored art's outer rails: symmetric across the
         // strip, strongest at the edges, zero from 12.5% inward.
         const u = Math.min(1, Math.max(0, (column - SLIDE_ART_SPAN.left) / (SLIDE_ART_SPAN.right - SLIDE_ART_SPAN.left)));
         const edge = Math.abs(2 * u - 1);
-        const glowBase = Math.min(1, Math.max(0, edge / 0.125 - 7));
+        const glowBase = Math.min(1, Math.max(0, (edge / 0.125 - 7) / Math.max(0.001, style.glow.width)));
         const glow =
           (glowBase <= 0 ? 0 : Math.pow(glowBase, style.glow.falloff)) * style.glow.intensity * stateScale;
         const [h, s, v] = rgbToHsv(baseR, baseG, baseB);
         const [ar, ag, ab] = hsvToRgb(h, Math.min(1, Math.max(0, s - glow)), Math.min(1, v + glow));
         const mixAmount = Math.min(1, glow);
-        const r = (ar + (style.glow.color[0] - ar) * mixAmount) * gray;
-        const g = (ag + (style.glow.color[1] - ag) * mixAmount) * gray;
-        const b = (ab + (style.glow.color[2] - ab) * mixAmount) * gray;
-        const a = (baseA + (1 - baseA) * mixAmount) * sourceA;
+        const r = ar + (style.glow.color[0] - ar) * mixAmount;
+        const g = ag + (style.glow.color[1] - ag) * mixAmount;
+        const b = ab + (style.glow.color[2] - ab) * mixAmount;
+        const a = Math.min(1, (baseA + (1 - baseA) * mixAmount) * alphaScale) * sourceA;
         for (let y = targetY - 1; y <= targetY + 8; y += 1) {
           const target = y * stride + (targetX + column) * 4;
           texture.pixels[target] = Math.round(Math.min(1, Math.max(0, r)) * 255);
@@ -893,6 +903,38 @@ function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNoteSkin)
       }
     }
   }
+}
+
+/** Bake the lane-line colors separately from the note and ribbon artwork. */
+export function bakeSkinLaneGuidelines(texture: DecodedRgbaPng): Record<string, SpriteSource> {
+  const gradient = special.get("guideline_gradient")!;
+  const space = special.get("guideline_space")!;
+  const targets = [
+    { source: gradient, near: 0.6132076, far: 0.6156863, fade: true },
+    // Stage applies the short line's authored .5019608 alpha once at draw time.
+    { source: space, near: 0.6117647, far: 0.6117647, fade: false },
+  ];
+  for (const { source, near, far, fade } of targets) {
+    for (let row = -SKIN_PACK_PAD; row < source.h + SKIN_PACK_PAD; row += 1) {
+      const t = Math.min(1, Math.max(0, row / (source.h - 1)));
+      // Image top is the distant end; image bottom is the judgment end.
+      const color = Math.round((far + (near - far) * t) * 255);
+      const alpha = fade ? Math.round(t * 255) : 255;
+      for (let col = -SKIN_PACK_PAD; col < source.w + SKIN_PACK_PAD; col += 1) {
+        const x = source.x + col;
+        const y = source.y + row;
+        if (x < 0 || y < 0 || x >= texture.width || y >= texture.height) {
+          throw new Error("Lane guideline strip exceeds the common texture");
+        }
+        const offset = (y * texture.width + x) * 4;
+        texture.pixels[offset] = color;
+        texture.pixels[offset + 1] = color;
+        texture.pixels[offset + 2] = color;
+        texture.pixels[offset + 3] = alpha;
+      }
+    }
+  }
+  return { "Our Notes Guideline": gradient, "Our Notes Guideline Space": space };
 }
 
 function copySprite(texture: DecodedRgbaPng, sprite: PackedNativeSprite): void {
@@ -973,6 +1015,7 @@ function packSkin(
   texture.pixels.fill(0, 0, NATIVE_TEXTURE_SIZE * texture.width * 4);
   for (const sprite of native) copySprite(texture, sprite);
   bakeSkinSlideStrips(texture, skinName);
+  bakeSkinLaneGuidelines(texture);
 
   return {
     skinSprites: sprites,
