@@ -1,7 +1,8 @@
 // Samples the Cassiopeia web renderer's own effect001 evaluator headlessly and
 // converts every emitted instance into a textured quad in Sonolus particle
 // units. The web player and the Sonolus build therefore share one Unity
-// particle implementation; this module only adds projection.
+// particle implementation; this module projects quads and restores the
+// explicitly bound Simple billboard modes for offline particle authoring.
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -29,6 +30,7 @@ import {
   type OurNotesAssetManifest,
   type RenderParticleEffect,
 } from "@haneoka/cassiopeia-plugin-our-notes";
+import { authoredBillboardQuad, simpleBillboardStyle } from "./billboard.ts";
 
 export type Tint = readonly [number, number, number, number];
 // Published renderer declarations may precede the optional trace extension.
@@ -267,10 +269,12 @@ export class EffectTracer {
   private readonly projectionScaleY: number;
   private readonly releaseRoot: string;
   private readonly requireMaterialTint: boolean;
+  private readonly simpleBillboards: boolean;
 
   constructor(options: TracerOptions) {
     this.releaseRoot = options.releaseRoot;
     this.requireMaterialTint = options.currentQuality === 2 && (options.noteEffectSkin ?? "effect001") === "effect001";
+    this.simpleBillboards = options.noteEffectSkin === "effect001Simple";
     const map =
       (kind: "assets" | "runtime") =>
       (path: string): string => {
@@ -433,14 +437,20 @@ export class EffectTracer {
         for (const entry of billboards) {
           if (this.requireMaterialTint && !entry.materialTint)
             throw new Error("Light billboard trace requires the per-instance material tint renderer contract");
-          const quad = nativeBillboardQuad(
-            entry,
-            this.camera.position,
-            this.camera.matrixWorldInverse,
-            this.projectionScaleY,
-          );
-          // Billboards face the camera and span depths; a cohort shares the
-          // judgement plane (the alpha difference to their own depth is <4%).
+          const slot = base.kind === "tap" ? "Normal" : base.kind === "slide-loop" ? "SlideLoop" : undefined;
+          const ref = slot ? this.assets.particles.effect001Prefabs[slot]?.particleSystems[entry.system] : undefined;
+          const style = this.simpleBillboards && ref ? simpleBillboardStyle(base.kind, ref.name) : undefined;
+          const quad = style
+            ? authoredBillboardQuad(
+                entry,
+                style,
+                this.camera.position,
+                this.camera.matrixWorldInverse,
+                this.projectionScaleY,
+              )
+            : nativeBillboardQuad(entry, this.camera.position, this.camera.matrixWorldInverse, this.projectionScaleY);
+          // Cohorts keep the existing judgement-plane layout. Horizontal
+          // Simple quads are fitted within that same consumer plane contract.
           const sample = this.quadSample(
             quad,
             size,
