@@ -5,6 +5,11 @@ export type ReleaseServer = (typeof RELEASE_SERVERS)[number];
 export const isReleaseServer = (value: unknown): value is ReleaseServer =>
   typeof value === "string" && RELEASE_SERVERS.includes(value as ReleaseServer);
 
+export function releaseServerFromPath(pathname: string): ReleaseServer | undefined {
+  const prefix = pathname.split("/")[1];
+  return isReleaseServer(prefix) ? prefix : undefined;
+}
+
 export const RESOURCE_KINDS = [
   "characters",
   "songs",

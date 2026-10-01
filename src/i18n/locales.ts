@@ -1,5 +1,5 @@
 import { resolveLocalizedText } from "../lib/localized-text";
-import { releaseServerFromPath } from "../lib/release-server";
+import { releaseServerFromPath } from "../lib/resource-route";
 export const LOCALES = ["ja", "en", "zh-TW", "zh-CN", "ko"] as const;
 export type Locale = (typeof LOCALES)[number];
 export const DEFAULT_LOCALE: Locale = "ja";

@@ -1,13 +1,8 @@
 import { DEFAULT_LOCALE, isLocale } from "@haneoka/i18n";
 import { navigationDocumentUrl } from "./document-url";
-import { homePath, isReleaseServer, type ReleaseServer } from "./resource-route";
-export { RELEASE_SERVERS, isReleaseServer, type ReleaseServer } from "./resource-route";
+import { homePath, isReleaseServer, releaseServerFromPath, type ReleaseServer } from "./resource-route";
+export { RELEASE_SERVERS, isReleaseServer, releaseServerFromPath, type ReleaseServer } from "./resource-route";
 const KEY = "haneoka.release-server";
-
-export function releaseServerFromPath(pathname: string): ReleaseServer | undefined {
-  const prefix = pathname.split("/")[1];
-  return isReleaseServer(prefix) ? prefix : undefined;
-}
 
 export function normalizeReleaseServer(value: unknown): ReleaseServer {
   const current = value === "gl-cbt" ? "intl-cbt" : value;

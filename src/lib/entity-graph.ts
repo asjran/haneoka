@@ -11,7 +11,7 @@ import {
 } from "./static-catalog-source";
 import { searchableCatalogPages } from "./searchable-catalog";
 import { searchableStoryPages } from "./searchable-stories";
-import { RELEASE_SERVERS, type ReleaseServer } from "./release-server";
+import { RELEASE_SERVERS, type ReleaseServer } from "./resource-route";
 
 export const ENTITY_PAYLOAD_SCHEMA = "haneoka-entity-payload-v1";
 
