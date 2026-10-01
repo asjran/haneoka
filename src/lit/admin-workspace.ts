@@ -2,7 +2,7 @@ import { clientText } from "../i18n/client";
 import { LitElement, html, nothing } from "lit";
 import { PaneFocus } from "./ui/pane";
 import { loadingState } from "./ui/state";
-import { fetchJson, preferredLocale } from "./shared/catalog";
+import { fetchJson, JsonResponseError, preferredLocale } from "./shared/catalog";
 import { RequestScope } from "../lib/request-scope";
 import { beginLoading } from "../lib/loading-progress";
 import { navigationDocumentUrl } from "../lib/document-url";
@@ -18,6 +18,7 @@ export class AdminWorkspace extends LitElement {
   static properties = {
     section: { type: String },
     phase: { state: true },
+    staff: { state: true },
     document: { state: true },
     error: { state: true },
     busy: { state: true },
@@ -36,6 +37,7 @@ export class AdminWorkspace extends LitElement {
   declare section: Section;
   declare phase: "loading" | "ready" | "error";
   declare document: Value;
+  declare staff: Value;
   declare error: string;
   declare busy: string;
   declare cursor: string;
@@ -59,6 +61,7 @@ export class AdminWorkspace extends LitElement {
     this.section = "overview";
     this.phase = "loading";
     this.document = {};
+    this.staff = {};
     this.error = "";
     this.busy = "";
     this.cursor = "";
@@ -107,7 +110,6 @@ export class AdminWorkspace extends LitElement {
       import("@material/web/textfield/outlined-text-field.js"),
     ]);
     void this.load(false);
-    if (this.section === "operations") void this.loadResourceServers();
   }
 
   private label(path: string, fallback: string) {
@@ -121,6 +123,53 @@ export class AdminWorkspace extends LitElement {
         )
       : "—";
   }
+  private country(value: unknown) {
+    const code = typeof value === "string" ? value : "";
+    if (!/^[A-Z]{2}$/u.test(code) || code === "XX") return "";
+    try {
+      const name = new Intl.DisplayNames([preferredLocale()], { type: "region" }).of(code);
+      return name && name !== code ? name : "";
+    } catch {
+      return "";
+    }
+  }
+  private renderIpAudit(value: Value, includeAddress = true) {
+    const location = value.ipLocation as Value | undefined;
+    const network = value.network as Value | undefined;
+    const rows: [string, string, unknown][] = [
+      ["address", "IP address", includeAddress ? value.ipAddress : null],
+      ["country", "Country", this.country(location?.countryCode)],
+      ["region", "Region", location?.regionName || location?.regionCode],
+      ["city", "City", location?.city],
+      ["postalCode", "Postal code", location?.postalCode],
+      [
+        "coordinates",
+        "Approximate coordinates",
+        typeof location?.latitude === "number" && typeof location?.longitude === "number"
+          ? `${location.latitude}, ${location.longitude}`
+          : null,
+      ],
+      ["timezone", "Time zone", location?.timezone],
+      ["asn", "ASN", network?.asn],
+      ["organization", "Network organization", network?.organization],
+    ];
+    const known = rows.filter(([, , entry]) => entry !== null && entry !== undefined && entry !== "");
+    return known.length
+      ? html`
+          <div class="admin-ip-audit">
+            <small>${this.label("ip.approximate", "IP geolocation is approximate.")}</small>
+            <dl>
+              ${known.map(
+          ([key, fallback, entry]) => html`
+            <dt>${this.label(`ip.${key}`, fallback)}</dt>
+            <dd>${String(entry)}</dd>
+          `,
+        )}
+            </dl>
+          </div>
+        `
+      : nothing;
+  }
   private async request(path: string, init: RequestInit = {}) {
     if (!this.isConnected) throw new DOMException("Page closed", "AbortError");
     const headers = new Headers({ accept: "application/json" });
@@ -128,14 +177,15 @@ export class AdminWorkspace extends LitElement {
     if ((init.method || "GET") !== "GET")
       headers.set("Idempotency-Key", headers.get("Idempotency-Key") || `admin-${crypto.randomUUID()}`);
     if (typeof init.body === "string" && !headers.has("content-type")) headers.set("content-type", "application/json");
+    const signal = init.signal ? AbortSignal.any([this.lifetime.signal, init.signal]) : this.lifetime.signal;
     const value = await fetchJson<Value | null>(path, {
       credentials: "same-origin",
       cache: "no-store",
-      signal: this.lifetime.signal,
       ...init,
+      signal,
       headers,
     });
-    if (!this.isConnected) throw new DOMException("Page closed", "AbortError");
+    signal.throwIfAborted();
     return value ?? {};
   }
   private async mutate(name: string, work: () => Promise<void>) {
@@ -145,10 +195,23 @@ export class AdminWorkspace extends LitElement {
     try {
       await work();
     } catch (error) {
-      if (this.isConnected) this.error = error instanceof Error ? error.message : String(error);
+      if (this.isConnected) {
+        if (error instanceof JsonResponseError && (error.status === 401 || error.status === 403)) {
+          this.staff = {};
+          this.document = {};
+          this.history = null;
+          this.commentHistory = null;
+          this.cursor = "";
+          this.phase = "error";
+        }
+        this.error = error instanceof Error ? error.message : String(error);
+      }
     } finally {
       this.busy = "";
     }
+  }
+  private can(capability: string) {
+    return Array.isArray(this.staff.capabilities) && this.staff.capabilities.includes(capability);
   }
   private records(document = this.document) {
     const value = document[this.section];
@@ -157,13 +220,22 @@ export class AdminWorkspace extends LitElement {
   private async load(append: boolean) {
     if (append && (!this.cursor || this.loadingMore || this.phase !== "ready")) return;
     const signal = this.listRequests.begin();
-    const section = this.section;
+    let section = this.section;
     const active = () => this.isConnected && this.listRequests.current(signal) && section === this.section;
     const progress = beginLoading(this.label("loading", "Loading"), { signal });
     this.loadingMore = append;
     if (!append) this.phase = "loading";
     this.error = "";
     try {
+      if (!append) {
+        const value = await this.request("/api/v1/admin/session", { signal });
+        if (!active()) return;
+        this.staff = (value.session as Value) || {};
+        if (this.staff.role === "moderator" && section !== "appeals") {
+          section = this.section = "appeals";
+          history.replaceState(history.state, "", "/admin/appeals");
+        }
+      }
       const query = new URLSearchParams({ limit: "50" });
       if (append) query.set("cursor", this.cursor);
       if (this.section === "users" && this.query) query.set("q", this.query);
@@ -179,9 +251,18 @@ export class AdminWorkspace extends LitElement {
       } else this.document = result;
       this.cursor = String(result.nextCursor || "");
       this.phase = "ready";
+      if (!append && section === "operations") await this.loadResourceServers();
     } catch (error) {
       if (!active()) return;
       this.error = error instanceof Error ? error.message : String(error);
+      if (error instanceof JsonResponseError && (error.status === 401 || error.status === 403)) {
+        this.staff = {};
+        this.document = {};
+        this.history = null;
+        this.commentHistory = null;
+        this.cursor = "";
+        this.phase = "error";
+      }
       if (!append) this.phase = "error";
       progress.fail(error);
     } finally {
@@ -194,7 +275,8 @@ export class AdminWorkspace extends LitElement {
     const value = String(new FormData(event.currentTarget as HTMLFormElement).get("q") || "").trim();
     this.query = value;
     const params = new URLSearchParams(location.search);
-    value ? params.set("q", value) : params.delete("q");
+    if (value) params.set("q", value);
+    else params.delete("q");
     history.replaceState(history.state, "", `${location.pathname}${params.size ? `?${params}` : ""}`);
     void this.load(false);
   }
@@ -359,7 +441,8 @@ export class AdminWorkspace extends LitElement {
   }
   private createServer(event: SubmitEvent) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget as HTMLFormElement);
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
     const slug = String(data.get("slug") || "").trim();
     void this.mutate("server:create", async () => {
       await this.request("/api/v1/admin/resource-servers", {
@@ -374,7 +457,7 @@ export class AdminWorkspace extends LitElement {
           status: "draft",
         }),
       });
-      (event.currentTarget as HTMLFormElement).reset();
+      form.reset();
       await this.loadResourceServers();
     });
   }
@@ -423,7 +506,7 @@ export class AdminWorkspace extends LitElement {
       const partCount = Number(upload.partCount || 0);
       const partSize = Number(upload.partSize || 0);
       for (let part = 1; part <= partCount; part += 1) {
-        const response = await fetch(
+        await this.request(
           `/api/v1/admin/package-uploads/${encodeURIComponent(String(upload.id))}/parts/${part}?expectedVersion=${upload.version}`,
           {
             method: "PUT",
@@ -437,7 +520,6 @@ export class AdminWorkspace extends LitElement {
             body: file.slice((part - 1) * partSize, Math.min(part * partSize, file.size)),
           },
         );
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         this.packageProgress = Math.round((part / partCount) * 94);
       }
       const completed = await this.request(
@@ -487,18 +569,20 @@ export class AdminWorkspace extends LitElement {
     };
     return html`
       <nav class="admin-sections" aria-label=${this.label("title", "Admin")}>
-        ${sections.map(
-          (section) => html`
-            <a
-              class=${this.section === section ? "selected" : ""}
-              aria-current=${this.section === section ? "page" : nothing}
-              href=${section === "overview" ? "/admin" : `/admin/${section}`}
-            >
-              ${icon(icons[section])}
-              <span>${this.label(`sections.${section}`, section)}</span>
-            </a>
-          `,
-        )}
+        ${sections
+          .filter((section) => this.staff.role === "admin" || (section === "appeals" && this.can("appeals.read")))
+          .map(
+            (section) => html`
+              <a
+                class=${this.section === section ? "selected" : ""}
+                aria-current=${this.section === section ? "page" : nothing}
+                href=${section === "overview" ? "/admin" : `/admin/${section}`}
+              >
+                ${icon(icons[section])}
+                <span>${this.label(`sections.${section}`, section)}</span>
+              </a>
+            `,
+          )}
       </nav>
     `;
   }
@@ -622,6 +706,26 @@ export class AdminWorkspace extends LitElement {
             <strong>${String(record.publicDisplayName || "—")}</strong>
             <small>${String(record.accountName || "")} · ${String(record.email || "")}</small>
             <small>${String(record.role || "")} · ${String(record.status || "")}</small>
+            <small class="admin-user-visit">
+              ${this.label("ip.lastVisit", "Recent visit")}:
+              ${record.lastVisit ? this.date((record.lastVisit as Value).visitedAt) : this.label("ip.unknown", "Unknown")}
+              · ${String((record.lastVisit as Value | undefined)?.ipAddress || this.label("ip.unknown", "Unknown"))}
+            </small>
+            ${
+              record.lastVisit
+                ? html`
+                    <details class="admin-user-ip-details">
+                      <summary>
+                        ${this.country(((record.lastVisit as Value).ipLocation as Value | undefined)?.countryCode) || this.label("ip.details", "IP details")}
+                      </summary>
+                      <small>
+                        ${this.label("ip.visitSampling", "Authenticated requests are sampled once a minute; IP changes are recorded immediately.")}
+                      </small>
+                      ${this.renderIpAudit(record.lastVisit as Value, false)}
+                    </details>
+                  `
+                : nothing
+            }
           </span>
           ${this.renderUserActions(record)}
         </article>
@@ -709,13 +813,21 @@ export class AdminWorkspace extends LitElement {
             </small>
           </span>
           ${
-            record.status === "pending"
+            record.status === "pending" && this.can("appeals.write")
               ? html`
                   <div class="admin-record-actions">
-                    <button class="button" @click=${() => this.decideAppeal(record, "accepted")}>
+                    <button
+                      class="button"
+                      ?disabled=${Boolean(this.busy)}
+                      @click=${() => this.decideAppeal(record, "accepted")}
+                    >
                       ${this.label("appeals.accept", "Accept")}
                     </button>
-                    <button class="button button--danger" @click=${() => this.decideAppeal(record, "rejected")}>
+                    <button
+                      class="button button--danger"
+                      ?disabled=${Boolean(this.busy)}
+                      @click=${() => this.decideAppeal(record, "rejected")}
+                    >
                       ${this.label("appeals.reject", "Reject")}
                     </button>
                   </div>
@@ -790,7 +902,8 @@ export class AdminWorkspace extends LitElement {
               <strong>
                 ${String(post.status || "")} · ${String(post.moderationStatus || "")} · v${String(post.version || "")}
               </strong>
-              <small>${String(post.ipAddress || "—")} · ${String(post.userAgent || "—")}</small>
+              <small>${String(post.userAgent || "—")}</small>
+              ${this.renderIpAudit(post)}
             </span>
             <div>
               <button
@@ -822,8 +935,9 @@ export class AdminWorkspace extends LitElement {
                   <p>${String(revision.body || "")}</p>
                   <small>
                     ${String((revision.editor as Value | undefined)?.displayName || (revision.editor as Value | undefined)?.accountName || "")}
-                    · ${String(revision.ipAddress || "—")} · ${String(revision.userAgent || "—")}
+                    · ${String(revision.userAgent || "—")}
                   </small>
+                  ${this.renderIpAudit(revision)}
                 </article>
               `,
             )}
@@ -838,6 +952,7 @@ export class AdminWorkspace extends LitElement {
                     ${String((entry.actor as Value | undefined)?.displayName || (entry.actor as Value | undefined)?.accountName || this.label("history.systemActor", "System"))}
                   </span>
                   <small>${String(entry.reasonCode || "")} · ${this.date(entry.createdAt)}</small>
+                  ${this.renderIpAudit(entry)}
                 </article>
               `,
             )}
@@ -874,7 +989,8 @@ export class AdminWorkspace extends LitElement {
         <div class="admin-history-current">
           <span>
             <strong>${String(comment.moderationStatus || "")} · v${String(comment.version || "")}</strong>
-            <small>${String(comment.ipAddress || "—")} · ${String(comment.userAgent || "—")}</small>
+            <small>${String(comment.userAgent || "—")}</small>
+            ${this.renderIpAudit(comment)}
           </span>
           <button
             class="button button--tonal"
@@ -887,10 +1003,8 @@ export class AdminWorkspace extends LitElement {
           (revision) => html`
             <article class="admin-history-card">
               <p>${String(revision.body || "")}</p>
-              <small>
-                ${String(revision.ipAddress || "—")} · ${String(revision.userAgent || "—")} ·
-                ${this.date(revision.createdAt)}
-              </small>
+              <small>${String(revision.userAgent || "—")} · ${this.date(revision.createdAt)}</small>
+              ${this.renderIpAudit(revision)}
             </article>
           `,
         )}${events.map(
@@ -1102,7 +1216,7 @@ export class AdminWorkspace extends LitElement {
                           ${
                             this.error
                               ? html`
-                                  <div class="inline-message error">${this.error}</div>
+                                  <div class="inline-message error" role="alert">${this.error}</div>
                                 `
                               : nothing
                           }

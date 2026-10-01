@@ -145,6 +145,31 @@
   .admin-record small {
     color: var(--md-sys-color-on-surface-variant);
   }
+  .admin-user-visit,
+  .admin-user-ip-details,
+  .admin-ip-audit {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .admin-user-ip-details > summary {
+    padding-block: 8px;
+    cursor: pointer;
+  }
+  .admin-ip-audit dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 4px 12px;
+    margin-block: 8px;
+    font-size: var(--md-sys-typescale-label-medium-size);
+  }
+  .admin-ip-audit dt {
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .admin-ip-audit dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
   .admin-record-actions {
     display: flex;
     max-width: 360px;
@@ -402,6 +427,12 @@
   }
 
   @media (max-width: 599px) {
+    .admin-ip-audit dl {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .admin-ip-audit dd {
+      margin-bottom: 4px;
+    }
     .admin-page {
       gap: 12px;
       padding: 12px;
@@ -440,8 +471,16 @@
     .admin-record-actions {
       justify-content: flex-start;
     }
+    .admin-record > .admin-action-panel {
+      grid-column: 1 / -1;
+      width: 100%;
+      min-width: 0;
+    }
     .admin-action-panel > div {
-      width: calc(100vw - 32px);
+      width: 100%;
+    }
+    .admin-action-panel md-outlined-select {
+      max-width: 100%;
     }
     .admin-history-dialog {
       padding: 16px;

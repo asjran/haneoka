@@ -5,6 +5,7 @@ import { communityAccessState } from "./access";
 import { claimAuthEmailDelivery, queueAuthEmail, type EmailLocale } from "./email";
 import { inspectCommunityText, scheduleEntityModeration } from "./moderation";
 import { hashPassword, verifyPassword } from "./password";
+import { recordAuthenticatedVisit } from "./ip-address";
 
 const AUTH_PREFIX = "/api/auth";
 const ACCOUNT_REGISTRATION_PATH = "/api/v1/account/register";
@@ -1178,10 +1179,36 @@ export const getAuthSession = async (
   // mutation/staff guards, while issuing a sign-in restriction or deleting an
   // account revokes its durable sessions.
   const authoritative = options.authoritative ?? (request.method !== "GET" && request.method !== "HEAD");
-  return createAuth(request, env).api.getSession({
+  const session = await createAuth(request, env).api.getSession({
     headers: request.headers,
     query: { disableCookieCache: authoritative, disableRefresh: true },
   });
+  if (session?.user?.id && session.session.token) {
+    await observeAuthenticatedVisit(request, env, session.user.id, session.session.token);
+  }
+  return session;
+};
+
+const observeAuthenticatedVisit = async (request: Request, env: Env, userId: string, token: string): Promise<void> => {
+  const path = new URL(request.url).pathname;
+  const destination = request.headers.get("Sec-Fetch-Dest");
+  if (
+    (destination && ["image", "font", "script", "style", "audio", "video"].includes(destination)) ||
+    /^\/api\/v1\/community\/attachments\/[^/]+\/content$/u.test(path) ||
+    path.startsWith("/api/v1/account/avatar/")
+  )
+    return;
+  try {
+    await recordAuthenticatedVisit(request, env, userId, token);
+  } catch (failure) {
+    // Visit telemetry does not turn an otherwise valid account request into a failure.
+    console.warn(
+      JSON.stringify({
+        event: "auth.visit_record_failed",
+        error: failure instanceof Error ? failure.name : "UnknownError",
+      }),
+    );
+  }
 };
 
 export const handleAccountRegistrationRequest = async (request: Request, env: Env): Promise<Response | null> => {
@@ -1242,6 +1269,21 @@ export const handleAuthRequest = async (request: Request, env: Env): Promise<Res
     if (signupCompletionResponse) return signupCompletionResponse;
   }
   const response = await auth.handler(request);
+  if (response.ok && (authPath === "/get-session" || authPath === "/sign-in/email")) {
+    const value: unknown = await response
+      .clone()
+      .json()
+      .catch(() => null);
+    if (value && typeof value === "object") {
+      const user = Reflect.get(value, "user");
+      const session = Reflect.get(value, "session");
+      const userId = user && typeof user === "object" ? Reflect.get(user, "id") : null;
+      const token =
+        session && typeof session === "object" ? Reflect.get(session, "token") : Reflect.get(value, "token");
+      if (typeof userId === "string" && typeof token === "string")
+        await observeAuthenticatedVisit(request, env, userId, token);
+    }
+  }
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-store");
   headers.set("Expires", "0");

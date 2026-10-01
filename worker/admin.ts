@@ -1,6 +1,6 @@
 import { getAuthSession } from "./auth";
 import { avatarUrlSelect } from "./avatar-url";
-import { requestIpMetadata } from "./ip-address";
+import { ipDetailsJson, readIpDetails, requestIpMetadata } from "./ip-address";
 import { resolveModerationAppeal } from "./moderation";
 
 const ADMIN_PREFIX = "/api/v1/admin";
@@ -93,6 +93,12 @@ interface OverviewRow {
 }
 
 interface UserListRow {
+  lastVisitedAt: number | null;
+  lastVisitIpAddress: string | null;
+  lastVisitCountryCode: string | null;
+  lastVisitRegionCode: string | null;
+  lastVisitRegionName: string | null;
+  lastVisitIpDetails: string | null;
   accountName: string;
   candidateDisplayName: string | null;
   createdAt: string;
@@ -113,6 +119,7 @@ interface UserListRow {
 }
 
 interface IpAuditRow {
+  ipDetails: string | null;
   browserFamily: string | null;
   ipAddress: string | null;
   ipCountryCode: string | null;
@@ -434,20 +441,38 @@ const appealValue = (row: AppealListRow): JsonObject => ({
   version: row.version,
 });
 
-const ipAuditValue = (row: IpAuditRow): JsonObject => ({
-  browserFamily: row.browserFamily,
-  ipAddress: row.ipAddress,
-  ipLocation:
-    row.ipCountryCode || row.ipRegionCode || row.ipRegionName
-      ? {
-          countryCode: row.ipCountryCode,
-          regionCode: row.ipRegionCode,
-          regionName: row.ipRegionName,
-        }
-      : null,
-  osFamily: row.osFamily,
-  userAgent: row.userAgent,
-});
+const ipAuditValue = (row: IpAuditRow): JsonObject => {
+  const details = readIpDetails(row.ipDetails);
+  return {
+    browserFamily: row.browserFamily,
+    ipAddress: row.ipAddress,
+    ipLocation:
+      row.ipCountryCode ||
+      row.ipRegionCode ||
+      row.ipRegionName ||
+      details.city ||
+      details.timezone ||
+      details.continent ||
+      details.postalCode ||
+      details.latitude !== null ||
+      details.longitude !== null
+        ? {
+            countryCode: row.ipCountryCode,
+            regionCode: row.ipRegionCode,
+            regionName: row.ipRegionName,
+            city: details.city,
+            continent: details.continent,
+            latitude: details.latitude,
+            longitude: details.longitude,
+            postalCode: details.postalCode,
+            timezone: details.timezone,
+          }
+        : null,
+    network: details.asn || details.asOrganization ? { asn: details.asn, organization: details.asOrganization } : null,
+    osFamily: row.osFamily,
+    userAgent: row.userAgent,
+  };
+};
 
 const reportValue = (row: ContentReportRow): JsonObject => ({
   id: row.id,
@@ -705,6 +730,7 @@ const staffValue = (access: StaffAccess): JsonObject => ({
     access.role === "admin"
       ? [
           "appeals.read",
+          "appeals.write",
           "content-history.read",
           "operations.read",
           "packages.write",
@@ -805,11 +831,14 @@ const getUsers = async (request: Request, env: Env, url: URL): Promise<Response>
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const now = Date.now();
-  values.push(now, now, now, limit);
+  values.push(limit);
   const result = await env.DB.prepare(
     `SELECT account.id, account.name AS accountName, account.email, account.emailVerified AS emailVerified,
             ${avatarUrlSelect("account")} AS image,
             account.createdAt AS createdAt, account.updatedAt AS updatedAt,
+            visit.visited_at AS lastVisitedAt, visit.ip_address AS lastVisitIpAddress,
+            visit.ip_country_code AS lastVisitCountryCode, visit.ip_region_code AS lastVisitRegionCode,
+            visit.ip_region_name AS lastVisitRegionName, visit.ip_details_json AS lastVisitIpDetails,
             profile.display_name AS publicDisplayName,
             profile.pending_display_name AS candidateDisplayName,
             profile.display_name_status AS displayNameStatus,
@@ -834,11 +863,12 @@ const getUsers = async (request: Request, env: Env, url: URL): Promise<Response>
             ) AS uploadRestricted
      FROM "user" AS account
      JOIN community_profile AS profile ON profile.user_id = account.id
+     LEFT JOIN community_user_last_visit AS visit ON visit.user_id = account.id
      ${where}
      ORDER BY account.createdAt DESC, account.id DESC
      LIMIT ?`,
   )
-    .bind(...values)
+    .bind(now, now, now, ...values)
     .all<UserListRow>();
   const activeRestrictionsByUser = new Map<string, JsonObject[]>();
   if (result.results.length > 0) {
@@ -881,6 +911,22 @@ const getUsers = async (request: Request, env: Env, url: URL): Promise<Response>
       write: row.writeRestricted === 1,
     },
     activeRestrictions: activeRestrictionsByUser.get(row.id) || [],
+    lastVisit:
+      row.lastVisitedAt === null
+        ? null
+        : {
+            visitedAt: row.lastVisitedAt,
+            ...ipAuditValue({
+              ipAddress: row.lastVisitIpAddress,
+              ipCountryCode: row.lastVisitCountryCode,
+              ipRegionCode: row.lastVisitRegionCode,
+              ipRegionName: row.lastVisitRegionName,
+              ipDetails: row.lastVisitIpDetails,
+              userAgent: null,
+              browserFamily: null,
+              osFamily: null,
+            }),
+          },
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));
@@ -1094,6 +1140,7 @@ const getPostRevisionHistoryPage = async (
             revision.edit_reason AS editReason, revision.source_kind AS sourceKind,
             revision.ip_country_code AS ipCountryCode, revision.ip_region_code AS ipRegionCode,
             revision.ip_region_name AS ipRegionName, revision.ip_address AS ipAddress,
+            revision.ip_details_json AS ipDetails,
             revision.user_agent AS userAgent, revision.browser_family AS browserFamily,
             revision.os_family AS osFamily, revision.created_at AS createdAt
      FROM community_post_revision AS revision
@@ -1192,6 +1239,7 @@ const getPostStateEventHistoryPage = async (
             event.revision_number AS revisionNumber, event.reason_code AS reasonCode,
             event.ip_country_code AS ipCountryCode, event.ip_region_code AS ipRegionCode,
             event.ip_region_name AS ipRegionName, event.ip_address AS ipAddress,
+            event.ip_details_json AS ipDetails,
             NULL AS userAgent, NULL AS browserFamily, NULL AS osFamily,
             event.created_at AS createdAt
      FROM community_post_state_event AS event
@@ -1231,6 +1279,8 @@ const getPostCommentHistoryPage = async (
             comment.deleted_at AS deletedAt, comment.hidden_at AS hiddenAt,
             comment.ip_country_code AS ipCountryCode, comment.ip_region_code AS ipRegionCode,
             comment.ip_region_name AS ipRegionName, comment.ip_address AS ipAddress,
+            (SELECT audit.ip_details_json FROM community_comment_revision AS audit
+             WHERE audit.comment_id = comment.id AND audit.revision_number = comment.moderation_revision) AS ipDetails,
             comment.user_agent AS userAgent, comment.browser_family AS browserFamily,
             comment.os_family AS osFamily,
             comment.created_at AS createdAt, comment.updated_at AS updatedAt
@@ -1269,6 +1319,7 @@ const getCommentRevisionHistoryPage = async (
             revision.edit_reason AS editReason, revision.source_kind AS sourceKind,
             revision.ip_country_code AS ipCountryCode, revision.ip_region_code AS ipRegionCode,
             revision.ip_region_name AS ipRegionName, revision.ip_address AS ipAddress,
+            revision.ip_details_json AS ipDetails,
             revision.user_agent AS userAgent, revision.browser_family AS browserFamily,
             revision.os_family AS osFamily, revision.created_at AS createdAt
      FROM community_comment_revision AS revision
@@ -1306,6 +1357,7 @@ const getCommentStateEventHistoryPage = async (
             event.revision_number AS revisionNumber, event.reason_code AS reasonCode,
             event.ip_country_code AS ipCountryCode, event.ip_region_code AS ipRegionCode,
             event.ip_region_name AS ipRegionName, event.ip_address AS ipAddress,
+            event.ip_details_json AS ipDetails,
             NULL AS userAgent, NULL AS browserFamily, NULL AS osFamily,
             event.created_at AS createdAt
      FROM community_comment_state_event AS event
@@ -1357,6 +1409,8 @@ const getPostHistory = async (request: Request, env: Env, postId: string, url: U
             post.pinned_at AS pinnedAt, post.archived_at AS archivedAt,
             post.ip_country_code AS ipCountryCode, post.ip_region_code AS ipRegionCode,
             post.ip_region_name AS ipRegionName, post.ip_address AS ipAddress,
+            (SELECT audit.ip_details_json FROM community_post_revision AS audit
+             WHERE audit.post_id = post.id AND audit.revision_number = post.moderation_revision) AS ipDetails,
             post.user_agent AS userAgent, post.browser_family AS browserFamily,
             post.os_family AS osFamily, post.created_at AS createdAt, post.updated_at AS updatedAt
      FROM community_post AS post
@@ -1430,6 +1484,8 @@ const getCommentHistory = async (request: Request, env: Env, commentId: string, 
             comment.deleted_at AS deletedAt, comment.hidden_at AS hiddenAt,
             comment.ip_country_code AS ipCountryCode, comment.ip_region_code AS ipRegionCode,
             comment.ip_region_name AS ipRegionName, comment.ip_address AS ipAddress,
+            (SELECT audit.ip_details_json FROM community_comment_revision AS audit
+             WHERE audit.comment_id = comment.id AND audit.revision_number = comment.moderation_revision) AS ipDetails,
             comment.user_agent AS userAgent, comment.browser_family AS browserFamily,
             comment.os_family AS osFamily,
             comment.created_at AS createdAt, comment.updated_at AS updatedAt
@@ -1517,8 +1573,8 @@ const putPostState = async (request: Request, env: Env, postId: string): Promise
   const eventId = crypto.randomUUID();
   const eventPrefix = `INSERT INTO community_post_state_event
      (id, post_id, actor_user_id, event_kind, revision_number, reason_code,
-      ip_country_code, ip_region_code, ip_region_name, ip_address, created_at)
-   SELECT ?, id, ?, ?, moderation_revision, ?, ?, ?, ?, ?, ?
+      ip_country_code, ip_region_code, ip_region_name, ip_address, ip_details_json, created_at)
+   SELECT ?, id, ?, ?, moderation_revision, ?, ?, ?, ?, ?, ?, ?
    FROM community_post
    WHERE id = ? AND version = ? AND deleted_at IS NULL`;
   const event =
@@ -1532,6 +1588,7 @@ const putPostState = async (request: Request, env: Env, postId: string): Promise
           ip.regionCode,
           ip.regionName,
           ip.ipAddress,
+          ipDetailsJson(ip),
           now,
           postId,
           version,
@@ -1549,6 +1606,7 @@ const putPostState = async (request: Request, env: Env, postId: string): Promise
           ip.regionCode,
           ip.regionName,
           ip.ipAddress,
+          ipDetailsJson(ip),
           now,
           postId,
           version,
@@ -1659,8 +1717,8 @@ const putCommentState = async (request: Request, env: Env, commentId: string): P
     env.DB.prepare(
       `INSERT INTO community_comment_state_event
          (id, comment_id, actor_user_id, event_kind, revision_number, reason_code,
-          ip_country_code, ip_region_code, ip_region_name, ip_address, created_at)
-       SELECT ?, id, ?, ?, moderation_revision, ?, ?, ?, ?, ?, ?
+          ip_country_code, ip_region_code, ip_region_name, ip_address, ip_details_json, created_at)
+       SELECT ?, id, ?, ?, moderation_revision, ?, ?, ?, ?, ?, ?, ?
        FROM community_comment
        WHERE id = ? AND version = ? AND deleted_at IS NULL
          AND ((? = 1 AND hidden_at IS NULL) OR (? = 0 AND hidden_at IS NOT NULL))`,
@@ -1673,6 +1731,7 @@ const putCommentState = async (request: Request, env: Env, commentId: string): P
       ip.regionCode,
       ip.regionName,
       ip.ipAddress,
+      ipDetailsJson(ip),
       now,
       commentId,
       version,
