@@ -78,7 +78,7 @@ jobs:
       delta: ${{ steps.unity_reuse.outputs.delta }}
       base_release_id: ${{ steps.unity_reuse.outputs.base_release_id }}
       pending_by_shard: ${{ steps.unity_reuse.outputs.pending_by_shard }}
-      unity_matrix: ${{ steps.unity_reuse.outputs.unity_matrix }}
+      unity_matrix: ${{ steps.unity_reuse.outputs.unity_matrix || steps.identity.outputs.unity_matrix }}
     env:
       PACKAGE_R2_KEY: ${{ inputs.package_r2_key }}
       SOURCE_ID_INPUT: ${{ inputs.source_id }}
