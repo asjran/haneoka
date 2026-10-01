@@ -10,6 +10,7 @@ export interface StampChoice {
   resourceName: string;
   label: string;
   sources: string[];
+  variants: { language: string; url: string }[];
 }
 
 /** Only quality-reviewed derivatives enter the textless chooser. */
@@ -34,14 +35,21 @@ export function stampAssetUrl(value: unknown): string | undefined {
   return value;
 }
 
-export function stampChoices(catalog: JsonRecord, locale: string): StampChoice[] {
-  const language = locale === "zh-CN" ? "zh-Hans" : locale === "zh-TW" ? "zh-Hant" : locale;
+export function stampChoices(catalog: JsonRecord, locale: string, imageLanguage = ""): StampChoice[] {
+  const language = imageLanguage || (locale === "zh-CN" ? "zh-Hans" : locale === "zh-TW" ? "zh-Hant" : locale);
   return Object.entries(catalog)
     .flatMap(([id, value]) => {
       if (!value || typeof value !== "object") return [];
       const stamp = value as JsonRecord;
       const image = String(stamp.image || "");
       const variants = (stamp.imageVariants as Record<string, Record<string, string>> | undefined)?.[image] || {};
+      const versions = Object.entries(variants).flatMap(([language, value]) => {
+        const url = stampAssetUrl(value);
+        return url ? [{ language, url }] : [];
+      });
+      const original = stampAssetUrl(image);
+      if (original && !versions.some((version) => version.url === original))
+        versions.push({ language: "original", url: original });
       const sources = [...new Set([variants[language], variants.ja, image, ...Object.values(variants)])]
         .map(stampAssetUrl)
         .filter((source): source is string => !!source);
@@ -51,7 +59,9 @@ export function stampChoices(catalog: JsonRecord, locale: string): StampChoice[]
           .split("/")
           .pop()
           ?.replace(/\.png$/u, "") || "";
-      return [{ id, resourceName, label: localizedText(stamp.name, locale) || resourceName, sources }];
+      return [
+        { id, resourceName, label: localizedText(stamp.name, locale) || resourceName, sources, variants: versions },
+      ];
     })
     .sort((a, b) => Number(a.id) - Number(b.id));
 }

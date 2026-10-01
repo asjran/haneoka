@@ -10,6 +10,7 @@ export interface RouteDefinition {
   titleKey?: string;
   resource?: string;
   page?: string;
+  staticRedirect?: string;
 }
 
 const catalogs: Array<[string, string, string?]> = [
@@ -101,7 +102,14 @@ export const ROUTES: RouteDefinition[] = [
   },
   { route: "/catalog/assets", kind: "notice", key: "assets", titleKey: "assets" },
   { route: "/catalog/events/tracker", kind: "event-tracker", key: "event-tracker", titleKey: "eventTracker.title" },
-  { route: "/tools/stamp-maker", kind: "stamp-maker", key: "stamp-maker", titleKey: "stampMaker.title" },
+  { route: "/stamp-maker", kind: "stamp-maker", key: "stamp-maker", titleKey: "stampMaker.title" },
+  {
+    route: "/tools/stamp-maker",
+    kind: "stamp-maker",
+    key: "stamp-maker-legacy",
+    titleKey: "stampMaker.title",
+    staticRedirect: "/stamp-maker",
+  },
   ...appPages.map(([route, titleKey]) => ({
     route,
     kind: "notice" as const,

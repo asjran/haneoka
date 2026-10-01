@@ -5,10 +5,11 @@ import type { Locale } from "../i18n/locales";
 import type { ReleaseServer } from "../lib/release-server";
 import { t } from "../i18n/messages";
 import "../styles/stamp-maker.css";
+import "../styles/settings.css";
 
 const { locale, server, textlessSrc } = Astro.props as { locale: Locale; server?: ReleaseServer; textlessSrc?: string };
 const title = t(locale, "stampMaker.title", "Stamp maker");
-const route = "/tools/stamp-maker";
+const route = "/stamp-maker";
 ---
 
 <Base locale={locale} route={route} title={title} titleKey="stampMaker.title">

@@ -32,6 +32,8 @@ import { icon } from "./ui/icon";
 import { tile } from "./ui/tile";
 import { LazyImages } from "./ui/lazy-images";
 
+import { STAMP_LANGUAGES } from "../lib/stamp-maker/languages";
+
 import { registerImportedFont, removeImportedFont, type StampFont } from "../lib/stamp-maker/fonts";
 
 type Mode = "original" | "textless" | "custom";
@@ -58,6 +60,7 @@ export class StampMaker extends LitElement {
     customFile: { state: true },
     importedFonts: { state: true },
     fontError: { state: true },
+    imageLanguage: { state: true },
   };
   declare locale: string;
   declare server: string;
@@ -78,6 +81,7 @@ export class StampMaker extends LitElement {
   declare customFile: File | undefined;
   declare importedFonts: StampFont[];
   declare fontError: boolean;
+  declare imageLanguage: string;
   private importedFaces: FontFace[] = [];
   private fileSequence = 0;
   private image?: HTMLImageElement;
@@ -112,6 +116,7 @@ export class StampMaker extends LitElement {
     this.outputWidth = "512";
     this.importedFonts = [];
     this.fontError = false;
+    this.imageLanguage = "";
   }
 
   createRenderRoot() {
@@ -156,7 +161,8 @@ export class StampMaker extends LitElement {
       changed.has("textless") ||
       changed.has("mode") ||
       changed.has("customFile") ||
-      changed.has("locale")
+      changed.has("locale") ||
+      changed.has("imageLanguage")
     ) {
       if (this.mode === "textless" && !textlessChoices(this.originals, this.textless, this.server).length)
         this.mode = "original";
@@ -183,7 +189,7 @@ export class StampMaker extends LitElement {
     return clientText(this.locale, `stampMaker.${key}`);
   }
   private get originals() {
-    return stampChoices(this.catalog, this.locale);
+    return stampChoices(this.catalog, this.locale, this.imageLanguage);
   }
   private get choices() {
     return this.mode === "textless" ? textlessChoices(this.originals, this.textless, this.server) : this.originals;
@@ -195,8 +201,18 @@ export class StampMaker extends LitElement {
         resourceName: this.customFile.name.replace(/\.[^.]+$/, ""),
         label: this.customFile.name,
         sources: [],
+        variants: [],
       };
-    return this.choices.find((stamp) => stamp.id === this.selected);
+    const stamp = this.choices.find((stamp) => stamp.id === this.selected);
+    const variant = this.originalVariant;
+    return this.mode === "original" && stamp && variant ? { ...stamp, sources: [variant.url] } : stamp;
+  }
+  private get originalVariant() {
+    const stamp = this.originals.find((stamp) => stamp.id === this.selected);
+    return stamp?.variants.find((version) => version.url === stamp.sources[0]);
+  }
+  private versionLabel(language: string) {
+    return STAMP_LANGUAGES[language]?.label || (language === "original" ? this.t("original") : language);
   }
   private get fallbackFont() {
     return getComputedStyle(this).getPropertyValue("--app-font").trim() || "sans-serif";
@@ -385,7 +401,7 @@ export class StampMaker extends LitElement {
     const image = this.image;
     const settings = { ...this.settings };
     const fallback = this.fallbackFont;
-    const resourceName = this.choice?.resourceName || "stamp";
+    const resourceName = `${this.choice?.resourceName || "stamp"}${this.mode === "original" && this.originalVariant ? `-${this.originalVariant.language}` : ""}`;
     const width = Number(this.outputWidth);
     this.exportState = "saving";
     try {
@@ -479,54 +495,7 @@ export class StampMaker extends LitElement {
     const textlessCount = textlessChoices(this.originals, this.textless, this.server).length;
     return html`
       <section class="stamp-maker" lang=${this.locale}>
-        <div class="stamp-maker__preview-pane">
-          <div
-            class="stamp-maker__preview"
-            aria-busy=${String((this.mode !== "custom" && this.catalogLoading) || this.imageLoading || this.fontLoading)}
-          >
-            <canvas
-              width="512"
-              height="512"
-              tabindex="0"
-              role="img"
-              aria-label=${this.t("preview")}
-              aria-describedby="stamp-maker-drag-help"
-              @pointerdown=${this.pointerDown}
-              @pointermove=${this.pointerMove}
-              @pointerup=${this.pointerEnd}
-              @pointercancel=${this.pointerEnd}
-              @lostpointercapture=${() => (this.drag = undefined)}
-              @keydown=${this.canvasKey}
-            ></canvas>
-            ${
-              (this.mode !== "custom" && this.catalogLoading) || this.imageLoading || this.fontLoading
-                ? html`
-                    <div class="stamp-maker__overlay">
-                      <md-circular-progress indeterminate aria-label=${this.t("loading")}></md-circular-progress>
-                    </div>
-                  `
-                : nothing
-            }
-            ${
-              (this.mode !== "custom" && this.catalogError) || this.imageError
-                ? html`
-                    <div class="stamp-maker__overlay">
-                      <p role="alert">${this.t("loadFailed")}</p>
-                      <button
-                        type="button"
-                        class="button button--tonal"
-                        @click=${() => (this.mode !== "custom" && this.catalogError ? this.loadCatalog() : this.loadImage())}
-                      >
-                        ${this.t("retry")}
-                      </button>
-                    </div>
-                  `
-                : nothing
-            }
-          </div>
-          <p class="field-note" id="stamp-maker-drag-help">${this.t("dragHelp")}</p>
-        </div>
-        <div class="stamp-maker__editor field-stack">
+        <div class="stamp-maker__source field-stack">
           <div class="stamp-maker__row">
             <button
               class="button button--tonal"
@@ -569,22 +538,109 @@ export class StampMaker extends LitElement {
               : nothing
           }
           ${
-            !textlessCount
+            this.mode === "original" && this.choice?.variants.length
               ? html`
-                  <p class="field-note">
-                    ${this.t(this.manifestError ? "textlessFailed" : "textlessPending")}${
-                      this.manifestError
+                  <div class="stamp-maker__language">
+                    <span class="stamp-maker__language-label">
+                      ${clientText(this.locale, "language")} · ${this.versionLabel(this.originalVariant?.language || "original")}
+                    </span>
+                    <div
+                      class="settings-options stamp-maker__language-options"
+                      role="radiogroup"
+                      aria-label=${clientText(this.locale, "language")}
+                    >
+                      ${this.choice.variants.map(
+                  (version) => html`
+                    <label class="settings-option" title=${this.versionLabel(version.language)}>
+                      <input
+                        type="radio"
+                        name="stamp-image-language"
+                        value=${version.language}
+                        .checked=${this.originalVariant?.language === version.language}
+                        aria-label=${this.versionLabel(version.language)}
+                        @change=${() => (this.imageLanguage = version.language)}
+                      />
+                      <span class="settings-option__face" aria-hidden="true">
+                        ${
+                      STAMP_LANGUAGES[version.language]
                         ? html`
-                            <button type="button" class="button button--text" @click=${this.loadManifest}>
-                              ${this.t("retry")}
-                            </button>
+                            <span class="settings-option__image">
+                              <img src=${STAMP_LANGUAGES[version.language].flag} width="28" height="28" alt="" />
+                            </span>
                           `
-                        : nothing
+                        : icon("image", 24)
                     }
+                      </span>
+                      <span class="settings-option__tooltip" aria-hidden="true">
+                        ${this.versionLabel(version.language)}
+                      </span>
+                    </label>
+                  `,
+                )}
+                    </div>
+                  </div>
+                `
+              : nothing
+          }
+          ${
+            this.manifestError
+              ? html`
+                  <p class="field-note" role="alert">
+                    ${this.t("textlessFailed")}
+                    <button type="button" class="button button--text" @click=${this.loadManifest}>
+                      ${this.t("retry")}
+                    </button>
                   </p>
                 `
               : nothing
           }
+        </div>
+        <div class="stamp-maker__preview-pane">
+          <div
+            class="stamp-maker__preview"
+            aria-busy=${String((this.mode !== "custom" && this.catalogLoading) || this.imageLoading || this.fontLoading)}
+          >
+            <canvas
+              width="512"
+              height="512"
+              tabindex="0"
+              role="img"
+              aria-label=${this.t("preview")}
+              @pointerdown=${this.pointerDown}
+              @pointermove=${this.pointerMove}
+              @pointerup=${this.pointerEnd}
+              @pointercancel=${this.pointerEnd}
+              @lostpointercapture=${() => (this.drag = undefined)}
+              @keydown=${this.canvasKey}
+            ></canvas>
+            ${
+              (this.mode !== "custom" && this.catalogLoading) || this.imageLoading || this.fontLoading
+                ? html`
+                    <div class="stamp-maker__overlay">
+                      <md-circular-progress indeterminate aria-label=${this.t("loading")}></md-circular-progress>
+                    </div>
+                  `
+                : nothing
+            }
+            ${
+              (this.mode !== "custom" && this.catalogError) || this.imageError
+                ? html`
+                    <div class="stamp-maker__overlay">
+                      <p role="alert">${this.t("loadFailed")}</p>
+                      <button
+                        type="button"
+                        class="button button--tonal"
+                        @click=${() => (this.mode !== "custom" && this.catalogError ? this.loadCatalog() : this.loadImage())}
+                      >
+                        ${this.t("retry")}
+                      </button>
+                    </div>
+                  `
+                : nothing
+            }
+          </div>
+        </div>
+        <div class="stamp-maker__editor field-stack">
           <md-outlined-text-field
             type="textarea"
             rows="2"
@@ -620,7 +676,6 @@ export class StampMaker extends LitElement {
             </button>
             <input hidden data-font-file type="file" accept=".woff2,.woff,.ttf,.otf" @change=${this.importFont} />
           </div>
-          <p class="field-note">${this.t("fontHelp")}</p>
           ${
             this.fontError
               ? html`
@@ -719,6 +774,12 @@ export class StampMaker extends LitElement {
                 kind: "stamp",
                 title: stamp.label,
                 label: stamp.label,
+                subtitle:
+                  this.mode === "textless"
+                    ? null
+                    : this.versionLabel(
+                        stamp.variants.find((version) => version.url === stamp.sources[0])?.language || "original",
+                      ),
                 image: stamp.sources[0],
                 aspectRatio: 1,
                 fit: "contain",

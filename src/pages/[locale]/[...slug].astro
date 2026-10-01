@@ -25,6 +25,7 @@ export function getStaticPaths() {
   );
 }
 const { locale, entry, title } = Astro.props as { locale: Locale; entry: RouteDefinition; title: string };
+if (entry.staticRedirect) return Astro.redirect(`/${locale}${entry.staticRedirect}/`, 308);
 ---
 {entry.kind === "stamp-maker" ? (
   <StampMakerDocument locale={locale} />

@@ -296,7 +296,10 @@ export const featureNamespaceForRoute = (route = "/"): MainI18nNamespace => {
   if (pathname === "/settings" || pathname.startsWith("/settings/")) return COMMON_I18N_NAMESPACE;
   if (pathname === "/admin" || pathname.startsWith("/admin/")) return ADMIN_I18N_NAMESPACE;
   if (pathname === "/community" || pathname.startsWith("/community/")) return COMMUNITY_I18N_NAMESPACE;
-  if (pathname === "/tools/stamp-maker" || pathname.startsWith("/tools/stamp-maker/"))
+  if (
+    pathname === "/stamp-maker" || pathname.startsWith("/stamp-maker/") ||
+    pathname === "/tools/stamp-maker" || pathname.startsWith("/tools/stamp-maker/")
+  )
     return STAMP_MAKER_I18N_NAMESPACE;
   if (pathname.includes("anon-tokyo")) return ANON_I18N_NAMESPACE;
   if (pathname.includes("chart-editor") || pathname.includes("story-editor")) return EDITOR_I18N_NAMESPACE;
