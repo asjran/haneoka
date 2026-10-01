@@ -2133,7 +2133,8 @@
       "files": "ファイル",
       "failed": "読み込みに失敗しました"
     },
-    "gekisouStages": "撃奏区間"
+    "gekisouStages": "撃奏区間",
+    "cardMovieGacha": "ガチャ演出"
   },
   "chartPlayer": {
     "play": "プレイ",

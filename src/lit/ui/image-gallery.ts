@@ -1,5 +1,7 @@
 import { LitElement, html, nothing, type PropertyValues } from "lit";
 import type PhotoSwipe from "photoswipe";
+import "@material/web/progress/circular-progress.js";
+import { AlphaVideo, alphaVideoSource, type AlphaVideoSource } from "../runtime/alpha-video";
 import { trapFocus } from "../../lib/overlay";
 import { uiText } from "../shared/catalog";
 import { iconButton, rovingKeydown } from "./controls";
@@ -8,8 +10,7 @@ import { nextImageCandidate } from "./lazy-images";
 import "../../styles/image-gallery.css";
 import "photoswipe/style.css";
 
-export interface GalleryClip {
-  url: string;
+export interface GalleryClip extends AlphaVideoSource {
   loop?: boolean;
   /**
    * Whether the sequence's background should show behind this clip. Only the
@@ -38,7 +39,7 @@ export interface GalleryImage {
    * background). The stage keeps showing the still until the viewer opts in
    * through the play toggle beside the zoom control.
    */
-  animatedOverlay?: { url: string; background?: string };
+  animatedOverlay?: AlphaVideoSource & { background?: string };
 }
 export class ImageGallery extends LitElement {
   static properties = {
@@ -51,6 +52,9 @@ export class ImageGallery extends LitElement {
     error: { state: true },
     clipIndex: { state: true },
     animated: { state: true },
+    movieBusy: { state: true },
+    movieReady: { state: true },
+    movieBackdrop: { state: true },
   };
   declare images: readonly GalleryImage[];
   declare locale: string;
@@ -61,6 +65,16 @@ export class ImageGallery extends LitElement {
   declare error: string;
   declare clipIndex: number;
   declare animated: boolean;
+  declare movieBusy: boolean;
+  declare movieReady: boolean;
+  declare movieBackdrop: boolean;
+  private movieVideo?: HTMLVideoElement;
+  private movieCanvas?: HTMLCanvasElement;
+  private movieRenderer?: AlphaVideo;
+  private movieIdentity = "";
+  private movieGeneration = 0;
+  private movieDeadline?: ReturnType<typeof setTimeout>;
+  private desiredBackdrop = false;
   private viewer?: PhotoSwipe;
   private releaseFocus?: () => void;
   private generation = 0;
@@ -76,6 +90,7 @@ export class ImageGallery extends LitElement {
     this.error = "";
     this.clipIndex = 0;
     this.animated = false;
+    this.movieBusy = this.movieReady = this.movieBackdrop = false;
   }
   createRenderRoot() {
     return this;
@@ -93,17 +108,24 @@ export class ImageGallery extends LitElement {
   }
   disconnectedCallback() {
     this.generation++;
+    this.stopMovie();
     this.viewer?.destroy();
     this.releaseFocus?.();
     super.disconnectedCallback();
   }
   protected willUpdate(changed: PropertyValues) {
+    if (changed.has("active") && changed.get("active") !== this.active) {
+      this.stopMovie();
+      this.clipIndex = 0;
+      this.animated = false;
+    }
     const previous = changed.get("images") as GalleryImage[] | undefined;
     if (
       previous &&
       previous.map((image) => image.source).join("\n") !== this.images.map((image) => image.source).join("\n")
     ) {
       this.generation++;
+      this.stopMovie();
       this.viewer?.destroy();
       this.busy = false;
       this.error = "";
@@ -111,10 +133,7 @@ export class ImageGallery extends LitElement {
     }
   }
   protected updated(changed: PropertyValues) {
-    const active = this.images.find((image) => image.id === this.active);
     if (changed.has("active")) {
-      if (this.clipIndex !== 0) this.clipIndex = 0;
-      if (this.animated) this.animated = false;
       const strip = this.querySelector<HTMLElement>(".image-gallery__thumbnails");
       const selected = strip?.querySelector<HTMLElement>('[aria-current="true"]');
       if (strip && selected) {
@@ -122,35 +141,134 @@ export class ImageGallery extends LitElement {
         if (delta < 0 || delta + selected.offsetWidth > strip.clientWidth) strip.scrollLeft += delta;
       }
     }
-    if (
-      (changed.has("active") || changed.has("clipIndex")) &&
-      (changed.has("clipIndex") || changed.get("active") !== this.active) &&
-      active?.videoSequence
-    ) {
-      // Entering or restarting the sequence always plays the current clip
-      // from its start; clips are muted so autoplay policy never blocks them.
-      this.playCurrentClipFromStart();
-    }
-    if (changed.has("animated") && this.animated && active?.animatedOverlay) {
-      this.playCurrentClipFromStart();
-    }
+    this.syncMovie();
   }
-  private playCurrentClipFromStart() {
-    const video = this.querySelector<HTMLVideoElement>("video.image-gallery__clip.is-current");
-    if (video) {
-      video.currentTime = 0;
-      video.play().catch(() => {});
+  private clearMovieDeadline() {
+    clearTimeout(this.movieDeadline);
+    this.movieDeadline = undefined;
+  }
+  private waitForMovie = () => {
+    if (!this.movieVideo?.getAttribute("src")) return;
+    this.movieBusy = true;
+    this.clearMovieDeadline();
+    const generation = this.movieGeneration;
+    this.movieDeadline = setTimeout(() => {
+      if (this.isConnected && generation === this.movieGeneration) this.failMovie();
+    }, 30_000);
+  };
+  private movieProgress = () => {
+    if (this.movieBusy) this.waitForMovie();
+  };
+  private stopMovie() {
+    this.movieGeneration++;
+    this.clearMovieDeadline();
+    this.movieRenderer?.dispose();
+    this.movieRenderer = undefined;
+    if (this.movieVideo) {
+      this.movieVideo.pause();
+      this.movieVideo.removeAttribute("src");
+      this.movieVideo.load();
+    }
+    this.movieVideo = undefined;
+    this.movieCanvas = undefined;
+    this.movieIdentity = "";
+    this.movieBusy = this.movieReady = this.movieBackdrop = false;
+  }
+  private failMovie() {
+    // Keep the poster and existing retry controls; release decoder/GPU work.
+    const identity = this.movieIdentity;
+    this.stopMovie();
+    this.movieIdentity = identity;
+    this.error = uiText(this.locale, "unavailable");
+  }
+  private syncMovie() {
+    if (!this.isConnected) return;
+    const active = this.images.find((image) => image.id === this.active) || this.images[0];
+    const clip: GalleryClip | undefined = active?.videoSequence
+      ? active.videoSequence.clips[this.clipIndex]
+      : active?.animatedOverlay && this.animated
+        ? { ...active.animatedOverlay, loop: true, backdrop: true }
+        : undefined;
+    if (!clip) {
+      if (this.movieVideo) this.stopMovie();
+      return;
+    }
+    const identity = JSON.stringify([
+      active!.id,
+      this.clipIndex,
+      clip,
+      active!.videoSequence?.background || active!.animatedOverlay?.background,
+    ]);
+    if (identity === this.movieIdentity) return;
+    const video = this.querySelector<HTMLVideoElement>("video.image-gallery__decoder");
+    const canvas = this.querySelector<HTMLCanvasElement>("canvas.image-gallery__clip");
+    if (!video || !canvas) return;
+    const source = alphaVideoSource(clip, Boolean(clip.backdrop));
+    if (!source) {
+      this.movieIdentity = identity;
+      this.failMovie();
+      return;
+    }
+    const reused = this.movieVideo === video && this.movieCanvas === canvas && this.movieRenderer;
+    if (!reused) this.stopMovie();
+    else {
+      this.movieGeneration++;
+      this.clearMovieDeadline();
+      video.pause();
+    }
+    this.movieVideo = video;
+    this.movieCanvas = canvas;
+    this.movieIdentity = identity;
+    this.desiredBackdrop = Boolean(clip.backdrop);
+    this.error = "";
+    try {
+      if (!this.movieRenderer) {
+        const renderer = new AlphaVideo(video, canvas, {
+          frame: () => {
+            if (this.movieRenderer !== renderer || !this.isConnected) return;
+            this.clearMovieDeadline();
+            this.movieBusy = false;
+            this.movieReady = true;
+            this.movieBackdrop = this.desiredBackdrop;
+          },
+          lost: () => {
+            if (this.movieRenderer === renderer) {
+              this.movieReady = false;
+              this.waitForMovie();
+            }
+          },
+          error: () => {
+            if (this.movieRenderer === renderer && this.isConnected) this.failMovie();
+          },
+        });
+        this.movieRenderer = renderer;
+      }
+      this.movieRenderer.configure(source.packed);
+      video.crossOrigin = "anonymous";
+      video.muted = true;
+      video.playsInline = true;
+      video.loop = Boolean(clip.loop);
+      video.src = source.url;
+      video.load();
+      this.waitForMovie();
+      const generation = this.movieGeneration;
+      void video.play().catch(() => {
+        if (this.isConnected && generation === this.movieGeneration) this.failMovie();
+      });
+    } catch {
+      this.failMovie();
     }
   }
   private onClipEnded() {
-    const active = this.images.find((image) => image.id === this.active);
-    const clips = active?.videoSequence?.clips || [];
-    if (this.clipIndex < clips.length - 1) this.clipIndex += 1;
+    if (!this.movieVideo?.ended) return;
+    const active = this.images.find((image) => image.id === this.active) || this.images[0];
+    if (active?.videoSequence && this.clipIndex < active.videoSequence.clips.length - 1) this.clipIndex++;
   }
   private replaySequence() {
-    const parkedAtFirst = this.clipIndex === 0;
     this.clipIndex = 0;
-    if (parkedAtFirst) void this.updateComplete.then(() => this.playCurrentClipFromStart());
+    this.movieIdentity = "";
+    this.error = "";
+    this.requestUpdate();
   }
   private select(index: number) {
     this.active = this.images[index]?.id || "";
@@ -286,10 +404,9 @@ export class ImageGallery extends LitElement {
     if (active.videoSequence || (active.animatedOverlay && this.animated)) {
       const background = active.videoSequence?.background || active.animatedOverlay?.background;
       const isSequence = Boolean(active.videoSequence);
-      const clips = active.videoSequence?.clips || [{ url: active.animatedOverlay!.url, loop: true }];
       // Only the transparent Live2D segments composite over the card scene;
       // the opaque anime segments carry their own full-frame picture.
-      const backdrop = background && (!isSequence || (clips[this.clipIndex]?.backdrop ?? false));
+      const backdrop = background && this.movieBackdrop;
       return html`
         <section class="image-gallery" aria-label=${this.title || uiText(this.locale, "image")}>
           <div class="image-gallery__stage image-gallery__stage--cinema">
@@ -306,20 +423,42 @@ export class ImageGallery extends LitElement {
                     `
                   : nothing
               }
-              ${clips.map(
-                (clip, clipIndex) => html`
-                  <video
-                    class="image-gallery__clip${clipIndex === this.clipIndex ? " is-current" : ""}"
-                    muted
-                    playsinline
-                    preload="auto"
-                    ?loop=${clip.loop ?? !isSequence}
-                    src=${clip.url}
-                    @ended=${isSequence ? () => this.onClipEnded() : nothing}
-                    aria-label=${active.label}
-                  ></video>
-                `,
-              )}
+              <img
+                class="image-gallery__cinema-poster${this.movieReady ? "" : " is-visible"}"
+                src=${active.source}
+                alt=""
+                decoding="async"
+              />
+              <video
+                class="image-gallery__decoder"
+                muted
+                playsinline
+                crossorigin="anonymous"
+                preload="auto"
+                @ended=${() => this.onClipEnded()}
+                @waiting=${this.waitForMovie}
+                @progress=${this.movieProgress}
+                @error=${() => {
+                  if (this.movieVideo?.error) this.failMovie();
+                }}
+                aria-hidden="true"
+              ></video>
+              <canvas
+                class="image-gallery__clip${this.movieReady ? " is-current" : ""}"
+                role="img"
+                aria-label=${active.label}
+              ></canvas>
+              ${
+                this.movieBusy
+                  ? html`
+                      <md-circular-progress
+                        class="image-gallery__cinema-loading"
+                        indeterminate
+                        aria-label=${uiText(this.locale, "loading")}
+                      ></md-circular-progress>
+                    `
+                  : nothing
+              }
             </div>
             ${
               isSequence
@@ -346,6 +485,7 @@ export class ImageGallery extends LitElement {
                       title=${uiText(this.locale, "cardMovieAnimated")}
                       @click=${() => {
                         this.animated = false;
+                        this.error = "";
                       }}
                     >
                       ${icon("pause", 22)}
@@ -379,6 +519,13 @@ export class ImageGallery extends LitElement {
             </a>
           </div>
           ${this.renderThumbnails(index)}
+          ${
+            this.error
+              ? html`
+                  <p class="image-gallery__status" role="alert">${this.error}</p>
+                `
+              : nothing
+          }
         </section>
       `;
     }

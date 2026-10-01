@@ -2133,7 +2133,8 @@
       "files": "files",
       "failed": "Loading failed"
     },
-    "gekisouStages": "GEKISO Sections"
+    "gekisouStages": "GEKISO Sections",
+    "cardMovieGacha": "Gacha animation"
   },
   "chartPlayer": {
     "play": "Play",

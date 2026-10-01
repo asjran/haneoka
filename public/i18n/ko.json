@@ -2133,7 +2133,8 @@
       "files": "파일",
       "failed": "로드 실패"
     },
-    "gekisouStages": "격주 구간"
+    "gekisouStages": "격주 구간",
+    "cardMovieGacha": "뽑기 연출"
   },
   "chartPlayer": {
     "play": "플레이",
