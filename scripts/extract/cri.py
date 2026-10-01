@@ -1531,7 +1531,6 @@ def _apply_music_video_audio(
                         f"declared CRI video output needs re-muxing but cannot be restored: {output_key}"
                     )
                 delta.fetch_release_path(output_key, video_path)
-                delta.fetch_release_path(str(audio_output["path"]), audio_path)
                 current_sha256 = sha256_file(video_path)
             if already_current:
                 probe = _probe_streams(video_path)
@@ -1539,6 +1538,22 @@ def _apply_music_video_audio(
                 if video_output.get("sha256") != current_sha256:
                     raise ValueError(
                         f"video runtime hash does not match CRI manifest: {video_path}"
+                    )
+                # A fresh/local video can still depend on an adopted audio
+                # output that exists only in the pinned base release. Restore
+                # that dependency for every remux, then verify its identity.
+                if not audio_path.is_file():
+                    if not declare or delta is None:
+                        raise FileNotFoundError(
+                            f"music runtime output needs restoring before mux: {audio_path}"
+                        )
+                    delta.fetch_release_path(str(audio_output["path"]), audio_path)
+                if (
+                    audio_path.stat().st_size != audio_output.get("bytes")
+                    or sha256_file(audio_path) != audio_sha256
+                ):
+                    raise ValueError(
+                        f"music runtime identity does not match CRI manifest before mux: {audio_path}"
                     )
                 probe = _mux_exact_music_audio(video_path, audio_path)
                 current_sha256 = sha256_file(video_path)
