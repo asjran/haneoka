@@ -49,22 +49,45 @@ export function clampPosition(value: number): number {
 function fontSpec(text: StampText, width: number, fallback: string): string {
   const font = stampFont(text.font);
   const weight = font?.weightRange
-    ? Math.max(font.weightRange[0], Math.min(font.weightRange[1], text.weight || font.weight))
+    ? Math.max(
+        font.weightRange[0],
+        Math.min(font.weightRange[1], text.weight || font.weight),
+      )
     : font?.weight || 900;
   return `${weight} ${(width * text.size) / 100}px ${font ? `"${font.family}", ` : ""}${fallback}`;
 }
 
-export async function loadStampFont(text: StampText, fallback: string): Promise<void> {
+/** A loaded face can render most edits immediately; CSS unicode-range additions are checked without fetching. */
+export function isStampFontReady(text: StampText, fallback: string): boolean {
+  return document.fonts.check(fontSpec(text, 512, fallback), text.text || " ");
+}
+
+export async function loadStampFont(
+  text: StampText,
+  fallback: string,
+): Promise<void> {
   await loadFontStylesheet(stampFont(text.font));
-  if (text.text.trim()) {
+  const font = stampFont(text.font);
+  if (
+    font &&
+    ![...document.fonts].some(
+      (face) => face.family.replace(/^["']|["']$/gu, "") === font.family,
+    )
+  )
+    throw new Error("Selected font is unavailable");
+  if (text.text.trim() && !isStampFontReady(text, fallback)) {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const faces = await Promise.race([
       document.fonts.load(fontSpec(text, 512, fallback), text.text),
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error("Font load timed out")), 15000);
+        timeout = setTimeout(
+          () => reject(new Error("Font load timed out")),
+          15000,
+        );
       }),
     ]).finally(() => clearTimeout(timeout));
-    if (stampFont(text.font) && !faces.length) throw new Error("Selected font is unavailable");
+    if (stampFont(text.font) && !faces.length)
+      throw new Error("Selected font is unavailable");
   }
 }
 
@@ -75,16 +98,35 @@ interface TextBounds {
   bottom: number;
 }
 
-function textLayout(context: CanvasRenderingContext2D, text: StampText, width: number, fallback: string) {
+function textLayout(
+  context: CanvasRenderingContext2D,
+  text: StampText,
+  width: number,
+  fallback: string,
+) {
   const size = (width * text.size) / 100;
   context.font = fontSpec(text, width, fallback);
   context.textAlign = "center";
   context.textBaseline = "middle";
-  return stampTextLayout(context, text.text, size, width, (width * text.strokeWidth) / 100, text.writingMode);
+  return stampTextLayout(
+    context,
+    text.text,
+    size,
+    width,
+    (width * text.strokeWidth) / 100,
+    text.writingMode,
+  );
 }
 
-function visibleBounds(text: StampText, bounds: TextBounds, width: number): TextBounds {
-  const extra = text.background && text.background.alpha > 0 ? (width * text.background.padding) / 100 : 0;
+function visibleBounds(
+  text: StampText,
+  bounds: TextBounds,
+  width: number,
+): TextBounds {
+  const extra =
+    text.background && text.background.alpha > 0
+      ? (width * text.background.padding) / 100
+      : 0;
   return {
     left: bounds.left - extra,
     right: bounds.right + extra,
@@ -100,11 +142,16 @@ function drawTextLayer(
   fallback: string,
   selectionColor?: string,
 ): void {
-  if (!text.text.trim() && !(text.background && text.background.alpha > 0)) return;
+  if (!text.text.trim() && !(text.background && text.background.alpha > 0))
+    return;
   context.save();
   context.translate((width * text.x) / 100, (height * text.y) / 100);
   context.rotate((text.rotation * Math.PI) / 180);
-  const { cells, bounds: textBounds, inkBounds } = textLayout(context, text, width, fallback);
+  const {
+    cells,
+    bounds: textBounds,
+    inkBounds,
+  } = textLayout(context, text, width, fallback);
   const bounds = visibleBounds(text, textBounds, width);
   const background = text.background;
   if (background && background.alpha > 0) {
@@ -120,10 +167,20 @@ function drawTextLayer(
     };
     const radius = Math.max(
       0,
-      Math.min((width * background.radius) / 100, (box.right - box.left) / 2, (box.bottom - box.top) / 2),
+      Math.min(
+        (width * background.radius) / 100,
+        (box.right - box.left) / 2,
+        (box.bottom - box.top) / 2,
+      ),
     );
     context.beginPath();
-    context.roundRect(box.left, box.top, box.right - box.left, box.bottom - box.top, radius);
+    context.roundRect(
+      box.left,
+      box.top,
+      box.right - box.left,
+      box.bottom - box.top,
+      radius,
+    );
     context.fill();
     context.restore();
   }
@@ -144,11 +201,18 @@ function drawTextLayer(
     context.strokeStyle = selectionColor;
     context.lineWidth = width / 256;
     context.setLineDash([width / 64, width / 128]);
-    context.strokeRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+    context.strokeRect(
+      bounds.left,
+      bounds.top,
+      bounds.right - bounds.left,
+      bounds.bottom - bounds.top,
+    );
   }
   context.restore();
 }
-function isLayers(value: StampText | readonly StampLayer[]): value is readonly StampLayer[] {
+function isLayers(
+  value: StampText | readonly StampLayer[],
+): value is readonly StampLayer[] {
   return Array.isArray(value);
 }
 
@@ -164,10 +228,19 @@ export function drawStamp(
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Canvas 2D is unavailable");
   context.clearRect(0, 0, canvas.width, canvas.height);
-  const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+  const scale = Math.min(
+    canvas.width / image.naturalWidth,
+    canvas.height / image.naturalHeight,
+  );
   const w = image.naturalWidth * scale,
     h = image.naturalHeight * scale;
-  context.drawImage(image, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+  context.drawImage(
+    image,
+    (canvas.width - w) / 2,
+    (canvas.height - h) / 2,
+    w,
+    h,
+  );
   if (isLayers(text))
     for (const layer of text)
       drawTextLayer(
@@ -178,7 +251,15 @@ export function drawStamp(
         fallback,
         layer.id === selectedLayerId ? selectionColor : undefined,
       );
-  else drawTextLayer(context, text, canvas.width, canvas.height, fallback, selectionColor);
+  else
+    drawTextLayer(
+      context,
+      text,
+      canvas.width,
+      canvas.height,
+      fallback,
+      selectionColor,
+    );
 }
 export function hitStampText(
   canvas: HTMLCanvasElement,
@@ -188,16 +269,29 @@ export function hitStampText(
   y: number,
 ): boolean {
   const context = canvas.getContext("2d");
-  if (!context || (!text.text.trim() && !(text.background && text.background.alpha > 0))) return false;
+  if (
+    !context ||
+    (!text.text.trim() && !(text.background && text.background.alpha > 0))
+  )
+    return false;
   context.save();
-  const bounds = visibleBounds(text, textLayout(context, text, canvas.width, fallback).bounds, canvas.width);
+  const bounds = visibleBounds(
+    text,
+    textLayout(context, text, canvas.width, fallback).bounds,
+    canvas.width,
+  );
   context.restore();
   const dx = x - (canvas.width * text.x) / 100,
     dy = y - (canvas.height * text.y) / 100,
     angle = (-text.rotation * Math.PI) / 180;
   const localX = dx * Math.cos(angle) - dy * Math.sin(angle),
     localY = dx * Math.sin(angle) + dy * Math.cos(angle);
-  return localX >= bounds.left && localX <= bounds.right && localY >= bounds.top && localY <= bounds.bottom;
+  return (
+    localX >= bounds.left &&
+    localX <= bounds.right &&
+    localY >= bounds.top &&
+    localY <= bounds.bottom
+  );
 }
 /** Last drawn layer owns an overlapping pointer hit. */
 export function hitStampLayer(
@@ -208,6 +302,7 @@ export function hitStampLayer(
   y: number,
 ): string | undefined {
   for (let index = layers.length - 1; index >= 0; index--)
-    if (hitStampText(canvas, layers[index].settings, fallback, x, y)) return layers[index].id;
+    if (hitStampText(canvas, layers[index].settings, fallback, x, y))
+      return layers[index].id;
   return undefined;
 }
