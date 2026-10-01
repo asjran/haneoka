@@ -23,8 +23,8 @@ from build.announcements import (
     public_announcement_document,
 )
 from core.config import ServerConfig, load_server_config
-from core.manifests import stable_json
-from core.paths import safe_id
+from core.manifests import read_json, stable_json
+from core.paths import safe_id, server_layout, source_layout
 from publish.r2 import IMMUTABLE_CACHE, R2Store
 
 
@@ -71,32 +71,39 @@ def _upload_media(
 
 
 def _source_client_version(
-    store: R2Store, config: ServerConfig, source_id: str | None
+    store: R2Store | None, config: ServerConfig, source_id: str | None
 ) -> str:
     if source_id is None:
-        pointer = store.get_json(f"servers/{config.id}/current.json")
+        pointer = (
+            store.get_json(f"servers/{config.id}/current.json")
+            if store is not None else read_json(server_layout(config.id).current)
+        )
         source_id = str((pointer or {}).get("sourceId") or "")
     if not source_id:
         raise ValueError(f"no current package source is selected for {config.id}")
     source_id = safe_id(source_id, "source id")
-    manifest = store.get_json(
-        f"servers/{config.id}/sources/{source_id}/source.json"
+    manifest = (
+        store.get_json(f"servers/{config.id}/sources/{source_id}/source.json")
+        if store is not None else read_json(source_layout(config.id, source_id).manifest)
     )
     return package_client_version(manifest, config.package_name)
 
 
 def publish_announcements(
-    store: R2Store,
+    store: R2Store | None,
     config: ServerConfig,
     *,
     source_id: str | None = None,
     base_url: str = PUBLIC_BASE_URL,
     work_dir: Path | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Fetch, upload media, then replace the list document as one publication."""
 
     snapshot_key = f"servers/{config.id}/{OPERATION_PREFIX}/announcements.json"
-    previous = store.get_json(snapshot_key)
+    if store is None and not dry_run:
+        raise ValueError("announcement publication requires a storage client")
+    previous = store.get_json(snapshot_key) if store is not None else None
     if work_dir is not None:
         work_dir.mkdir(parents=True, exist_ok=True)
     temporary_root = Path(
@@ -114,6 +121,16 @@ def publish_announcements(
             client_version=client_version,
         )
         document = public_announcement_document(collection, config.id, base_url)
+        if dry_run:
+            return {
+                "schema": "haneoka-announcements-publication-v1",
+                "server": config.id,
+                "available": True,
+                "dryRun": True,
+                "announcements": len(document["announcements"]),
+                "media": len(collection.media),
+                "snapshotKey": snapshot_key,
+            }
         uploaded, reused = _upload_media(store, config.id, collection)
         # The list document is the commit point. Every referenced media object is
         # already available before this overwrite starts.
@@ -154,17 +171,22 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, default=16)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--base-url", default=PUBLIC_BASE_URL)
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="collect and validate without R2 access; regional bootstrap uses the local --source/current package version",
+    )
     args = parser.parse_args()
     config = load_server_config(args.server)
     result = publish_announcements(
-        R2Store(config, args.concurrency),
+        None if args.dry_run else R2Store(config, args.concurrency),
         config,
         source_id=args.source,
         base_url=args.base_url,
         work_dir=args.work_dir,
+        dry_run=args.dry_run,
     )
     print(stable_json(result, pretty=True), end="")
-    return 0
+    return 1 if "error" in result else 0
 
 
 if __name__ == "__main__":

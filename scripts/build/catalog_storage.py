@@ -20,6 +20,7 @@ from core.contracts import (
 )
 from core.manifests import read_json, write_json
 from core.paths import normalize_release_path
+from core.process import hardlink_or_copy, walk_files
 from core.storage import fnv1a32_shard
 
 
@@ -400,6 +401,7 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
         projection=ProjectionSpec(
             include=(
                 "assetId",
+                "bestMusicTagIds",
                 "cardId",
                 "cardType",
                 "characterId",
@@ -960,9 +962,14 @@ def compile_catalog_storage(
     target: Path,
     server: str,
     source_id: str,
+    *,
+    resource_names: tuple[str, ...] | None = None,
+    base: Path | None = None,
 ) -> dict[str, Any]:
     """Atomically replace one release-local catalog read model."""
 
+    if resource_names is not None and base is not None and target.resolve().is_relative_to(base.resolve()):
+        raise ValueError("partial catalog refresh must not write into its pinned base")
     provenance = read_json(source / "provenance.json")
     if (
         not isinstance(provenance, dict)
@@ -978,7 +985,29 @@ def compile_catalog_storage(
     resources: dict[str, Any] = {}
     counts: dict[str, int] = {}
     try:
+        selected = set(resource_names) if resource_names is not None else set(CATALOG_RESOURCES)
+        if not selected or selected - set(CATALOG_RESOURCES):
+            raise ValueError("catalog refresh names must select known resources")
+        if resource_names is not None:
+            if base is None:
+                raise ValueError("partial catalog refresh requires a pinned base read model")
+            base_manifest = read_json(base / "manifest.json")
+            base_summary = read_json(base / "summary.json")
+            if (base_manifest.get("schema") != CATALOG_STORAGE_SCHEMA
+                    or base_manifest.get("server") != server or base_manifest.get("sourceId") != source_id
+                    or base_summary.get("schema") != CATALOG_SUMMARY_SCHEMA
+                    or base_summary.get("server") != server or base_summary.get("sourceId") != source_id):
+                raise ValueError("partial catalog base belongs to a different source")
+            resources = dict(base_manifest["resources"])
+            counts = {name: base_summary["resources"][name]["count"] for name in CATALOG_RESOURCES}
+            for file in walk_files(base):
+                relative = file.relative_to(base)
+                if relative.parts[0] in selected or relative.as_posix() in {"manifest.json", "summary.json"}:
+                    continue
+                hardlink_or_copy(file, staging / relative)
         for resource in CATALOG_RESOURCES:
+            if resource not in selected:
+                continue
             file = source / f"{resource}.json"
             document = _release_value(read_json(file))
             if not isinstance(document, dict):

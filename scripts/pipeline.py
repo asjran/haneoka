@@ -393,8 +393,12 @@ def _delta_context(config: ServerConfig, plan_path: str) -> Any:
 def command_prepare_unity_reuse(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     layout = source_layout(config.id, args.source)
+    store = R2Store(config, args.concurrency)
+    pointer = store.get_json(f"servers/{config.id}/current.json")
+    if not isinstance(pointer, dict) or pointer.get("pipelineFingerprint") != _pipeline_hash(config)[:16]:
+        raise ValueError("pipeline outputs changed; rebuild stages before adopting base derivatives")
     plan, stats = prepare_unity_delta_plan(
-        R2Store(config, args.concurrency),
+        store,
         config.id,
         read_json(layout.manifest),
         args.source,
