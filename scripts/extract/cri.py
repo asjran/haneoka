@@ -50,7 +50,7 @@ COMPATIBLE_HCA_KEY_SHA256 = (
     "cd0b2ad6de5baa070f1c00baa33658b493a138919f00a4ed8418a7ff6af6ba2f"
 )
 NOTE_SE_DECODE_PROFILE = "note-se-original-stream-once-v1"
-USM_DECODE_PROFILE = "usm-alpha-full-range-v2"
+USM_DECODE_PROFILE = "usm-alpha-full-range-packed-h264-bt709-v4"
 RestoreOutput = Callable[[dict[str, Any], Path], None]
 
 
@@ -528,6 +528,76 @@ def _decode_usm(
                     "sha256": sha256_file(target),
                 }
             )
+            if alpha is not None:
+                # One H.264 clock carries color on the left and alpha on the
+                # right. Video decoders expand the TV-range mask to RGB 0/255;
+                # the runtime shader samples its red channel directly.
+                packed = output / f"{target.stem}-alpha-packed.mp4"
+                packed_temporary = packed.with_name(
+                    f".{packed.stem}.{os.getpid()}.tmp.mp4"
+                )
+                packed_command = [
+                    _tool("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+                    "-i", str(video), "-i", str(alpha),
+                ]
+                if audio:
+                    packed_command.extend(["-i", str(audio)])
+                packed_command.extend([
+                    "-filter_complex_threads", "1",
+                    "-filter_complex",
+                    f"[1:v]{mask_filter},setrange=full,"
+                    "scale=in_range=full:out_range=tv:out_color_matrix=bt709,"
+                    "format=yuv420p,lutyuv=u=128:v=128,setsar=1[a];"
+                    "[0:v]scale=out_range=tv:out_color_matrix=bt709,"
+                    "format=yuv420p,setsar=1[c];"
+                    "[c][a]hstack=inputs=2:shortest=1,"
+                    "setparams=range=limited:color_primaries=bt709:"
+                    "color_trc=bt709:colorspace=bt709[v]",
+                    "-map", "[v]",
+                ])
+                if audio:
+                    packed_command.extend(["-map", "2:a:0", "-c:a", "aac", "-b:a", "256k"])
+                packed_command.extend([
+                    "-map_metadata", "-1", "-c:v", "libx264", "-preset", "medium",
+                    "-crf", "12", "-pix_fmt", "yuv420p", "-color_range", "tv",
+                    "-colorspace", "bt709", "-color_primaries", "bt709",
+                    "-color_trc", "bt709",
+                    "-threads", "2", "-movflags", "+faststart", str(packed_temporary),
+                ])
+                try:
+                    _run(packed_command)
+                    packed_probe = _probe_streams(packed_temporary)
+                    color_probe = _probe_streams(video)
+                    if (
+                        packed_probe["videoCount"] != 1
+                        or packed_probe["videoCodec"] != "h264"
+                        or packed_probe["videoWidth"] != color_probe["videoWidth"] * 2
+                        or packed_probe["videoHeight"] != color_probe["videoHeight"]
+                        or packed_probe["videoColorRange"] != "tv"
+                        or packed_probe["videoColorSpace"] != "bt709"
+                        or packed_probe["videoColorPrimaries"] != "bt709"
+                        or packed_probe["videoColorTransfer"] != "bt709"
+                    ):
+                        raise RuntimeError(f"invalid packed alpha video: {packed_probe}")
+                    os.replace(packed_temporary, packed)
+                finally:
+                    packed_temporary.unlink(missing_ok=True)
+                records[-1].update({
+                    "alphaLayout": "color-left-alpha-right",
+                    "alphaPackedPath": packed.as_posix(),
+                    "alphaPackedWidth": packed_probe["videoWidth"],
+                    "alphaPackedHeight": packed_probe["videoHeight"],
+                    "width": color_probe["videoWidth"],
+                    "height": color_probe["videoHeight"],
+                    "alphaChannel": "r",
+                    "alphaValueRange": "full",
+                })
+                records.append({
+                    "path": packed.as_posix(),
+                    "bytes": packed.stat().st_size,
+                    "sha256": sha256_file(packed),
+                    "role": "alpha-packed",
+                })
         return records
 
 
@@ -832,16 +902,20 @@ def _decode_task(
     outputs = []
     for file in files:
         staged = Path(file["path"])
+        metadata = {
+            key: value for key, value in file.items()
+            if key not in {"path", "bytes", "sha256"}
+        }
+        if metadata.get("alphaPackedPath"):
+            metadata["alphaPackedPath"] = (
+                "runtime/" + Path(metadata["alphaPackedPath"]).relative_to(root).as_posix()
+            )
         outputs.append(
             {
                 "path": f"runtime/{staged.relative_to(root).as_posix()}",
                 "bytes": file["bytes"],
                 "sha256": file["sha256"],
-                **{
-                    key: value
-                    for key, value in file.items()
-                    if key not in {"path", "bytes", "sha256"}
-                },
+                **metadata,
                 "_staged": staged,
             }
         )
@@ -1115,7 +1189,7 @@ def _probe_streams(path: Path) -> dict[str, Any]:
             "-v",
             "error",
             "-show_entries",
-            "stream=codec_type,codec_name,color_range:stream_tags=alpha_mode",
+            "stream=codec_type,codec_name,color_range,color_space,color_primaries,color_transfer,width,height:stream_tags=alpha_mode",
             "-of",
             "json",
             str(path),
@@ -1128,6 +1202,11 @@ def _probe_streams(path: Path) -> dict[str, Any]:
         "videoCount": len(videos),
         "videoCodec": videos[0].get("codec_name") if len(videos) == 1 else None,
         "videoColorRange": videos[0].get("color_range") if len(videos) == 1 else None,
+        "videoColorSpace": videos[0].get("color_space") if len(videos) == 1 else None,
+        "videoColorPrimaries": videos[0].get("color_primaries") if len(videos) == 1 else None,
+        "videoColorTransfer": videos[0].get("color_transfer") if len(videos) == 1 else None,
+        "videoWidth": videos[0].get("width") if len(videos) == 1 else None,
+        "videoHeight": videos[0].get("height") if len(videos) == 1 else None,
         "videoAlpha": (videos[0].get("tags", {}) or {}).get("alpha_mode") == "1"
         if len(videos) == 1
         else False,
@@ -1198,6 +1277,7 @@ def _single_output(
         output
         for output in entry.get("outputs", [])
         if PurePosixPath(str(output.get("path") or "")).suffix.casefold() in suffixes
+        and output.get("role") != "alpha-packed"
     ]
     if len(outputs) != 1:
         raise ValueError(
@@ -1579,12 +1659,17 @@ def extract_cri(
             raise FileNotFoundError(
                 f"required CRI payload is not available locally: {payload}"
             )
+        cached_by_source = _cached_by_source(
+            reuse_manifest, transform_id, "artifactSha256"
+        )
+        cached_source = cached_by_source.get(str(artifact["sha256"])) or {}
         record = _declare_cached_record(
-            cached_by_source=_cached_by_source(
-                reuse_manifest, transform_id, "artifactSha256"
-            ),
+            cached_by_source=cached_by_source,
             source=source_identity,
             runtime_path=_remote_runtime_path(artifact),
+            semantic_decode_profile=(
+                USM_DECODE_PROFILE if cached_source.get("kind") == "usm" else ""
+            ),
         )
         if record is None:
             # Adoptable in principle but rejected by validation: restore the

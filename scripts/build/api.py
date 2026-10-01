@@ -802,9 +802,26 @@ class BuildData:
         if len(matches) != 1:
             return None
         entry = matches[0]
-        output = self.exact_cri_output(entry, (".webm", ".mp4"))
+        output = self.exact_cri_output(
+            {**entry, "outputs": [
+                value for value in entry.get("outputs", [])
+                if value.get("role") != "alpha-packed"
+            ]},
+            (".webm", ".mp4"),
+        )
         if not output:
             return None
+        packed_outputs = [
+            value for value in entry.get("outputs", [])
+            if value.get("role") == "alpha-packed"
+            and value.get("path") == output.get("alphaPackedPath")
+            and value.get("videoCodec") == "h264"
+            and output.get("hasAlpha")
+            and output.get("alphaLayout") == "color-left-alpha-right"
+            and value.get("musicVideoAudioBinding") == output.get("musicVideoAudioBinding")
+            and self.runtime_output_url(str(value.get("path") or ""))
+        ]
+        packed = packed_outputs[0] if len(packed_outputs) == 1 else None
         return _present(
             runtimePath=entry.get("runtimePath"),
             outputPath=output.get("path"),
@@ -814,6 +831,14 @@ class BuildData:
             videoCodec=output.get("videoCodec"),
             audioCodec=output.get("audioCodec"),
             musicVideoAudioBinding=output.get("musicVideoAudioBinding"),
+            alphaPackedUrl=self.runtime_output_url(str(packed["path"])) if packed else None,
+            alphaLayout=output.get("alphaLayout") if packed else None,
+            alphaPackedWidth=output.get("alphaPackedWidth") if packed else None,
+            alphaPackedHeight=output.get("alphaPackedHeight") if packed else None,
+            width=output.get("width"),
+            height=output.get("height"),
+            alphaChannel=output.get("alphaChannel") if packed else None,
+            alphaValueRange=output.get("alphaValueRange") if packed else None,
         )
 
     def card_movies(self, identity: int) -> dict[str, Any] | None:
