@@ -208,14 +208,17 @@ export class ReleaseChartCatalogProvider implements ChartCatalogProvider {
 }
 
 export interface ReleaseLevelTemplateProviderOptions {
+  fallbackCover?: JsonObject;
   readJson: ReleaseJsonReader;
 }
 
 export class ReleaseLevelTemplateProvider implements LevelTemplateProvider {
   readonly #readJson: ReleaseJsonReader;
+  readonly #fallbackCover: JsonObject;
 
   constructor(options: ReleaseLevelTemplateProviderOptions) {
     this.#readJson = options.readJson;
+    this.#fallbackCover = options.fallbackCover ?? {};
   }
 
   async load(): Promise<LevelTemplate> {
@@ -227,7 +230,7 @@ export class ReleaseLevelTemplateProvider implements LevelTemplateProvider {
       artists: "",
       author: "",
       bgm: {},
-      cover: {},
+      cover: this.#fallbackCover,
       data: {},
       engine,
       name: "",

@@ -260,9 +260,7 @@ export function projectLevelItem(
         typeof base.source === "string" ? base.source : undefined,
       ) as SonolusLevelItem)
     : base;
-  const cover = metadata.coverUrl
-    ? { ...(jsonObject(projectedBase.cover) ?? {}), url: metadata.coverUrl }
-    : projectedBase.cover;
+  const cover = metadata.coverUrl ? { url: metadata.coverUrl } : projectedBase.cover;
   const bgm = metadata.bgmUrl ? { ...(jsonObject(projectedBase.bgm) ?? {}), url: metadata.bgmUrl } : projectedBase.bgm;
   const result: SonolusLevelItem = {
     ...projectedBase,
@@ -273,7 +271,7 @@ export function projectLevelItem(
     author: metadata.author ?? metadata.artists,
     ...(metadata.sonolusBaseUrl ? { source: sonolusSourceRoot(metadata.sonolusBaseUrl) } : {}),
     data: metadata.data,
-    tags: projectedTags(projectedBase.tags, metadata.difficulty),
+    tags: projectedTags(metadata.tags ?? projectedBase.tags, metadata.difficulty),
   };
   if (cover !== undefined) result.cover = cover;
   if (bgm !== undefined) result.bgm = bgm;
@@ -324,6 +322,7 @@ export function projectCatalogCharts(
         rating: levelRating,
         songId,
         title,
+        ...(Array.isArray(song.tags) ? { tags: song.tags.filter(isJsonValue) } : {}),
         ...(coverUrl ? { coverUrl } : {}),
         ...(bgmUrl ? { bgmUrl } : {}),
       };
@@ -367,7 +366,7 @@ export function projectLevelList(
 ): JsonObject {
   return {
     ...(options.title ? { title: options.title } : {}),
-    pageCount: Math.max(1, page.pageCount),
+    pageCount: Math.max(0, page.pageCount),
     items: page.items.map((chart) => chart.item),
     searches: [],
     ...(options.quickSearchValues ? { quickSearchValues: options.quickSearchValues } : {}),
@@ -504,7 +503,7 @@ export function projectPlaylistList(
 ): JsonObject {
   return {
     ...(options.title ? { title: options.title } : {}),
-    pageCount: Math.max(1, pageCount),
+    pageCount: Math.max(0, pageCount),
     items: [...playlists],
     searches: [],
     ...(options.quickSearchValues ? { quickSearchValues: options.quickSearchValues } : {}),

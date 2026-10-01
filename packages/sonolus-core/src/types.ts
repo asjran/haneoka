@@ -46,6 +46,7 @@ export interface ChartDescriptor {
   author?: string;
   bgmUrl?: string;
   coverUrl?: string;
+  tags?: JsonValue[];
   dataId: string;
   difficulty: string;
   name: string;
@@ -60,6 +61,7 @@ export interface ChartRecord extends ChartDescriptor {
 }
 
 export interface ChartCatalogSnapshot {
+  aliases?: ChartDescriptor[];
   charts: ChartDescriptor[];
   revision: ChartRevision;
 }

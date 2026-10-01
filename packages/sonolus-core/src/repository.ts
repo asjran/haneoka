@@ -1,4 +1,4 @@
-import type { ChartPage, ChartQuery, ChartRecord, ChartRepository, ChartRevision } from "./types.js";
+import type { ChartDescriptor, ChartPage, ChartQuery, ChartRecord, ChartRepository, ChartRevision } from "./types.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -10,6 +10,40 @@ function nonNegativeInteger(value: number | undefined, fallback: number): number
 function pageSize(value: number | undefined): number {
   const size = nonNegativeInteger(value, DEFAULT_PAGE_SIZE);
   return Math.max(1, Math.min(MAX_PAGE_SIZE, size));
+}
+
+function searchText(value: unknown): string {
+  if (typeof value === "string") {
+    if (value.startsWith("##LOCALIZE:")) {
+      try {
+        return Object.values(JSON.parse(value.slice("##LOCALIZE:".length)))
+          .map(searchText)
+          .join("\n");
+      } catch {}
+    }
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(searchText).join("\n");
+  if (value && typeof value === "object") return Object.values(value).map(searchText).join("\n");
+  return typeof value === "number" ? String(value) : "";
+}
+
+export function matchesChartSearch(chart: ChartDescriptor, keywords: string, tags?: unknown): boolean {
+  const terms = keywords.normalize("NFKC").trim().toLowerCase().split(/\s+/u).filter(Boolean);
+  if (!terms.length) return true;
+  const text = searchText([
+    chart.name,
+    chart.songId,
+    chart.title,
+    chart.artists,
+    chart.author,
+    chart.difficulty,
+    chart.tags,
+    tags,
+  ])
+    .normalize("NFKC")
+    .toLowerCase();
+  return terms.every((term) => text.includes(term));
 }
 
 export class RevisionMismatchError extends Error {
@@ -64,10 +98,7 @@ export class InMemoryChartRepository<T extends ChartRecord = ChartRecord> implem
       if (minRating !== undefined && chart.rating < minRating) return false;
       if (maxRating !== undefined && chart.rating > maxRating) return false;
       if (!search) return true;
-      return [chart.name, chart.songId, chart.title, chart.artists, chart.difficulty]
-        .join("\n")
-        .toLocaleLowerCase()
-        .includes(search);
+      return matchesChartSearch(chart, search, chart.item.tags);
     });
     const size = pageSize(query.pageSize);
     const page = nonNegativeInteger(query.page, 0);

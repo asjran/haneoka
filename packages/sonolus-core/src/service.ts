@@ -1,4 +1,4 @@
-import { RevisionCache } from "./repository.js";
+import { matchesChartSearch, RevisionCache } from "./repository.js";
 import {
   projectLevelDetails,
   projectLevelInfo,
@@ -223,14 +223,14 @@ async function loadSnapshot(options: SonolusLevelRouteOptions): Promise<SonolusL
     throw new Error(`Chart catalog revision mismatch: expected ${options.revision}, received ${catalog.revision.id}`);
   }
   const byName = new Map<string, ChartDescriptor>();
-  for (const chart of catalog.charts) {
+  for (const chart of [...catalog.charts, ...(catalog.aliases ?? [])]) {
     if (!chart.name || byName.has(chart.name)) throw new Error(`Duplicate Sonolus chart name: ${chart.name}`);
     byName.set(chart.name, chart);
   }
   const charts = Object.freeze([...catalog.charts]);
   const playlists = Object.freeze(groupedPlaylists(charts, options.playlistName));
   const byPlaylistName = new Map<string, PlaylistDescriptor>();
-  for (const playlist of playlists) {
+  for (const playlist of groupedPlaylists([...charts, ...(catalog.aliases ?? [])], options.playlistName)) {
     if (byPlaylistName.has(playlist.name)) throw new Error(`Duplicate Sonolus playlist name: ${playlist.name}`);
     byPlaylistName.set(playlist.name, playlist);
   }
@@ -460,18 +460,18 @@ export class SonolusLevelService {
     if (isLevelList) {
       const pageIndex = parsedPage(options.searchParams.get("page"));
       const start = pageIndex * LEVEL_PAGE_SIZE;
-      const charts = await prepareSnapshotCharts(
-        snapshot,
-        snapshot.latestCharts.slice(start, start + LEVEL_PAGE_SIZE),
-        options,
+      const keywords = options.searchParams.get("keywords") ?? options.searchParams.get("keyword") ?? "";
+      const filtered = snapshot.latestCharts.filter((chart) =>
+        matchesChartSearch(chart, keywords, snapshot.template.item.tags),
       );
+      const charts = await prepareSnapshotCharts(snapshot, filtered.slice(start, start + LEVEL_PAGE_SIZE), options);
       const page = {
         items: charts,
         page: pageIndex,
-        pageCount: Math.ceil(snapshot.charts.length / LEVEL_PAGE_SIZE),
+        pageCount: Math.ceil(filtered.length / LEVEL_PAGE_SIZE),
         pageSize: LEVEL_PAGE_SIZE,
         revision: { id: options.revision },
-        total: snapshot.charts.length,
+        total: filtered.length,
       };
       return document(
         200,
@@ -508,16 +508,16 @@ export class SonolusLevelService {
     if (isPlaylistList) {
       const pageIndex = parsedPage(options.searchParams.get("page"));
       const start = pageIndex * LEVEL_PAGE_SIZE;
-      const playlists = await preparePlaylistRecords(
-        snapshot,
-        snapshot.latestPlaylists.slice(start, start + LEVEL_PAGE_SIZE),
-        options,
+      const keywords = options.searchParams.get("keywords") ?? options.searchParams.get("keyword") ?? "";
+      const filtered = snapshot.latestPlaylists.filter((playlist) =>
+        playlist.charts.some((chart) => matchesChartSearch(chart, keywords, snapshot.template.item.tags)),
       );
+      const playlists = await preparePlaylistRecords(snapshot, filtered.slice(start, start + LEVEL_PAGE_SIZE), options);
       return document(
         200,
         projectPlaylistList(
           playlists.map((playlist) => playlist.item),
-          Math.ceil(snapshot.playlists.length / LEVEL_PAGE_SIZE),
+          Math.ceil(filtered.length / LEVEL_PAGE_SIZE),
           {
             ...(options.playlistInfoTitle ? { title: options.playlistInfoTitle } : {}),
             ...(options.quickSearchValues ? { quickSearchValues: options.quickSearchValues } : {}),

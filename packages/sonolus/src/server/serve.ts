@@ -17,6 +17,7 @@ import express from "express";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
+import { sonolusLevelName, sonolusPlaylistName } from "@haneoka/sonolus-core";
 import type { Srl } from "@sonolus/core";
 import {
   Sonolus,
@@ -79,7 +80,7 @@ function pickRandomItems<T>(items: readonly T[], count = FEATURED_ITEM_COUNT): T
   const limit = Math.min(count, shuffled.length);
   for (let index = 0; index < limit; index++) {
     const selected = index + Math.floor(Math.random() * (shuffled.length - index));
-    [shuffled[index], shuffled[selected]] = [shuffled[selected], shuffled[index]];
+    [shuffled[index], shuffled[selected]] = [shuffled[selected]!, shuffled[index]!];
   }
   return shuffled.slice(0, limit);
 }
@@ -219,6 +220,18 @@ function main() {
   const metasEn = buildLevelMetas(music, scores, texts, "_english", bands);
   const enByName = new Map(metasEn.map((m) => [m.name, m]));
 
+  const localizedMetas = {
+    ja: new Map(metasJa.map((meta) => [meta.name, meta])),
+    en: enByName,
+    zhs: new Map(buildLevelMetas(music, scores, texts, "_simplifiedChinese", bands).map((meta) => [meta.name, meta])),
+    zht: new Map(buildLevelMetas(music, scores, texts, "_traditionalChinese", bands).map((meta) => [meta.name, meta])),
+    ko: new Map(buildLevelMetas(music, scores, texts, "_korean", bands).map((meta) => [meta.name, meta])),
+  };
+  const localizedMeta = (meta: LevelMeta, field: "title" | "artists"): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(localizedMetas).map(([locale, values]) => [locale, values.get(meta.name)?.[field] || meta[field]]),
+    );
+
   // musicSoundID → BGM cue name (MasterSoundCueSheet), for bgmPath().
   const cueByMsid = new Map<number, string>();
   for (const r of master("MasterSoundCueSheet")) cueByMsid.set(r._id, r._cueSheetName);
@@ -252,12 +265,16 @@ function main() {
   const requiredResourceFiles = [
     "skins/skin001/skin.data",
     "skins/skin001/skin.texture.png",
+    "skins/skin001/thumbnail.png",
     "skins/skin002/skin.data",
     "skins/skin002/skin.texture.png",
+    "skins/skin002/thumbnail.png",
     "skins/skin003/skin.data",
     "skins/skin003/skin.texture.png",
+    "skins/skin003/thumbnail.png",
     "particle.data",
     "particle.texture.png",
+    "particle.thumbnail.png",
     "effect.data",
     "effect.audio",
   ] as const;
@@ -289,7 +306,7 @@ function main() {
     subtitle: { ja: "Our Notes", en: "Our Notes" },
     author: { en: "haneoka" },
     tags: [],
-    thumbnail: EMPTY_SRL,
+    thumbnail: s.add(readFileSync(resolve(resourceDir, "skins", skinId, "thumbnail.png"))),
     data: s.add(readFileSync(resolve(resourceDir, "skins", skinId, "skin.data"))),
     texture: s.add(readFileSync(resolve(resourceDir, "skins", skinId, "skin.texture.png"))),
   }));
@@ -302,7 +319,7 @@ function main() {
     subtitle: { ja: "オリジナル effect001 投影", en: "Projected original effect001" },
     author: { en: "haneoka" },
     tags: [],
-    thumbnail: EMPTY_SRL,
+    thumbnail: s.add(readFileSync(resolve(resourceDir, "particle.thumbnail.png"))),
     data: s.add(readFileSync(resolve(resourceDir, "particle.data"))),
     texture: s.add(readFileSync(resolve(resourceDir, "particle.texture.png"))),
   };
@@ -314,7 +331,7 @@ function main() {
     subtitle: { ja: "オリジナルノートSE", en: "Original note sounds" },
     author: { en: "haneoka" },
     tags: [],
-    thumbnail: EMPTY_SRL,
+    thumbnail: banner,
     data: s.add(readFileSync(resolve(resourceDir, "effect.data"))),
     audio: s.add(readFileSync(resolve(resourceDir, "effect.audio"))),
   };
@@ -396,7 +413,7 @@ function main() {
     background: engineBg,
     effect: engineEffect,
     particle: engineParticle,
-    thumbnail: EMPTY_SRL,
+    thumbnail: banner,
     playData: s.add(readFileSync(playFile)), // already gzipped by sonolus-cli
     watchData: s.add(readFileSync(watchFile)),
     previewData: s.add(readFileSync(previewFile)),
@@ -427,7 +444,7 @@ function main() {
       continue;
     }
     const jp = jacketPath(meta.jacketAsset);
-    const cover: Srl = jp ? s.add(readFileSync(jp)) : EMPTY_SRL;
+    const cover: Srl = jp ? s.add(readFileSync(jp)) : banner;
     // BGM (per-song, cached): resolve the cue name → mp3 → SRL.
     const cueName = cueByMsid.get(meta.musicSoundId);
     let bgm: Srl = EMPTY_SRL;
@@ -441,14 +458,13 @@ function main() {
         bgmCache.set(cueName, bgm);
       }
     }
-    const en = enByName.get(meta.name);
     const level: LevelItemModel = {
-      name: meta.name,
+      name: sonolusLevelName(releaseServer, meta.musicId, meta.difficulty),
       version: SONOLUS_ITEM_VERSIONS.level,
       rating: meta.rating,
-      title: { ja: meta.title, en: en?.title || meta.title },
-      artists: { ja: meta.artists, en: en?.artists || meta.artists },
-      author: { ja: meta.artists, en: en?.artists || meta.artists },
+      title: localizedMeta(meta, "title"),
+      artists: localizedMeta(meta, "artists"),
+      author: localizedMeta(meta, "artists"),
       tags: [{ title: { ja: meta.difficulty, en: meta.difficulty } }],
       engine: ENGINE_NAME,
       useSkin: { useDefault: true },
@@ -483,12 +499,11 @@ function main() {
   for (const entries of levelsByMusicId.values()) {
     const primary = entries[0];
     if (!primary) continue;
-    const en = enByName.get(primary.meta.name);
     const playlist: PlaylistItemModel = {
-      name: `ourNotes-${primary.meta.musicId}`,
+      name: sonolusPlaylistName(releaseServer, primary.meta.musicId),
       version: 1,
-      title: { ja: primary.meta.title, en: en?.title || primary.meta.title },
-      subtitle: { ja: primary.meta.artists, en: en?.artists || primary.meta.artists },
+      title: localizedMeta(primary.meta, "title"),
+      subtitle: localizedMeta(primary.meta, "artists"),
       author: { ja: "haneoka", en: "haneoka" },
       tags: [],
       levels: entries.map(({ level }) => level),
@@ -547,7 +562,38 @@ function main() {
     configuration: { options: {} },
   });
 
+  const imageHashes = new Set<string>();
+  const resourceUrls = (value: unknown): void => {
+    if (!value || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    if (typeof record.url === "string" && record.url.startsWith("/sonolus/repository/")) {
+      record.url = new URL(record.url, ADDRESS).href;
+    }
+    for (const [key, entry] of Object.entries(record)) {
+      if ((key === "thumbnail" || key === "cover") && entry && typeof entry === "object") {
+        const hash = (entry as Srl).hash;
+        if (typeof hash === "string" && hash) imageHashes.add(hash);
+      }
+      resourceUrls(entry);
+    }
+  };
+  resourceUrls([
+    banner,
+    s.level.items,
+    s.playlist.items,
+    s.skin.items,
+    s.background.items,
+    s.effect.items,
+    s.particle.items,
+    s.engine.items,
+  ]);
   const app = express();
+  app.use((request, response, next) => {
+    const hash = /^\/sonolus\/repository\/([a-f0-9]{40})$/u.exec(request.path)?.[1];
+    if ((request.method === "GET" || request.method === "HEAD") && hash && imageHashes.has(hash))
+      response.type("image/png");
+    next();
+  });
   app.use(s.router);
   app.listen(PORT, () => {
     const bgmSongs = [...bgmCache.values()].filter((v) => v !== EMPTY_SRL).length;
