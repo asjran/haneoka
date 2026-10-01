@@ -10,6 +10,7 @@ export interface TextCell {
 }
 export interface StampTextLayout {
   cells: TextCell[];
+  inkBounds: { left: number; top: number; right: number; bottom: number };
   bounds: { left: number; top: number; right: number; bottom: number };
 }
 
@@ -64,6 +65,37 @@ function verticalTokens(context: CanvasRenderingContext2D, line: string, size: n
   return tokens;
 }
 
+function inkBounds(context: CanvasRenderingContext2D, cells: readonly TextCell[], stroke: number) {
+  let left = Infinity,
+    right = -Infinity,
+    top = Infinity,
+    bottom = -Infinity;
+  for (const cell of cells) {
+    if (!cell.text.trim()) continue;
+    const metric = context.measureText(cell.text);
+    const x0 = -metric.actualBoundingBoxLeft - stroke,
+      x1 = metric.actualBoundingBoxRight + stroke;
+    const y0 = -metric.actualBoundingBoxAscent - stroke,
+      y1 = metric.actualBoundingBoxDescent + stroke;
+    const cos = Math.cos(cell.rotation),
+      sin = Math.sin(cell.rotation);
+    for (const [x, y] of [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1],
+      [x0, y1],
+    ]) {
+      const px = cell.x + (x * cos - y * sin) * cell.scale,
+        py = cell.y + (x * sin + y * cos) * cell.scale;
+      left = Math.min(left, px);
+      right = Math.max(right, px);
+      top = Math.min(top, py);
+      bottom = Math.max(bottom, py);
+    }
+  }
+  return Number.isFinite(left) ? { left, right, top, bottom } : { left: 0, right: 0, top: 0, bottom: 0 };
+}
+
 /** Real Canvas cells shared by preview, PNG drawing and hit testing. Newlines start columns. */
 export function stampTextLayout(
   context: CanvasRenderingContext2D,
@@ -79,14 +111,16 @@ export function stampTextLayout(
     const lines = text.split("\n");
     const extent = Math.max(...lines.map((line) => context.measureText(line).width));
     const height = (lines.length - 1) * gap + size * 1.3;
+    const cells = lines.map((line, index) => ({
+      text: line,
+      x: 0,
+      y: (index - (lines.length - 1) / 2) * gap,
+      rotation: 0,
+      scale: 1,
+    }));
     return {
-      cells: lines.map((line, index) => ({
-        text: line,
-        x: 0,
-        y: (index - (lines.length - 1) / 2) * gap,
-        rotation: 0,
-        scale: 1,
-      })),
+      cells,
+      inkBounds: inkBounds(context, cells, stroke),
       bounds: {
         left: -extent / 2 - padding,
         right: extent / 2 + padding,
@@ -130,6 +164,7 @@ export function stampTextLayout(
   const halfWidth = ((columns.length - 1) * gap + size * 1.3) / 2;
   return {
     cells,
+    inkBounds: inkBounds(context, cells, stroke),
     bounds: {
       left: -halfWidth - padding,
       right: halfWidth + padding,

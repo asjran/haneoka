@@ -1,6 +1,14 @@
 import { stampFont, loadFontStylesheet } from "./fonts";
 export { STAMP_FONTS } from "./fonts";
+import type { StampLayer } from "./layers";
 import { stampTextLayout, type StampWritingMode } from "./text-layout";
+
+export interface StampBackground {
+  color: string;
+  alpha: number;
+  padding: number;
+  radius: number;
+}
 
 export interface StampText {
   text: string;
@@ -13,6 +21,8 @@ export interface StampText {
   stroke: string;
   strokeWidth: number;
   writingMode: StampWritingMode;
+  background?: StampBackground;
+  weight?: number;
 }
 
 export function defaultStampText(): StampText {
@@ -27,6 +37,8 @@ export function defaultStampText(): StampText {
     stroke: "#ffffff",
     strokeWidth: 1.2,
     writingMode: "horizontal",
+    weight: 900,
+    background: undefined,
   };
 }
 
@@ -36,7 +48,10 @@ export function clampPosition(value: number): number {
 
 function fontSpec(text: StampText, width: number, fallback: string): string {
   const font = stampFont(text.font);
-  return `${font?.weight || 900} ${(width * text.size) / 100}px ${font ? `"${font.family}", ` : ""}${fallback}`;
+  const weight = font?.weightRange
+    ? Math.max(font.weightRange[0], Math.min(font.weightRange[1], text.weight || font.weight))
+    : font?.weight || 900;
+  return `${weight} ${(width * text.size) / 100}px ${font ? `"${font.family}", ` : ""}${fallback}`;
 }
 
 export async function loadStampFont(text: StampText, fallback: string): Promise<void> {
@@ -68,31 +83,55 @@ function textLayout(context: CanvasRenderingContext2D, text: StampText, width: n
   return stampTextLayout(context, text.text, size, width, (width * text.strokeWidth) / 100, text.writingMode);
 }
 
-/** Selection is a preview overlay; exports call this without its color. */
-export function drawStamp(
-  canvas: HTMLCanvasElement,
-  image: HTMLImageElement,
+function visibleBounds(text: StampText, bounds: TextBounds, width: number): TextBounds {
+  const extra = text.background && text.background.alpha > 0 ? (width * text.background.padding) / 100 : 0;
+  return {
+    left: bounds.left - extra,
+    right: bounds.right + extra,
+    top: bounds.top - extra,
+    bottom: bounds.bottom + extra,
+  };
+}
+function drawTextLayer(
+  context: CanvasRenderingContext2D,
   text: StampText,
+  width: number,
+  height: number,
   fallback: string,
   selectionColor?: string,
 ): void {
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas 2D is unavailable");
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
-  const imageWidth = image.naturalWidth * scale;
-  const imageHeight = image.naturalHeight * scale;
-  context.drawImage(image, (canvas.width - imageWidth) / 2, (canvas.height - imageHeight) / 2, imageWidth, imageHeight);
-  if (!text.text.trim()) return;
+  if (!text.text.trim() && !(text.background && text.background.alpha > 0)) return;
   context.save();
-  context.translate((canvas.width * text.x) / 100, (canvas.height * text.y) / 100);
+  context.translate((width * text.x) / 100, (height * text.y) / 100);
   context.rotate((text.rotation * Math.PI) / 180);
-  const { cells, bounds } = textLayout(context, text, canvas.width, fallback);
+  const { cells, bounds: textBounds, inkBounds } = textLayout(context, text, width, fallback);
+  const bounds = visibleBounds(text, textBounds, width);
+  const background = text.background;
+  if (background && background.alpha > 0) {
+    context.save();
+    context.globalAlpha = Math.max(0, Math.min(1, background.alpha / 100));
+    context.fillStyle = background.color;
+    const inset = (width * background.padding) / 100;
+    const box = {
+      left: inkBounds.left - inset,
+      right: inkBounds.right + inset,
+      top: inkBounds.top - inset,
+      bottom: inkBounds.bottom + inset,
+    };
+    const radius = Math.max(
+      0,
+      Math.min((width * background.radius) / 100, (box.right - box.left) / 2, (box.bottom - box.top) / 2),
+    );
+    context.beginPath();
+    context.roundRect(box.left, box.top, box.right - box.left, box.bottom - box.top, radius);
+    context.fill();
+    context.restore();
+  }
   context.lineJoin = "round";
-  context.lineWidth = ((canvas.width * text.strokeWidth) / 100) * 2;
+  context.lineWidth = ((width * text.strokeWidth) / 100) * 2;
   context.strokeStyle = text.stroke;
   context.fillStyle = text.fill;
-  cells.forEach((cell) => {
+  for (const cell of cells) {
     context.save();
     context.translate(cell.x, cell.y);
     context.rotate(cell.rotation);
@@ -100,17 +139,47 @@ export function drawStamp(
     if (text.strokeWidth > 0) context.strokeText(cell.text, 0, 0);
     context.fillText(cell.text, 0, 0);
     context.restore();
-  });
+  }
   if (selectionColor) {
     context.strokeStyle = selectionColor;
-    context.lineWidth = canvas.width / 256;
-    context.setLineDash([canvas.width / 64, canvas.width / 128]);
+    context.lineWidth = width / 256;
+    context.setLineDash([width / 64, width / 128]);
     context.strokeRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
   }
   context.restore();
 }
+function isLayers(value: StampText | readonly StampLayer[]): value is readonly StampLayer[] {
+  return Array.isArray(value);
+}
 
-/** Pointer hit-testing uses the same font metrics and rotation as drawing. */
+/** Compatibility with one text style; ordered layers use the same Canvas paint path. */
+export function drawStamp(
+  canvas: HTMLCanvasElement,
+  image: HTMLImageElement,
+  text: StampText | readonly StampLayer[],
+  fallback: string,
+  selectionColor?: string,
+  selectedLayerId?: string,
+): void {
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas 2D is unavailable");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+  const w = image.naturalWidth * scale,
+    h = image.naturalHeight * scale;
+  context.drawImage(image, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+  if (isLayers(text))
+    for (const layer of text)
+      drawTextLayer(
+        context,
+        layer.settings,
+        canvas.width,
+        canvas.height,
+        fallback,
+        layer.id === selectedLayerId ? selectionColor : undefined,
+      );
+  else drawTextLayer(context, text, canvas.width, canvas.height, fallback, selectionColor);
+}
 export function hitStampText(
   canvas: HTMLCanvasElement,
   text: StampText,
@@ -119,14 +188,26 @@ export function hitStampText(
   y: number,
 ): boolean {
   const context = canvas.getContext("2d");
-  if (!context || !text.text.trim()) return false;
+  if (!context || (!text.text.trim() && !(text.background && text.background.alpha > 0))) return false;
   context.save();
-  const bounds: TextBounds = textLayout(context, text, canvas.width, fallback).bounds;
+  const bounds = visibleBounds(text, textLayout(context, text, canvas.width, fallback).bounds, canvas.width);
   context.restore();
-  const dx = x - (canvas.width * text.x) / 100;
-  const dy = y - (canvas.height * text.y) / 100;
-  const angle = (-text.rotation * Math.PI) / 180;
-  const localX = dx * Math.cos(angle) - dy * Math.sin(angle);
-  const localY = dx * Math.sin(angle) + dy * Math.cos(angle);
+  const dx = x - (canvas.width * text.x) / 100,
+    dy = y - (canvas.height * text.y) / 100,
+    angle = (-text.rotation * Math.PI) / 180;
+  const localX = dx * Math.cos(angle) - dy * Math.sin(angle),
+    localY = dx * Math.sin(angle) + dy * Math.cos(angle);
   return localX >= bounds.left && localX <= bounds.right && localY >= bounds.top && localY <= bounds.bottom;
+}
+/** Last drawn layer owns an overlapping pointer hit. */
+export function hitStampLayer(
+  canvas: HTMLCanvasElement,
+  layers: readonly StampLayer[],
+  fallback: string,
+  x: number,
+  y: number,
+): string | undefined {
+  for (let index = layers.length - 1; index >= 0; index--)
+    if (hitStampText(canvas, layers[index].settings, fallback, x, y)) return layers[index].id;
+  return undefined;
 }

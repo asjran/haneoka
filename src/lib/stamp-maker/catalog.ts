@@ -133,25 +133,3 @@ export async function loadStampImage(sources: readonly string[], signal: AbortSi
   }
   throw new Error("Stamp images are unavailable");
 }
-
-/** Local files use the same decoded pixels for preview and transparent PNG export. */
-export async function loadStampFile(file: File, signal: AbortSignal): Promise<HTMLImageElement> {
-  const url = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    image.src = url;
-    await image.decode();
-    signal.throwIfAborted();
-    if (
-      !image.naturalWidth ||
-      !image.naturalHeight ||
-      image.naturalWidth * image.naturalHeight > 24_000_000 ||
-      image.naturalWidth > 8192 ||
-      image.naturalHeight > 8192
-    )
-      throw new Error("Image dimensions exceed the editor limit");
-    return image;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}

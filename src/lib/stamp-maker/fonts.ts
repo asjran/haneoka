@@ -5,8 +5,17 @@ export interface StampFont {
   weight: number;
   stylesheet?: string;
   source?: string;
+  weightRange?: readonly [number, number];
 }
 export const STAMP_FONTS: readonly StampFont[] = [
+  // The OFL official OTF is byte-identical to OurNotes' runtime UI face (T05); not a baked-stamp font claim.
+  {
+    family: "Pretendard SemiBold",
+    label: "Pretendard SemiBold",
+    weight: 600,
+    source:
+      "https://raw.githubusercontent.com/orioncactus/pretendard/v1.3.9/packages/pretendard/dist/public/static/Pretendard-SemiBold.otf",
+  },
   {
     family: "YurukaStd",
     label: "YurukaStd",
@@ -21,16 +30,18 @@ export const STAMP_FONTS: readonly StampFont[] = [
     source:
       "https://raw.githubusercontent.com/BedrockDigger/sekai-stickers/0dd52ee69f8838dd173ee252810325debe96731a/src/fonts/ShangShouFangTangTi.woff2",
   },
-  { family: "Roboto Variable", label: "Roboto", weight: 900 },
+  { family: "Roboto Variable", label: "Roboto", weight: 900, weightRange: [100, 900] },
   ...["SC", "TC", "JP", "KR"].map((region) => ({
     family: `Noto Sans ${region} Variable`,
     label: `Noto Sans ${region}`,
     weight: 900,
+    weightRange: [100, 900] as const,
   })),
   ...["SC", "TC", "JP", "KR"].map((region) => ({
     family: `Noto Serif ${region} Variable`,
     label: `Noto Serif ${region}`,
     weight: 900,
+    weightRange: [200, 900] as const,
     stylesheet: `https://cdn.jsdelivr.net/npm/@fontsource-variable/noto-serif-${region.toLowerCase()}@5.3.0/wght.css`,
   })),
 ];
