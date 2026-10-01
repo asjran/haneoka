@@ -32,6 +32,10 @@ import { icon } from "./ui/icon";
 import { tile } from "./ui/tile";
 import { LazyImages } from "./ui/lazy-images";
 
+import { stampOutputSize, stampSizeOptions, type StampSize } from "../lib/stamp-maker/sizes";
+
+import { stampCharacterColors } from "../lib/stamp-maker/colors";
+
 import { STAMP_LANGUAGES } from "../lib/stamp-maker/languages";
 
 import { registerImportedFont, removeImportedFont, type StampFont } from "../lib/stamp-maker/fonts";
@@ -61,6 +65,9 @@ export class StampMaker extends LitElement {
     importedFonts: { state: true },
     fontError: { state: true },
     imageLanguage: { state: true },
+    characters: { state: true },
+    characterError: { state: true },
+    colorCharacter: { state: true },
   };
   declare locale: string;
   declare server: string;
@@ -82,6 +89,11 @@ export class StampMaker extends LitElement {
   declare importedFonts: StampFont[];
   declare fontError: boolean;
   declare imageLanguage: string;
+  declare characters: JsonRecord;
+  declare characterError: boolean;
+  declare colorCharacter: string;
+  private colorWasChosen = false;
+  private characterRequest?: AbortController;
   private importedFaces: FontFace[] = [];
   private fileSequence = 0;
   private image?: HTMLImageElement;
@@ -113,10 +125,13 @@ export class StampMaker extends LitElement {
     this.imageError = false;
     this.manifestError = false;
     this.exportState = "";
-    this.outputWidth = "512";
+    this.outputWidth = "native";
     this.importedFonts = [];
     this.fontError = false;
     this.imageLanguage = "";
+    this.characters = {};
+    this.characterError = false;
+    this.colorCharacter = "custom";
   }
 
   createRenderRoot() {
@@ -130,12 +145,14 @@ export class StampMaker extends LitElement {
     if (this.hasUpdated) {
       void this.loadCatalog();
       void this.loadManifest();
+      void this.loadCharacters();
       void this.refreshFont();
     }
   }
 
   disconnectedCallback() {
     this.catalogRequest?.abort();
+    this.characterRequest?.abort();
     this.imageRequest?.abort();
     this.manifestRequest?.abort();
     this.fontSequence++;
@@ -155,6 +172,7 @@ export class StampMaker extends LitElement {
     if (changed.has("server")) {
       void this.loadCatalog();
       void this.loadManifest();
+      void this.loadCharacters();
     } else if (changed.has("textlessSrc")) void this.loadManifest();
     if (
       changed.has("catalog") ||
@@ -180,6 +198,7 @@ export class StampMaker extends LitElement {
           previous.size !== this.settings.size))
     )
       void this.refreshFont();
+    if (changed.has("selected") || changed.has("characters") || changed.has("catalog")) this.defaultCharacterColor();
     this.paint();
     this.thumbnails.observe(this);
   }
@@ -202,6 +221,7 @@ export class StampMaker extends LitElement {
         label: this.customFile.name,
         sources: [],
         variants: [],
+        characterIds: [],
       };
     const stamp = this.choices.find((stamp) => stamp.id === this.selected);
     const variant = this.originalVariant;
@@ -216,6 +236,21 @@ export class StampMaker extends LitElement {
   }
   private get fallbackFont() {
     return getComputedStyle(this).getPropertyValue("--app-font").trim() || "sans-serif";
+  }
+  private get effectiveSize(): StampSize | undefined {
+    const image = this.image;
+    const declared = this.choice?.effectiveSize;
+    if (!image) return declared;
+    return {
+      width: Math.min(image.naturalWidth, declared?.width || image.naturalWidth),
+      height: Math.min(image.naturalHeight, declared?.height || image.naturalHeight),
+    };
+  }
+  private get previewAspect() {
+    const size = this.image
+      ? { width: this.image.naturalWidth, height: this.image.naturalHeight }
+      : this.choice?.effectiveSize;
+    return size ? size.width / size.height : 1;
   }
   private get ready() {
     return !!this.image && !this.imageLoading && !this.fontLoading && !this.fontError && !this.imageError;
@@ -243,6 +278,40 @@ export class StampMaker extends LitElement {
     } finally {
       if (this.catalogRequest === request) this.catalogLoading = false;
     }
+  }
+
+  private get characterColors() {
+    return stampCharacterColors(this.characters, this.locale);
+  }
+  private async loadCharacters() {
+    this.characterRequest?.abort();
+    const request = new AbortController();
+    this.characterRequest = request;
+    this.characters = {};
+    this.characterError = false;
+    try {
+      const catalog = await fetchJson<JsonRecord>(catalogUrl("characters", "", this.server), {
+        signal: request.signal,
+      });
+      if (!request.signal.aborted && this.isConnected) this.characters = catalog;
+    } catch {
+      if (!request.signal.aborted && this.isConnected) this.characterError = true;
+    }
+  }
+  private defaultCharacterColor() {
+    if (this.colorWasChosen || this.mode === "custom") return;
+    const stamp = this.originals.find((item) => item.id === this.selected);
+    const character = this.characterColors.find((item) => stamp?.characterIds.includes(item.id));
+    if (character && this.colorCharacter !== character.id) {
+      this.colorCharacter = character.id;
+      this.change({ fill: character.color });
+    }
+  }
+  private chooseCharacterColor(id: string) {
+    this.colorWasChosen = true;
+    this.colorCharacter = id;
+    const character = this.characterColors.find((item) => item.id === id);
+    if (character) this.change({ fill: character.color });
   }
 
   private async loadManifest() {
@@ -285,6 +354,8 @@ export class StampMaker extends LitElement {
           : await loadStampImage(choice.sources, request.signal);
       if (request.signal.aborted || !this.isConnected) return;
       this.image = image;
+      if (this.outputWidth !== "native" && Number(this.outputWidth) > (this.effectiveSize?.width || 0))
+        this.outputWidth = "native";
       loading.finish();
     } catch {
       if (this.imageRequest === request && this.isConnected) {
@@ -324,8 +395,9 @@ export class StampMaker extends LitElement {
   private paint() {
     const canvas = this.querySelector<HTMLCanvasElement>("canvas");
     if (!canvas) return;
-    const width = 512;
-    const height = width;
+    const aspect = this.previewAspect;
+    const width = Math.max(1, Math.round(512 * Math.min(1, aspect)));
+    const height = Math.max(1, Math.round(width / aspect));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -402,15 +474,17 @@ export class StampMaker extends LitElement {
     const settings = { ...this.settings };
     const fallback = this.fallbackFont;
     const resourceName = `${this.choice?.resourceName || "stamp"}${this.mode === "original" && this.originalVariant ? `-${this.originalVariant.language}` : ""}`;
-    const width = Number(this.outputWidth);
+    const sourceSize = this.effectiveSize;
+    if (!sourceSize) return;
+    const { width, height } = stampOutputSize(sourceSize, this.outputWidth);
     this.exportState = "saving";
     try {
       await loadStampFont(settings, fallback);
       const canvas = document.createElement("canvas");
       canvas.width = width;
-      canvas.height = width;
+      canvas.height = height;
       drawStamp(canvas, image, settings, fallback);
-      await downloadBlob(await canvasToPngBlob(canvas), `${resourceName}-${width}.png`);
+      await downloadBlob(await canvasToPngBlob(canvas), `${resourceName}-${width}x${height}.png`);
       this.exportState = "saved";
     } catch {
       this.exportState = "failed";
@@ -458,6 +532,13 @@ export class StampMaker extends LitElement {
     } finally {
       if (sequence === this.fileSequence && this.isConnected) this.fontLoading = false;
     }
+  }
+
+  private resetText() {
+    this.colorWasChosen = false;
+    this.colorCharacter = "custom";
+    this.change({ ...defaultStampText(), text: this.settings.text });
+    this.defaultCharacterColor();
   }
 
   private async openChooser() {
@@ -542,7 +623,8 @@ export class StampMaker extends LitElement {
               ? html`
                   <div class="stamp-maker__language">
                     <span class="stamp-maker__language-label">
-                      ${clientText(this.locale, "language")} · ${this.versionLabel(this.originalVariant?.language || "original")}
+                      ${clientText(this.locale, "language")} ·
+                      ${this.versionLabel(this.originalVariant?.language || "original")}
                     </span>
                     <div
                       class="settings-options stamp-maker__language-options"
@@ -550,33 +632,38 @@ export class StampMaker extends LitElement {
                       aria-label=${clientText(this.locale, "language")}
                     >
                       ${this.choice.variants.map(
-                  (version) => html`
-                    <label class="settings-option" title=${this.versionLabel(version.language)}>
-                      <input
-                        type="radio"
-                        name="stamp-image-language"
-                        value=${version.language}
-                        .checked=${this.originalVariant?.language === version.language}
-                        aria-label=${this.versionLabel(version.language)}
-                        @change=${() => (this.imageLanguage = version.language)}
-                      />
-                      <span class="settings-option__face" aria-hidden="true">
-                        ${
-                      STAMP_LANGUAGES[version.language]
-                        ? html`
-                            <span class="settings-option__image">
-                              <img src=${STAMP_LANGUAGES[version.language].flag} width="28" height="28" alt="" />
+                        (version) => html`
+                          <label class="settings-option" title=${this.versionLabel(version.language)}>
+                            <input
+                              type="radio"
+                              name="stamp-image-language"
+                              value=${version.language}
+                              .checked=${this.originalVariant?.language === version.language}
+                              aria-label=${this.versionLabel(version.language)}
+                              @change=${() => (this.imageLanguage = version.language)}
+                            />
+                            <span class="settings-option__face" aria-hidden="true">
+                              ${
+                                STAMP_LANGUAGES[version.language]
+                                  ? html`
+                                      <span class="settings-option__image">
+                                        <img
+                                          src=${STAMP_LANGUAGES[version.language].flag}
+                                          width="28"
+                                          height="28"
+                                          alt=""
+                                        />
+                                      </span>
+                                    `
+                                  : icon("image", 24)
+                              }
                             </span>
-                          `
-                        : icon("image", 24)
-                    }
-                      </span>
-                      <span class="settings-option__tooltip" aria-hidden="true">
-                        ${this.versionLabel(version.language)}
-                      </span>
-                    </label>
-                  `,
-                )}
+                            <span class="settings-option__tooltip" aria-hidden="true">
+                              ${this.versionLabel(version.language)}
+                            </span>
+                          </label>
+                        `,
+                      )}
                     </div>
                   </div>
                 `
@@ -598,6 +685,7 @@ export class StampMaker extends LitElement {
         <div class="stamp-maker__preview-pane">
           <div
             class="stamp-maker__preview"
+            style=${`--stamp-aspect:${this.previewAspect}`}
             aria-busy=${String((this.mode !== "custom" && this.catalogLoading) || this.imageLoading || this.fontLoading)}
           >
             <canvas
@@ -649,6 +737,32 @@ export class StampMaker extends LitElement {
             .value=${live(this.settings.text)}
             @input=${(event: Event) => this.change({ text: String((event.target as ValueControl).value).slice(0, 500) })}
           ></md-outlined-text-field>
+          ${segmented({
+            label: this.t("text"),
+            value: this.settings.writingMode === "horizontal" ? "horizontal" : "vertical",
+            options: [
+              { value: "horizontal", label: this.t("horizontal") },
+              { value: "vertical", label: this.t("vertical") },
+            ],
+            onSelect: (value) =>
+              this.change({
+                writingMode: value === "horizontal" ? "horizontal" : "vertical-rl",
+                ...(value === "vertical" && this.settings.y === 18 ? { y: 50 } : {}),
+              }),
+          })}
+          ${
+            this.settings.writingMode !== "horizontal"
+              ? segmented({
+                  label: this.t("columnOrder"),
+                  value: this.settings.writingMode,
+                  options: [
+                    { value: "vertical-rl", label: this.t("rightToLeft") },
+                    { value: "vertical-lr", label: this.t("leftToRight") },
+                  ],
+                  onSelect: (writingMode) => this.change({ writingMode }),
+                })
+              : nothing
+          }
           <md-outlined-select
             label=${this.t("font")}
             .value=${this.settings.font}
@@ -689,59 +803,117 @@ export class StampMaker extends LitElement {
               : nothing
           }
           ${this.slider("size", 3, 25, 0.5)}
-          <div class="stamp-maker__row stamp-maker__position">
-            ${(["x", "y"] as const).map(
-              (axis) => html`
-                <md-outlined-text-field
-                  type="number"
-                  inputmode="decimal"
-                  min="0"
-                  max="100"
-                  step="1"
-                  label=${this.t(axis)}
-                  suffix-text="%"
-                  .value=${live(String(Math.round(this.settings[axis] * 10) / 10))}
-                  @input=${(event: Event) => {
-                    const value = String((event.target as ValueControl).value);
-                    if (value.trim()) this.change({ [axis]: clampPosition(Number(value)) });
-                  }}
-                ></md-outlined-text-field>
+          <md-outlined-select
+            label=${this.t("fill")}
+            .value=${this.colorCharacter}
+            @change=${(event: Event) => this.chooseCharacterColor(String((event.target as ValueControl).value))}
+          >
+            ${this.characterColors.map(
+              (character) => html`
+                <md-select-option value=${character.id}>
+                  <span slot="start" class="stamp-maker__character-color">
+                    ${
+                      character.image
+                        ? html`
+                            <img src=${character.image} alt="" width="28" height="28" />
+                          `
+                        : nothing
+                    }
+                    <i style=${`background:${character.color}`}></i>
+                  </span>
+                  <div slot="headline">${character.name}</div>
+                  <div slot="supporting-text">${character.color}</div>
+                </md-select-option>
               `,
             )}
-            ${iconButton({ label: this.t("center"), icon: "center_focus_strong", onClick: () => this.change({ x: 50, y: 50 }) })}
-          </div>
-          ${this.slider("rotation", -180, 180)}
-          <div class="stamp-maker__row stamp-maker__colors">
-            <label>
-              ${this.t("fill")}
-              <input
-                type="color"
-                aria-label=${this.t("fill")}
-                .value=${this.settings.fill}
-                @input=${(event: Event) => this.change({ fill: (event.target as HTMLInputElement).value })}
-              />
-            </label>
-            <label>
-              ${this.t("stroke")}
-              <input
-                type="color"
-                aria-label=${this.t("stroke")}
-                .value=${this.settings.stroke}
-                @input=${(event: Event) => this.change({ stroke: (event.target as HTMLInputElement).value })}
-              />
-            </label>
-          </div>
-          ${this.slider("strokeWidth", 0, 4, 0.1)}
+            <md-select-option value="custom"><div slot="headline">${this.t("customColor")}</div></md-select-option>
+          </md-outlined-select>
+          ${
+            this.colorCharacter === "custom"
+              ? html`
+                  <label class="stamp-maker__custom-color">
+                    ${this.t("fill")}
+                    <input
+                      type="color"
+                      aria-label=${this.t("fill")}
+                      .value=${this.settings.fill}
+                      @input=${(event: Event) => {
+                        this.colorWasChosen = true;
+                        this.change({ fill: (event.target as HTMLInputElement).value });
+                      }}
+                    />
+                  </label>
+                `
+              : nothing
+          }
+          ${
+            this.characterError
+              ? html`
+                  <p class="field-note" role="alert">
+                    ${clientText(this.locale, "error")}
+                    <button class="button button--text" type="button" @click=${this.loadCharacters}>
+                      ${this.t("retry")}
+                    </button>
+                  </p>
+                `
+              : nothing
+          }
+          <details class="stamp-maker__advanced">
+            <summary>${icon("tune", 20)}${this.t("positionStyle")}</summary>
+            <div class="stamp-maker__row stamp-maker__position">
+              ${(["x", "y"] as const).map(
+                (axis) => html`
+                  <md-outlined-text-field
+                    type="number"
+                    inputmode="decimal"
+                    min="0"
+                    max="100"
+                    step="1"
+                    label=${this.t(axis)}
+                    suffix-text="%"
+                    .value=${live(String(Math.round(this.settings[axis] * 10) / 10))}
+                    @input=${(event: Event) => {
+                      const value = String((event.target as ValueControl).value);
+                      if (value.trim()) this.change({ [axis]: clampPosition(Number(value)) });
+                    }}
+                  ></md-outlined-text-field>
+                `,
+              )}
+              ${iconButton({ label: this.t("center"), icon: "center_focus_strong", onClick: () => this.change({ x: 50, y: 50 }) })}
+            </div>
+            ${this.slider("rotation", -180, 180)}
+            <div class="stamp-maker__row stamp-maker__colors">
+              <label>
+                ${this.t("stroke")}
+                <input
+                  type="color"
+                  aria-label=${this.t("stroke")}
+                  .value=${this.settings.stroke}
+                  @input=${(event: Event) => this.change({ stroke: (event.target as HTMLInputElement).value })}
+                />
+              </label>
+            </div>
+            ${this.slider("strokeWidth", 0, 4, 0.1)}
+          </details>
           <div class="stamp-maker__row stamp-maker__export">
-            ${segmented({
-              label: this.t("resolution"),
-              value: this.outputWidth,
-              options: [
-                { value: "512", label: "512 px" },
-                { value: "1024", label: "1024 px" },
-              ],
-              onSelect: (value) => (this.outputWidth = value),
-            })}
+            <md-outlined-select
+              label=${this.t("resolution")}
+              .value=${this.outputWidth}
+              @change=${(event: Event) => (this.outputWidth = String((event.target as ValueControl).value))}
+            >
+              ${(this.effectiveSize ? stampSizeOptions(this.effectiveSize) : []).map(
+                (size) => html`
+                  <md-select-option value=${size.value}>
+                    <div slot="headline">${size.width} × ${size.height} px</div>
+                  </md-select-option>
+                `,
+              )}
+              <md-select-option value="native">
+                <div slot="headline">
+                  ${this.t("originalSize")}${this.effectiveSize ? ` · ${this.effectiveSize.width} × ${this.effectiveSize.height} px` : ""}
+                </div>
+              </md-select-option>
+            </md-outlined-select>
             <button
               class="button button--filled"
               type="button"
@@ -751,7 +923,7 @@ export class StampMaker extends LitElement {
               ${icon("download", 20)}
               <span>${this.t("export")}</span>
             </button>
-            ${iconButton({ label: this.t("reset"), icon: "restart_alt", onClick: () => this.change({ ...defaultStampText(), text: this.settings.text }) })}
+            ${iconButton({ label: this.t("reset"), icon: "restart_alt", onClick: () => this.resetText() })}
           </div>
           <p class="field-note" role="status" aria-live="polite">
             ${this.exportState ? this.t(this.exportState) : nothing}

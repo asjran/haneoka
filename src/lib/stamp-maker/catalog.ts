@@ -11,6 +11,8 @@ export interface StampChoice {
   label: string;
   sources: string[];
   variants: { language: string; url: string }[];
+  characterIds: string[];
+  effectiveSize?: { width: number; height: number };
 }
 
 /** Only quality-reviewed derivatives enter the textless chooser. */
@@ -21,7 +23,13 @@ export interface TextlessStampManifest {
     id: string;
     publishable: boolean;
     quality: string;
-    artifacts: { exportCandidate?: { path: string; sha256?: string } };
+    nativeSize?: [number, number];
+    effectiveOriginalWidthHeight?: [number, number];
+    originalSourceSize?: [number, number];
+    artifacts: {
+      nativeOriginal?: { path: string; sha256?: string };
+      exportCandidate?: { path: string; sha256?: string };
+    };
   }[];
 }
 
@@ -60,7 +68,14 @@ export function stampChoices(catalog: JsonRecord, locale: string, imageLanguage 
           .pop()
           ?.replace(/\.png$/u, "") || "";
       return [
-        { id, resourceName, label: localizedText(stamp.name, locale) || resourceName, sources, variants: versions },
+        {
+          id,
+          resourceName,
+          label: localizedText(stamp.name, locale) || resourceName,
+          sources,
+          variants: versions,
+          characterIds: Array.isArray(stamp.characterIds) ? stamp.characterIds.map(String) : [],
+        },
       ];
     })
     .sort((a, b) => Number(a.id) - Number(b.id));
@@ -75,15 +90,20 @@ export function textlessChoices(originals: StampChoice[], value: unknown, server
     !Array.isArray(manifest.records)
   )
     return [];
-  const entries = new Map<string, string>();
+  const entries = new Map<string, { source: string; effectiveSize?: { width: number; height: number } }>();
   for (const record of manifest.records) {
     if (!record || record.publishable !== true || typeof record.id !== "string") continue;
-    const source = stampAssetUrl(record.artifacts?.exportCandidate?.path);
-    if (source) entries.set(record.id, source);
+    const source = stampAssetUrl(record.artifacts?.nativeOriginal?.path || record.artifacts?.exportCandidate?.path);
+    const size = record.effectiveOriginalWidthHeight || record.nativeSize || record.originalSourceSize;
+    const effectiveSize =
+      Array.isArray(size) && size.length === 2 && size.every((value) => Number.isSafeInteger(value) && value > 0)
+        ? { width: size[0], height: size[1] }
+        : undefined;
+    if (source) entries.set(record.id, { source, effectiveSize });
   }
   return originals.flatMap((stamp) => {
-    const source = entries.get(stamp.resourceName);
-    return source ? [{ ...stamp, sources: [source] }] : [];
+    const entry = entries.get(stamp.resourceName);
+    return entry ? [{ ...stamp, sources: [entry.source], effectiveSize: entry.effectiveSize }] : [];
   });
 }
 
@@ -122,7 +142,13 @@ export async function loadStampFile(file: File, signal: AbortSignal): Promise<HT
     image.src = url;
     await image.decode();
     signal.throwIfAborted();
-    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 40_000_000)
+    if (
+      !image.naturalWidth ||
+      !image.naturalHeight ||
+      image.naturalWidth * image.naturalHeight > 24_000_000 ||
+      image.naturalWidth > 8192 ||
+      image.naturalHeight > 8192
+    )
       throw new Error("Image dimensions exceed the editor limit");
     return image;
   } finally {

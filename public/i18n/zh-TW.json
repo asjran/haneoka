@@ -2422,6 +2422,14 @@
     "fontHelp": "Sekai 工具使用 YurukaStd 和 SSFangTangTi（上首方糖體），可匯入你的本機字型檔。",
     "fontFailed": "字型載入失敗，請重試或選擇其他字型。",
     "fontSans": "思源黑體",
-    "fontSerif": "思源宋體"
+    "fontSerif": "思源宋體",
+    "horizontal": "橫排",
+    "vertical": "直排",
+    "columnOrder": "欄順序",
+    "rightToLeft": "由右至左",
+    "leftToRight": "由左至右",
+    "customColor": "自訂顏色",
+    "positionStyle": "位置與描邊",
+    "originalSize": "原始尺寸"
   }
 }

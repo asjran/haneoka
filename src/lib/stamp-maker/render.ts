@@ -1,5 +1,6 @@
 import { stampFont, loadFontStylesheet } from "./fonts";
 export { STAMP_FONTS } from "./fonts";
+import { stampTextLayout, type StampWritingMode } from "./text-layout";
 
 export interface StampText {
   text: string;
@@ -11,6 +12,7 @@ export interface StampText {
   fill: string;
   stroke: string;
   strokeWidth: number;
+  writingMode: StampWritingMode;
 }
 
 export function defaultStampText(): StampText {
@@ -20,10 +22,11 @@ export function defaultStampText(): StampText {
     y: 18,
     size: 9,
     rotation: 0,
-    font: "auto",
+    font: "YurukaStd",
     fill: "#333333",
     stroke: "#ffffff",
     strokeWidth: 1.2,
+    writingMode: "horizontal",
   };
 }
 
@@ -59,24 +62,10 @@ interface TextBounds {
 
 function textLayout(context: CanvasRenderingContext2D, text: StampText, width: number, fallback: string) {
   const size = (width * text.size) / 100;
-  const lines = text.text.split("\n");
   context.font = fontSpec(text, width, fallback);
   context.textAlign = "center";
   context.textBaseline = "middle";
-  const lineHeight = size * 1.15;
-  const padding = (width * text.strokeWidth) / 100 + width * 0.012;
-  const maxWidth = Math.max(...lines.map((line) => context.measureText(line).width));
-  const height = (lines.length - 1) * lineHeight + size * 1.3;
-  return {
-    lines,
-    lineHeight,
-    bounds: {
-      left: -maxWidth / 2 - padding,
-      right: maxWidth / 2 + padding,
-      top: -height / 2 - padding,
-      bottom: height / 2 + padding,
-    },
-  };
+  return stampTextLayout(context, text.text, size, width, (width * text.strokeWidth) / 100, text.writingMode);
 }
 
 /** Selection is a preview overlay; exports call this without its color. */
@@ -98,15 +87,19 @@ export function drawStamp(
   context.save();
   context.translate((canvas.width * text.x) / 100, (canvas.height * text.y) / 100);
   context.rotate((text.rotation * Math.PI) / 180);
-  const { lines, lineHeight, bounds } = textLayout(context, text, canvas.width, fallback);
+  const { cells, bounds } = textLayout(context, text, canvas.width, fallback);
   context.lineJoin = "round";
   context.lineWidth = ((canvas.width * text.strokeWidth) / 100) * 2;
   context.strokeStyle = text.stroke;
   context.fillStyle = text.fill;
-  lines.forEach((line, index) => {
-    const y = (index - (lines.length - 1) / 2) * lineHeight;
-    if (text.strokeWidth > 0) context.strokeText(line, 0, y);
-    context.fillText(line, 0, y);
+  cells.forEach((cell) => {
+    context.save();
+    context.translate(cell.x, cell.y);
+    context.rotate(cell.rotation);
+    context.scale(cell.scale, cell.scale);
+    if (text.strokeWidth > 0) context.strokeText(cell.text, 0, 0);
+    context.fillText(cell.text, 0, 0);
+    context.restore();
   });
   if (selectionColor) {
     context.strokeStyle = selectionColor;

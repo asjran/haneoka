@@ -2422,6 +2422,14 @@
     "fontHelp": "SekaiツールはYurukaStdとSSFangTangTiを使用します。手元のフォントファイルを読み込んで使用できます。",
     "fontFailed": "フォントを読み込めませんでした。再試行するか別のフォントを選んでください。",
     "fontSans": "源ノ角ゴシック / Noto Sans",
-    "fontSerif": "源ノ明朝 / Noto Serif"
+    "fontSerif": "源ノ明朝 / Noto Serif",
+    "horizontal": "横書き",
+    "vertical": "縦書き",
+    "columnOrder": "列の順序",
+    "rightToLeft": "右から左",
+    "leftToRight": "左から右",
+    "customColor": "カスタム色",
+    "positionStyle": "位置・縁取り",
+    "originalSize": "元のサイズ"
   }
 }

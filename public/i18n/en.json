@@ -2422,6 +2422,14 @@
     "fontHelp": "Sekai uses YurukaStd and SSFangTangTi. Import your local font files to use those faces.",
     "fontFailed": "Could not load the font. Retry or choose another font.",
     "fontSans": "Source Han Sans / Noto Sans",
-    "fontSerif": "Source Han Serif / Noto Serif"
+    "fontSerif": "Source Han Serif / Noto Serif",
+    "horizontal": "Horizontal",
+    "vertical": "Vertical",
+    "columnOrder": "Column order",
+    "rightToLeft": "Right to left",
+    "leftToRight": "Left to right",
+    "customColor": "Custom color",
+    "positionStyle": "Position and outline",
+    "originalSize": "Original size"
   }
 }
