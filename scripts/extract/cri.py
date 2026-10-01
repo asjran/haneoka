@@ -50,6 +50,7 @@ COMPATIBLE_HCA_KEY_SHA256 = (
     "cd0b2ad6de5baa070f1c00baa33658b493a138919f00a4ed8418a7ff6af6ba2f"
 )
 NOTE_SE_DECODE_PROFILE = "note-se-original-stream-once-v1"
+USM_DECODE_PROFILE = "usm-alpha-full-range-v2"
 RestoreOutput = Callable[[dict[str, Any], Path], None]
 
 
@@ -463,14 +464,19 @@ def _decode_usm(
             if alpha is not None:
                 # Re-encode color+mask into one VP9 stream with real
                 # transparency (WebM alpha_mode); the opaque copy path cannot
-                # carry the mask. Gray keeps the mask's Y plane untouched.
+                # carry the mask. Expand the declared video range before using
+                # luma as alpha: limited-range masks encode clear/opaque as
+                # 16/235, while alpha must use the full 0/255 range.
                 command.extend(["-i", str(alpha)])
+                mask_filter = "format=gray"
+                if _probe_streams(alpha).get("videoColorRange") == "tv":
+                    mask_filter += ",lut=y='clip((val-16)*255/219,0,255)'"
                 if audio:
                     command.extend(["-i", str(audio)])
                 command.extend(
                     [
                         "-filter_complex",
-                        "[1:v]format=gray,setsar=1[a];[0:v]setsar=1[c];[c][a]mergeplanes=0x00010210:yuva420p[v]",
+                        f"[1:v]{mask_filter},setsar=1[a];[0:v]setsar=1[c];[c][a]alphamerge[v]",
                         "-map",
                         "[v]",
                     ]
@@ -1109,7 +1115,7 @@ def _probe_streams(path: Path) -> dict[str, Any]:
             "-v",
             "error",
             "-show_entries",
-            "stream=codec_type,codec_name:stream_tags=alpha_mode",
+            "stream=codec_type,codec_name,color_range:stream_tags=alpha_mode",
             "-of",
             "json",
             str(path),
@@ -1121,6 +1127,7 @@ def _probe_streams(path: Path) -> dict[str, Any]:
     return {
         "videoCount": len(videos),
         "videoCodec": videos[0].get("codec_name") if len(videos) == 1 else None,
+        "videoColorRange": videos[0].get("color_range") if len(videos) == 1 else None,
         "videoAlpha": (videos[0].get("tags", {}) or {}).get("alpha_mode") == "1"
         if len(videos) == 1
         else False,
@@ -1631,6 +1638,8 @@ def extract_cri(
             task["semanticDecodeProfile"] = NOTE_SE_DECODE_PROFILE
         tasks.append(task)
     for task in tasks:
+        if task["kind"] == "usm":
+            task["semanticDecodeProfile"] = USM_DECODE_PROFILE
         task["taskId"] = _cri_task_id(task, transform_id)
 
     try:
