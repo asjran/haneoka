@@ -1,0 +1,2284 @@
+{
+  "schema": "haneoka-textless-stamps-v1",
+  "server": "intl",
+  "version": "ts-c7409ce1fc695c94",
+  "sourceIdentity": {
+    "releaseId": "r-31fd4555b15455da7f44",
+    "schema": "haneoka-resource-release-identity-v1",
+    "server": "intl",
+    "sourceId": "v25-c0b6a1541e45-3a5d2eec9935-n653c6392"
+  },
+  "pipeline": "reference-constrained-native-donors",
+  "records": [
+    {
+      "id": "stamp_illust_anon_001",
+      "publishable": false,
+      "quality": "review-rejected",
+      "sourceType": "reconstructed",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_001(en).png",
+          "sha256": "8ef5ba12149946fafa392d416e3a45ddf649f02be1dc17ece9c3d9d7d7695355"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_001(ko).png",
+          "sha256": "438dd28b5605c84851c27d05c0bf55e8a9f63c55f649943ecbfb8a3572ffc6f3"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_001(zh-Hans).png",
+          "sha256": "e3fe3178207db7fd8e442510b6f1f9b5ac902c364d41e00273ce85f523371c0d"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_001(zh-Hant).png",
+          "sha256": "e90a731ba09d99565c22396d6a140bcecbde2f394bb7a2fd73f29dcfa8832d30"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_001.png",
+          "sha256": "888adf4345f024ab57ad3fe5aa88ef4bc5d4ea13163404e149e8acb7d1a18d36"
+        }
+      ],
+      "canvasSize": [
+        512,
+        512
+      ],
+      "exportSize": [
+        1024,
+        1024
+      ],
+      "nativeDonorPixels": 82883,
+      "unresolvedNativeDetailPixels": 33218,
+      "unresolvedNativeDetailPercent": 28.6113,
+      "nativeDonorCounts": {
+        "en": 33567,
+        "ko": 19933,
+        "zh-Hans": 9107,
+        "zh-Hant": 11233,
+        "ja": 9043
+      },
+      "limitations": [
+        "Reference-covered detail retains reference resolution.",
+        "Donor classification is heuristic; human review checks readable residue and seams.",
+        "Export upscaling adds pixels, not original linework information."
+      ],
+      "review": {
+        "approved": false,
+        "observations": [
+          "No readable caption remains.",
+          "Visible mixed sharpness and line transitions at hair, eyes or clothing; retain as review candidate."
+        ]
+      }
+    },
+    {
+      "id": "stamp_illust_anon_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_002(en).png",
+          "sha256": "c4739ac120caf55b2b3ecb987ab35bae3340959c7c7866fadf3d63fd5c0a01b6"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_002(ko).png",
+          "sha256": "7b97962c8700f8247106e2cd43585660f121e29ae61d058817e19eb865ceda7e"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_002(zh-Hans).png",
+          "sha256": "5ade2dda306d87412d474a7723f02623eecd421898590d5bbc576f4a67d1bd3e"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_002(zh-Hant).png",
+          "sha256": "cd8d5a23afbc18f127bfb4561823c1c3edb8e611bcd84470398443a0cd94b96d"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_anon_002.png",
+          "sha256": "fe3d70aa2064a87eb9c0e09122717d0a4b983cddcd31818857a7b896e5582004"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_arale_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_001(en).png",
+          "sha256": "f074ffaf3378dd8fc3a2b11cf216b123121a4c84e3144ab4d8258dd9688eb2c1"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_001(ko).png",
+          "sha256": "f361c2510b6d326cd54ac5684ff5727c4766f9139499cf088a8af6444952a1f1"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_001(zh-Hans).png",
+          "sha256": "2297bf3b80a4b244ef4a302d84ae6e5d3969d27586bd1780e75c6409d934e7c8"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_001(zh-Hant).png",
+          "sha256": "14a1d8b0c78eac83956252a7197e5b76c63b011a48e61566ef3e53de93af467e"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_001.png",
+          "sha256": "38d6ee82fab06dbe790c0ab37cc864bbb92103bccad8ea90220bbac26a8efbf1"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_arale_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_002(en).png",
+          "sha256": "a4b1e4803e4b9aea241dbe7e2dd274cf828f171d86ddd93e31eec2d1dbdf19ed"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_002(ko).png",
+          "sha256": "97fa404f715933e8db3a674d9a6275633a337158e5aec34a29b74cc9c1efc1f1"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_002(zh-Hans).png",
+          "sha256": "a68c374fbcd469a9b8595abb6bf6ed2703312735a1c0f6ddb2718e372fd47e40"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_002(zh-Hant).png",
+          "sha256": "c8b20776ef8991b3c19386b08b442236be5eae2c2208364820f66e09f0ca7d1d"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_arale_002.png",
+          "sha256": "759daf042b28d947e88fedb8d662e9466bfc3c04ed5a687fb64c4514b57e076c"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_bili_00001",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00001(ko).png",
+          "sha256": "c245afa104dfb21192a9c19dd1a2f7758d880d1ca00c39e8f39e6a80537bea20"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00001(zh-Hans).png",
+          "sha256": "e7f3f3e4151765aa66b81edc3e1c84e0b9ac776c59f3eb126f5ca552dcd6e3fb"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00001(zh-Hant).png",
+          "sha256": "082dc867c21d20c9e0f647a0d2e677b3649912ac7fa1141487161793589eeee1"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00001.png",
+          "sha256": "024bca4e81a3bf655cc0281f70af12c26eac6832cd4490e24979aea06ba1ae69"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_bili_00002",
+      "publishable": true,
+      "quality": "native-textless",
+      "sourceType": "native",
+      "artifacts": {
+        "nativeOriginal": {
+          "path": "/tools/stamp-maker/assets/intl/ts-c7409ce1fc695c94/stamp_illust_bili_00002.native-sprite.png",
+          "sha256": "ecb3a1bb560f4c4b0a4fa481a782ff0589a2b27b70312bd61337951172f74dc5"
+        },
+        "nativeCanvas": {
+          "path": "/tools/stamp-maker/assets/intl/ts-c7409ce1fc695c94/stamp_illust_bili_00002.native-canvas.png",
+          "sha256": "0e31b4bf9a9d37125ec9781d684065095314b70d6dd6a3346f32b038880d25d0"
+        },
+        "exportCandidate": {
+          "path": "/tools/stamp-maker/assets/intl/ts-c7409ce1fc695c94/stamp_illust_bili_00002.native-sprite.1024.png",
+          "sha256": "5097ed35600c6b24cb541dd3559c26ff75bc17cff735c7ba49d76607dcccc8cd"
+        }
+      },
+      "sources": [
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00002.png",
+          "sha256": "2790262585726fa7144a42d1f474eba8ae2397cf01379525389565ed9095fccf"
+        }
+      ],
+      "nativeSize": [
+        346,
+        398
+      ],
+      "canvasSize": [
+        398,
+        398
+      ],
+      "exportSize": [
+        1024,
+        1024
+      ],
+      "unresolvedNativeDetailPercent": 0,
+      "limitations": [
+        "Native Sprite silhouette and background colours are preserved.",
+        "Export upscaling adds pixels, not original linework information."
+      ],
+      "review": {
+        "approved": true,
+        "observations": [
+          "Native Sprite has no lettering.",
+          "Original outline and background colours retained.",
+          "Original pixels are centered with transparent padding; aspect ratio preserved."
+        ]
+      }
+    },
+    {
+      "id": "stamp_illust_bili_00003",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00003(ko).png",
+          "sha256": "f9148e4f806bd0e910a88b7e8f7cff2fdd7e303125d6bca6b3294afa569171eb"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00003(zh-Hans).png",
+          "sha256": "d94dae361a52606ab99fa0cdee97ad28738446dd249542d468daae68a2d49d91"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00003(zh-Hant).png",
+          "sha256": "4a91c01bef91a5b2ad83aed68b95e53b850a061934d8af7e86ff921366635fbe"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00003.png",
+          "sha256": "d865cec8b994ff3e4d63fe9b45e920bc38730b5367ac10f1c519424bae44bf24"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_bili_00004",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00004(ko).png",
+          "sha256": "dac3fa84ecca9c674655032471169e070b4cd8443178b6a7199c244ea4b3d4de"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00004(zh-Hans).png",
+          "sha256": "0de12b927283e5a4acfa78bf7afb4749e4f8989e5e9ee573de35820c1190f6bd"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00004(zh-Hant).png",
+          "sha256": "b26af74794b4f1eeb8b33bce7acf8347a936c71b4a10a6d99b07e5ef82170900"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00004.png",
+          "sha256": "6284faaa603bee558c6ae27262dce37608930a520bd797ef513d518d43fa9660"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_bili_00005",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00005(ko).png",
+          "sha256": "d8071c251b2f7509428c1628e38ef75b73678bbf7cd56a43a78576b2790ecd9b"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00005(zh-Hans).png",
+          "sha256": "148f6a83d3336facb3f55098dd7471ad2d3bca07e50b3e879d851fbb4227a42a"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00005(zh-Hant).png",
+          "sha256": "d0e01305ada2357d8cbdaea52807ba8de7261e0c45ecfc3c5eaa5f4b0b31fdcf"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00005.png",
+          "sha256": "5ca0982341c68db91452245adc9c0cfc0b17c2785a070922f760d22a0b1edfc5"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_bili_00006",
+      "publishable": true,
+      "quality": "native-textless",
+      "sourceType": "native",
+      "artifacts": {
+        "nativeOriginal": {
+          "path": "/tools/stamp-maker/assets/intl/ts-c7409ce1fc695c94/stamp_illust_bili_00006.native-sprite.png",
+          "sha256": "07e91db1a2ec6830143efc856ca666806b770d58252ef42ff437c985b4566f20"
+        },
+        "nativeCanvas": {
+          "path": "/tools/stamp-maker/assets/intl/ts-c7409ce1fc695c94/stamp_illust_bili_00006.native-canvas.png",
+          "sha256": "d1716bea4d0b4657ec5590d80dbbb84182b63ccb79d26c521e4971215c599bd3"
+        },
+        "exportCandidate": {
+          "path": "/tools/stamp-maker/assets/intl/ts-c7409ce1fc695c94/stamp_illust_bili_00006.native-sprite.1024.png",
+          "sha256": "d77855c9098077aded2225696a64673b37b0dee19579e699a2840a05834e8f33"
+        }
+      },
+      "sources": [
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_bili_00006.png",
+          "sha256": "578f900d84ce76587759103c51b0a131d7472db6f83040e34d1299fb1f19837c"
+        }
+      ],
+      "nativeSize": [
+        512,
+        464
+      ],
+      "canvasSize": [
+        512,
+        512
+      ],
+      "exportSize": [
+        1024,
+        1024
+      ],
+      "unresolvedNativeDetailPercent": 0,
+      "limitations": [
+        "Native Sprite silhouette and background colours are preserved.",
+        "Export upscaling adds pixels, not original linework information."
+      ],
+      "review": {
+        "approved": true,
+        "observations": [
+          "Native group Sprite has no lettering.",
+          "Original outline and central background colours retained.",
+          "Original pixels are centered with transparent padding; aspect ratio preserved."
+        ]
+      }
+    },
+    {
+      "id": "stamp_illust_chieri_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_001(en).png",
+          "sha256": "e7efd415e40299631fb5bebbeab06fb96f3d6b4ff532814c61ed0cfb2bf6deab"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_001(ko).png",
+          "sha256": "4611ffefc4fa915e9634b493afbf17ddcd89a9f24344d8545e72b96bd93cc85e"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_001(zh-Hans).png",
+          "sha256": "b8a90022f66edfe2606a9b573950578b1eaacfcb44a1dcc7f95aae8a3ad14377"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_001(zh-Hant).png",
+          "sha256": "b8a90022f66edfe2606a9b573950578b1eaacfcb44a1dcc7f95aae8a3ad14377"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_001.png",
+          "sha256": "848473f5897b29cedd80a3a5e78f3c3d24a072fc0f03401b5c709dda8a2dfe64"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_chieri_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_002(en).png",
+          "sha256": "81b04a1f5b71402b40034ef8ff2973f259227cb5914083d2b11aa9d9556232f9"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_002(ko).png",
+          "sha256": "effdee341738bec6bc969ede44889774df4a12671a0224706f5ad81643a171b0"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_002(zh-Hans).png",
+          "sha256": "e6d54e052ce6d1a727973c728eaae7586c1f18136c930567c6a1b1e2d6fa31ec"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_002(zh-Hant).png",
+          "sha256": "beac7847e886c3b2930b1b2ae3f8ea4077cf38c94426d49f933ed6413852142c"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_chieri_002.png",
+          "sha256": "ad64bb0ab6a5059c02e8786b8e200310bd6f98ce82f65b1b3027d4a94d2147c0"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_hotaru_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_001(en).png",
+          "sha256": "3fdbc9a9f824c8d78bb7192a62b50e033e1b2e5397ba33fe1c93a35fcdcd69ea"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_001(ko).png",
+          "sha256": "42781ef8e1479553c60b8cbe1e26e9537a9f6f708ea023c382adbc9d84ada7ad"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_001(zh-Hans).png",
+          "sha256": "0dd3e0de400ef46a33a2a19859209222e7b89d637314bc58358192bb44846e55"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_001(zh-Hant).png",
+          "sha256": "eb4ffb7f3e4b80dcc556c5694d97909c0658e8e7d5e4af3e6e5a867e81c96c09"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_001.png",
+          "sha256": "c56ec036ee71af30d51c8d9bfd6308c617f07d892ce1f5e8dd99a1bdf288467f"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_hotaru_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_002(en).png",
+          "sha256": "6bf695898612730cd26c5929fa4e46c66809b5c96b22f52bf0e137575d9135b4"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_002(ko).png",
+          "sha256": "c3d4e0d5aa91dcc1d5ea1de4f9036e1a03941e570e43e8a3e4142c8325e4a1f0"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_002(zh-Hans).png",
+          "sha256": "1f54f7587782b2a5c8805eae295c2c16412769b8679322cca529f30e8c1355af"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_002(zh-Hant).png",
+          "sha256": "9fe3e96fe6df58867c0737f839294ffb331724fe7690eeb9ad425edc1e75ccbb"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_hotaru_002.png",
+          "sha256": "81d4724be1fe7925e5a21055279c6bc83b5c1f8410f19502717fe3b260b90f84"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_houka_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_001(en).png",
+          "sha256": "94d7c96687d71421d39a51ff505f005b532c9887db5d9b278edebb4ab8611e5b"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_001(ko).png",
+          "sha256": "c940899eeee693f317f07215585f0360ed5342fe588368058f02bf85a596c1bb"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_001(zh-Hans).png",
+          "sha256": "925252ce5b8f9bf6709ec44572fa01d4f2a1c24a5b478eba60921325590f2c65"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_001(zh-Hant).png",
+          "sha256": "b19cf5bcf0c5c1d16b0375127bc4bfbb0a74f149c764572e236f6810d86bfdda"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_001.png",
+          "sha256": "63f08feb6fc8e12bf60f297732e8e5ccd94731f72209c2368745f4eeb136ea20"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_houka_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_002(en).png",
+          "sha256": "87b0129eae712e7acb8c4d8763eaa8cc5ee3bf55ce367fb56d09c03b98402181"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_002(ko).png",
+          "sha256": "b37a2ea565c4a890afcc13647d5ed2bdab07a091afb27580c6f91ed65cc99388"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_002(zh-Hans).png",
+          "sha256": "7fc48ac1793fd880ac87b4d00d528d047840e3c20bf33cf8b202715a297c8c41"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_002(zh-Hant).png",
+          "sha256": "cf44ada413da7a4dcbab8bec4ce140bd127f4a73664156e51efa0a386e9996e5"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_houka_002.png",
+          "sha256": "5738407eb8960dc3f3396eab06ec58047c2d7baec492f8a79c5ffd8766fac550"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_mahoro_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_001(en).png",
+          "sha256": "debc0a1e478905c40ef9840862993b587a345a5e4df46c463dec214f8ed07675"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_001(ko).png",
+          "sha256": "21406e70911aae4d3193b5fe87a81cddb17281b332a5de0960fdc8b145facbc6"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_001(zh-Hans).png",
+          "sha256": "0ac429c7048494e5dc347b36e10a612eae5f48f3f3e24a70e960180638cd1560"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_001(zh-Hant).png",
+          "sha256": "ae2f49be37c2b1e00f2145c4d8b3051883ee05adcaed6b9f61c829677040d9b9"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_001.png",
+          "sha256": "32fa236dfdb86f463dbabf436c5261ea8be3e3ba367bfa6d43a3f47c5dee4a91"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_mahoro_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_002(en).png",
+          "sha256": "f51a355a51e7c30efb34ea8c782c4be6610e3efd4959335557c5339db9b0b68d"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_002(ko).png",
+          "sha256": "5a2edd1539990033afe0101dfe70e44de2396b51bc79fea4c9989743703fea29"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_002(zh-Hans).png",
+          "sha256": "5ce7b15a5204a2d8e5ba03e4e0ded68aa3135d20ef6003dcd8f5407ddc496cc4"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_002(zh-Hant).png",
+          "sha256": "fd2ef1f77e8cea3ba003c5199a138a99d70b0768121f522a36c63de8f3da231f"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mahoro_002.png",
+          "sha256": "626f1328747f5e258210b9369881cd4ec53ff760ef5734bfe18f1440932f7980"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_miku_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_001(en).png",
+          "sha256": "ab0d2a155cfdcdefb28c6ad67f8ab6e00341286130ccedc06e9139c9b5748050"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_001(ko).png",
+          "sha256": "90281c1c7661f7c27a80cbf1ea542c579e2eaeed148c6564cf008957b19e97a2"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_001(zh-Hans).png",
+          "sha256": "19055590cd51c7b845fd09a5af7eb38686eb736da87305728544c96c7b15c415"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_001(zh-Hant).png",
+          "sha256": "c73733d1827df5dcc95c60d3aa73566dc37fbeaa570839888e65c43f59b20a43"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_001.png",
+          "sha256": "d4d654746012aed866351f3029fa6f967b63ff16cc17e90ab9b541ad4f3bff19"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_miku_002",
+      "publishable": false,
+      "quality": "review-rejected",
+      "sourceType": "reconstructed",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_002(en).png",
+          "sha256": "8403a6c23aa69f121f9604107a94f088eb00a0e074a53f771d648ae9541231ad"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_002(ko).png",
+          "sha256": "b9eaad767a0158ac635040454185a5c7e203cd4dfb584b267c0f6f701a15bf84"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_002(zh-Hans).png",
+          "sha256": "db63696b8a63ea4bb4617d9d826c3b4a1f5f33d9133a8bbc5289f8745f88f6ba"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_002(zh-Hant).png",
+          "sha256": "46a3d84a76702575eb4c8ccae42f5b48c0d3ca708191b3889dd43ffce64b3038"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miku_002.png",
+          "sha256": "9467f6d80b9940527e0846cea507e6a09c33896f7c7ee149311736f9cdd486a5"
+        }
+      ],
+      "canvasSize": [
+        512,
+        512
+      ],
+      "exportSize": [
+        1024,
+        1024
+      ],
+      "nativeDonorPixels": 83884,
+      "unresolvedNativeDetailPixels": 31419,
+      "unresolvedNativeDetailPercent": 27.2491,
+      "nativeDonorCounts": {
+        "en": 43815,
+        "ko": 23499,
+        "zh-Hans": 41,
+        "zh-Hant": 36,
+        "ja": 16493
+      },
+      "limitations": [
+        "Reference-covered detail retains reference resolution.",
+        "Donor classification is heuristic; human review checks readable residue and seams.",
+        "Export upscaling adds pixels, not original linework information."
+      ],
+      "review": {
+        "approved": false,
+        "observations": [
+          "No readable caption remains.",
+          "Visible mixed sharpness and line transitions at hair, eyes or clothing; retain as review candidate."
+        ]
+      }
+    },
+    {
+      "id": "stamp_illust_miyako_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_001(en).png",
+          "sha256": "36f12e1697ec51589ef864694c0a1edcc98ad12ad1b3babe3f4b2d9039f46dfb"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_001(ko).png",
+          "sha256": "a0011769563763ebb7baae1373f5b5e927a599a1126b822d2c8682fb813b6115"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_001(zh-Hans).png",
+          "sha256": "f1c5a004d479d5d0624712ad135174ca88fbb4ebc914b584c989ba544efd255a"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_001(zh-Hant).png",
+          "sha256": "255a7edf698ecf5bcc411b2912be36f2dbf69ef420e45e688d6e0b11191ce319"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_001.png",
+          "sha256": "07f5d5ff1e22d3ffe74952017f7e97e542d05565de4e836a2f5edaf3a7950633"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_miyako_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_002(en).png",
+          "sha256": "d73cb1f95c13309c6fafad177fa164d265796b515e37bd85fcc2f4cf7c1e6e4d"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_002(ko).png",
+          "sha256": "eced35694cc8270099c8d129b4009de0f42f6e818845f7354e9ae75d2b926e1d"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_002(zh-Hans).png",
+          "sha256": "21eb2a8064bdf674870a5658e7ec4157c7ed2332de23f2bbf061098bcbc0b0a9"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_002(zh-Hant).png",
+          "sha256": "d3900742d16a9d94b314ac5704f2d1a41c0564a792566fd4f914f7c8cb625944"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_miyako_002.png",
+          "sha256": "b6e1ecfaec8dac748c149ecc37820c5bd9c0580ff247b5b6f6dd4f9ec5365dd4"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_mutsumi_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_001(en).png",
+          "sha256": "736fbc417a1f37e3bc86ae5da753d801c275056d480fae699b7836368a27cba5"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_001(ko).png",
+          "sha256": "590c9275ccb24512775b2604f699f18118c69fbec81f614944ec2fc35a2fffe4"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_001(zh-Hans).png",
+          "sha256": "b1ca4bc772533272cd784a1874ab611db7a3193a6b45acf28945554a4a07d66a"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_001(zh-Hant).png",
+          "sha256": "6ef596228a03ebfc0efffa423a0ca075e971db3c27a9362c4633de6ab4a46260"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_001.png",
+          "sha256": "c6d38da3c0fcd6fe487990e7146f839b82d49030e18cc982f3cc20bbb5ddcd4a"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_mutsumi_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_002(en).png",
+          "sha256": "8e4cb41e6a233635e2792dff516cdb737b725fa3a99f160e339df377ca1000c0"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_002(ko).png",
+          "sha256": "a3d4616ef8221ef0a6a12678d5c439d55970800b6877a8f6142ff6215a86efe0"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_002(zh-Hans).png",
+          "sha256": "d630b83773362800693aa5bbcae44e4590f6e5f9858d3a1b6eb84bb4ae2d545d"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_002(zh-Hant).png",
+          "sha256": "d88c53a6aef3021b9c29b67c8868b7d1e754ed9aa63c439aa2cbe73c32379c10"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_mutsumi_002.png",
+          "sha256": "e8ee67408f5c5ec57f2b2ddab7fa051b4ed64d5907b2b267b410c47ecfa10666"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_nagi_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_001(en).png",
+          "sha256": "c0143b5be9f8372486a133024cefbf88efdb1dc63987e21c3c6e621d973bdd8e"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_001(ko).png",
+          "sha256": "58f475ef9578877221bb954765eee4d5392c3aeb252389b1794471233749c67f"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_001(zh-Hans).png",
+          "sha256": "62a3254e9a9b2ed6cb838b9583391cd5441ef460e65cc94de56d050bc533fc28"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_001(zh-Hant).png",
+          "sha256": "d2c488b27f41a268cb8a05dd2c2da8df71ca62ea5c055b6ffe8a39f146322542"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_001.png",
+          "sha256": "64509dd3c777f66b8a15cd7f7ab02b5786c39059f306695f9ab7fcdb30d1eb66"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_nagi_002",
+      "publishable": false,
+      "quality": "review-rejected",
+      "sourceType": "reconstructed",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_002(en).png",
+          "sha256": "5b6a3d50857280f3e8419cb0f574d91496bce2fca3fcb3dbc2b1d327c36898df"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_002(ko).png",
+          "sha256": "acc7609591d41abe0969f06abfd8c8877c63ad9bdb9894fe7d7aab9de0d6399f"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_002(zh-Hans).png",
+          "sha256": "755533a9da7a10aafc6e58a7556fc3a3db48eba63a3c94980c8f728d084eb80c"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_002(zh-Hant).png",
+          "sha256": "7ef63111ddd23015390f9cca563801062400918b16bc5a0f82bb53e9af3a6e77"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nagi_002.png",
+          "sha256": "f67f4c8efd444a00dc2c3c54dc5f5efb123ba3a55871e4e4fd1034084d257271"
+        }
+      ],
+      "canvasSize": [
+        512,
+        512
+      ],
+      "exportSize": [
+        1024,
+        1024
+      ],
+      "nativeDonorPixels": 105246,
+      "unresolvedNativeDetailPixels": 17080,
+      "unresolvedNativeDetailPercent": 13.9627,
+      "nativeDonorCounts": {
+        "en": 68159,
+        "ko": 931,
+        "zh-Hans": 5600,
+        "zh-Hant": 132,
+        "ja": 30424
+      },
+      "limitations": [
+        "Reference-covered detail retains reference resolution.",
+        "Donor classification is heuristic; human review checks readable residue and seams.",
+        "Export upscaling adds pixels, not original linework information."
+      ],
+      "review": {
+        "approved": false,
+        "observations": [
+          "No readable caption remains.",
+          "Mixed sharpness and visible seams at eyes, bangs, collar and silhouette require refinement."
+        ]
+      }
+    },
+    {
+      "id": "stamp_illust_natsume_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_001(en).png",
+          "sha256": "4ef63065dc44ae053e0758489cfc524e72b3f2c4d02ce56bc1c545ce2807b3c1"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_001(ko).png",
+          "sha256": "d070bd6f2deea34709330693612668b9f3ebec33b647de4cd7f154754c32d7a9"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_001(zh-Hans).png",
+          "sha256": "2520395b2797974f0e98206164f46d098b579709eb007bd9f2232e7acd7904eb"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_001(zh-Hant).png",
+          "sha256": "8e122bc4abdd49c64f64daf0b0b067ad275e2e136db7451459d9eb211f9533d5"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_001.png",
+          "sha256": "26bf667d9e61d1d374b960a24117f67dc85ea4fd9a30e4806e27fc4abf410e8d"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_natsume_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_002(en).png",
+          "sha256": "ed896fbfe75f698238d3eab4200e091cb4eeaef0f0e725c9c3a3a5caef8dea68"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_002(ko).png",
+          "sha256": "6f7700202cc9e6c2d1d074c533ef2585f447faabf7191876fbf8d0c183872cff"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_002(zh-Hans).png",
+          "sha256": "762b771f323fe0ac58a7aca40ba8a881ad6e6c46ed054cde96ed11be14a5c8c7"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_002(zh-Hant).png",
+          "sha256": "8623cf7f6572b057b660495012309415ffc5ae44df0b604b96e7cf0ee8a806ae"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_natsume_002.png",
+          "sha256": "1f5909bf246bcf00f8d223a8beb6f9c6386ace23f88c270254970c8006f1f7f4"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_nonoka_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_001(en).png",
+          "sha256": "5cda6a4e39f00577f16d5a4ae5839c83242e9409b6b5b0496f273728f7618c6e"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_001(ko).png",
+          "sha256": "d00b75d5929c0d382d4fe1925a16c5409cf7d9a2c4715a518eab2726a44529a2"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_001(zh-Hans).png",
+          "sha256": "c65e012d58cecc64ceaa9aa5e2dd3b835cec5aab3bc69a3aea5211fdadd4d8d5"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_001(zh-Hant).png",
+          "sha256": "f3e921dea86d0c82cfe1760d585828bcdfc5e4443d95a8753cd9f1bbc8f138a5"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_001.png",
+          "sha256": "62b63daa6eecc303ac4ba7caa5f5c13ccd194ff26883064373740268526b0ec7"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_nonoka_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_002(en).png",
+          "sha256": "57b28704b21f16574cb7a29a8d54ee3e4e65819e3e7c748493c7ca7401c57f82"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_002(ko).png",
+          "sha256": "cb9fb90eeaa2013d8c00b4de5ce4f7be8fd093acf87260f313e03a41db99327e"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_002(zh-Hans).png",
+          "sha256": "4f1b98ea231dae78f7700c9e7337134d34c9f6c80910f595aae11deeaf1233e6"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_002(zh-Hant).png",
+          "sha256": "85970855dd743df464b4ba929feefa207e52683fbbc3c6205c74976ad373b345"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nonoka_002.png",
+          "sha256": "145a212cd46bfab5f3e9bf36cd4594f48a9d15cba0c9510c784c8fbfb91fc4a9"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_nyamu_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_001(en).png",
+          "sha256": "cbde8716af6ee47abfcc26fe1148b65cd91bf1edb0789be6cbf0ef3e8724b734"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_001(ko).png",
+          "sha256": "f6fe09255de73e8838447000f6c4601411514a7c27d63c73cee46ec7424134a4"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_001(zh-Hans).png",
+          "sha256": "b4e0125ebc89a1f63253e9bcfff954a5c14b4e7489bd310b4434ba0323bc917f"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_001(zh-Hant).png",
+          "sha256": "00590028d3a9f74964d98f1e1989e1cf98cbbbb3753bff16766c3fde6a33f5a3"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_001.png",
+          "sha256": "4215fbad6cacabc8af801a5a7dc039283bace7068e7b3770173237a8e00c80ef"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_nyamu_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_002(en).png",
+          "sha256": "c9bd50e1029acf83e91a5bcc522f33ca9ea39342354a544a8c6d3daae428f46b"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_002(ko).png",
+          "sha256": "27dcde2af5503b816d6f4ddcf1af56fd3d2ebc7ba4f4f158cc37f6c5ed87765b"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_002(zh-Hans).png",
+          "sha256": "4e85aceda8efe12021e889d7a5e681aff65c233c0e6745229ec66a8cc2433eda"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_002(zh-Hant).png",
+          "sha256": "c28a57db1d5c2cc5c343569a8bba9f066ab33cc017268b3911675b45ff9b6f9f"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_nyamu_002.png",
+          "sha256": "79ba043c9259ee68499910d5b1b545aa0f45ece7210d0311e6b9038f5cfeef26"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_raika_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_001(en).png",
+          "sha256": "a75b90655b08b2ba33241e20f8c3426da6f9faf06cebfe87b403ec89aa6b85d1"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_001(ko).png",
+          "sha256": "f915e89a6a0fec7bcf18747b0962b83adca6d4b17a183aef0f468f74b48e6fdc"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_001(zh-Hans).png",
+          "sha256": "10268e07cd27f8899fe1c615f633373280733f04bd09b90d0db580dca566e42a"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_001(zh-Hant).png",
+          "sha256": "17b16fd487b6433290b9bcdf2bc7d6e8902d229a7e549f3f634671badee9da03"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_001.png",
+          "sha256": "b31b859a03c992288653d508af3afa765ef0439d99d595167161d3bd7e399dd9"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_raika_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_002(en).png",
+          "sha256": "32a64983403b2fe3e2b3114f4ea0901353d174d9363e9c1c997cf89f765df251"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_002(ko).png",
+          "sha256": "bc1c365af61ef9ebcf11088f3153261dd25b9d7034df3dce594d72e19425d840"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_002(zh-Hans).png",
+          "sha256": "fbfb47a4225ff32d9b938e49453a76f87ea4f20c959ae1d668b440c4eeb33791"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_002(zh-Hant).png",
+          "sha256": "280ba389e677d59ed4fb466b1b2b4e3b0ff4642e3f81653e7415dc3313b53191"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_raika_002.png",
+          "sha256": "747c55c4198347a6e922b5db3dea5f9a8395cb39edc6699b31668bd80a7dc948"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_rana_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_001(en).png",
+          "sha256": "3e5b2dcc389aa9af95dc82afcfc2c6e15d3037781cb9b8c1ea7875207444ec25"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_001(ko).png",
+          "sha256": "264b4c8019e3efe0ed2f0039895aaaa7952f92eb34b132c9106fd9f70b130f6e"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_001(zh-Hans).png",
+          "sha256": "cb4377bd6f35d74b89e743dbaeb4eba940ba0f4a49bf7dbd92b8727639233331"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_001(zh-Hant).png",
+          "sha256": "c2a3769ec7c50f91c9611709a9d1efc25c69418792747e55129a52ebf7f5f893"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_001.png",
+          "sha256": "3c45f630df6fa1018731d199058a75d257374b779ab7bb14108d4afdde7fa53e"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_rana_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_002(en).png",
+          "sha256": "0be999888979f5b97e3e2feb29ab19560cc7c2a25a05b5763a3b621b42450c69"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_002(ko).png",
+          "sha256": "6ad948389e60e716c242982b4dd607426361aa4ee8da1a6858c03a17abf3f598"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_002(zh-Hans).png",
+          "sha256": "932064256f044b278a26b8de30482a60499029f8131f1fea6ab54d618170d645"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_002(zh-Hant).png",
+          "sha256": "bdc6b0bbb4fd75ddf9f924b94c1b840fdfa31a6cf64b2b7dca818586ce20e46b"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_rana_002.png",
+          "sha256": "c67eedcb3537cf011726d697f3f9b5de003e9327da0e641041a9a1da56844908"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_ritsu_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_001(en).png",
+          "sha256": "dcff215b9fe382d85efdc115917a420832be12b69a7e489b7140c9afd055684b"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_001(ko).png",
+          "sha256": "fd7d2c2ba741674b580ebd88bbba7f000efc4ff07aa510c89da33631b76d4ec4"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_001(zh-Hans).png",
+          "sha256": "3889ac16c67653ab0ec72ee987f321a4af32b5b029572bd4d4e67d27572fcff3"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_001(zh-Hant).png",
+          "sha256": "56ea4402388bcbd0c4b2f01dac0f2284634c506ae77dffe6d16180708896d995"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_001.png",
+          "sha256": "9b500ef72000546725e27d636e35e03a91930cf77dc0c0625b2b953dc68d4bd1"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_ritsu_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_002(en).png",
+          "sha256": "97a80c19c81d55771c49b9149f6b5da9e734bbaffd55d0ee86ccf042b4d9e0c8"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_002(ko).png",
+          "sha256": "331c34e95871552b62d99791dbb0075f3456e97e5f66feef44ade55279d32171"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_002(zh-Hans).png",
+          "sha256": "5fa04fc8616a2681b989a227d484c6575cc5277c0b541258363278ceecbfa047"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_002(zh-Hant).png",
+          "sha256": "bbe7631565f9ce1a5f0877cf32754796af65dcaef0e4b429172d17a6f17979e7"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_ritsu_002.png",
+          "sha256": "29fa73b694545971da03fe8b89e76faa7c41bee340b0977e68b070b948d68455"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_sakiko_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_001(en).png",
+          "sha256": "b6e32db250fc9a2b8150a3c9b9251429b9337644cd60d7b244158e1b423ef54a"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_001(ko).png",
+          "sha256": "5ec86421751b1f82a7dadcd36ece387d260327b5a2fd957fb9e8ae91933d7144"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_001(zh-Hans).png",
+          "sha256": "5f0368ebdf23e30f11d427df31268048382e484e03a2e8094836b7063f514805"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_001(zh-Hant).png",
+          "sha256": "5afde36e89e705b9dbfe853325cd494ba3c2c277a2b3de1fbdc9dc666273be60"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_001.png",
+          "sha256": "4c7bd70cbd523adf6dd588b03a8c7882df9b669118c83448a40c403245d9e2bb"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_sakiko_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_002(en).png",
+          "sha256": "8b2f17c3253aa33c959f1e6c42fc6d1246b82935244fc745be9f2c5936e22eea"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_002(ko).png",
+          "sha256": "3f058ee3bd17c3a2cfc1457c8ceffc4d853eeedad36bc70543b693e0be80c676"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_002(zh-Hans).png",
+          "sha256": "7216a35f96c7f4c0828e1590d7bb6d1860a9aeb33a332c87c5f1809ee96cdd22"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_002(zh-Hant).png",
+          "sha256": "6dea27dd6bedffae815159765c74318b94d0b1f32c54a4d2a6cc7181aa074c98"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sakiko_002.png",
+          "sha256": "8dc022229dd85694f2f2518424d02d0090fc5a16af7910a3d2781396d279d0fd"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_shizuku_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_001(en).png",
+          "sha256": "a20feced9f96f3894489dffe356645156201fb99377d64aef6cb64d2f0d32c0f"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_001(ko).png",
+          "sha256": "a0f4d4383ad5f3353227b9157d157443f5bf44c47c4227c44f0de3a9ac7c1412"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_001(zh-Hans).png",
+          "sha256": "d28625816bc5a15c610dac2ad596a89dca52fae175836d96c3c0ccd03dbc8f32"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_001(zh-Hant).png",
+          "sha256": "0ce2331761ae56ba70c322fad0590d56d23e1b2420f22ed22dfa38c30ad9ab2c"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_001.png",
+          "sha256": "fb21c74e7ac097ee3d3bc91c8e089ce2e90a5e38eef49fb795ce814466469f19"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_shizuku_002",
+      "publishable": false,
+      "quality": "review-rejected",
+      "sourceType": "reconstructed",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_002(en).png",
+          "sha256": "8ea621dea1265df5b810fe7e2f8f6e68bcbab00016da09c71d31647723b04e02"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_002(ko).png",
+          "sha256": "550b6e3a6a82eae65b4fe330217c328d8ed05b61d8f214870a80e585c0c620ff"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_002(zh-Hans).png",
+          "sha256": "4500b68fc9bf490295f171747960ebccb1a7aa7b4b2f4de04b659e38f191bd9e"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_002(zh-Hant).png",
+          "sha256": "cfba812543d142cb8b4e3c93729f29da858df5373eeef1a26e429493c4d73cac"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_shizuku_002.png",
+          "sha256": "7a1e08a89e9dca717f52c95624c3584d91e48c1cf8f800689332ca481c4ba2ee"
+        }
+      ],
+      "canvasSize": [
+        512,
+        512
+      ],
+      "exportSize": [
+        1024,
+        1024
+      ],
+      "nativeDonorPixels": 69602,
+      "unresolvedNativeDetailPixels": 37499,
+      "unresolvedNativeDetailPercent": 35.0127,
+      "nativeDonorCounts": {
+        "en": 47906,
+        "ko": 6639,
+        "zh-Hans": 151,
+        "zh-Hant": 0,
+        "ja": 14906
+      },
+      "limitations": [
+        "Reference-covered detail retains reference resolution.",
+        "Donor classification is heuristic; human review checks readable residue and seams.",
+        "Export upscaling adds pixels, not original linework information."
+      ],
+      "review": {
+        "approved": false,
+        "observations": [
+          "No readable caption remains.",
+          "Hair and phone outline have visible transitions; sparkles and outer edge are noisy."
+        ]
+      }
+    },
+    {
+      "id": "stamp_illust_soyo_001",
+      "publishable": false,
+      "quality": "review-rejected",
+      "sourceType": "reconstructed",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_001(en).png",
+          "sha256": "bff55d13091d42308fb5d34b1c93935f25fa552824a5d434f5b141c87342c8a6"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_001(ko).png",
+          "sha256": "d00e50b1ff193a1de7df9e03620b18018cdf41df8dff724d5f2c7c6424d71db8"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_001(zh-Hans).png",
+          "sha256": "3ed27b3cb114ca9c96d9f5283ea2a556422ca5c202443f3e2916f41982dd47a6"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_001(zh-Hant).png",
+          "sha256": "e682ab0d959b9a358662fb1e212cb3d9cedd97406b42beaea37499fe75262bfb"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_001.png",
+          "sha256": "184fdfc532c38691447a03672dccdb0814b973b6b00d83ce501bbac10d9b772f"
+        }
+      ],
+      "canvasSize": [
+        512,
+        512
+      ],
+      "exportSize": [
+        1024,
+        1024
+      ],
+      "nativeDonorPixels": 103751,
+      "unresolvedNativeDetailPixels": 16459,
+      "unresolvedNativeDetailPercent": 13.6919,
+      "nativeDonorCounts": {
+        "en": 49964,
+        "ko": 16089,
+        "zh-Hans": 8988,
+        "zh-Hant": 10765,
+        "ja": 17945
+      },
+      "limitations": [
+        "Reference-covered detail retains reference resolution.",
+        "Donor classification is heuristic; human review checks readable residue and seams.",
+        "Export upscaling adds pixels, not original linework information."
+      ],
+      "review": {
+        "approved": false,
+        "observations": [
+          "No readable caption remains.",
+          "Visible mixed sharpness and line transitions at hair, eyes or clothing; retain as review candidate."
+        ]
+      }
+    },
+    {
+      "id": "stamp_illust_soyo_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_002(en).png",
+          "sha256": "c8657e5942dbdfdce92060e9e8a331337cb530cc60d6d32de7309a34005fc2af"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_002(ko).png",
+          "sha256": "4910d64d1f16449314716afcab50dcd2f53f93ab05aed4c363f77dc948685cd7"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_002(zh-Hans).png",
+          "sha256": "f871f8b0edc6ac70427236584d28907cc30d6f4643f8104163f29390c293c785"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_002(zh-Hant).png",
+          "sha256": "3b08695fb6ad4a03de9468edbfed413cdc266deefebaf577999bc7aa0491a3ba"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_soyo_002.png",
+          "sha256": "2d22f52f24f5b4d43cf603fc6d82375a2dea8843cc867121e32f2ac3300b34eb"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_sub_dairi_001",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_dairi_001(en).png",
+          "sha256": "c944db018d36efdf2386f78e4bab402f29fb801bbfb1b6a3ba4d40eb0b3dd32a"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_dairi_001(ko).png",
+          "sha256": "af149f16d66d52942f4f88703915f3569b6d02498d6413c35f8bc9f12431bd27"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_dairi_001(zh-Hans).png",
+          "sha256": "64f0accb68e0639656db885cb6eb024ef96e2e4f03b222e09ceacd4c362e1dd8"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_dairi_001(zh-Hant).png",
+          "sha256": "61ef9360fed30f9e5cedaca4dbe9deb2466555213621cbb8beb38bf0d4ad2df8"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_dairi_001.png",
+          "sha256": "0b971b30264bdb984839b25faec9d64004573fead20d3e63c42135ea48a46e9b"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_sub_mana_001",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_mana_001(en).png",
+          "sha256": "909d86ec42cde79c424cbfaea210c2cc7f7d527ec677c706681ca0bfebf2205c"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_mana_001(ko).png",
+          "sha256": "0b3e256bd5dae8c67d9b8995411a38317eae9c71d89893d8f7d86f62e0a74f98"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_mana_001(zh-Hans).png",
+          "sha256": "86bd71be9de7bd897ec7b50784ab703846ea7e9e8e454c50bb8e1806e8025abc"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_mana_001(zh-Hant).png",
+          "sha256": "a9a15f1f24c52f01d634fe0772e35c5720001a33ecc12436dd9ab311c4a6dd9e"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_mana_001.png",
+          "sha256": "ea772324972edd08ecd992e0b514553a1998c370a0e66831dbdf88a3de9d92cb"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_sub_manager_001",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_manager_001(en).png",
+          "sha256": "a1e0eb66be6a9af35cf907c025c43b39e2106ddd449a47835c1a0264126852d8"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_manager_001(ko).png",
+          "sha256": "759d860e347fee733dcf35eff4a9e916ed90be456885d0131274e5428034dd6f"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_manager_001(zh-Hans).png",
+          "sha256": "08e66739ab004dfb6d97c623bdd722d6228a4b6d5ee5ddf2786330d02f463707"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_manager_001(zh-Hant).png",
+          "sha256": "700690cea706b845e88331e92cf4d344b633de85042305fae29f4c227f341d7c"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_manager_001.png",
+          "sha256": "c45377d27b15b2e244db0071ce611d47b6acbc259343dc8b50db2baa278e0d16"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_sub_nikopanchan_001",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_nikopanchan_001(en).png",
+          "sha256": "266cc55eeb1b0cff0335b25257bca20113261697e01eeaed9b75da66750d48a7"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_nikopanchan_001(ko).png",
+          "sha256": "0739590046cab985d93c4752f0962134d2475d9cdbcd47dd451e094afe174473"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_nikopanchan_001(zh-Hans).png",
+          "sha256": "2f0f99c9882a6fee60b33c75d0a84027cab640aee17da61c607378d8a67f7868"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_nikopanchan_001(zh-Hant).png",
+          "sha256": "d285c30f5040d2de9577894ef7f582e75e8ddfeeb6fab38542f1f4d058093d15"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_nikopanchan_001.png",
+          "sha256": "83d64226a8667aad81ff81ec6e447b1165615f1c56efef30eeac9834cdc14058"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_sub_ririko_001",
+      "publishable": false,
+      "quality": "needs-reference",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_ririko_001(en).png",
+          "sha256": "1198b2499e9e218c87441f86b46a15428e870ef9ab4dbb19390352fc7b91c341"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_ririko_001(ko).png",
+          "sha256": "3e3264fea587d6d94609e371cd7f4b217cb9158781ff41078115e825efa76eea"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_ririko_001(zh-Hans).png",
+          "sha256": "97f63f03dd9d41824181290ce1fb9441cfe839ba5c957e3f6145d7d25a4b4172"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_ririko_001(zh-Hant).png",
+          "sha256": "1bd55276e5d42cd2ee41bac44614f8f4c4d7844eb66c1fdfd377ecedf7187f18"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_sub_ririko_001.png",
+          "sha256": "7802718ef95a006bb59066c9efdfd812593e8c95f830cc7b5a7dcb2f14104f65"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_taki_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_001(en).png",
+          "sha256": "21133f8cbab81cf7a25a24d2ff5f639737c6b0905068e505bd080d61a0612502"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_001(ko).png",
+          "sha256": "24adf82cbd173c89db564856c86a72d6e946849e4ed51000e244e1002f367b5d"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_001(zh-Hans).png",
+          "sha256": "ed6799097c4bb8e44157cce72274a17ec16713fe18a9127eb21bfb36eea7ca7f"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_001(zh-Hant).png",
+          "sha256": "27f6813aa5e03d212e6529b0b6cc095aaf983bd3c198cf5073369831f53834f0"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_001.png",
+          "sha256": "80a315d1055a88ec30a68967a9a9b85d04e554ec4151ddd7a5adae3b838fdc81"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_taki_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_002(en).png",
+          "sha256": "1cd75b528286ab6630b0a117227bd6e115b44bb4e46454d5aaca906bc7440f19"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_002(ko).png",
+          "sha256": "59561809ac883e7aa19c4246025c2afd316dc46681a0f03dd23e9358f65d7aa3"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_002(zh-Hans).png",
+          "sha256": "ed135cfd34f1a65347f2749258edf3be8b6b00f499460b32fc13638acf6ade05"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_002(zh-Hant).png",
+          "sha256": "ba89800a16e298258dc6da7f664ea43044e88a7f1b1c3295bbb222227d333044"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_taki_002.png",
+          "sha256": "60027c4dad71915db9d757e456ce168bf0bf413ace65257e2b45a2af85d53ed0"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_tomori_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_001(en).png",
+          "sha256": "be243955959bfa598d5166953359f5dabdff3623275997cc9e92dddc0bb3cd75"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_001(ko).png",
+          "sha256": "b61348a81237ed9cfa324cbdf7f27836cd1781527e74eb56d2b6a07ec2b91764"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_001(zh-Hans).png",
+          "sha256": "fb83aa1d7466d1399100e5011be1e2bb9754d05d67a481910743bce7c9e09f76"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_001(zh-Hant).png",
+          "sha256": "3773767b8cd822fd38825a2b2db14b3d0700e464b7e623535e58949a39a1917d"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_001.png",
+          "sha256": "ded8f243497516f849421a03f19489839459fb7f172c19ff698aaf3666557272"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_tomori_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_002(en).png",
+          "sha256": "8482c7f1e869cf41cc44de592ce4324c5a63fc2596ae2e0e8085f7109083ef2e"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_002(ko).png",
+          "sha256": "a6230de98fc1cf4553ba5e0c0a50c5692d4bc3e172ee938f343ac3068dcfc7a7"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_002(zh-Hans).png",
+          "sha256": "23a045accc8d063884b7507aaedc85845a16a3af8222696d57faadde0063a283"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_002(zh-Hant).png",
+          "sha256": "8ce4a593ca70d3081badd22f3a5f47b3fcec8cae0aee35e2f9a0f718c36ab59a"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_tomori_002.png",
+          "sha256": "e4d2e1f3e53d1ce8e3c4d00cd265c3fffa90f22c89c99d30afa1e7005a17fb53"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_uika_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_001(en).png",
+          "sha256": "9e65863dc40f0e5ea364fc50b0423b062de96f2643f262c8d96e63f4b6f4c5ba"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_001(ko).png",
+          "sha256": "f23afe5a8c3bcd76d053b339c596f5248bb6016fa2df9c26262dd33a7cfdca34"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_001(zh-Hans).png",
+          "sha256": "51bda0e8336798472e4224f27104f0691aeee15243bbe0257e84afe56ba17b28"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_001(zh-Hant).png",
+          "sha256": "2a48fc0926647ddadbd9f788cce8148958288ca888232f198a50858cdbc00880"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_001.png",
+          "sha256": "9fc799db9e0337d23a020957b231e72c7dcf2060a18a015419534a7d80982dd8"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_uika_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_002(en).png",
+          "sha256": "19966a78fbcf7d6503a4d81363958ddec1a282bc13b23955a2e4f6ae15880ca7"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_002(ko).png",
+          "sha256": "f529b829d472d7ff027e4fbe75d4dea3fb60f4dd8bea78f6407a2e608df0d43b"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_002(zh-Hans).png",
+          "sha256": "3d610648c6f9fa2aeeb6e4ca85d35826162fe2dbe5cca00fdc14b43105e31e5c"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_002(zh-Hant).png",
+          "sha256": "f6fd329fe8783c74871ab2a1581e6232e521ae2253de7f94e1cd795e5e096f84"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_uika_002.png",
+          "sha256": "fa338b386e798b6ae40b32c50928c940d6a6927a2bd2123a7cd279a783d3184a"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_umiri_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_001(en).png",
+          "sha256": "3585cf572aee0bb4a322988729c3da35fdd0894c6ef226b45585f08199dbf8fb"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_001(ko).png",
+          "sha256": "4bdf5dd37385fd892c699b75a9fe6b8a8e3cb3843692a92f64b15aff9a695d30"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_001(zh-Hans).png",
+          "sha256": "299e3cf9404c5ee60796e5a7031a09beaec97c4119da9c35559acd782251c696"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_001(zh-Hant).png",
+          "sha256": "07da30e5d249fa15c9be38f0cd868abbf6fbeae4edd237f654331dca81a5cdd9"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_001.png",
+          "sha256": "0f5ce558785ea17ba6b9e4efa8c1ffddc6f9102cab00513e3d23eb266a2a6fa6"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_umiri_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_002(en).png",
+          "sha256": "2bd06cd27153e25dd062dc7c88243f2a0f051d02114043f1acc658d51c2dc847"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_002(ko).png",
+          "sha256": "a3c6dd120456da0dd5fe2621413b59f6b072e037d5a6cbad4e2ecee22e1cbdad"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_002(zh-Hans).png",
+          "sha256": "f58ef6d82ffb0fe05128108062705240045a1ef8a09501544834de5dcb2cc2f2"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_002(zh-Hant).png",
+          "sha256": "88c69523eeacfd02c77139fc0970270283d90e990f50c14eee8fd6e2f8afaded"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_umiri_002.png",
+          "sha256": "f09b3a751fd44c63a21a9684af597fff88c5ab5da74625354ee65ad2e2867e69"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_yomogi_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_001(en).png",
+          "sha256": "73f03d62e3043dbd3e4d02968b6f85d63e55e9006fa5ca74c0ea16a8fb3cb1ed"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_001(ko).png",
+          "sha256": "3aedf261dc99b35e8c16e7e59d8156f22247e02f3156a00a2f2f04e3032a3b20"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_001(zh-Hans).png",
+          "sha256": "ffc6ec7735d844a4dde85ba6cffd9702117c5abdc6105b12f5d0298ff8126c35"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_001(zh-Hant).png",
+          "sha256": "c9df9959128435f4e915ff127de8c9eb28b584d213797a6c9271b7cd846e18ef"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_001.png",
+          "sha256": "2788fb4c14435e9e2ce52de6e2f145828f285e4b85a53d3c18b043475bf1f473"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_yomogi_002",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_002(en).png",
+          "sha256": "412af112d30df17a959404b6cdd928cb8e3b8db63ca84175b928438d9b9be9d4"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_002(ko).png",
+          "sha256": "2fbda143d0b11840174f583c1879beddeffe18b80e281466a4e3fbb827865b0a"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_002(zh-Hans).png",
+          "sha256": "688d8daaf87395f00ffabc27346a523c389f1641220b36a5960726b688f0c032"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_002(zh-Hant).png",
+          "sha256": "729dbc6e7f8bc8958c3e88033a169e9e50a0a0ee0e9a59424825df8e9ec4fec4"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yomogi_002.png",
+          "sha256": "1efbf52036903193d894c4430e29a18a19a7a853b241d39a29a9bb037d8f57c0"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_yuno_001",
+      "publishable": false,
+      "quality": "production-pending",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_001(en).png",
+          "sha256": "07ac1859dc8196585b762eacaf16c2b56adecbaf5d02f4c56c52da2d3718b32b"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_001(ko).png",
+          "sha256": "55a0f871db001cd4c7cadeeae01d794de006ae0b0d81e47d6d7b316ac8b48412"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_001(zh-Hans).png",
+          "sha256": "591b2771201f6b41a171f397a583d353d5d3588716223883873df801fb44a8ec"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_001(zh-Hant).png",
+          "sha256": "4ccf255af4c6f3c87592c0bc52ab7d8db3bdab255b212a888611ae84a39ec5e3"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_001.png",
+          "sha256": "cf91b7add7803e86fd7b6c4cb34813e2821cf131ebb008381763a61226fa52a9"
+        }
+      ]
+    },
+    {
+      "id": "stamp_illust_yuno_002",
+      "publishable": false,
+      "quality": "reference-only",
+      "sourceType": "unreliable",
+      "artifacts": {},
+      "sources": [
+        {
+          "language": "en",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_002(en).png",
+          "sha256": "45a42cbabc1a61f09d2b475744029ad0b8ed78665d1e6b4350a148f1b5f7a9b5"
+        },
+        {
+          "language": "ko",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_002(ko).png",
+          "sha256": "b09f8e3a9711da94192adf774b6c20ce3dfd055acc0e45380074b573374f276a"
+        },
+        {
+          "language": "zh-Hans",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_002(zh-Hans).png",
+          "sha256": "29fc797aaec290bc6100397fcbf5d9c1eaf7f3bcc9d109a0e413b7bb2ec03d62"
+        },
+        {
+          "language": "zh-Hant",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_002(zh-Hant).png",
+          "sha256": "a8a3f6b43a673a65fccf0a2c8c8670991605b073187207897fd8c545eb333384"
+        },
+        {
+          "language": "ja",
+          "path": "/assets/intl/Assets/AddressableResources/Stamp/illust/stamp_illust_yuno_002.png",
+          "sha256": "e44b721a8e935c5bbb31b4262cb7513aef18e36c6df03b88a3f4908f07660615"
+        }
+      ],
+      "canvasSize": [
+        512,
+        512
+      ],
+      "exportSize": [
+        1024,
+        1024
+      ],
+      "nativeDonorPixels": 0,
+      "unresolvedNativeDetailPixels": 119872,
+      "unresolvedNativeDetailPercent": 100.0,
+      "nativeDonorCounts": {
+        "en": 0,
+        "ko": 0,
+        "zh-Hans": 0,
+        "zh-Hant": 0,
+        "ja": 0
+      },
+      "limitations": [
+        "Reference-covered detail retains reference resolution.",
+        "Donor classification is heuristic; human review checks readable residue and seams.",
+        "Export upscaling adds pixels, not original linework information."
+      ],
+      "review": {
+        "approved": false,
+        "observations": [
+          "All native registrations rejected; no native detail contributed.",
+          "Candidate is an upscaled 128px reference."
+        ]
+      }
+    }
+  ]
+}

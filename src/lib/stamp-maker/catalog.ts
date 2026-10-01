@@ -1,5 +1,10 @@
 import { localizedText, type JsonRecord } from "../../lit/shared/catalog";
 
+/** Approved T37 publication snapshot; callers may override via textless-src. */
+export function textlessManifestUrl(server: string): string | undefined {
+  return server === "intl" ? "/tools/stamp-maker/assets/intl/ts-c7409ce1fc695c94/manifest.json" : undefined;
+}
+
 export interface StampChoice {
   id: string;
   resourceName: string;
@@ -20,7 +25,12 @@ export interface TextlessStampManifest {
 }
 
 export function stampAssetUrl(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value.startsWith("/assets/") || value.includes("\\")) return;
+  if (
+    typeof value !== "string" ||
+    !(value.startsWith("/assets/") || value.startsWith("/tools/stamp-maker/assets/")) ||
+    value.includes("\\")
+  )
+    return;
   return value;
 }
 

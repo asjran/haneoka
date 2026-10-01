@@ -12,6 +12,7 @@ import { readReleaseServer } from "../lib/release-server";
 import {
   stampChoices,
   textlessChoices,
+  textlessManifestUrl,
   loadStampImage,
   loadStampFile,
   type StampChoice,
@@ -230,13 +231,14 @@ export class StampMaker extends LitElement {
 
   private async loadManifest() {
     this.manifestRequest?.abort();
-    if (!this.textlessSrc) return;
+    this.textless = undefined;
+    this.manifestError = false;
+    const source = this.textlessSrc || textlessManifestUrl(this.server);
+    if (!source) return;
     const request = new AbortController();
     this.manifestRequest = request;
-    this.manifestError = false;
-    this.textless = undefined;
     try {
-      const manifest = await fetchJson(this.textlessSrc, { signal: request.signal });
+      const manifest = await fetchJson(source, { signal: request.signal });
       if (!request.signal.aborted && this.isConnected) this.textless = manifest;
     } catch {
       if (!request.signal.aborted) this.manifestError = true;
