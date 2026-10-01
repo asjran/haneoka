@@ -656,6 +656,31 @@ function createSkinSprites(
   const flickRight = requiredNote(notes, "flick-right", skinName);
   const trace = requiredNote(notes, "trace", skinName);
 
+  // Preserve every authored cap tier; runtime chooses each boundary
+  // independently and mirrors the selected cap in its draw geometry.
+  for (const [label, note] of [
+    ["Tap", tap], ["Slide", slide], ["End", slideEnd], ["Flick", flick],
+    ["FlickLeft", flickLeft], ["FlickRight", flickRight], ["Trace", trace], ["Node", slideNode],
+  ] as const) {
+    for (const part of note.parts) {
+      alias(`Our Notes Native ${label} Left ${part.tilt}`, part.leftSprite);
+      alias(`Our Notes Native ${label} Right ${part.tilt}`, part.rightSprite);
+    }
+    const main = sources.get(note.mainSprite);
+    if (!main) throw new Error(`${skinName} missing ${note.mainSprite}`);
+    const metadata = record(record(atlas.spriteMetadata[note.mainSprite], note.mainSprite).data, note.mainSprite);
+    const border = record(metadata.m_Border, `${note.mainSprite}.m_Border`);
+    const left = finite(border.x, `${note.mainSprite}.border.left`);
+    const right = finite(border.z, `${note.mainSprite}.border.right`);
+    for (const [side, x, w] of [
+      ["Left", main.x, left], ["Middle", main.x + left, main.w - left - right],
+      ["Right", main.x + main.w - right, right],
+    ] as const) {
+      if (w <= 0) continue;
+      sprites.push({ name: `Our Notes Native ${label} Main ${side}`, x, y: main.y, w, h: main.h, transform: identity });
+    }
+  }
+
   addBodyAliases(sprites, sources, "Cyan", tap);
   addBodyAliases(sprites, sources, "Green", slide);
   addBodyAliases(sprites, sources, "Green End", slideEnd);
@@ -710,6 +735,11 @@ function createSkinSprites(
     "Our Notes Active Slide Connection Yellow Active",
   ])
     alias(name, "slide_line_pressed");
+
+  for (const [state, x] of [["Normal", 505], ["Pressed", 609], ["Missed", 713]] as const) {
+    for (let cell = 0; cell < 16; cell++)
+      sprites.push({ name: `Our Notes Native Line ${state} ${cell}`, x, y: 3720 + cell * 10, w: 100, h: 8, transform: identity });
+  }
 
   addArrowAliases(sprites, sources, "Up", flick.arrows);
   addArrowAliases(sprites, sources, "Left", flickLeft.arrows);
@@ -819,13 +849,9 @@ function hsvToRgb(h: number, s: number, v: number): readonly [number, number, nu
 }
 
 function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNoteSkin): void {
-  // HoldRibbon's fragment shader: the authored gradient (uGradientTex) runs
-  // ALONG the line's length (u = lineProgress) and the cross-section carries
-  // only the grayscale art tinted by the gradient at that length, plus the
-  // glow rails on the outer edges (vColor.g). Sonolus stretches one sprite
-  // per connector segment, so the length axis cannot vary; each state bakes
-  // the gradient at its mid length, which keeps the cross-section symmetric
-  // like the original.
+  // Keep the legacy midpoint aliases and sixteen authored length samples.
+  // Runtime selects a sample using the whole line's progress, independently
+  // of viewport clipping. Every sample preserves the same cross-section.
   const style = OUR_NOTES_SLIDE_LINE_STYLES[skinName];
   const stride = texture.width * 4;
   const sourceOffset = SLIDE_SOURCE_ROW * stride;
@@ -836,31 +862,34 @@ function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNoteSkin)
   ];
   for (const [state, gradient, stateScale] of states) {
     const targetX = SLIDE_STRIP_X[state];
-    const [baseR, baseG, baseB, baseA] = sampleSlideGradient(gradient, 0.5);
-    for (let column = 0; column < SLIDE_STRIP_WIDTH; column += 1) {
-      const sourceOffsetPixel = sourceOffset + Math.min(99, column) * 4;
-      const gray = texture.pixels[sourceOffsetPixel]! / 255;
-      const sourceA = texture.pixels[sourceOffsetPixel + 3]! / 255;
-      // Glow rides the authored art's outer rails: symmetric across the
-      // strip, strongest at the edges, zero from 12.5% inward.
-      const u = Math.min(1, Math.max(0, (column - SLIDE_ART_SPAN.left) / (SLIDE_ART_SPAN.right - SLIDE_ART_SPAN.left)));
-      const edge = Math.abs(2 * u - 1);
-      const glowBase = Math.min(1, Math.max(0, edge / 0.125 - 7));
-      const glow =
-        (glowBase <= 0 ? 0 : Math.pow(glowBase, style.glow.falloff)) * style.glow.intensity * stateScale;
-      const [h, s, v] = rgbToHsv(baseR, baseG, baseB);
-      const [ar, ag, ab] = hsvToRgb(h, Math.min(1, Math.max(0, s - glow)), Math.min(1, v + glow));
-      const mixAmount = Math.min(1, glow);
-      const r = (ar + (style.glow.color[0] - ar) * mixAmount) * gray;
-      const g = (ag + (style.glow.color[1] - ag) * mixAmount) * gray;
-      const b = (ab + (style.glow.color[2] - ab) * mixAmount) * gray;
-      const a = (baseA + (1 - baseA) * mixAmount) * sourceA;
-      for (let y = SLIDE_SOURCE_ROW - 1; y <= SLIDE_SOURCE_ROW + 8; y += 1) {
-        const target = y * stride + (targetX + column) * 4;
-        texture.pixels[target] = Math.round(Math.min(1, Math.max(0, r)) * 255);
-        texture.pixels[target + 1] = Math.round(Math.min(1, Math.max(0, g)) * 255);
-        texture.pixels[target + 2] = Math.round(Math.min(1, Math.max(0, b)) * 255);
-        texture.pixels[target + 3] = Math.round(Math.min(1, Math.max(0, a)) * 255);
+    for (let cell = -1; cell < 16; cell++) {
+      const targetY = cell < 0 ? SLIDE_SOURCE_ROW : 3720 + cell * 10;
+      const [baseR, baseG, baseB, baseA] = sampleSlideGradient(gradient, cell < 0 ? 0.5 : (cell + 0.5) / 16);
+      for (let column = 0; column < SLIDE_STRIP_WIDTH; column += 1) {
+        const sourceOffsetPixel = sourceOffset + Math.min(99, column) * 4;
+        const gray = texture.pixels[sourceOffsetPixel]! / 255;
+        const sourceA = texture.pixels[sourceOffsetPixel + 3]! / 255;
+        // Glow rides the authored art's outer rails: symmetric across the
+        // strip, strongest at the edges, zero from 12.5% inward.
+        const u = Math.min(1, Math.max(0, (column - SLIDE_ART_SPAN.left) / (SLIDE_ART_SPAN.right - SLIDE_ART_SPAN.left)));
+        const edge = Math.abs(2 * u - 1);
+        const glowBase = Math.min(1, Math.max(0, edge / 0.125 - 7));
+        const glow =
+          (glowBase <= 0 ? 0 : Math.pow(glowBase, style.glow.falloff)) * style.glow.intensity * stateScale;
+        const [h, s, v] = rgbToHsv(baseR, baseG, baseB);
+        const [ar, ag, ab] = hsvToRgb(h, Math.min(1, Math.max(0, s - glow)), Math.min(1, v + glow));
+        const mixAmount = Math.min(1, glow);
+        const r = (ar + (style.glow.color[0] - ar) * mixAmount) * gray;
+        const g = (ag + (style.glow.color[1] - ag) * mixAmount) * gray;
+        const b = (ab + (style.glow.color[2] - ab) * mixAmount) * gray;
+        const a = (baseA + (1 - baseA) * mixAmount) * sourceA;
+        for (let y = targetY - 1; y <= targetY + 8; y += 1) {
+          const target = y * stride + (targetX + column) * 4;
+          texture.pixels[target] = Math.round(Math.min(1, Math.max(0, r)) * 255);
+          texture.pixels[target + 1] = Math.round(Math.min(1, Math.max(0, g)) * 255);
+          texture.pixels[target + 2] = Math.round(Math.min(1, Math.max(0, b)) * 255);
+          texture.pixels[target + 3] = Math.round(Math.min(1, Math.max(0, a)) * 255);
+        }
       }
     }
   }

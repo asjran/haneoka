@@ -31,6 +31,32 @@ import {
 } from "@haneoka/cassiopeia-plugin-our-notes";
 
 export type Tint = readonly [number, number, number, number];
+// Published renderer declarations may precede the optional trace extension.
+type MaterialBillboardTrace = NativeBillboardTrace & { materialTint?: Tint };
+type MaterialMeshTrace = NativeMeshTrace & { materialTint?: Tint };
+
+/** GLES roundEven for the nonnegative final MobileAddHdrColor alpha. */
+const roundEven = (value: number): number => {
+  const floor = Math.floor(value);
+  const fraction = value - floor;
+  return fraction < 0.5 ? floor : fraction > 0.5 ? floor + 1 : floor + (floor % 2);
+};
+
+export function materialEmission(
+  texture: TextureKey,
+  color: { r: number; g: number; b: number; a: number },
+  materialTint?: Tint,
+): readonly [number, number, number] {
+  const tint = materialTint ?? TEXTURE_TINTS[texture]!;
+  // MobileAddHdrColor quantizes after both tint stages and HDR doubling,
+  // without a unit clamp. The tile supplies texel.rgb * texel.a.
+  const alpha =
+    texture === "laneEffect"
+      ? Math.max(0, color.a)
+      : roundEven(Math.max(0, color.a * 2 * tint[3] * tint[3]) * 255) / 255;
+  const hdr = texture === "laneEffect" ? [1, 1, 1] : tint.slice(0, 3).map((value) => 2 * value * value);
+  return [color.r * hdr[0]! * alpha, color.g * hdr[1]! * alpha, color.b * hdr[2]! * alpha];
+}
 
 /** Source texture key -> material tint (MobileAddHdrColor applies it twice). */
 export const TEXTURE_TINTS: Readonly<Record<string, Tint>> = {
@@ -183,7 +209,9 @@ export interface QuadSample {
   /** Source PNG of `texture` for the traced profile. */
   file: string;
   uv: readonly [number, number, number, number];
-  /** Straight HDR emission colour: rgb * 2 * tint.rgb^2, alpha * 2 * tint.a^2 folded in. */
+  /** Instance override; one texture can be bound to several authored materials. */
+  materialTint?: Tint;
+  /** HDR colour with final quantized source alpha folded in for additive baking. */
   emission: readonly [number, number, number];
   /** World depth of the quad centre relative to the judgement line (Three z). */
   depth: number;
@@ -238,9 +266,11 @@ export class EffectTracer {
   private readonly camera = configureOurNotesCamera(new PerspectiveCamera(54, ASPECT, 0.1, 5000));
   private readonly projectionScaleY: number;
   private readonly releaseRoot: string;
+  private readonly requireMaterialTint: boolean;
 
   constructor(options: TracerOptions) {
     this.releaseRoot = options.releaseRoot;
+    this.requireMaterialTint = options.currentQuality === 2 && (options.noteEffectSkin ?? "effect001") === "effect001";
     const map =
       (kind: "assets" | "runtime") =>
       (path: string): string => {
@@ -313,26 +343,19 @@ export class EffectTracer {
     color: { r: number; g: number; b: number; a: number },
     ground = false,
     forcedPlane?: number,
-  ): QuadSample {
+    materialTint?: Tint,
+  ): QuadSample | undefined {
     const depth = quad.corners.reduce((sum, corner) => sum + corner.z, 0) / 4 - JUDGEMENT_Z;
     const plane = forcedPlane ?? planeIndex(depth, ground);
     // The lane fill's 70-unit ground quad reaches past the camera; projecting
     // behind-camera corners flips their screen coordinates and wrecks the
     // fitted rect. The native GPU clips at the near plane, so clip the world
     // polygon there first and fit the visible remainder.
-    const worldCorners = quad.corners.some((corner) => corner.z > NEAR_CLIP_Z)
-      ? clipNearPlane(quad.corners)
-      : quad.corners;
-    if (worldCorners.length < 3) return null as never;
+    const clipped = quad.corners.some((corner) => corner.z > NEAR_CLIP_Z);
+    const worldCorners = clipped ? clipNearPlane(quad.corners) : quad.corners;
+    if (worldCorners.length < 3) return undefined;
     const projected = worldCorners.map((corner) => this.toUnit(corner, size, plane));
-    const tint = TEXTURE_TINTS[texture]!;
-    // Compiled MobileAddHdrColor: rgb * 2 * tint^2 and alpha * 2 * tint.a^2;
-    // SrcAlpha/One blending multiplies them. texel.rgb * texel.a stays in the tile.
-    // Lane fills use UI/Additive instead: premultiplied rgb * a, One/One.
-    const alpha =
-      texture === "laneEffect" ? Math.max(0, color.a) : Math.max(0, Math.min(1, color.a * tint[3])) * 2 * tint[3];
-    const hdr = texture === "laneEffect" ? [1, 1, 1] : [2 * tint[0] * tint[0], 2 * tint[1] * tint[1], 2 * tint[2] * tint[2]];
-    const emission = [color.r * hdr[0]! * alpha, color.g * hdr[1]! * alpha, color.b * hdr[2]! * alpha] as const;
+    const emission = materialEmission(texture, color, materialTint);
     const minX = Math.min(...projected.map((point) => point.x));
     const maxX = Math.max(...projected.map((point) => point.x));
     const minY = Math.min(...projected.map((point) => point.y));
@@ -341,17 +364,29 @@ export class EffectTracer {
     const pixelRight = Math.max(...projected.map((point) => point.px));
     const pixelTop = Math.min(...projected.map((point) => point.py));
     const pixelBottom = Math.max(...projected.map((point) => point.py));
+    // Keep the UV-ordered corners: a bounding box erases rotation, reflection,
+    // and the projected aspect of narrow flick streaks. Near-clipped lane
+    // polygons still use the existing visible-rectangle approximation.
+    const corners: QuadSample["corners"] = clipped
+      ? [
+          { x: minX, y: minY },
+          { x: maxX, y: minY },
+          { x: maxX, y: maxY },
+          { x: minX, y: maxY },
+        ]
+      : (projected.map(({ x, y }) => ({ x, y })) as QuadSample["corners"]);
+    const edge = (a: number, b: number) =>
+      Math.hypot(projected[b]!.px - projected[a]!.px, projected[b]!.py - projected[a]!.py);
+    const area =
+      Math.abs(
+        projected.reduce((sum, point, index) => {
+          const next = projected[(index + 1) % projected.length]!;
+          return sum + point.px * next.py - next.px * point.py;
+        }, 0),
+      ) / 2;
     return {
       t,
-      // Rectified plane coordinates are axis-aligned rectangles; the bounding
-      // box of the (possibly near-clipped) projected corners is that
-      // rectangle's visible remainder.
-      corners: [
-        { x: minX, y: minY },
-        { x: maxX, y: minY },
-        { x: maxX, y: maxY },
-        { x: minX, y: maxY },
-      ] as QuadSample["corners"],
+      corners,
       texture,
       file: this.textureFile(texture),
       depth,
@@ -359,9 +394,10 @@ export class EffectTracer {
       plane,
       uv: quad.uv,
       emission,
-      pixelWidth: pixelRight - pixelLeft,
-      pixelHeight: pixelBottom - pixelTop,
-      pixelArea: (pixelRight - pixelLeft) * (pixelBottom - pixelTop),
+      ...(materialTint ? { materialTint } : {}),
+      pixelWidth: clipped ? pixelRight - pixelLeft : (edge(0, 1) + edge(3, 2)) / 2,
+      pixelHeight: clipped ? pixelBottom - pixelTop : (edge(0, 3) + edge(1, 2)) / 2,
+      pixelArea: clipped ? (pixelRight - pixelLeft) * (pixelBottom - pixelTop) : area,
     };
   }
 
@@ -381,8 +417,8 @@ export class EffectTracer {
     const births = new Map<string, number>();
     for (const [seedIndex, seed] of seeds.entries()) {
       let t = 0;
-      const billboards: NativeBillboardTrace[] = [];
-      const meshTraces: NativeMeshTrace[] = [];
+      const billboards: MaterialBillboardTrace[] = [];
+      const meshTraces: MaterialMeshTrace[] = [];
       this.layer.setTraceSink({
         billboard: (entry) => billboards.push(entry),
         mesh: (entry) => meshTraces.push(entry),
@@ -395,12 +431,32 @@ export class EffectTracer {
           { ...base, id: `trace:${seed}`, age: time, lane: 12 - width / 2, width, seed } as RenderParticleEffect,
         ]);
         for (const entry of billboards) {
-          const quad = nativeBillboardQuad(entry, this.camera.position, this.camera.matrixWorldInverse, this.projectionScaleY);
+          if (this.requireMaterialTint && !entry.materialTint)
+            throw new Error("Light billboard trace requires the per-instance material tint renderer contract");
+          const quad = nativeBillboardQuad(
+            entry,
+            this.camera.position,
+            this.camera.matrixWorldInverse,
+            this.projectionScaleY,
+          );
           // Billboards face the camera and span depths; a cohort shares the
           // judgement plane (the alpha difference to their own depth is <4%).
-          const sample = this.quadSample(quad, size, t, entry.texture as TextureKey, entry.color, false, 0);
-          const key = `${seed}:${entry.system}:${entry.emission}`;
+          const sample = this.quadSample(
+            quad,
+            size,
+            t,
+            entry.texture as TextureKey,
+            entry.color,
+            false,
+            0,
+            entry.materialTint,
+          );
+          if (!sample) continue;
           const birth = t - entry.age / entry.simulationSpeed;
+          // Animator loops reuse emission indices. A recycled index belongs
+          // to a new birth, rather than the particle sampled during warm-up.
+          const cycle = base.kind === "slide-loop" ? Math.round(birth * 1e5) : 0;
+          const key = `${seed}:${entry.system}:${entry.emission}:${cycle}`;
           if (!births.has(key)) births.set(key, birth);
           particles.push({
             ...sample,
@@ -415,14 +471,27 @@ export class EffectTracer {
         // Mesh rigs carry no randomness; seed 0 is enough.
         if (seedIndex > 0) continue;
         for (const entry of meshTraces) {
+          if (this.requireMaterialTint && !entry.materialTint)
+            throw new Error("Light mesh trace requires the per-instance material tint renderer contract");
           const quads = mergeMeshQuads(nativeMeshQuads(entry));
           const texture: TextureKey = entry.kind === "frame" ? "frame" : entry.kind === "wall" ? "wall" : "pillar";
           quads.forEach((quad, index) => {
             this.strips(quad).forEach((strip, stripIndex) => {
+              const sample = this.quadSample(
+                strip,
+                size,
+                t,
+                texture,
+                entry.color,
+                entry.kind === "frame",
+                undefined,
+                entry.materialTint,
+              );
+              if (!sample) return;
               const key = `${entry.name}#${index}.${stripIndex}`;
               let list = meshes.get(key);
               if (!list) meshes.set(key, (list = []));
-              list.push(this.quadSample(strip, size, t, texture, entry.color, entry.kind === "frame"));
+              list.push(sample);
             });
           });
         }
@@ -484,11 +553,22 @@ export class EffectTracer {
     for (const time of times) {
       meshTraces.length = 0;
       this.layer.updateLaneInput([
-        { id: "trace-lane", kind, direction: "none", judgement: "perfect", age: time, lane: 12 - width / 2, width, seed: 1 } as RenderParticleEffect,
+        {
+          id: "trace-lane",
+          kind,
+          direction: "none",
+          judgement: "perfect",
+          age: time,
+          lane: 12 - width / 2,
+          width,
+          seed: 1,
+        } as RenderParticleEffect,
       ]);
       for (const entry of meshTraces)
-        for (const quad of nativeMeshQuads(entry))
-          samples.push(this.quadSample(quad, size, time, "laneEffect", entry.color, true));
+        for (const quad of nativeMeshQuads(entry)) {
+          const sample = this.quadSample(quad, size, time, "laneEffect", entry.color, true);
+          if (sample) samples.push(sample);
+        }
     }
     this.layer.setTraceSink(undefined);
     this.layer.updateLaneInput(undefined);
@@ -502,13 +582,19 @@ export class EffectTracer {
     const sample = (offset: number): { sy: number; scale: number } => {
       const base = point.clone().addScaledVector(along, offset);
       const a = base.clone().project(this.camera);
-      const b = base.clone().add(new Vector3(1, 0, 0)).project(this.camera);
+      const b = base
+        .clone()
+        .add(new Vector3(1, 0, 0))
+        .project(this.camera);
       return { sy: (a.y - STAGE_T) / STAGE_SY, scale: ((b.x - a.x) * ASPECT) / STAGE_SX };
     };
     const reference = (() => {
       const origin = new Vector3(0, 0, JUDGEMENT_Z);
       const a = origin.clone().project(this.camera);
-      const b = origin.clone().add(new Vector3(1, 0, 0)).project(this.camera);
+      const b = origin
+        .clone()
+        .add(new Vector3(1, 0, 0))
+        .project(this.camera);
       return ((b.x - a.x) * ASPECT) / STAGE_SX;
     })();
     const p0 = sample(0);

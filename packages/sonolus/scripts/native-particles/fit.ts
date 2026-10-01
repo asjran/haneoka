@@ -213,15 +213,21 @@ export function expressionMaximum(expression: Expression): number {
   return value;
 }
 
-/** Scale random terms down so the channel never exceeds `ceiling` for any r. */
+/** Cap a channel, retaining a nonnegative floor when the ceiling allows it. */
 export function capToCeiling(fit: ChannelFit, ceiling: number): ChannelFit {
   const cap = (expression: Expression): Expression => {
     const high = expressionMaximum(expression);
     if (high <= ceiling) return expression;
-    const random = high - expression[0]!;
-    if (random <= 1e-12) return [ceiling, ...expression.slice(1)];
-    const factor = Math.max(0, (ceiling - expression[0]!) / random);
-    return expression.map((value, index) => (index === 0 ? Math.min(value, ceiling) : value > 0 ? value * factor : value));
+    // Lowering only the constant/positive terms can make negative random
+    // coefficients cross the floor established by raiseToFloor. Fit all
+    // random terms into the available range, then choose a feasible constant.
+    const low = expressionMinimum(expression);
+    const floor = Math.min(0, low, ceiling);
+    const factor = Math.min(1, (ceiling - floor) / Math.max(1e-12, high - low));
+    const terms = expression.slice(1).map((value) => value * factor);
+    const minimumConstant = floor - terms.reduce((sum, value) => sum + Math.min(0, value), 0);
+    const maximumConstant = ceiling - terms.reduce((sum, value) => sum + Math.max(0, value), 0);
+    return [Math.max(minimumConstant, Math.min(maximumConstant, expression[0]!)), ...terms];
   };
   return { ...fit, from: cap(fit.from), to: cap(fit.to) };
 }

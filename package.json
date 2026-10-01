@@ -61,11 +61,14 @@
     "lint:sonolus": "eslint packages/sonolus/scripts",
     "format": "prettier --write package.json pnpm-workspace.yaml \"src/**/*.{ts,css}\" astro.config.mjs eslint.config.mjs \"worker/*.{ts,json}\" \"server/**/*.ts\" \"scripts/**/*.{ts,mjs}\" \"packages/*/src/**/*.{ts,tsx,vue,css,json}\" \"packages/*/*.{ts,json}\" \"packages/sonolus/{src,scripts}/**/*.ts\"",
     "format:check": "prettier --check package.json pnpm-workspace.yaml \"src/**/*.{ts,css}\" astro.config.mjs eslint.config.mjs \"worker/*.{ts,json}\" \"server/**/*.ts\" \"scripts/**/*.{ts,mjs}\" \"packages/*/src/**/*.{ts,tsx,vue,css,json}\" \"packages/*/*.{ts,json}\" \"packages/sonolus/{src,scripts}/**/*.ts\"",
-    "sonolus:release": "node packages/sonolus/scripts/build-native-effect-assets.ts && node packages/sonolus/scripts/build-original-assets.ts && node packages/sonolus/scripts/build-worker-assets.ts",
-    "sonolus:payload": "node packages/sonolus/scripts/build-native-effect-assets.ts && node packages/sonolus/scripts/build-original-assets.ts && SONOLUS_ENGINE_ONLY=1 SONOLUS_OUTPUT_DIR=data/sonolus/current node packages/sonolus/scripts/build-worker-assets.ts",
-    "sonolus:build": "pnpm --filter @haneoka/sonolus-our-notes build && pnpm sonolus:payload",
+    "sonolus:release": "node packages/sonolus/scripts/build-native-sound-assets.ts && node packages/sonolus/scripts/build-original-assets.ts && pnpm sonolus:release:prepared",
+    "sonolus:payload": "node packages/sonolus/scripts/build-native-sound-assets.ts && node packages/sonolus/scripts/build-original-assets.ts && pnpm sonolus:payload:prepared",
+    "sonolus:build": "pnpm sonolus:engine && pnpm sonolus:payload",
     "build:embeds": "node scripts/build-embeds.mjs",
-    "build:frontend": "pnpm prepare:frontend && pnpm build:embeds && astro build && pnpm finalize:frontend"
+    "build:frontend": "pnpm prepare:frontend && pnpm build:embeds && astro build && pnpm finalize:frontend",
+    "sonolus:engine": "SONOLUS_BUILD_JOBS=1 SONOLUS_COMPILER_WORKERS=1 pnpm --filter @haneoka/sonolus-our-notes build",
+    "sonolus:release:prepared": "node packages/sonolus/scripts/build-worker-assets.ts",
+    "sonolus:payload:prepared": "SONOLUS_ENGINE_ONLY=1 SONOLUS_OUTPUT_DIR=data/sonolus/current node packages/sonolus/scripts/build-worker-assets.ts"
   },
   "dependencies": {
     "@bbob/parser": "catalog:",

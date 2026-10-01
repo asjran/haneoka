@@ -7,15 +7,14 @@
 //  3. Deterministic rigs (wall, frame, pillars, lane fill) are fitted as
 //     piecewise channels; random particle systems are grouped into cohorts of
 //     consecutive emissions whose channels are linear in r1..r8, the same
-//     eight Unity draws sampleParticle uses. Each Sonolus instance therefore
-//     re-randomizes exactly like a native hit.
+//     eight Unity draws sampleParticle uses. Each Sonolus instance randomizes
+//     the fitted channels; the fit and alpha composition remain approximations.
 //  4. Effects are authored for several chart widths so sprite aspect survives
 //     wide notes; the engine picks the nearest width and stretches the rest.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { NoteSimulateJudgement } from "@haneoka/cassiopeia";
-import { nativeParticleEffectLifetime, type RenderParticleEffect } from "@haneoka/cassiopeia-plugin-our-notes";
+import { type RenderParticleEffect } from "@haneoka/cassiopeia-plugin-our-notes";
 import {
   bakeCompositeHalo,
   bloomKernel,
@@ -43,7 +42,7 @@ import {
   type Observation,
 } from "./fit.ts";
 import { ease } from "./fit.ts";
-import { EffectTracer, unitsPerPixel, type ParticleSample, type QuadSample, type TextureKey } from "./trace.ts";
+import { EffectTracer, W_TO_H, unitsPerPixel, type ParticleSample, type QuadSample, type TextureKey } from "./trace.ts";
 
 interface NativeEffectContract {
   nativeEffects: {
@@ -54,6 +53,7 @@ interface NativeEffectContract {
     widths: readonly number[];
     planes: readonly { label: string; alpha1: number; slope: number }[];
     baseNames: Readonly<Record<string, string>>;
+    timings?: { loopParticle: number };
   };
 }
 
@@ -134,19 +134,19 @@ export interface EffectSpec {
 }
 
 const JUDGEMENTS = [
-  { suffix: "", judgement: "perfect", native: NoteSimulateJudgement.Perfect },
-  { suffix: " Great", judgement: "great", native: NoteSimulateJudgement.Great },
-  { suffix: " Good", judgement: "good", native: NoteSimulateJudgement.Good },
-  { suffix: " Bad", judgement: "bad", native: NoteSimulateJudgement.Bad },
+  { suffix: "", judgement: "perfect" },
+  { suffix: " Great", judgement: "great" },
+  { suffix: " Good", judgement: "good" },
+  { suffix: " Bad", judgement: "bad" },
 ] as const;
 
 const NOTE_KINDS = [
-  { label: nativeEffects.baseNames.normalNoteCircular!, kind: "tap", direction: "none" },
-  { label: nativeEffects.baseNames.slideNoteCircular!, kind: "slide", direction: "none" },
-  { label: nativeEffects.baseNames.flickNoteCircular!, kind: "flick", direction: "up" },
-  { label: nativeEffects.baseNames.flickLeftWall!, kind: "flick", direction: "left" },
-  { label: nativeEffects.baseNames.flickRightWall!, kind: "flick", direction: "right" },
-  { label: nativeEffects.baseNames.normalTraceNoteCircular!, kind: "connect", direction: "none" },
+  { label: nativeEffects.baseNames.normalNoteCircular!, kind: "tap", direction: "none", slot: "Normal" },
+  { label: nativeEffects.baseNames.slideNoteCircular!, kind: "slide", direction: "none", slot: "Slide" },
+  { label: nativeEffects.baseNames.flickNoteCircular!, kind: "flick", direction: "up", slot: "Flick" },
+  { label: nativeEffects.baseNames.flickLeftWall!, kind: "flick", direction: "left", slot: "Left" },
+  { label: nativeEffects.baseNames.flickRightWall!, kind: "flick", direction: "right", slot: "Right" },
+  { label: nativeEffects.baseNames.normalTraceNoteCircular!, kind: "connect", direction: "none", slot: "Connect" },
 ] as const;
 
 const LANE_KINDS = [
@@ -196,9 +196,10 @@ interface QuadParams {
   r: number;
 }
 
-function quadParams(
+export function quadParams(
   sample: QuadSample,
   expand: readonly [number, number],
+  width: number,
   previousR?: number,
   offset: readonly [number, number] = [0, 0],
 ): QuadParams {
@@ -209,24 +210,69 @@ function quadParams(
   const uy = (c1.y - c0.y + (c2.y - c3.y)) / 2;
   const vx = (c3.x - c0.x + (c2.x - c1.x)) / 2;
   const vy = (c3.y - c0.y + (c2.y - c1.y)) / 2;
-  const length = Math.hypot(ux, uy);
-  const cross = ux * vy - uy * vx;
-  let r: number;
-  let w: number;
-  if (length < 1e-9) {
-    r = previousR ?? 0;
-    w = 0;
-  } else if (cross >= 0) {
-    r = Math.atan2(uy, ux);
-    w = length / 2;
-  } else {
-    // Mirrored quad: a negative width flips the sprite horizontally only.
-    r = Math.atan2(-uy, -ux);
-    w = -length / 2;
+  // Projection can shear a billboard in normalized spawn space. Choosing
+  // its u edge as the rotation discards that shear along the whole v edge,
+  // magnifying error on tall flick streaks. Fit both edges in screen pixels
+  // and keep the rectangle with the smallest UV-corner error.
+  const units = unitsPerPixel(width / 4);
+  const plane = NATIVE_EFFECT_PLANES[sample.plane]!;
+  const alpha = (py: number) => plane.alpha1 - plane.slope * (py + 1) * W_TO_H;
+  const screen = (px: number, py: number) => [(px * alpha(py)) / units.x, py / units.y] as const;
+  const sx2 = (alpha(y) / units.x) ** 2;
+  const sy2 = (1 / units.y) ** 2;
+  const xs = sample.corners.map((corner) => corner.x);
+  const ys = sample.corners.map((corner) => corner.y);
+  const candidates: Array<{ r: number; w: number; h: number }> = [
+    {
+      r: 0,
+      w: (Math.max(...xs) - Math.min(...xs)) / 2,
+      h: (Math.max(...ys) - Math.min(...ys)) / 2,
+    },
+  ];
+  for (const angle of [0, Math.PI / 2, Math.atan2(uy, ux), Math.atan2(-vx, vy)]) {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    let w = (ux * c * sx2 + uy * s * sy2) / Math.max(1e-12, 2 * (c * c * sx2 + s * s * sy2));
+    let h = (-vx * s * sx2 + vy * c * sy2) / Math.max(1e-12, 2 * (s * s * sx2 + c * c * sy2));
+    let r = angle;
+    // Keep the v edge positive; negative width retains UV reflection.
+    if (h < 0) {
+      r += Math.PI;
+      w = -w;
+      h = -h;
+    }
+    candidates.push({ r, w, h });
   }
+  const error = (candidate: (typeof candidates)[number]) => {
+    const c = Math.cos(candidate.r);
+    const s = Math.sin(candidate.r);
+    return (
+      [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ] as const
+    ).reduce((total, [u, v], index) => {
+      const actual = sample.corners[index]!;
+      const a = screen(actual.x, actual.y);
+      const b = screen(x + u * candidate.w * c - v * candidate.h * s, y + u * candidate.w * s + v * candidate.h * c);
+      return total + (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+    }, 0);
+  };
+  let best = candidates[0]!;
+  let bestError = error(best);
+  for (const candidate of candidates.slice(1)) {
+    const candidateError = error(candidate);
+    if (candidateError < bestError) {
+      best = candidate;
+      bestError = candidateError;
+    }
+  }
+  let { r } = best;
+  const { w, h } = best;
   if (previousR !== undefined) while (r - previousR > Math.PI) r -= 2 * Math.PI;
   if (previousR !== undefined) while (previousR - r > Math.PI) r += 2 * Math.PI;
-  const h = length < 1e-9 ? Math.hypot(vx, vy) / 2 : Math.abs(cross) / length / 2;
   // A cropped tile's centre moves along the sprite's own u/v edges.
   return {
     x: x + offset[0] * ux + offset[1] * vx,
@@ -240,13 +286,14 @@ function quadParams(
 const intensity = (emission: readonly number[]): number => Math.max(emission[0]!, emission[1]!, emission[2]!);
 
 /** Tile class: texture, uv rect, emission chroma and baked bloom mips. */
-function tileClass(sample: QuadSample, mips: number, mipFrom = 0): string {
+export function tileClass(sample: QuadSample, mips: number, mipFrom = 0): string {
   const peak = Math.max(intensity(sample.emission), 1e-9);
   // Halos keep their HDR chroma too: the clip toward white happens before any tint.
   const chroma = sample.emission
     .map((value) => Math.round((value / peak) * (mipFrom ? 4 : 8)) / (mipFrom ? 4 : 8))
     .join(",");
-  return `${sample.file}|${sample.uv.map((value) => value.toFixed(4)).join(",")}|${chroma}|${mips}${mipFrom ? `h${mipFrom}` : ""}`;
+  const material = sample.materialTint ? `|t${sample.materialTint.join(",")}` : "";
+  return `${sample.file}|${sample.uv.map((value) => value.toFixed(4)).join(",")}|${chroma}|${mips}${mipFrom ? `h${mipFrom}` : ""}${material}`;
 }
 
 interface TileAccumulator {
@@ -267,10 +314,15 @@ class TileRegistry {
   readonly tiles = new Map<string, Tile>();
 
   private readonly files = new Map<string, string>();
+  private frozen = false;
 
   observe(sample: QuadSample, mips: number, mipFrom = 0): string {
     const key = `${tileClass(sample, mips, mipFrom)}|s${this.sigmaScale.toFixed(2)}`;
     let acc = this.accumulators.get(key);
+    if (this.frozen) {
+      if (!acc) throw new Error(`Re-traced particle tile was not observed in pass 1: ${key}`);
+      return key;
+    }
     if (!acc) {
       acc = {
         texture: sample.texture,
@@ -328,7 +380,11 @@ class TileRegistry {
           bloomGain: BLOOM_GAIN,
         }),
       );
+      // The baked tile only needs its reference emission during fitting.
+      acc.heights.length = 0;
+      acc.aspects.length = 0;
     }
+    this.frozen = true;
   }
 
   chromaHex(key: string): string {
@@ -367,9 +423,28 @@ const TERM_EPSILON = 0.002;
 const pruned = (expression: readonly number[]): number[] =>
   expression.map((value, index) => (index > 0 && Math.abs(value) < TERM_EPSILON ? 0 : value));
 
-function channelJson(fit: ChannelFit): Json {
-  const from = expressionJson(pruned(fit.from), 3);
-  const to = expressionJson(pruned(fit.to), 3);
+function channelJson(fit: ChannelFit, alpha = false): Json {
+  const serialize = (expression: readonly number[]) => {
+    const values = pruned(expression);
+    if (!alpha) return expressionJson(values, 3);
+    // Nearest rounding can push a bounded alpha just outside [0, 1]. Keep
+    // random terms on the same decimal grid by rounding toward zero, then
+    // clamp the constant within the remaining feasible interval.
+    const scale = 1000;
+    const quantized = values.map((value, index) =>
+      index === 0 ? Math.round(value * scale) : Math.trunc(value * scale),
+    );
+    const minimum = quantized.slice(1).reduce((sum, value) => sum + Math.min(0, value), 0);
+    const maximum = quantized.slice(1).reduce((sum, value) => sum + Math.max(0, value), 0);
+    if (maximum - minimum > scale) throw new Error("Alpha fit exceeds the unit random interval");
+    quantized[0] = Math.max(-minimum, Math.min(scale - maximum, quantized[0]!));
+    return expressionJson(
+      quantized.map((value) => value / scale),
+      3,
+    );
+  };
+  const from = serialize(fit.from);
+  const to = serialize(fit.to);
   if (fit.ease === "linear" && JSON.stringify(from) === JSON.stringify(to)) return { from, to: from };
   return { from, to, ease: fit.ease };
 }
@@ -467,7 +542,7 @@ function fitPieces(
     return { fits, worst };
   };
   // Greedy bisection of the worst piece until every channel is within tolerance.
-  let pieces = [{ q0: 0, q1: 1, ...fitRange(0, 1) }];
+  const pieces = [{ q0: 0, q1: 1, ...fitRange(0, 1) }];
   while (pieces.length < maxPieces) {
     const worstIndex = pieces.reduce((best, piece, index) => (piece.worst > pieces[best]!.worst ? index : best), 0);
     const worst = pieces[worstIndex]!;
@@ -498,7 +573,7 @@ function particleDefs(
     w: channelJson(piece.fits.w),
     h: channelJson(piece.fits.h),
     r: channelJson(piece.fits.r),
-    a: channelJson(piece.fits.a),
+    a: channelJson(piece.fits.a, true),
   }));
 }
 
@@ -721,7 +796,7 @@ const HALO_KEY = "halo";
 export interface CompileResult {
   effects: Json[];
   atlas: ReturnType<typeof packAtlas>;
-  report: Array<{ name: string; groups: number; defs: number }>;
+  report: Array<{ name: string; groups: number; instances: number; defs: number; lifetime: number }>;
 }
 
 export async function compileNativeParticles(options: {
@@ -784,7 +859,11 @@ export async function compileNativeParticles(options: {
     if (!kernel) glowKernels.set(key, (kernel = bloomKernel(STAR_HALOS ? STAR_HALO_MIPS : 1, 5, scale)));
     return { key, kernel };
   };
-  const pending: Array<{ name: string; groups: PendingGroup[]; layered: boolean }> = [];
+  // Keep only sampling descriptors across the atlas pass. PendingGroup
+  // closures retain raw histories, which exceed the bounded heap for a full
+  // pack. Re-tracing one effect at a time preserves global tile statistics.
+  const pending: Array<{ name: string; spec: EffectSpec; width: number; tracer: EffectTracer; bloomScale: number }> =
+    [];
   let bloomScale = 1;
   for (const entry of tracers) {
     tracer = entry.tracer;
@@ -819,36 +898,69 @@ export async function compileNativeParticles(options: {
     ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"].map((key) => [key, { [key]: 1 }]),
   );
   for (const entry of pending) {
+    tracer = entry.tracer;
+    bloomScale = entry.bloomScale;
+    registry.sigmaScale = bloomScale;
+    const pendingGroups = traceGroups(entry.spec, entry.width);
     // Lane effects keep one layer; hits and the hold loop get every plane.
-    const layers = entry.layered ? NATIVE_EFFECT_PLANES.length : 1;
+    const layered = !entry.spec.lane;
+    const layers = layered ? NATIVE_EFFECT_PLANES.length : 1;
     for (let plane = 0; plane < layers; plane += 1) {
-      const groups = entry.groups
-        .filter((group) => !entry.layered || group.plane === plane)
+      const groups = pendingGroups
+        .filter((group) => !layered || group.plane === plane)
         .map((group) => group.build(atlas.index))
         .filter((group): group is Json => !!group);
-      const name = entry.layered ? `${entry.name} ${NATIVE_EFFECT_PLANES[plane]!.label}` : entry.name;
+      if (entry.spec.loop) {
+        for (const group of groups) {
+          for (const particle of group.particles as Json[]) {
+            // Tail pieces sampled in the next cycle share their cohort's
+            // random draws, and must start within Sonolus' [0, 1] interval.
+            particle.start = round((particle.start as number) % 1);
+            if ((particle.duration as number) > 1)
+              throw new Error(`Particle tail exceeds the authored loop period: ${entry.name}`);
+          }
+        }
+      }
+      const name = layered ? `${entry.name} ${NATIVE_EFFECT_PLANES[plane]!.label}` : entry.name;
       effects.push({ name, transform: identity, groups });
       report.push({
         name,
         groups: groups.length,
+        instances: groups.reduce((total, group) => total + (group.count as number), 0),
         defs: groups.reduce((total, group) => total + (group.particles as unknown[]).length, 0),
+        lifetime: entry.spec.lifetime,
       });
     }
+    log(`fitted ${entry.name}: ${pendingGroups.length} groups`);
   }
   return { effects, atlas, report };
 
   async function traceProfile(prefix: string): Promise<void> {
     const specs: EffectSpec[] = [];
-    for (const kind of NOTE_KINDS)
-      for (const judgement of JUDGEMENTS)
+    for (const kind of NOTE_KINDS) {
+      const prefab = tracer.assets.particles.effect001Prefabs[kind.slot]!;
+      for (const judgement of JUDGEMENTS) {
+        const clip = prefab.animationClipUrls?.[judgement.judgement] ?? prefab.animationClipUrl;
+        const lifetime = await tracer.clipDuration(clip);
+        if (!(lifetime > 0 && Number.isFinite(lifetime))) throw new Error(`Invalid effect clip duration: ${clip}`);
         specs.push({
           name: `${prefix} ${kind.label}${judgement.suffix}`,
           kind: kind.kind,
           direction: kind.direction,
           judgement: judgement.judgement,
-          lifetime: nativeParticleEffectLifetime(kind.kind, judgement.native),
+          lifetime,
         });
-    const loopPeriod = await tracer.clipDuration(tracer.assets.particles.effect001Prefabs.SlideLoop!.animationClipUrl);
+      }
+    }
+    const animationPeriod = await tracer.clipDuration(
+      tracer.assets.particles.effect001Prefabs.SlideLoop!.animationClipUrl,
+    );
+    const loopPeriod = nativeEffects.timings?.loopParticle ?? 1;
+    if (
+      !(animationPeriod > 0) ||
+      Math.abs(loopPeriod / animationPeriod - Math.round(loopPeriod / animationPeriod)) > 1e-5
+    )
+      throw new Error(`Particle loop ${loopPeriod}s must contain whole Animator cycles (${animationPeriod}s)`);
     specs.push({
       name: `${prefix} Slide Loop`,
       kind: "slide-loop",
@@ -873,51 +985,54 @@ export async function compileNativeParticles(options: {
       for (const width of spec.lane ? [2] : NATIVE_EFFECT_WIDTHS) {
         const name = spec.lane ? spec.name : nativeEffectName(spec.name, width);
         if (options.only && !options.only(name)) continue;
-        const warm = spec.loop ? spec.loop.period * 3 : 0;
-        const times: number[] = [];
-        const span = spec.loop ? spec.loop.period * 2 : spec.lifetime;
-        for (let t = 0; t <= span + 1e-9; t += SAMPLE_STEP) times.push(warm + t);
-        const groups: PendingGroup[] = [];
-        const progressOf = (t: number) => (t - warm) / spec.lifetime;
-        if (spec.lane) {
-          const samples = tracer.traceLane(spec.kind, width, times);
-          groups.push(...deterministicGroups([samples], registry, progressOf, spec));
-        } else {
-          const trace = tracer.trace(
-            {
-              kind: spec.kind,
-              direction: spec.direction,
-              judgement: spec.judgement,
-              lifetime: spec.loop ? undefined : spec.lifetime,
-            } as never,
-            width,
-            times,
-            spec.loop ? SEEDS.slice(0, 1) : SEEDS,
-          );
-          const oneCycle = (list: readonly QuadSample[]) => list.filter((sample) => progressOf(sample.t) <= 1 + 1e-9);
-          // Halos first: groups draw in order and the sharp cores go on top.
-          groups.push(...compositeHaloGroups(trace.meshes, width, progressOf, spec));
-          groups.push(...deterministicGroups(significantMeshes(trace.meshes, oneCycle), registry, progressOf, spec));
-          // Off by default: measured worse than none (see SWARM_VISIBILITY).
-          if (!spec.loop && Number.isFinite(SWARM_VISIBILITY))
-            groups.unshift(...swarmBloomGroups(trace.particles, width, progressOf, spec, SEEDS.length));
-          const stars = hdrBoost(dropLargeStars(trace.particles));
-          groups.push(...cohortGroups(withOverlapGain(stars, width), registry, progressOf, spec, warm, width));
-          const seedCount = spec.loop ? 1 : SEEDS.length;
-          groups.unshift(
-            // Star cloud glow (a flux-centroid blob) is off by default: with the large
-            // stars removed it only showed as stray blobs.
-            ...(STAR_GLOW
-              ? glowGroups([], trace.particles, width, progressOf, spec, seedCount, glowKernelFor(bloomScale))
-              : []),
-          );
-        }
-        // The hold loop gets the same plane layers as a hit (the engine moves
-        // all four instances with nativeEffectPlaneLayout).
-        pending.push({ name, groups, layered: !spec.lane });
+        const groups = traceGroups(spec, width);
+        pending.push({ name, spec, width, tracer, bloomScale });
         log(`traced ${name}: ${groups.length} groups`);
       }
     }
+  }
+
+  function traceGroups(spec: EffectSpec, width: number): PendingGroup[] {
+    const warm = spec.loop ? spec.loop.period * 3 : 0;
+    const times: number[] = [];
+    const span = spec.loop ? spec.loop.period * 2 : spec.lifetime;
+    for (let t = 0; t <= span + 1e-9; t += SAMPLE_STEP) times.push(warm + t);
+    const groups: PendingGroup[] = [];
+    const progressOf = (t: number) => (t - warm) / spec.lifetime;
+    if (spec.lane) {
+      const samples = tracer.traceLane(spec.kind, width, times);
+      groups.push(...deterministicGroups([samples], registry, progressOf, spec, width));
+    } else {
+      const trace = tracer.trace(
+        {
+          kind: spec.kind,
+          direction: spec.direction,
+          judgement: spec.judgement,
+          lifetime: spec.loop ? undefined : spec.lifetime,
+        } as never,
+        width,
+        times,
+        spec.loop ? SEEDS.slice(0, 1) : SEEDS,
+      );
+      const oneCycle = (list: readonly QuadSample[]) => list.filter((sample) => progressOf(sample.t) <= 1 + 1e-9);
+      // Halos first: groups draw in order and the sharp cores go on top.
+      groups.push(...compositeHaloGroups(trace.meshes, width, progressOf, spec));
+      groups.push(...deterministicGroups(significantMeshes(trace.meshes, oneCycle), registry, progressOf, spec, width));
+      // Off by default: measured worse than none (see SWARM_VISIBILITY).
+      if (!spec.loop && Number.isFinite(SWARM_VISIBILITY))
+        groups.unshift(...swarmBloomGroups(trace.particles, width, progressOf, spec, SEEDS.length));
+      const stars = hdrBoost(dropLargeStars(trace.particles));
+      groups.push(...cohortGroups(withOverlapGain(stars, width), registry, progressOf, spec, warm, width));
+      const seedCount = spec.loop ? 1 : SEEDS.length;
+      groups.unshift(
+        // Star cloud glow (a flux-centroid blob) is off by default: with the large
+        // stars removed it only showed as stray blobs.
+        ...(STAR_GLOW
+          ? glowGroups([], trace.particles, width, progressOf, spec, seedCount, glowKernelFor(bloomScale))
+          : []),
+      );
+    }
+    return groups;
   }
 
   function deterministicGroups(
@@ -925,6 +1040,7 @@ export async function compileNativeParticles(options: {
     tiles: TileRegistry,
     progressOf: (t: number) => number,
     spec: EffectSpec,
+    width: number,
   ): PendingGroup[] {
     const groups: PendingGroup[] = [];
     for (const trajectory of trajectories) {
@@ -942,11 +1058,13 @@ export async function compileNativeParticles(options: {
             // Sampling lands on Animator activation edges (1/30 s); open the
             // run half a step early and hold the last sample for one step.
             const start = Math.max(0, p0 - SAMPLE_STEP / 2 / spec.lifetime);
-            const end = Math.min(spec.loop ? 2 : 1, Math.max(p1, p0) + SAMPLE_STEP / spec.lifetime);
+            // Mesh trajectories are selected for one authored cycle. Only
+            // emitted particle cohorts carry tails into the following cycle.
+            const end = Math.min(1, Math.max(p1, p0) + SAMPLE_STEP / spec.lifetime);
             const duration = Math.max(1e-4, end - start);
             let previousR: number | undefined;
             const params = run.samples.map((sample) => {
-              const quad = quadParams(sample, tile.expand, previousR, tile.offset);
+              const quad = quadParams(sample, tile.expand, width, previousR, tile.offset);
               previousR = quad.r;
               return {
                 q: (progressOf(sample.t) - start) / duration,
@@ -988,7 +1106,8 @@ export async function compileNativeParticles(options: {
     const bySlot = new Map<string, Map<number, ParticleSample[]>>();
     for (const sample of particles) {
       if (intensity(sample.emission) <= 1e-6) continue;
-      const slot = `${sample.system}:${sample.emission_}`;
+      const cycle = spec.loop ? Math.round(sample.birth * 1e5) : 0;
+      const slot = `${sample.system}:${sample.emission_}:${cycle}`;
       let seeds = bySlot.get(slot);
       if (!seeds) bySlot.set(slot, (seeds = new Map()));
       let list = seeds.get(sample.seed);
@@ -1041,6 +1160,7 @@ export async function compileNativeParticles(options: {
         // expressions cannot hold. Splitting both draws makes it near-linear
         // inside each bin (each bin re-mapped onto [0, 1)).
         const velocityBins = VELOCITY_BINS;
+        let sampledInstances = 0;
         for (let cell = 0; cell < bins * velocityBins; cell += 1) {
           const bin = Math.floor(cell / velocityBins);
           const vbin = cell % velocityBins;
@@ -1054,8 +1174,14 @@ export async function compileNativeParticles(options: {
               (velocityBins === 1 || (list[0]!.draws[5]! >= vlo && list[0]!.draws[5]! < vhi)),
           );
           if (!members.length) continue;
-          const cells = bins * velocityBins;
-          const count = Math.round((cohort.length * (cell + 1)) / cells) - Math.round((cohort.length * cell) / cells);
+          // Empty fitted cells have no trajectory to emit. Allocate the
+          // cohort's whole count across observed cells; allocating uniformly
+          // over all cells silently discarded small/sparsely sampled cohorts.
+          const previousInstances = sampledInstances;
+          sampledInstances += members.length;
+          const count =
+            Math.round((cohort.length * sampledInstances) / instances.length) -
+            Math.round((cohort.length * previousInstances) / instances.length);
           if (count <= 0) continue;
           const remap = (draws: readonly number[]): number[] => {
             const copy = draws.slice();
@@ -1096,9 +1222,9 @@ export async function compileNativeParticles(options: {
                 const draws = remap(raw[0]!.draws);
                 const list = flickerEnvelope(raw);
                 return list.map((sample) => {
-                  const quad = quadParams(sample, tile.expand, previousR, tile.offset);
+                  const quad = quadParams(sample, tile.expand, width, previousR, tile.offset);
                   previousR = quad.r;
-                  const haloQuad = quadParams(sample, haloTile.expand, quad.r, haloTile.offset);
+                  const haloQuad = quadParams(sample, haloTile.expand, width, quad.r, haloTile.offset);
                   return {
                     q: (progressOf(sample.t) - start) / duration,
                     quad,
@@ -1474,8 +1600,9 @@ export async function compileNativeParticles(options: {
       // colour, 3-sliced to every width (SLICED_FAMILIES).
       const sliced = SLICED_FAMILIES.has(family);
       const signature = JSON.stringify(
-        quads.map((quad) => [
+        quads.map((quad, index) => [
           quad.file.split("/").pop(),
+          ...(snapshot[index]!.materialTint ? [snapshot[index]!.materialTint] : []),
           quad.emission.map((value) => Math.round((value / Math.max(1e-9, intensity(quad.emission))) * 8)),
           sliced ? [] : quad.corners.map(([x, y]) => [Math.round(x - originX), Math.round(y - originY)]),
         ]),

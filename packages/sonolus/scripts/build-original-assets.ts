@@ -165,6 +165,9 @@ for (const retired of ["skin.data", "skin.texture.png"]) rmSync(resolve(out, ret
   // authored atlas ships four Up arrows are complete for every reachable draw.
   const optional = (name: string): boolean =>
     name.startsWith("Our Notes Slot ") ||
+    // Native outside boundaries select the right cap, mirrored on the left.
+    // Authored left tier 6 is empty and remains absent from these packs.
+    /^Our Notes Native (Tap|Slide|End|Flick|FlickLeft|FlickRight|Trace|Node) Left 6$/.test(name) ||
     /Our Notes Flick Arrow (Red|Yellow) Up [5-8]$/.test(name) ||
     // Exactly one skin marker exists per pack (the packer enforces it).
     /Our Notes Native Flick Arrow Animation Skin \d{3}$/.test(name);
