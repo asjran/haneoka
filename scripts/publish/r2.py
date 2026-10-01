@@ -964,11 +964,19 @@ def publish_release(
         if remote_manifest != manifest:
             raise ValueError(f"remote release manifest mismatch: {manifest_key}")
         identity_published = _publish_release_identity(store, identity_key, identity)
+        fingerprint = build_fingerprint(Path(__file__).resolve().parents[2], config)[:16]
+        identity_refreshed = current.get("pipelineFingerprint") != fingerprint
+        if identity_refreshed:
+            if store.get_json(pointer_key) != current:
+                raise ValueError("current release changed during publication; refusing stale identity refresh")
+            current = {**current, "pipelineFingerprint": fingerprint}
+            store.put_json(pointer_key, current, POINTER_CACHE, expected_etag=pointer_etag)
         return {
             **current,
             "releasePromoted": False,
             "releaseIdentity": identity_key,
             "identityPublished": identity_published,
+            "identityRefreshed": identity_refreshed,
             "transfer": {
                 "uploadedObjects": 0,
                 "resumedObjects": 0,
