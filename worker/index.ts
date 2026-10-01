@@ -1745,7 +1745,7 @@ function canonicalCatalogBatchRequest(request: Request, ids: readonly string[]):
 
 function catalogBatchIds(url: URL): string[] | null {
   const values = url.searchParams.getAll("id");
-  if (!values.length || values.some((id) => !CATALOG_ROUTE_KEY_PATTERN.test(id))) return null;
+  if (!values.length || values.length > 100 || values.some((id) => !CATALOG_ROUTE_KEY_PATTERN.test(id))) return null;
   return [...new Set(values)].sort();
 }
 
@@ -1792,6 +1792,103 @@ async function catalogBatchValue(
   return { items, missing };
 }
 
+interface CatalogCursor {
+  releaseId: string;
+  server: string;
+  tail: string;
+  shard: string;
+  after: string;
+}
+
+function catalogCursor(url: URL): CatalogCursor | null {
+  const values = url.searchParams.getAll("cursor");
+  if (!values.length) return null;
+  if (values.length !== 1 || !values[0] || values[0].length > 2048) throw new Error("invalid_cursor");
+  try {
+    const value: unknown = JSON.parse(atob(values[0].replaceAll("-", "+").replaceAll("_", "/")));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
+    const cursor = value as CatalogCursor;
+    if (
+      typeof cursor.releaseId !== "string" ||
+      !RELEASE_ID_PATTERN.test(cursor.releaseId) ||
+      typeof cursor.server !== "string" ||
+      !RESOURCE_SERVER_SLUG_PATTERN.test(cursor.server) ||
+      typeof cursor.tail !== "string" ||
+      !/^[a-z0-9-]+(?:\/views\/[a-z0-9-]+)?$/u.test(cursor.tail) ||
+      typeof cursor.shard !== "string" ||
+      !/^[a-f0-9]{2}$/u.test(cursor.shard) ||
+      typeof cursor.after !== "string" ||
+      (cursor.after !== "" &&
+        (!CATALOG_ROUTE_KEY_PATTERN.test(cursor.after) ||
+          fnv1a32Shard(cursor.after, RELEASE_INDEX_SHARDS) !== cursor.shard))
+    )
+      throw new Error();
+    return cursor;
+  } catch {
+    throw new Error("invalid_cursor");
+  }
+}
+
+function encodeCatalogCursor(cursor: CatalogCursor): string {
+  return btoa(JSON.stringify(cursor)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+async function catalogPage(
+  env: Env,
+  request: Request,
+  release: Release,
+  storage: CatalogShardStorage | null,
+  count: number,
+  tail: string,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const limits = url.searchParams.getAll("limit");
+  if (limits.length > 1 || (limits[0] !== undefined && !/^(?:[1-9][0-9]?|100)$/u.test(limits[0]))) {
+    return errorResponse(request, 400, "invalid_limit", "limit must be an integer between 1 and 100");
+  }
+  const limit = Number(limits[0] || 50);
+  const cursor = catalogCursor(url);
+  const shards = [...(storage?.shards || [])].sort();
+  if (cursor && !shards.includes(cursor.shard)) {
+    return errorResponse(request, 400, "invalid_cursor", "Cursor does not match the collection");
+  }
+  const items: JsonValue[] = [];
+  let nextCursor: string | null = null;
+  const start = cursor ? shards.indexOf(cursor.shard) : 0;
+  // Bound each request's shard reads, even for sparse collections.
+  const stop = Math.min(shards.length, start + 8);
+  for (let position = start; position < stop; position += 1) {
+    const shard = shards[position]!;
+    const document = await readCatalogShardAt(env, release, storage!, shard);
+    if (!document) throw new Error("Catalog page shard is missing");
+    const keys = Object.keys(document).sort();
+    if (keys.some((id) => !CATALOG_ROUTE_KEY_PATTERN.test(id) || fnv1a32Shard(id, RELEASE_INDEX_SHARDS) !== shard)) {
+      throw new Error("Catalog page shard contains invalid entity ids");
+    }
+    let after = cursor && shard === cursor.shard ? cursor.after : "";
+    for (const id of keys) {
+      if (cursor && shard === cursor.shard && id <= cursor.after) continue;
+      if (items.length === limit) {
+        nextCursor = encodeCatalogCursor({ releaseId: release.releaseId, server: release.server, tail, shard, after });
+        break;
+      }
+      items.push({ id, value: document[id]! });
+      after = id;
+    }
+    if (nextCursor) break;
+  }
+  if (!nextCursor && stop < shards.length) {
+    nextCursor = encodeCatalogCursor({
+      releaseId: release.releaseId,
+      server: release.server,
+      tail,
+      shard: shards[stop]!,
+      after: "",
+    });
+  }
+  return jsonResponse(request, { items, total: count, limit, nextCursor, release: releaseIdentityDocument(release) });
+}
+
 async function handleCatalogStorageApi(
   env: Env,
   ctx: ExecutionContext,
@@ -1804,6 +1901,9 @@ async function handleCatalogStorageApi(
   const parts = tail.split("/");
   let cacheSource = request;
   let producer: () => Promise<Response>;
+  const paged = url.searchParams.has("limit") || url.searchParams.has("cursor");
+  if (paged && url.searchParams.has("id"))
+    return errorResponse(request, 400, "invalid_query", "Batch and pagination cannot be combined");
 
   if (tail === "catalog") {
     producer = async () => jsonResponse(request, manifest.document);
@@ -1829,7 +1929,11 @@ async function handleCatalogStorageApi(
     }
 
     if (parts.length === 1) {
-      if (url.searchParams.has("id")) {
+      if (paged) {
+        if (resource.kind !== "collection")
+          return errorResponse(request, 400, "pagination_unavailable", "Use a collection or view for pagination");
+        producer = () => catalogPage(env, request, release, resource.entities, resource.count, tail);
+      } else if (url.searchParams.has("id")) {
         const ids = catalogBatchIds(url);
         if (!ids) {
           return releaseResponseHeaders(
@@ -1888,7 +1992,9 @@ async function handleCatalogStorageApi(
         return releaseResponseHeaders(errorResponse(request, 404, "view_not_found", "Catalog view not found"), release);
       }
       if (parts.length === 3) {
-        if (url.searchParams.has("id")) {
+        if (paged) {
+          producer = () => catalogPage(env, request, release, view.entities, view.count, tail);
+        } else if (url.searchParams.has("id")) {
           const ids = catalogBatchIds(url);
           if (!ids) {
             return releaseResponseHeaders(
@@ -1999,7 +2105,35 @@ async function handleCatalogApi(
   if (releaseValues.length > 1 || (releaseValues[0] !== undefined && !RELEASE_ID_PATTERN.test(releaseValues[0]))) {
     return errorResponse(request, 400, "invalid_release", "Release must be a valid immutable release id");
   }
-  const requested = releaseValues[0];
+  const queryUrl = new URL(request.url);
+  const locales = queryUrl.searchParams.getAll("locale");
+  if (locales.length > 1 || (locales[0] !== undefined && !SERVER_FIRST_LOCALES.has(locales[0]))) {
+    return errorResponse(request, 400, "invalid_locale", "locale must be ja, en, zh-TW, zh-CN, or ko");
+  }
+  let cursor: CatalogCursor | null;
+  try {
+    cursor = catalogCursor(queryUrl);
+  } catch {
+    return errorResponse(request, 400, "invalid_cursor", "Cursor is invalid");
+  }
+  const parsedTail = cleanRelativePath(rawTail);
+  if (
+    cursor &&
+    (cursor.server !== serverSlug ||
+      cursor.tail !== parsedTail ||
+      (releaseValues[0] !== undefined && releaseValues[0] !== cursor.releaseId))
+  ) {
+    return errorResponse(request, 400, "invalid_cursor", "Cursor does not match server, resource, or release");
+  }
+  if (
+    (queryUrl.searchParams.has("limit") || cursor) &&
+    (!parsedTail ||
+      !/^[a-z0-9-]+(?:\/views\/[a-z0-9-]+)?$/u.test(parsedTail) ||
+      ["catalog", "release", "ui-marks", "sources"].includes(parsedTail))
+  ) {
+    return errorResponse(request, 400, "pagination_unavailable", "Use a collection or view for pagination");
+  }
+  const requested = releaseValues[0] || cursor?.releaseId;
   let release: Release | null;
   try {
     release = requested ? await requestedRelease(env, server, requested) : await currentRelease(env, server);
@@ -2115,8 +2249,10 @@ async function handleCatalogApi(
   return handleCatalogStorageApi(env, ctx, request, release, storage, tail);
 }
 
+
 const LATEST_CATALOG_RESERVED_SEGMENTS = new Set([
   "game",
+  "search",
   "account",
   "admin",
   "announcements",
@@ -2134,9 +2270,8 @@ const LATEST_CATALOG_RESERVED_SEGMENTS = new Set([
 
 /**
  * Public latest aliases deliberately normalize into the scoped catalog
- * handler. The rewrite removes the optional release pin so callers always
- * resolve the active pointer while internal callers retain the scoped route
- * and its explicit-release support.
+ * handler. First pages resolve the active pointer; continuation cursors retain
+ * that snapshot. Explicit historical selection uses the scoped server route.
  */
 async function handleLatestCatalogApi(
   env: Env,
@@ -2150,17 +2285,18 @@ async function handleLatestCatalogApi(
   const rawTail = match[2] || "";
   const resource = decodePathPart(rawResource);
   if (!resource || LATEST_CATALOG_RESERVED_SEGMENTS.has(resource)) return null;
+  if (!CATALOG_RESOURCE_PATTERN.test(resource))
+    return errorResponse(request, 404, "resource_not_found", "Catalog resource not found");
   const url = new URL(request.url);
   const serverValues = url.searchParams.getAll("server");
   if (serverValues.length > 1) return errorResponse(request, 400, "invalid_server", "Server must be specified once");
-  const server = serverValues[0] || "intl";
+  const server = serverValues[0] ?? "intl";
   if (!RESOURCE_SERVER_SLUG_PATTERN.test(server)) {
     return errorResponse(request, 404, "server_not_found", "Server not found");
   }
+  if (url.searchParams.has("release"))
+    return errorResponse(request, 400, "invalid_release", "Use the scoped server route to select a release");
   url.searchParams.delete("server");
-  // Public aliases are latest-only. Never let an ordinary alias caller select
-  // a historical release through the scoped route's advanced query parameter.
-  url.searchParams.delete("release");
   url.pathname = `/api/v1/servers/${encodeURIComponent(server)}/${rawResource}${rawTail ? `/${rawTail}` : ""}`;
   return handleCatalogApi(env, ctx, new Request(url, request), url.pathname);
 }
@@ -2908,8 +3044,14 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   const sonolusRequest = url.pathname === "/sonolus" || url.pathname.startsWith("/sonolus/");
   if (request.method === "OPTIONS")
     return new Response(null, { status: 204, headers: sonolusRequest ? SONOLUS_JSON_HEADERS : CORS });
-  if (!new Set(["GET", "HEAD"]).has(request.method))
-    return new Response("method not allowed", { status: 405, headers: CORS });
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const response = url.pathname.startsWith("/api/")
+      ? errorResponse(request, 405, "method_not_allowed", "Method not allowed")
+      : new Response("method not allowed", { status: 405, headers: CORS });
+    const headers = new Headers(response.headers);
+    headers.set("Allow", "GET, HEAD, OPTIONS");
+    return new Response(response.body, { status: response.status, headers });
+  }
   const announcements = await handleAnnouncementsRequest(request, env, (serverSlug) =>
     activeResourceServer(env, serverSlug),
   );

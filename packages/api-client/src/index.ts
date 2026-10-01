@@ -142,23 +142,23 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
     const requestUrl = url(path, requestOptions.query);
     const headers = new Headers(options.headers);
     new Headers(requestOptions.headers).forEach((value, key) => headers.set(key, value));
+    const outgoing = new Request(requestUrl, {
+      method,
+      headers,
+      ...(requestOptions.signal ? { signal: requestOptions.signal } : {}),
+      ...(requestOptions.body !== undefined ? { body: requestOptions.body } : {}),
+    });
     try {
-      return await transport(
-        new Request(requestUrl, {
-          method,
-          headers,
-          ...(requestOptions.signal ? { signal: requestOptions.signal } : {}),
-          ...(requestOptions.body !== undefined ? { body: requestOptions.body } : {}),
-        }),
-      );
+      return await transport(outgoing);
     } catch (cause) {
       if (cause instanceof ApiClientError) throw cause;
+      const aborted = requestOptions.signal?.aborted || (cause instanceof Error && cause.name === "AbortError");
       throw new ApiClientError({
         cause,
-        code: "network_error",
-        message: "The server could not be reached",
+        code: aborted ? "request_aborted" : "network_error",
+        message: aborted ? "The request was cancelled" : "The server could not be reached",
         method,
-        retryable: true,
+        retryable: !aborted,
         url: requestUrl,
       });
     }
@@ -168,9 +168,16 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
     const method = requestOptions.method ?? "GET";
     const requestUrl = url(path, requestOptions.query);
     const result = await response(path, requestOptions);
-    const value = await readJson(result, method, requestUrl);
+    const id = result.headers.get("x-request-id");
     if (!result.ok) {
-      const payload = errorPayload(value);
+      // Preserve HTTP status for gateways that return HTML or malformed JSON.
+      let errorValue: unknown;
+      try {
+        errorValue = await readJson(result, method, requestUrl);
+      } catch (error) {
+        if (!(error instanceof ApiClientError)) throw error;
+      }
+      const payload = errorPayload(errorValue);
       throw new ApiClientError({
         code: payload.code ?? `http_${result.status}`,
         details: payload.details,
@@ -182,6 +189,23 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         url: requestUrl,
       });
     }
+    let value: unknown;
+    try {
+      value = await readJson(result, method, requestUrl);
+    } catch (error) {
+      if (error instanceof ApiClientError && id) {
+        throw new ApiClientError({
+          cause: error,
+          code: error.code,
+          message: error.message,
+          method,
+          status: error.status,
+          url: requestUrl,
+          requestId: id,
+        });
+      }
+      throw error;
+    }
     try {
       return requestOptions.decode ? requestOptions.decode(value) : (value as T);
     } catch (cause) {
@@ -189,6 +213,7 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       throw new ApiClientError({
         cause,
         code: "invalid_payload",
+        ...(id ? { requestId: id } : {}),
         message: "The response did not match the expected schema",
         method,
         status: result.status,

@@ -28,7 +28,12 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./haneoka": {
+      "types": "./dist/haneoka.d.ts",
+      "import": "./dist/haneoka.js",
+      "default": "./dist/haneoka.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
