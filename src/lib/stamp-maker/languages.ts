@@ -9,7 +9,7 @@ import krFlag from "circle-flags/flags/kr.svg?url";
 export const STAMP_LANGUAGES: Readonly<Record<string, { label: string; flag: string }>> = {
   ja: { label: "日本語", flag: jpFlag },
   en: { label: "English", flag: gbFlag },
-  "zh-Hans": { label: "简体中文", flag: cnFlag },
   "zh-Hant": { label: "繁體中文", flag: hkFlag },
+  "zh-Hans": { label: "简体中文", flag: cnFlag },
   ko: { label: "한국어", flag: krFlag },
 };
