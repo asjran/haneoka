@@ -154,7 +154,8 @@ const STORY_ROOT_KEYS = [
 ] as const;
 const VOICE_ROOT_KEYS = ["voice", "voiceActor", "voices", "catalogCompat.voice"] as const;
 const ACCOUNT_ROOT_KEYS = ["account", "accountPage", "publicProfilePage"] as const;
-const COMMUNITY_ROOT_KEYS = ["community", "communityPage"] as const;
+// GBP story readers share community routes and use the central text-view label.
+const COMMUNITY_ROOT_KEYS = ["community", "communityPage", "storyText"] as const;
 const EDITOR_ROOT_KEYS = ["chartEditor", "chartEditorPage", "storyEditor", "storyEditorPage"] as const;
 const LEGAL_ROOT_KEYS = ["about", "aboutPage", "privacyPage", "termsPage", "licensePage"] as const;
 const ADMIN_ROOT_KEYS = ["adminPage"] as const;
