@@ -104,9 +104,22 @@ export function writeLocalInventory(
   inventory: InventoryV1,
   owner: string | null = null,
   baseRevision = 0,
+  dirty = true,
 ): void {
-  storage.setItem(key(data, owner), JSON.stringify({ inventory: checked(inventory, data), baseRevision }));
+  storage.setItem(key(data, owner), JSON.stringify({ inventory: checked(inventory, data), baseRevision, dirty }));
   setLocalDraftLocator(storage, data, owner, data.identity.releaseId);
+}
+
+/** JSON object ordering is transport detail; array ordering and every value remain meaningful. */
+function sameInventoryContent(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b))
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
+      a.every((value, index) => sameInventoryContent(value, b[index]));
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  return Object.keys(a).length === Object.keys(b).length &&
+    Object.entries(a).every(([key, value]) => Object.hasOwn(b, key) &&
+      sameInventoryContent(value, (b as Record<string, unknown>)[key]));
 }
 export function mergeInventories(cloud: InventoryV1, draft: InventoryV1, mapPriority?: "cloud" | "draft"): InventoryV1 {
   if (cloud.server !== draft.server || cloud.releaseId !== draft.releaseId)
@@ -328,7 +341,9 @@ export class InventoryStore {
         if (preview.changed) throw new InventoryUniquenessError(preview);
       }
       const local = locateLocalDraft(this.options.storage, this.data, ownerId);
-      if (local && local.inventory.releaseId !== this.data.identity.releaseId) {
+      const localChanged = !!local && (local.dirty !== false || local.baseRevision > value.revision) &&
+        !sameInventoryContent(local.inventory, value.inventory ?? createEmptyInventory(this.data.identity));
+      if (local && localChanged && local.inventory.releaseId !== this.data.identity.releaseId) {
         this.restoredDraft = { kind: "account", location: local };
         this.state = {
           ...this.state,
@@ -341,33 +356,28 @@ export class InventoryStore {
         this.emit();
         return;
       }
-      if (value.inventory && value.inventory.releaseId !== this.data.identity.releaseId) {
-        if (local) {
-          this.state = {
-            ...this.state,
-            phase: "conflict",
-            inventory: checked(local.inventory, this.data),
-            remote: value,
-            dirty: true,
-          };
-          this.emit();
-          return;
-        }
+      // A local edit against the still-current revision resumes with the same CAS base.
+      // Only a differing draft and a changed remote revision need a merge decision.
+      if (local && localChanged && local.baseRevision !== value.revision) {
+        this.state = {
+          ...this.state, phase: "conflict", inventory: checked(local.inventory, this.data), remote: value, dirty: true,
+          revision: local.baseRevision,
+          ...(local.baseRevision > value.revision ? { error: "inventory-revision-regressed" } : {}),
+        };
+        this.emit();
+        return;
+      }
+      if (!localChanged && value.inventory && value.inventory.releaseId !== this.data.identity.releaseId) {
         this.state = { ...this.state, phase: "release-mismatch", inventory: value.inventory, remote: value };
         this.emit();
         return;
       }
-      this.state.inventory = value.inventory
-        ? checked(value.inventory, this.data)
-        : createEmptyInventory(this.data.identity);
-      if (local) {
-        const draft = checked(local.inventory, this.data);
-        if (JSON.stringify(draft) !== JSON.stringify(this.state.inventory)) {
-          this.state = { ...this.state, inventory: draft, dirty: true, phase: "conflict", remote: value };
-          this.emit();
-          return;
-        }
-      }
+      this.state.inventory = local && localChanged
+        ? checked(local.inventory, this.data)
+        : value.inventory ? checked(value.inventory, this.data) : createEmptyInventory(this.data.identity);
+      this.state.dirty = localChanged;
+      // Cache the observed cloud revision even when the user makes no edits.
+      this.persist();
       const anonymous = locateLocalDraft(this.options.storage, this.data, null);
       if (anonymous && anonymous.inventory.releaseId !== this.data.identity.releaseId) {
         this.restoredDraft = { kind: "anonymous", location: anonymous };
@@ -395,7 +405,8 @@ export class InventoryStore {
               draft.playerModifiers.vipRank !== null ||
               Object.keys(draft.playerModifiers.musicMemoryPoints).length ||
               Object.keys(draft.playerModifiers.characterMemoryPoints).length)));
-      this.state.phase = hasDraft ? "merge-required" : "saved";
+      this.state.phase = hasDraft ? "merge-required" : this.state.dirty ? "pending" : "saved";
+      if (this.state.phase === "pending") this.schedule();
       this.emit();
     } catch (error) {
       if (generation !== this.generation || signal.aborted) return;
@@ -421,7 +432,7 @@ export class InventoryStore {
                 ? checked(local.inventory, this.data)
                 : local.inventory;
             this.state.revision = local.baseRevision;
-            this.state.dirty = true;
+            this.state.dirty = local.dirty ?? true;
             if (local.inventory.releaseId !== this.data.identity.releaseId) {
               this.restoredDraft = { kind: "account", location: local };
               this.state.phase = "release-mismatch";
@@ -477,6 +488,7 @@ export class InventoryStore {
         this.state.inventory,
         this.state.ownerId,
         this.state.revision,
+        this.state.dirty,
       );
   }
   private schedule(): void {
@@ -550,7 +562,7 @@ export class InventoryStore {
           : mergeInventories(cloud, this.anonymousDraft, mapPriority);
     this.state.phase = "saved";
     this.anonymousDraft = undefined;
-    if (strategy !== "cloud" || this.pendingCloudRebase) this.edit(next);
+    if (strategy !== "cloud" || this.pendingCloudRebase || this.state.dirty) this.edit(next);
     this.pendingCloudRebase = false;
     this.options.storage.removeItem(key(this.data, null));
     setLocalDraftLocator(this.options.storage, this.data, null, null);
@@ -637,10 +649,12 @@ export class InventoryStore {
       this.emit();
       return;
     }
-    if (restored?.kind === "account" && this.state.ownerId && this.state.remote?.inventory) {
+    if (restored?.kind === "account" && this.state.ownerId && this.state.remote?.inventory &&
+        restored.location.baseRevision !== this.state.remote.revision) {
       this.state.inventory = next;
       this.state.phase = "conflict";
       this.state.dirty = true;
+      this.state.revision = restored.location.baseRevision;
       this.persist();
       this.emit();
       return;
@@ -715,9 +729,11 @@ export class InventoryStore {
       this.emit();
       return;
     }
-    if (source.local && this.state.ownerId && this.state.remote?.inventory) {
+    if (source.local && this.state.ownerId && this.state.remote?.inventory &&
+        source.local.baseRevision !== this.state.remote.revision) {
       this.state.phase = "conflict";
       this.state.dirty = true;
+      this.state.revision = source.local.baseRevision;
       this.emit();
       return;
     }

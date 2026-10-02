@@ -110,6 +110,8 @@ export interface LocatedLocalDraft {
   inventory: InventoryV2;
   baseRevision: number;
   storageKey: string;
+  /** Absent on historical envelopes, whose differing content must be retained. */
+  dirty?: boolean;
 }
 export class LocalDraftDiscoveryError extends Error {
   readonly code: "multiple-local-drafts" | "local-draft-search-limit";
@@ -137,7 +139,8 @@ function readStored(
     envelope.inventory.server !== data.identity.server ||
     envelope.inventory.releaseId !== releaseId ||
     !Number.isSafeInteger(envelope.baseRevision) ||
-    Number(envelope.baseRevision) < 0
+    Number(envelope.baseRevision) < 0 ||
+    (envelope.dirty !== undefined && typeof envelope.dirty !== "boolean")
   )
     throw new Error("Invalid stored inventory identity or document");
   const preview = previewInventoryUniqueness(envelope.inventory);
@@ -147,7 +150,10 @@ function readStored(
       ownerId: owner,
       baseRevision: Number(envelope.baseRevision),
     });
-  return { inventory: upgradeInventory(envelope.inventory), baseRevision: Number(envelope.baseRevision), storageKey };
+  return {
+    inventory: upgradeInventory(envelope.inventory), baseRevision: Number(envelope.baseRevision), storageKey,
+    ...(typeof envelope.dirty === "boolean" ? { dirty: envelope.dirty } : {}),
+  };
 }
 
 /** Exact current pin, then last saved pin, then one bounded legacy-key discovery. */
