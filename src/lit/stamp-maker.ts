@@ -38,8 +38,10 @@ import { LazyImages } from "./ui/lazy-images";
 
 import {
   createStampLayer,
+  createStampImageLayer,
   copyStampText,
   type StampLayer,
+  type StampImageTransform,
 } from "../lib/stamp-maker/layers";
 import { stampFont } from "../lib/stamp-maker/fonts";
 
@@ -78,6 +80,7 @@ export class StampMaker extends LitElement {
     catalogError: { state: true },
     imageError: { state: true },
     manifestError: { state: true },
+    manifestReady: { state: true },
     exportState: { state: true },
     outputWidth: { state: true },
     importedFonts: { state: true },
@@ -126,6 +129,9 @@ export class StampMaker extends LitElement {
   private imageRequest?: AbortController;
   private manifestRequest?: AbortController;
   private fontSequence = 0;
+  declare private manifestReady: boolean;
+  private manualImageLanguage = false;
+  private chooserOpener?: HTMLElement;
   private preparedFont = "";
   private paintFrame = 0;
   private glyphTimer?: number;
@@ -155,7 +161,8 @@ export class StampMaker extends LitElement {
     this.textlessSrc = "";
     this.textless = undefined;
     this.catalog = {};
-    this.mode = "original";
+    this.mode = "textless";
+    this.manifestReady = false;
     this.selected = "";
     this.settings = defaultStampText();
     this.catalogLoading = false;
@@ -165,7 +172,7 @@ export class StampMaker extends LitElement {
     this.imageError = false;
     this.manifestError = false;
     this.exportState = "";
-    this.outputWidth = "native";
+    this.outputWidth = "512";
     this.importedFonts = [];
     this.fontError = false;
     this.imageLanguage = "";
@@ -174,7 +181,7 @@ export class StampMaker extends LitElement {
     this.colorCharacter = "custom";
     this.backgroundCharacter = "custom";
     const layer = createStampLayer(this.settings);
-    this.layers = [layer];
+    this.layers = [createStampImageLayer(), layer];
     this.activeLayerId = layer.id;
   }
 
@@ -225,6 +232,8 @@ export class StampMaker extends LitElement {
   }
 
   protected updated(changed: Map<string, unknown>) {
+    if (changed.has("locale") && !this.manualImageLanguage)
+      this.imageLanguage = this.defaultImageLanguage;
     if (changed.has("server")) {
       void this.loadCatalog();
       void this.loadManifest();
@@ -233,13 +242,18 @@ export class StampMaker extends LitElement {
     if (
       changed.has("catalog") ||
       changed.has("textless") ||
+      changed.has("manifestReady") ||
       changed.has("mode") ||
       changed.has("locale") ||
       changed.has("imageLanguage")
     ) {
       if (
         this.mode === "textless" &&
-        !textlessChoices(this.originals, this.textless, STAMP_SOURCE_SERVER).length
+        this.manifestReady &&
+        !this.manifestError &&
+        Object.keys(this.catalog).length &&
+        !textlessChoices(this.originals, this.textless, STAMP_SOURCE_SERVER)
+          .length
       )
         this.selectImageLanguage("");
       const choices = this.choices;
@@ -347,12 +361,28 @@ export class StampMaker extends LitElement {
       ),
     };
   }
-  private get previewAspect() {
-    const size = this.image
-      ? { width: this.image.naturalWidth, height: this.image.naturalHeight }
-      : this.choice?.effectiveSize;
-    return size ? size.width / size.height : 1;
+  private get imageTransform() {
+    return this.layers.find((layer) => layer.id === this.activeLayerId)?.image;
   }
+  private get textLayerCount() {
+    return this.layers.filter((layer) => !layer.image).length;
+  }
+  private layerLabel(layer: StampLayer) {
+    return `${this.layers.indexOf(layer) + 1} · ${layer.image ? this.t("imageLayer") : layer.settings.text.trim().slice(0, 24) || this.t("text")}`;
+  }
+  private changeImage(values: Partial<StampImageTransform>) {
+    this.layers = this.layers.map((layer) =>
+      layer.id === this.activeLayerId && layer.image
+        ? { ...layer, image: { ...layer.image, ...values } }
+        : layer,
+    );
+    if (this.exportState !== "saving") this.exportState = "";
+  }
+  private changePosition(values: Partial<StampImageTransform>) {
+    if (this.imageTransform) this.changeImage(values);
+    else this.change(values);
+  }
+
   private get ready() {
     return (
       !!this.image &&
@@ -374,7 +404,9 @@ export class StampMaker extends LitElement {
     try {
       const catalog = await fetchJson<JsonRecord>(
         catalogUrl("stamps", "", STAMP_SOURCE_SERVER),
-        { signal: request.signal },
+        {
+          signal: request.signal,
+        },
       );
       if (request.signal.aborted || !this.isConnected) return;
       if (!stampChoices(catalog, this.locale).length)
@@ -434,6 +466,7 @@ export class StampMaker extends LitElement {
 
   private async loadManifest() {
     this.manifestRequest?.abort();
+    this.manifestReady = false;
     this.textless = undefined;
     this.manifestError = false;
     const source = this.textlessSrc || textlessManifestUrl();
@@ -445,6 +478,8 @@ export class StampMaker extends LitElement {
       if (!request.signal.aborted && this.isConnected) this.textless = manifest;
     } catch {
       if (!request.signal.aborted) this.manifestError = true;
+    } finally {
+      if (this.manifestRequest === request) this.manifestReady = true;
     }
   }
 
@@ -472,11 +507,6 @@ export class StampMaker extends LitElement {
       const image = await loadStampImage(choice.sources, request.signal);
       if (request.signal.aborted || !this.isConnected) return;
       this.image = image;
-      if (
-        this.outputWidth !== "native" &&
-        Number(this.outputWidth) > (this.effectiveSize?.width || 0)
-      )
-        this.outputWidth = "native";
       loading.finish();
     } catch {
       if (this.imageRequest === request && this.isConnected) {
@@ -493,6 +523,7 @@ export class StampMaker extends LitElement {
   }
 
   private change(values: Partial<StampText>) {
+    if (this.imageTransform) return;
     if (values.font && values.weight === undefined)
       values = { ...values, weight: stampFont(values.font)?.weight || 900 };
     this.settings = copyStampText({ ...this.settings, ...values });
@@ -566,9 +597,8 @@ export class StampMaker extends LitElement {
   private paint() {
     const canvas = this.querySelector<HTMLCanvasElement>("canvas");
     if (!canvas) return;
-    const aspect = this.previewAspect;
-    const width = Math.max(1, Math.round(512 * Math.min(1, aspect)));
-    const height = Math.max(1, Math.round(width / aspect));
+    const width = 512,
+      height = 512;
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -584,6 +614,7 @@ export class StampMaker extends LitElement {
       this.fallbackFont,
       getComputedStyle(this).getPropertyValue("--md-sys-color-primary").trim(),
       this.activeLayerId,
+      this.effectiveSize,
     );
   }
 
@@ -605,7 +636,15 @@ export class StampMaker extends LitElement {
     )
       return;
     const { canvas, x, y } = this.pointerPoint(event);
-    const hit = hitStampLayer(canvas, this.layers, this.fallbackFont, x, y);
+    const hit = hitStampLayer(
+      canvas,
+      this.layers,
+      this.fallbackFont,
+      x,
+      y,
+      this.image,
+      this.effectiveSize,
+    );
     if (!hit) return;
     if (hit !== this.activeLayerId) this.selectLayer(hit);
     event.preventDefault();
@@ -615,15 +654,15 @@ export class StampMaker extends LitElement {
       pointer: event.pointerId,
       x,
       y,
-      startX: this.settings.x,
-      startY: this.settings.y,
+      startX: (this.imageTransform || this.settings).x,
+      startY: (this.imageTransform || this.settings).y,
     };
   }
 
   private pointerMove(event: PointerEvent) {
     if (this.drag?.pointer !== event.pointerId) return;
     const { canvas, x, y } = this.pointerPoint(event);
-    this.change({
+    this.changePosition({
       x: clampPosition(
         this.drag.startX + ((x - this.drag.x) / canvas.width) * 100,
       ),
@@ -652,15 +691,20 @@ export class StampMaker extends LitElement {
     if (
       !direction ||
       !this.ready ||
-      (!this.settings.text.trim() &&
+      (!this.imageTransform &&
+        !this.settings.text.trim() &&
         !(this.settings.background && this.settings.background.alpha > 0))
     )
       return;
     event.preventDefault();
     const step = event.shiftKey ? 5 : 1;
-    this.change({
-      x: clampPosition(this.settings.x + direction[0] * step),
-      y: clampPosition(this.settings.y + direction[1] * step),
+    this.changePosition({
+      x: clampPosition(
+        (this.imageTransform || this.settings).x + direction[0] * step,
+      ),
+      y: clampPosition(
+        (this.imageTransform || this.settings).y + direction[1] * step,
+      ),
     });
   }
 
@@ -669,6 +713,7 @@ export class StampMaker extends LitElement {
     const image = this.image;
     const layers = this.layers.map((layer) => ({
       ...layer,
+      image: layer.image ? { ...layer.image } : undefined,
       settings: copyStampText(layer.settings),
     }));
     const fallback = this.fallbackFont;
@@ -677,16 +722,30 @@ export class StampMaker extends LitElement {
     if (!sourceSize) return;
     const requestedSize = this.outputWidth;
     this.exportState = "saving";
-    this.exportFonts = new Set(layers.map((layer) => layer.settings.font));
+    this.exportFonts = new Set(
+      layers
+        .filter((layer) => !layer.image)
+        .map((layer) => layer.settings.font),
+    );
     try {
       const { width, height } = stampOutputSize(sourceSize, requestedSize);
       await Promise.all(
-        layers.map((layer) => loadStampFont(layer.settings, fallback)),
+        layers
+          .filter((layer) => !layer.image)
+          .map((layer) => loadStampFont(layer.settings, fallback)),
       );
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
-      drawStamp(canvas, image, layers, fallback);
+      drawStamp(
+        canvas,
+        image,
+        layers,
+        fallback,
+        undefined,
+        undefined,
+        sourceSize,
+      );
       await downloadBlob(
         await canvasToPngBlob(canvas),
         `${resourceName}-${width}x${height}.png`,
@@ -758,17 +817,22 @@ export class StampMaker extends LitElement {
     const layer = this.layers.find((item) => item.id === id);
     if (!layer) return;
     this.activeLayerId = id;
+    if (layer.image) return;
     this.colorCharacter = layer.colorCharacter;
     this.backgroundCharacter = layer.backgroundCharacter;
     this.colorWasChosen = layer.colorWasChosen;
     this.settings = copyStampText(layer.settings);
   }
   private async addLayer(duplicate = false) {
-    if (this.layers.length >= 12) return;
+    if (this.textLayerCount >= 12 || (duplicate && this.imageTransform)) return;
     const layer = createStampLayer(
       duplicate
         ? this.settings
-        : { ...this.settings, text: "", background: undefined },
+        : {
+            ...(this.imageTransform ? defaultStampText() : this.settings),
+            text: "",
+            background: undefined,
+          },
     );
     layer.colorCharacter = this.colorCharacter;
     layer.colorWasChosen = this.colorWasChosen;
@@ -782,7 +846,7 @@ export class StampMaker extends LitElement {
     this.selectLayer(layer.id);
   }
   private deleteLayer() {
-    if (this.layers.length <= 1) return;
+    if (this.imageTransform || this.textLayerCount <= 1) return;
     const index = this.layers.findIndex(
       (item) => item.id === this.activeLayerId,
     );
@@ -824,8 +888,7 @@ export class StampMaker extends LitElement {
     step = 1,
   ) {
     const value = this.settings.background?.[key] || 0;
-    const scale =
-      key === "alpha" ? 1 : (this.effectiveSize?.width || 512) / 100;
+    const scale = key === "alpha" ? 1 : 512 / 100;
     const labels = {
       alpha: "backgroundAlpha",
       padding: "backgroundPadding",
@@ -853,6 +916,10 @@ export class StampMaker extends LitElement {
   }
 
   private resetText() {
+    if (this.imageTransform) {
+      this.changeImage({ x: 50, y: 50, scale: 100, rotation: 0 });
+      return;
+    }
     this.colorWasChosen = false;
     this.colorCharacter = "custom";
     this.backgroundCharacter = "custom";
@@ -860,12 +927,24 @@ export class StampMaker extends LitElement {
     this.defaultCharacterColor();
   }
 
+  private get defaultImageLanguage() {
+    return this.locale === "zh-CN"
+      ? "zh-Hans"
+      : this.locale === "zh-TW"
+        ? "zh-Hant"
+        : this.locale;
+  }
   private selectImageLanguage(language: string) {
+    this.manualImageLanguage =
+      !!language && language !== this.defaultImageLanguage;
+    if (!language) language = this.defaultImageLanguage;
     this.imageLanguage = language;
     this.mode = language === "textless" ? "textless" : "original";
   }
   private async openChooser() {
     await this.updateComplete;
+    this.chooserOpener =
+      this.querySelector<HTMLElement>("[data-open-stamps]") || undefined;
     this.querySelector<HTMLDialogElement>("dialog")?.showModal();
   }
 
@@ -880,7 +959,7 @@ export class StampMaker extends LitElement {
     max: number,
     step = 1,
   ) {
-    const sourceWidth = this.effectiveSize?.width || 512;
+    const sourceWidth = 512;
     const pixels = key === "size" || key === "strokeWidth";
     const displayed = pixels
       ? (this.settings[key] * sourceWidth) / 100
@@ -906,11 +985,31 @@ export class StampMaker extends LitElement {
     `;
   }
 
+  private imageSlider(key: "scale" | "rotation", min: number, max: number) {
+    const value = this.imageTransform![key];
+    return html`<label class="stamp-maker__slider"
+      ><span
+        >${this.t(key === "scale" ? "imageScale" : "rotation")}<output
+          >${value}${key === "scale" ? "%" : "°"}</output
+        ></span
+      >
+      <md-slider
+        class="md3-slider"
+        aria-label=${this.t(key === "scale" ? "imageScale" : "rotation")}
+        min=${min}
+        max=${max}
+        step="1"
+        .value=${value}
+        @input=${(event: Event) => this.changeImage({ [key]: Math.max(min, Math.min(max, Number((event.target as ValueControl).value))) })}
+      ></md-slider
+    ></label>`;
+  }
+
   render() {
     const textlessCount = textlessChoices(
       this.originals,
       this.textless,
-      this.server,
+      STAMP_SOURCE_SERVER,
     ).length;
     return html`
       <section class="stamp-maker" lang=${this.locale}>
@@ -919,6 +1018,7 @@ export class StampMaker extends LitElement {
             <button
               class="button button--tonal"
               type="button"
+              data-open-stamps
               @click=${this.openChooser}
               ?disabled=${this.catalogLoading || this.catalogError}
             >
@@ -947,7 +1047,6 @@ export class StampMaker extends LitElement {
         <div class="stamp-maker__preview-pane">
           <div
             class="stamp-maker__preview"
-            style=${`--stamp-aspect:${this.previewAspect}`}
             aria-busy=${String(this.catalogLoading || this.imageLoading || this.fontLoading)}
           >
             <canvas
@@ -998,22 +1097,18 @@ export class StampMaker extends LitElement {
             <md-outlined-select
               label=${this.t("layer")}
               .value=${this.activeLayerId}
-              .displayText=${`${this.layers.findIndex((layer) => layer.id === this.activeLayerId) + 1} · ${this.settings.text.trim().slice(0, 24) || this.t("text")}`}
+              .displayText=${this.layerLabel(this.layers.find((layer) => layer.id === this.activeLayerId)!)}
               @change=${(event: Event) => this.selectLayer(String((event.target as ValueControl).value))}
             >
               ${[...this.layers].reverse().map(
                 (layer) => html`
                   <md-select-option value=${layer.id}>
-                    <div slot="headline">
-                      ${this.layers.findIndex((item) => item.id === layer.id) + 1}
-                      ·
-                      ${layer.settings.text.trim().slice(0, 24) || this.t("text")}
-                    </div>
+                    <div slot="headline">${this.layerLabel(layer)}</div>
                   </md-select-option>
                 `,
               )}
             </md-outlined-select>
-            ${iconButton({ label: this.t("addLayer"), icon: "add", disabled: this.layers.length >= 12, onClick: () => this.addLayer() })}
+            ${iconButton({ label: this.t("addLayer"), icon: "add", disabled: this.textLayerCount >= 12, onClick: () => this.addLayer() })}
             <div class="stamp-maker__layer-menu">
               <button
                 class="icon-button"
@@ -1036,13 +1131,13 @@ export class StampMaker extends LitElement {
                 positioning="popover"
               >
                 <md-menu-item
-                  ?disabled=${this.layers.length >= 12}
+                  ?disabled=${!!this.imageTransform || this.textLayerCount >= 12}
                   @click=${() => this.addLayer(true)}
                 >
                   <div slot="headline">${this.t("duplicateLayer")}</div>
                 </md-menu-item>
                 <md-menu-item
-                  ?disabled=${this.layers.length <= 1}
+                  ?disabled=${!!this.imageTransform || this.textLayerCount <= 1}
                   @click=${this.deleteLayer}
                 >
                   <div slot="headline">${this.t("deleteLayer")}</div>
@@ -1062,15 +1157,44 @@ export class StampMaker extends LitElement {
               </md-menu>
             </div>
           </div>
-          <md-outlined-text-field
-            type="textarea"
-            rows="2"
-            maxlength="500"
-            label=${this.t("text")}
-            .value=${live(this.settings.text)}
-            @input=${(event: Event) => this.change({ text: String((event.target as ValueControl).value).slice(0, 500) })}
-          ></md-outlined-text-field>
-          ${segmented({
+          ${
+            this.imageTransform
+              ? html`
+                  <div class="stamp-maker__row stamp-maker__position">
+                    ${(["x", "y"] as const).map(
+                (axis) =>
+                  html` <md-outlined-text-field
+                    type="number"
+                    inputmode="decimal"
+                    min="0"
+                    max="100"
+                    step="1"
+                    label=${this.t(axis)}
+                    suffix-text="%"
+                    .value=${live(String(Math.round(this.imageTransform![axis] * 10) / 10))}
+                    @input=${(event: Event) => {
+                    const value = String((event.target as ValueControl).value);
+                    if (value.trim())
+                      this.changeImage({
+                        [axis]: clampPosition(Number(value)),
+                      });
+                  }}
+                  ></md-outlined-text-field>`,
+              )}
+                    ${iconButton({ label: this.t("center"), icon: "center_focus_strong", onClick: () => this.changeImage({ x: 50, y: 50 }) })}
+                  </div>
+                  ${this.imageSlider("scale", 10, 300)}${this.imageSlider("rotation", -180, 180)}
+                `
+              : html`
+                  <md-outlined-text-field
+                    type="textarea"
+                    rows="2"
+                    maxlength="500"
+                    label=${this.t("text")}
+                    .value=${live(this.settings.text)}
+                    @input=${(event: Event) => this.change({ text: String((event.target as ValueControl).value).slice(0, 500) })}
+                  ></md-outlined-text-field>
+                  ${segmented({
             label: this.t("writingMode"),
             value: this.settings.writingMode,
             options: [
@@ -1087,18 +1211,18 @@ export class StampMaker extends LitElement {
               }),
             grow: true,
           })}
-          <div class="stamp-maker__font-row">
-            <md-outlined-select
-              label=${this.t("font")}
-              .value=${this.settings.font}
-              @change=${(event: Event) => this.change({ font: String((event.target as ValueControl).value) })}
-            >
-              <md-select-option value="auto"
-                ><div slot="headline">
-                  ${this.t("fontAuto")}
-                </div></md-select-option
-              >
-              ${[...STAMP_FONTS, ...this.importedFonts].map(
+                  <div class="stamp-maker__font-row">
+                    <md-outlined-select
+                      label=${this.t("font")}
+                      .value=${this.settings.font}
+                      @change=${(event: Event) => this.change({ font: String((event.target as ValueControl).value) })}
+                    >
+                      <md-select-option value="auto"
+                        ><div slot="headline">
+                          ${this.t("fontAuto")}
+                        </div></md-select-option
+                      >
+                      ${[...STAMP_FONTS, ...this.importedFonts].map(
                 (font) => html`
                   <md-select-option value=${font.family}>
                     <div slot="headline">
@@ -1107,17 +1231,17 @@ export class StampMaker extends LitElement {
                   </md-select-option>
                 `,
               )}
-            </md-outlined-select>
-            ${iconButton({ label: this.t("importFont"), icon: "upload_file", onClick: () => this.querySelector<HTMLInputElement>("input[data-font-file]")?.click() })}
-            <input
-              hidden
-              data-font-file
-              type="file"
-              accept=".woff2,.woff,.ttf,.otf"
-              @change=${this.importFont}
-            />
-          </div>
-          ${
+                    </md-outlined-select>
+                    ${iconButton({ label: this.t("importFont"), icon: "upload_file", onClick: () => this.querySelector<HTMLInputElement>("input[data-font-file]")?.click() })}
+                    <input
+                      hidden
+                      data-font-file
+                      type="file"
+                      accept=".woff2,.woff,.ttf,.otf"
+                      @change=${this.importFont}
+                    />
+                  </div>
+                  ${
             this.fontError
               ? html`
                   <p class="field-note" role="alert">
@@ -1133,7 +1257,7 @@ export class StampMaker extends LitElement {
                 `
               : nothing
           }
-          ${
+                  ${
             stampFont(this.settings.font)?.weightRange
               ? html`
                   <label class="stamp-maker__slider">
@@ -1156,20 +1280,20 @@ export class StampMaker extends LitElement {
                 `
               : nothing
           }
-          ${this.slider("size", 3, 25, 0.5)}
-          <md-outlined-select
-            aria-label=${`${this.t("fill")} ${this.settings.fill}`}
-            label=${this.t("fill")}
-            .value=${this.colorCharacter}
-            @change=${(event: Event) => this.chooseCharacterColor(String((event.target as ValueControl).value))}
-          >
-            <span
-              slot="leading-icon"
-              class="stamp-maker__color-swatch"
-              style=${`background:${this.settings.fill}`}
-              aria-hidden="true"
-            ></span>
-            ${this.characterColors.map(
+                  ${this.slider("size", 3, 25, 0.5)}
+                  <md-outlined-select
+                    aria-label=${`${this.t("fill")} ${this.settings.fill}`}
+                    label=${this.t("fill")}
+                    .value=${this.colorCharacter}
+                    @change=${(event: Event) => this.chooseCharacterColor(String((event.target as ValueControl).value))}
+                  >
+                    <span
+                      slot="leading-icon"
+                      class="stamp-maker__color-swatch"
+                      style=${`background:${this.settings.fill}`}
+                      aria-hidden="true"
+                    ></span>
+                    ${this.characterColors.map(
               (character) => html`
                 <md-select-option value=${character.id}>
                   <span slot="start" class="stamp-maker__character-color">
@@ -1192,13 +1316,13 @@ export class StampMaker extends LitElement {
                 </md-select-option>
               `,
             )}
-            <md-select-option value="custom"
-              ><div slot="headline">
-                ${this.t("customColor")}
-              </div></md-select-option
-            >
-          </md-outlined-select>
-          ${
+                    <md-select-option value="custom"
+                      ><div slot="headline">
+                        ${this.t("customColor")}
+                      </div></md-select-option
+                    >
+                  </md-outlined-select>
+                  ${
             this.colorCharacter === "custom"
               ? html`
                   <label class="stamp-maker__custom-color">
@@ -1218,7 +1342,7 @@ export class StampMaker extends LitElement {
                 `
               : nothing
           }
-          ${
+                  ${
             this.characterError
               ? html`
                   <p class="field-note" role="alert">
@@ -1234,15 +1358,15 @@ export class StampMaker extends LitElement {
                 `
               : nothing
           }
-          <details class="stamp-maker__advanced">
-            <summary>
-              ${icon("tune", 20)}${this.t("positionStyle")}
-              <span class="stamp-maker__disclosure"
-                >${icon("expand_more", 20)}</span
-              >
-            </summary>
-            <div class="stamp-maker__row stamp-maker__position">
-              ${(["x", "y"] as const).map(
+                  <details class="stamp-maker__advanced">
+                    <summary>
+                      ${icon("tune", 20)}${this.t("positionStyle")}
+                      <span class="stamp-maker__disclosure"
+                        >${icon("expand_more", 20)}</span
+                      >
+                    </summary>
+                    <div class="stamp-maker__row stamp-maker__position">
+                      ${(["x", "y"] as const).map(
                 (axis) => html`
                   <md-outlined-text-field
                     type="number"
@@ -1263,24 +1387,24 @@ export class StampMaker extends LitElement {
                   ></md-outlined-text-field>
                 `,
               )}
-              ${iconButton({ label: this.t("center"), icon: "center_focus_strong", onClick: () => this.change({ x: 50, y: 50 }) })}
-            </div>
-            ${this.slider("rotation", -180, 180)}
-            <div class="stamp-maker__row stamp-maker__colors">
-              <label>
-                ${this.t("stroke")}
-                <input
-                  type="color"
-                  aria-label=${this.t("stroke")}
-                  .value=${this.settings.stroke}
-                  @input=${(event: Event) => this.change({ stroke: (event.target as HTMLInputElement).value })}
-                />
-              </label>
-            </div>
-            ${this.slider("strokeWidth", 0, 4, 0.1)}
-            <details class="stamp-maker__background">
-              <summary>${this.t("background")}</summary>
-              ${segmented({
+                      ${iconButton({ label: this.t("center"), icon: "center_focus_strong", onClick: () => this.change({ x: 50, y: 50 }) })}
+                    </div>
+                    ${this.slider("rotation", -180, 180)}
+                    <div class="stamp-maker__row stamp-maker__colors">
+                      <label>
+                        ${this.t("stroke")}
+                        <input
+                          type="color"
+                          aria-label=${this.t("stroke")}
+                          .value=${this.settings.stroke}
+                          @input=${(event: Event) => this.change({ stroke: (event.target as HTMLInputElement).value })}
+                        />
+                      </label>
+                    </div>
+                    ${this.slider("strokeWidth", 0, 4, 0.1)}
+                    <details class="stamp-maker__background">
+                      <summary>${this.t("background")}</summary>
+                      ${segmented({
                 label: this.t("background"),
                 value:
                   (this.settings.background?.alpha || 0) > 0 ? "on" : "off",
@@ -1291,7 +1415,7 @@ export class StampMaker extends LitElement {
                 onSelect: (value) =>
                   this.changeBackground({ alpha: value === "on" ? 100 : 0 }),
               })}
-              ${
+                      ${
                 (this.settings.background?.alpha || 0) > 0
                   ? html`
                       <md-outlined-select
@@ -1353,29 +1477,17 @@ export class StampMaker extends LitElement {
                     `
                   : nothing
               }
-            </details>
-          </details>
+                    </details>
+                  </details>
+                `
+          }
           <div class="stamp-maker__row stamp-maker__export">
             <md-outlined-select
               label=${this.t("resolution")}
               .value=${this.outputWidth}
               @change=${(event: Event) => (this.outputWidth = String((event.target as ValueControl).value))}
             >
-              ${(this.effectiveSize
-                ? stampSizeOptions(this.effectiveSize)
-                : []
-              ).map(
-                (size) => html`
-                  <md-select-option value=${size.value}>
-                    <div slot="headline">${size.width} × ${size.height} px</div>
-                  </md-select-option>
-                `,
-              )}
-              <md-select-option value="native">
-                <div slot="headline">
-                  ${this.t("originalSize")}${this.effectiveSize ? ` · ${this.effectiveSize.width} × ${this.effectiveSize.height} px` : ""}
-                </div>
-              </md-select-option>
+              ${stampSizeOptions().map((size) => html`<md-select-option value=${size.value}><div slot="headline">${size.width} × ${size.height} px</div></md-select-option>`)}
             </md-outlined-select>
             <button
               class="button button--filled"
@@ -1395,6 +1507,10 @@ export class StampMaker extends LitElement {
         <dialog
           class="stamp-maker__chooser"
           aria-label=${this.t("choose")}
+          @close=${() => {
+            if (this.chooserOpener?.isConnected)
+              this.chooserOpener.focus({ preventScroll: true });
+          }}
           @click=${(event: MouseEvent) => {
             if (event.target === event.currentTarget)
               (event.currentTarget as HTMLDialogElement).close();

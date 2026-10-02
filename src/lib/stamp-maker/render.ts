@@ -1,7 +1,8 @@
 import { stampFont, loadFontStylesheet } from "./fonts";
 export { STAMP_FONTS } from "./fonts";
-import type { StampLayer } from "./layers";
+import type { StampLayer, StampImageTransform } from "./layers";
 import { stampTextLayout, type StampWritingMode } from "./text-layout";
+import { STAMP_CANVAS_SIZE, type StampSize } from "./sizes";
 
 export interface StampBackground {
   color: string;
@@ -147,12 +148,8 @@ function drawTextLayer(
   context.save();
   context.translate((width * text.x) / 100, (height * text.y) / 100);
   context.rotate((text.rotation * Math.PI) / 180);
-  const {
-    cells,
-    bounds: textBounds,
-    inkBounds,
-  } = textLayout(context, text, width, fallback);
-  const bounds = visibleBounds(text, textBounds, width);
+  const { cells, inkBounds } = textLayout(context, text, width, fallback);
+  const bounds = visibleBounds(text, inkBounds, width);
   const background = text.background;
   if (background && background.alpha > 0) {
     context.save();
@@ -216,6 +213,82 @@ function isLayers(
   return Array.isArray(value);
 }
 
+function imageSize(
+  canvas: HTMLCanvasElement,
+  image: HTMLImageElement,
+  transform: StampImageTransform,
+  effectiveSize?: StampSize,
+) {
+  const width = Math.min(
+      image.naturalWidth,
+      effectiveSize?.width || image.naturalWidth,
+    ),
+    height = Math.min(
+      image.naturalHeight,
+      effectiveSize?.height || image.naturalHeight,
+    );
+  const fit =
+    (((Math.min(1, STAMP_CANVAS_SIZE / width, STAMP_CANVAS_SIZE / height) *
+      canvas.width) /
+      STAMP_CANVAS_SIZE) *
+      transform.scale) /
+    100;
+  return { width: width * fit, height: height * fit };
+}
+function drawImageLayer(
+  context: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  image: HTMLImageElement,
+  transform: StampImageTransform,
+  selectionColor?: string,
+  effectiveSize?: StampSize,
+) {
+  const size = imageSize(canvas, image, transform, effectiveSize);
+  context.save();
+  context.translate(
+    (canvas.width * transform.x) / 100,
+    (canvas.height * transform.y) / 100,
+  );
+  context.rotate((transform.rotation * Math.PI) / 180);
+  context.drawImage(
+    image,
+    -size.width / 2,
+    -size.height / 2,
+    size.width,
+    size.height,
+  );
+  if (selectionColor) {
+    context.strokeStyle = selectionColor;
+    context.lineWidth = canvas.width / 256;
+    context.setLineDash([canvas.width / 64, canvas.width / 128]);
+    context.strokeRect(
+      -size.width / 2,
+      -size.height / 2,
+      size.width,
+      size.height,
+    );
+  }
+  context.restore();
+}
+function hitImageLayer(
+  canvas: HTMLCanvasElement,
+  image: HTMLImageElement,
+  transform: StampImageTransform,
+  x: number,
+  y: number,
+  effectiveSize?: StampSize,
+) {
+  const size = imageSize(canvas, image, transform, effectiveSize),
+    dx = x - (canvas.width * transform.x) / 100,
+    dy = y - (canvas.height * transform.y) / 100,
+    angle = (-transform.rotation * Math.PI) / 180;
+  const localX = dx * Math.cos(angle) - dy * Math.sin(angle),
+    localY = dx * Math.sin(angle) + dy * Math.cos(angle);
+  return (
+    Math.abs(localX) <= size.width / 2 && Math.abs(localY) <= size.height / 2
+  );
+}
+
 /** Compatibility with one text style; ordered layers use the same Canvas paint path. */
 export function drawStamp(
   canvas: HTMLCanvasElement,
@@ -224,33 +297,43 @@ export function drawStamp(
   fallback: string,
   selectionColor?: string,
   selectedLayerId?: string,
+  effectiveSize?: StampSize,
 ): void {
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Canvas 2D is unavailable");
   context.clearRect(0, 0, canvas.width, canvas.height);
-  const scale = Math.min(
-    canvas.width / image.naturalWidth,
-    canvas.height / image.naturalHeight,
-  );
-  const w = image.naturalWidth * scale,
-    h = image.naturalHeight * scale;
-  context.drawImage(
-    image,
-    (canvas.width - w) / 2,
-    (canvas.height - h) / 2,
-    w,
-    h,
-  );
+  if (!isLayers(text) || !text.some((layer) => layer.image))
+    drawImageLayer(
+      context,
+      canvas,
+      image,
+      { x: 50, y: 50, scale: 100, rotation: 0 },
+      undefined,
+      effectiveSize,
+    );
   if (isLayers(text))
-    for (const layer of text)
-      drawTextLayer(
-        context,
-        layer.settings,
-        canvas.width,
-        canvas.height,
-        fallback,
-        layer.id === selectedLayerId ? selectionColor : undefined,
-      );
+    for (const layer of text) {
+      const selected =
+        layer.id === selectedLayerId ? selectionColor : undefined;
+      if (layer.image)
+        drawImageLayer(
+          context,
+          canvas,
+          image,
+          layer.image,
+          selected,
+          effectiveSize,
+        );
+      else
+        drawTextLayer(
+          context,
+          layer.settings,
+          canvas.width,
+          canvas.height,
+          fallback,
+          selected,
+        );
+    }
   else
     drawTextLayer(
       context,
@@ -300,9 +383,23 @@ export function hitStampLayer(
   fallback: string,
   x: number,
   y: number,
+  image?: HTMLImageElement,
+  effectiveSize?: StampSize,
 ): string | undefined {
   for (let index = layers.length - 1; index >= 0; index--)
-    if (hitStampText(canvas, layers[index].settings, fallback, x, y))
+    if (
+      layers[index].image
+        ? image &&
+          hitImageLayer(
+            canvas,
+            image,
+            layers[index].image!,
+            x,
+            y,
+            effectiveSize,
+          )
+        : hitStampText(canvas, layers[index].settings, fallback, x, y)
+    )
       return layers[index].id;
   return undefined;
 }
