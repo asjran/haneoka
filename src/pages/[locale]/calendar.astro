@@ -1,0 +1,11 @@
+---
+import CalendarDocument from "../../components/CalendarDocument.astro";
+import { LOCALES, type Locale } from "../../i18n/locales";
+
+export function getStaticPaths() {
+  return LOCALES.map((locale) => ({ params: { locale } }));
+}
+const locale = Astro.params.locale as Locale;
+---
+
+<CalendarDocument locale={locale} />

@@ -277,6 +277,8 @@ export function legacyEntityRedirectTarget(pathname: string, search = ""): strin
 export function resourceCollectionHref(route: string, server: ReleaseServer, locale: Locale): string | undefined {
   const source = new URL(route, "https://route.invalid");
   const parts = source.pathname.replace(/^\/+|\/+$/gu, "").split("/");
+  if (parts.length === 1 && parts[0] === "calendar")
+    return `/${server}/${locale}/calendar/${source.search}`;
   if (parts[0] !== "catalog") return undefined;
   if (parts.length === 1) {
     const target = new URL(`/${server}/${locale}/catalog/`, source);
