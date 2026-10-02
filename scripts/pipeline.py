@@ -59,6 +59,7 @@ from publish.r2 import (
     publish_source,
     restore_release_object,
 )
+from publish.song_reference import publish_meta_reference
 from verify.release import verify_release
 from verify.remote import verify_remote
 from verify.source import verify_source
@@ -1119,6 +1120,15 @@ def command_prune_sources(args: argparse.Namespace) -> None:
     _print(prune_sources(R2Store(config, args.concurrency), config))
 
 
+def command_publish_meta_reference(args: argparse.Namespace) -> None:
+    config = load_server_config(args.server)
+    _print(publish_meta_reference(
+        R2Store(config, args.concurrency), config.id, args.release, args.source,
+        Path(args.recipe), Path(args.request), dry_run=args.dry_run,
+        output=Path(args.output) if args.output else None,
+    ))
+
+
 def command_prune_releases(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     _print(prune_releases(R2Store(config, args.concurrency), config))
@@ -1515,6 +1525,18 @@ def parser() -> argparse.ArgumentParser:
     )
     release_publish.add_argument("--concurrency", type=int, default=64)
     release_publish.set_defaults(run=command_publish_release)
+
+    reference_publish = commands.add_parser(
+        "publish-meta-reference", help="publish an explicit same-pin reference sidecar"
+    )
+    reference_publish.add_argument("--release", required=True)
+    reference_publish.add_argument("--source", required=True)
+    reference_publish.add_argument("--recipe", required=True)
+    reference_publish.add_argument("--request", required=True)
+    reference_publish.add_argument("--output", help="save the evaluated reference locally")
+    reference_publish.add_argument("--dry-run", action="store_true")
+    reference_publish.add_argument("--concurrency", type=int, default=4)
+    reference_publish.set_defaults(run=command_publish_meta_reference)
 
     source_prune = commands.add_parser(
         "prune-sources",
