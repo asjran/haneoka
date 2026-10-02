@@ -149,6 +149,7 @@ const upstreamJson = async (
   headers: Record<string, string> = {},
 ): Promise<{ value: unknown; response: Response }> => {
   const deadline = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+  let upstreamStatus: number | null = null;
   try {
     const response = await fetch(target, {
       method: "GET",
@@ -156,6 +157,7 @@ const upstreamJson = async (
       redirect: headers.Authorization ? "error" : "follow",
       signal: deadline,
     });
+    upstreamStatus = response.status;
     if (!response.ok) {
       if (headers.Authorization && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
@@ -179,6 +181,8 @@ const upstreamJson = async (
     }
     return { value: await readJson(response), response };
   } catch (error) {
+    if (headers.Authorization)
+      console.warn(JSON.stringify({ event: "jp-profile-provider", upstreamStatus, noToken: false }));
     if (deadline.aborted) throw new RequestFailure(504, "timeout");
     if (error instanceof RequestFailure) throw error;
     const name = error instanceof Error ? error.name : "";
@@ -561,7 +565,10 @@ export async function handleGameRecordsApi(
   if (!rankingProfileIdPattern(region).test(profileId)) return errorResponse(request, 400, "invalid_request");
   return serveCached(request, ctx, async () => {
     const token = env.MOENOTES_PROFILE_API_TOKEN?.trim();
-    if (region === "jp" && !token) throw new RequestFailure(502, "upstream");
+    if (region === "jp" && !token) {
+      console.warn(JSON.stringify({ event: "jp-profile-provider", upstreamStatus: null, noToken: true }));
+      throw new RequestFailure(502, "upstream");
+    }
     const upstream =
       region === "jp"
         ? await upstreamJson(`${JP_PROFILE_ORIGIN}/v1/jp/profile/${profileId}`, {
