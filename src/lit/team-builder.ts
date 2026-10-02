@@ -61,7 +61,7 @@ import { specList } from "./ui/spec";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
 import { filterChip, iconButton, segmented } from "./ui/controls";
 import { selectionPane } from "./ui/selection-pane";
-import { songTile, liveMusicTypeMark } from "./shared/song-tile";
+import { songJacketCandidates, songTile, liveMusicTypeMark } from "./shared/song-tile";
 import { cardTile } from "./shared/card-tile";
 import { SearchCheckpointStore } from "./shared/search-checkpoint-store";
 import { fetchCatalogVisuals } from "../lib/catalog-visuals";
@@ -2303,13 +2303,14 @@ export class TeamBuilder extends LitElement {
     if (!this.data?.songs[songId]) return nothing;
     const song = this.visualSong(songId);
     const title = songTitle(song, this.locale).text;
+    const jacketCandidates = songJacketCandidates(song);
     const band = this.data?.bands[String(song.bandId ?? (Array.isArray(song.bandIds) ? song.bandIds[0] : ""))];
     const chart = dataRows(song.difficulty ?? song.difficulties).find((row) => String(row.difficulty) === difficulty);
     const level = chart?.displayLevel ?? chart?.playLevel ?? chart?.level ?? "";
     return html`
       <div class="list-item list-item--two-line team-builder__song-row">
         <span class="list-item__leading team-builder__artwork">
-          ${tileMedia({ title, label: title, image: String(song.jacketThumbUrl ?? song.jacketUrl ?? ""), aspectRatio: 1, fit: "contain" })}
+          ${tileMedia({ title, label: title, image: jacketCandidates[0] || "", imageCandidates: jacketCandidates, aspectRatio: 1, fit: "contain" })}
         </span>
         <span class="list-item__body">
           <strong class="list-item__headline">${title}</strong>
