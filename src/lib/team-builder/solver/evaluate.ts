@@ -1,5 +1,6 @@
 import type {
   Candidate,
+  EvidenceGap,
   MetricValue,
   Objective,
   OptimizationInput,
@@ -61,11 +62,22 @@ function windowCache() {
     return active;
   };
 }
+interface AssignmentLookup {
+  memberGaps: Map<string, EvidenceGap[]>;
+  snapshotGaps: Map<string, EvidenceGap[]>;
+}
+function prepareAssignmentLookup(input: OptimizationInput): AssignmentLookup {
+  return {
+    memberGaps: new Map(input.members.map((member) => [member.instanceId, member.gaps])),
+    snapshotGaps: new Map(input.snapshots.map((snapshot) => [snapshot.instanceId, snapshot.gaps])),
+  };
+}
 export function createAssignmentEvaluator(
   input: OptimizationInput,
 ): (assignment: TeamAssignment, prepared: PreparedSong) => Candidate {
   const cache = windowCache();
-  return (assignment, prepared) => evaluateAssignment(input, assignment, prepared, cache);
+  const lookup = prepareAssignmentLookup(input);
+  return (assignment, prepared) => evaluateAssignment(input, assignment, prepared, cache, lookup);
 }
 
 /** Scores a fully resolved native scenario. Missing runtime state remains null. */
@@ -74,6 +86,7 @@ export function evaluateAssignment(
   assignment: TeamAssignment,
   prepared: PreparedSong,
   coverage?: ReturnType<typeof windowCache>,
+  lookup: AssignmentLookup = prepareAssignmentLookup(input),
 ): Candidate {
   const model = input.evaluation;
   const context = model.songContexts[prepared.song.key];
@@ -86,12 +99,8 @@ export function evaluateAssignment(
   const rewards = eventRewardMetrics();
   let score = unavailableMetric("unresolved-slot-or-song-context", "native power/skill/trigger/mission runtime state");
   const optionGaps = [
-    ...assignment.memberInstanceIds.flatMap(
-      (id) => input.members.find((member) => member.instanceId === id)?.gaps ?? [],
-    ),
-    ...assignment.snapshotInstanceIds.flatMap((id) =>
-      id === null ? [] : (input.snapshots.find((snapshot) => snapshot.instanceId === id)?.gaps ?? []),
-    ),
+    ...assignment.memberInstanceIds.flatMap((id) => lookup.memberGaps.get(id) ?? []),
+    ...assignment.snapshotInstanceIds.flatMap((id) => (id === null ? [] : (lookup.snapshotGaps.get(id) ?? []))),
   ];
   const gaps = [
     ...optionGaps,

@@ -1,8 +1,9 @@
 import { localizedText, type JsonRecord } from "../../lit/shared/catalog";
 
-/** Approved T37 publication snapshot; callers may override via textless-src. */
-export function textlessManifestUrl(server: string): string | undefined {
-  return server === "intl" ? "/tools/stamp-maker/assets/intl/ts-c7409ce1fc695c94/manifest.json" : undefined;
+/** International multilingual assets are shared by every page-server selection. */
+export const STAMP_SOURCE_SERVER = "intl";
+export function textlessManifestUrl(_server = STAMP_SOURCE_SERVER): string {
+  return `/runtime/${STAMP_SOURCE_SERVER}/stamp-maker/manifest.json`;
 }
 
 export interface StampChoice {
@@ -26,7 +27,9 @@ export interface TextlessStampManifest {
     nativeSize?: [number, number];
     effectiveOriginalWidthHeight?: [number, number];
     originalSourceSize?: [number, number];
+    effectiveSourceSize?: [number, number];
     artifacts: {
+      sourceImage?: { path: string; sha256?: string };
       nativeOriginal?: { path: string; sha256?: string };
       exportCandidate?: { path: string; sha256?: string };
     };
@@ -93,8 +96,8 @@ export function textlessChoices(originals: StampChoice[], value: unknown, server
   const entries = new Map<string, { source: string; effectiveSize?: { width: number; height: number } }>();
   for (const record of manifest.records) {
     if (!record || record.publishable !== true || typeof record.id !== "string") continue;
-    const source = stampAssetUrl(record.artifacts?.nativeOriginal?.path || record.artifacts?.exportCandidate?.path);
-    const size = record.effectiveOriginalWidthHeight || record.nativeSize || record.originalSourceSize;
+    const source = stampAssetUrl(record.artifacts?.sourceImage?.path || record.artifacts?.nativeOriginal?.path || record.artifacts?.exportCandidate?.path);
+    const size = record.effectiveSourceSize || record.effectiveOriginalWidthHeight || record.nativeSize || record.originalSourceSize;
     const effectiveSize =
       Array.isArray(size) && size.length === 2 && size.every((value) => Number.isSafeInteger(value) && value > 0)
         ? { width: size[0], height: size[1] }

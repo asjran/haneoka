@@ -14,6 +14,7 @@ import { beginLoading } from "../lib/loading-progress";
 import { readReleaseServer } from "../lib/release-server";
 import {
   stampChoices,
+  STAMP_SOURCE_SERVER,
   textlessChoices,
   textlessManifestUrl,
   loadStampImage,
@@ -238,7 +239,7 @@ export class StampMaker extends LitElement {
     ) {
       if (
         this.mode === "textless" &&
-        !textlessChoices(this.originals, this.textless, this.server).length
+        !textlessChoices(this.originals, this.textless, STAMP_SOURCE_SERVER).length
       )
         this.selectImageLanguage("");
       const choices = this.choices;
@@ -305,7 +306,7 @@ export class StampMaker extends LitElement {
   }
   private get choices() {
     return this.mode === "textless"
-      ? textlessChoices(this.originals, this.textless, this.server)
+      ? textlessChoices(this.originals, this.textless, STAMP_SOURCE_SERVER)
       : this.originals;
   }
   private get choice() {
@@ -372,7 +373,7 @@ export class StampMaker extends LitElement {
     const loading = beginLoading(this.t("choose"), { signal: request.signal });
     try {
       const catalog = await fetchJson<JsonRecord>(
-        catalogUrl("stamps", "", this.server),
+        catalogUrl("stamps", "", STAMP_SOURCE_SERVER),
         { signal: request.signal },
       );
       if (request.signal.aborted || !this.isConnected) return;
@@ -401,7 +402,7 @@ export class StampMaker extends LitElement {
     this.characterError = false;
     try {
       const catalog = await fetchJson<JsonRecord>(
-        catalogUrl("characters", "", this.server),
+        catalogUrl("characters", "", STAMP_SOURCE_SERVER),
         {
           signal: request.signal,
         },
@@ -435,7 +436,7 @@ export class StampMaker extends LitElement {
     this.manifestRequest?.abort();
     this.textless = undefined;
     this.manifestError = false;
-    const source = this.textlessSrc || textlessManifestUrl(this.server);
+    const source = this.textlessSrc || textlessManifestUrl();
     if (!source) return;
     const request = new AbortController();
     this.manifestRequest = request;
