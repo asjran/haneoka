@@ -41,6 +41,7 @@ interface RelationshipRow {
 }
 
 interface PublicProfilePostRow {
+  bookmarked: number;
   body: string;
   commentCount: number;
   coverHeight: number | null;
@@ -48,6 +49,8 @@ interface PublicProfilePostRow {
   coverWidth: number | null;
   createdAt: number;
   id: string;
+  following: number;
+  liked: number;
   likeCount: number;
   title: string;
   updatedAt: number;
@@ -245,11 +248,23 @@ const readProfile = (env: Env, uid: number): Promise<PublicProfileRow | null> =>
     .bind(uid)
     .first<PublicProfileRow>();
 
-const readPosts = async (env: Env, userId: string, limit: number, cursor: PostCursor | null) => {
+const readPosts = async (env: Env, userId: string, viewerId: string | null, limit: number, cursor: PostCursor | null) => {
   const cursorCondition = cursor ? "AND (post.created_at < ? OR (post.created_at = ? AND post.id < ?))" : "";
   const cursorBindings = cursor ? [cursor.createdAt, cursor.createdAt, cursor.id] : [];
   const result = await env.DB.prepare(
     `SELECT post.id, post.title, post.body,
+            EXISTS(
+              SELECT 1 FROM community_reaction
+              WHERE post_id = post.id AND user_id = ? AND kind = 'like'
+            ) AS liked,
+            EXISTS(
+              SELECT 1 FROM community_bookmark
+              WHERE post_id = post.id AND user_id = ?
+            ) AS bookmarked,
+            EXISTS(
+              SELECT 1 FROM community_user_follow
+              WHERE follower_user_id = ? AND followed_user_id = post.author_id
+            ) AS following,
             (
               SELECT COUNT(*)
               FROM community_comment AS visible_comment
@@ -320,7 +335,7 @@ const readPosts = async (env: Env, userId: string, limit: number, cursor: PostCu
      ORDER BY post.created_at DESC, post.id DESC
      LIMIT ?`,
   )
-    .bind(userId, ...cursorBindings, limit + 1)
+    .bind(viewerId, viewerId, viewerId, userId, ...cursorBindings, limit + 1)
     .all<PublicProfilePostRow>();
   const hasMore = result.results.length > limit;
   const rows = hasMore ? result.results.slice(0, limit) : result.results;
@@ -345,13 +360,19 @@ const readPosts = async (env: Env, userId: string, limit: number, cursor: PostCu
   const last = rows.at(-1);
   return {
     nextCursor: hasMore && last ? encodePostCursor({ createdAt: last.createdAt, id: last.id }) : null,
-    posts: rows.map(({ body, coverAttachmentId, coverHeight, coverWidth, ...post }) => ({
+    posts: rows.map(({ body, bookmarked, following, liked, coverAttachmentId, coverHeight, coverWidth, ...post }) => ({
       ...post,
       coverHeight,
       coverUrl: attachmentContentUrl(coverAttachmentId),
       coverWidth,
       excerpt: postExcerpt(body),
       tags: tagsByPost.get(post.id) ?? [],
+      viewer: {
+        liked: Boolean(liked),
+        bookmarked: Boolean(bookmarked),
+        canEdit: viewerId === userId,
+        following: Boolean(following),
+      },
     })),
   };
 };
@@ -487,7 +508,7 @@ const getPublicProfile = async (request: Request, env: Env, uid: number, url: UR
   const [postPage, works, gameAccounts] = blocked
     ? [{ nextCursor: null, posts: [] }, [], []]
     : await Promise.all([
-        readPosts(env, profile.userId, limit, cursor),
+        readPosts(env, profile.userId, session?.user?.id ?? null, limit, cursor),
         readWorks(env, profile.userId),
         readGameAccounts(env, profile.userId),
       ]);

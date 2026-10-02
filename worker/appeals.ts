@@ -1,4 +1,5 @@
 import { getAuthSession } from "./auth";
+import { communityAccessState } from "./access";
 import type { ModerationEntityKind } from "./moderation";
 
 interface AppealCaseRow {
@@ -102,6 +103,12 @@ const requireAccess = async (request: Request, env: Env): Promise<{ userId: stri
   if (!session.user.emailVerified) {
     return { response: error(request, 403, "email_verification_required", "Verify the account email first") };
   }
+  const access = await communityAccessState(env, session.user.id, []);
+  if (!access) return { response: error(request, 503, "profile_unavailable", "Account profile is unavailable") };
+  if (access.status === "deleted") {
+    return { response: error(request, 403, "account_deleted", "Account is unavailable") };
+  }
+  // Suspended and write-restricted members can appeal their own moderation decisions.
   return { userId: session.user.id };
 };
 

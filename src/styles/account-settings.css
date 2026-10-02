@@ -109,14 +109,6 @@
     object-fit: cover;
     border-radius: inherit;
   }
-  .account-avatar-picker__action {
-    position: absolute;
-    right: -7px;
-    bottom: -7px;
-    background: var(--md-sys-color-primary-container);
-    cursor: pointer;
-  }
-  .account-avatar-picker__action input,
   .account-avatar-control input {
     position: absolute;
     width: 1px;

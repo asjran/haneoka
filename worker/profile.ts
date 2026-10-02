@@ -17,6 +17,10 @@ type CommunityRole = "admin" | "member" | "moderator";
 interface AccountProfileRow {
   accountName: string;
   avatarUrl: string | null;
+  avatarReview: string | null;
+  emailVerified: number;
+  signInRestricted: number;
+  uploadRestricted: number;
   bio: string | null;
   displayName: string | null;
   displayNameRevision: number;
@@ -25,7 +29,7 @@ interface AccountProfileRow {
   pendingDisplayName: string | null;
   profileStatus: ProfileStatus;
   profileVersion: number;
-  publicUid: number;
+  publicUid: number | null;
   role: CommunityRole;
   userId: string;
   writeRestricted: number;
@@ -75,7 +79,13 @@ const sameOrigin = (request: Request): boolean => {
 
 const readProfile = (env: Env, userId: string): Promise<AccountProfileRow | null> =>
   env.DB.prepare(
-    `SELECT profile.user_id AS userId, account.name AS accountName, account.image AS avatarUrl,
+    `SELECT profile.user_id AS userId, account.name AS accountName, account.image AS avatarUrl, account.emailVerified,
+            (SELECT json_object('id', attachment.id, 'status', attachment.status,
+                                'moderationStatus', attachment.moderation_status)
+             FROM community_attachment AS attachment
+             WHERE attachment.owner_user_id = profile.user_id AND attachment.purpose = 'avatar'
+               AND attachment.deleted_at IS NULL
+             ORDER BY attachment.created_at DESC, attachment.id DESC LIMIT 1) AS avatarReview,
             identity.uid AS publicUid,
             profile.handle, profile.bio, profile.role,
             profile.display_name AS displayName,
@@ -90,20 +100,47 @@ const readProfile = (env: Env, userId: string): Promise<AccountProfileRow | null
                 AND restriction.kind = 'write'
                 AND restriction.revoked_at IS NULL
                 AND (restriction.expires_at IS NULL OR restriction.expires_at > ?)
-            ) AS writeRestricted
+            ) AS writeRestricted,
+            EXISTS(
+              SELECT 1 FROM community_user_restriction AS restriction
+              WHERE restriction.user_id = profile.user_id AND restriction.kind = 'sign_in'
+                AND restriction.revoked_at IS NULL
+                AND (restriction.expires_at IS NULL OR restriction.expires_at > ?)
+            ) AS signInRestricted,
+            EXISTS(
+              SELECT 1 FROM community_user_restriction AS restriction
+              WHERE restriction.user_id = profile.user_id AND restriction.kind = 'upload'
+                AND restriction.revoked_at IS NULL
+                AND (restriction.expires_at IS NULL OR restriction.expires_at > ?)
+            ) AS uploadRestricted
      FROM community_profile AS profile
      JOIN "user" AS account ON account.id = profile.user_id
-     JOIN community_identity AS identity ON identity.user_id = profile.user_id
+     LEFT JOIN community_identity AS identity ON identity.user_id = profile.user_id
      WHERE profile.user_id = ?
      LIMIT 1`,
   )
-    .bind(Date.now(), userId)
+    .bind(Date.now(), Date.now(), Date.now(), userId)
     .first<AccountProfileRow>();
 
 const profileValue = (profile: AccountProfileRow): object => ({
   accountName: profile.accountName,
   avatarSeed: profile.userId,
   avatarUrl: profile.avatarUrl,
+  avatarReview: profile.avatarReview ? JSON.parse(profile.avatarReview) : null,
+  permissions: {
+    write:
+      profile.emailVerified === 1 &&
+      profile.profileStatus === "active" &&
+      profile.signInRestricted === 0 &&
+      profile.writeRestricted === 0,
+    upload:
+      profile.emailVerified === 1 &&
+      profile.profileStatus === "active" &&
+      profile.signInRestricted === 0 &&
+      profile.writeRestricted === 0 &&
+      profile.uploadRestricted === 0,
+    deleteAvatar: profile.emailVerified === 1 && profile.profileStatus === "active" && profile.signInRestricted === 0,
+  },
   bio: profile.bio,
   candidateDisplayName: profile.pendingDisplayName,
   displayName: profile.displayName,
@@ -405,7 +442,7 @@ const deleteProfile = async (request: Request, env: Env): Promise<Response> => {
 };
 
 const requireProfileAccess = async (request: Request, env: Env, write: boolean): Promise<AccessResult> => {
-  const session = await getAuthSession(request, env);
+  const session = await getAuthSession(request, env, { authoritative: true });
   if (!session?.user?.id) {
     return { ok: false, response: error(request, 401, "authentication_required", "Sign in required") };
   }
@@ -423,7 +460,7 @@ const requireProfileAccess = async (request: Request, env: Env, write: boolean):
     return { ok: false, response: error(request, 403, "account_restricted", "This account cannot change its profile") };
   }
   if (write) {
-    if (profile.writeRestricted === 1) {
+    if (profile.signInRestricted === 1 || profile.writeRestricted === 1) {
       return { ok: false, response: error(request, 403, "profile_write_restricted", "Profile changes are restricted") };
     }
     if (env.COMMUNITY_RATE_LIMITER) {

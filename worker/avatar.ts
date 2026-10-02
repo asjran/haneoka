@@ -90,9 +90,10 @@ const readBoundedBody = async (request: Request): Promise<Uint8Array | null> => 
 const hex = (buffer: ArrayBuffer): string =>
   [...new Uint8Array(buffer)].map((value) => value.toString(16).padStart(2, "0")).join("");
 
-const requireAvatarWriteAccess = async (
+const requireAvatarAccess = async (
   request: Request,
   env: Env,
+  upload: boolean,
 ): Promise<{ userId: string } | { response: Response }> => {
   const session = await getAuthSession(request, env);
   if (!session?.user?.id) {
@@ -101,7 +102,11 @@ const requireAvatarWriteAccess = async (
   if (!session.user.emailVerified) {
     return { response: error(request, 403, "email_verification_required", "Verify the account email first") };
   }
-  const access = await communityAccessState(env, session.user.id, ["sign_in", "write", "upload"]);
+  const access = await communityAccessState(
+    env,
+    session.user.id,
+    upload ? ["sign_in", "write", "upload"] : ["sign_in"],
+  );
   if (!access) return { response: error(request, 503, "profile_unavailable", "Account profile is unavailable") };
   if (access.status !== "active") {
     return { response: error(request, 403, "account_suspended", "Account is suspended") };
@@ -117,7 +122,7 @@ const requireAvatarWriteAccess = async (
 };
 
 const putAvatar = async (request: Request, env: Env): Promise<Response> => {
-  const access = await requireAvatarWriteAccess(request, env);
+  const access = await requireAvatarAccess(request, env, true);
   if ("response" in access) return access.response;
   const mediaType = request.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLocaleLowerCase("und") ?? "";
   if (!isAvatarMediaType(mediaType)) {
@@ -245,7 +250,7 @@ const getAvatar = async (request: Request, env: Env, userId: string): Promise<Re
 };
 
 const deleteAvatar = async (request: Request, env: Env): Promise<Response> => {
-  const access = await requireAvatarWriteAccess(request, env);
+  const access = await requireAvatarAccess(request, env, false);
   if ("response" in access) return access.response;
   const avatars = await env.DB.prepare(
     `SELECT id, object_key AS objectKey

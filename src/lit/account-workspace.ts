@@ -5,7 +5,8 @@ import { svg as discordSvg } from "@thesvg/icons/discord";
 import { svg as githubSvg } from "@thesvg/icons/github";
 import { svg as googleSvg } from "@thesvg/icons/google";
 import { svg as xSvg } from "@thesvg/icons/x";
-import { preferredLocale } from "./shared/catalog";
+import { fetchJson, JsonResponseError, preferredLocale } from "./shared/catalog";
+import { RequestScope } from "../lib/request-scope";
 
 const ACCOUNT_LABEL_KEYS: Readonly<Record<string, string>> = {
   appeal: "communityPage.appeal",
@@ -49,6 +50,7 @@ export class AccountWorkspace extends LitElement {
     profile: { state: true },
     sessions: { state: true },
     accounts: { state: true },
+    appeals: { state: true },
     mode: { state: true },
     section: { state: true },
     busy: { state: true },
@@ -58,13 +60,15 @@ export class AccountWorkspace extends LitElement {
     avatarPreview: { state: true },
     appealOpen: { state: true },
     captchaToken: { state: true },
+    captchaFailed: { state: true },
   };
-  declare phase: "loading" | "ready";
+  declare phase: "loading" | "ready" | "error";
   declare config: Value;
   declare session: Value | null;
   declare profile: Value | null;
   declare sessions: Value[];
   declare accounts: Value[];
+  declare appeals: Value[];
   declare mode: AuthMode;
   declare section: Section;
   declare busy: boolean;
@@ -74,6 +78,12 @@ export class AccountWorkspace extends LitElement {
   declare avatarPreview: string;
   declare appealOpen: boolean;
   declare captchaToken: string;
+  declare captchaFailed: boolean;
+  private lifetime = new AbortController();
+  private readonly loadRequests = new RequestScope();
+  private readonly profileRequests = new RequestScope();
+  private readonly securityRequests = new RequestScope();
+  private turnstileContainer: HTMLElement | null = null;
   private turnstileId: string | number | null = null;
 
   constructor() {
@@ -84,6 +94,7 @@ export class AccountWorkspace extends LitElement {
     this.profile = null;
     this.sessions = [];
     this.accounts = [];
+    this.appeals = [];
     this.mode = "signIn";
     this.section = "profile";
     this.busy = false;
@@ -93,6 +104,7 @@ export class AccountWorkspace extends LitElement {
     this.avatarPreview = "";
     this.appealOpen = false;
     this.captchaToken = "";
+    this.captchaFailed = false;
   }
 
   createRenderRoot() {
@@ -101,6 +113,7 @@ export class AccountWorkspace extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    if (this.lifetime.signal.aborted) this.lifetime = new AbortController();
     addEventListener("haneoka:locale-ready", this.onLocale);
     void Promise.all([
       import("@material/web/progress/circular-progress.js"),
@@ -115,8 +128,13 @@ export class AccountWorkspace extends LitElement {
 
   private readonly onLocale = () => this.requestUpdate();
   disconnectedCallback() {
+    this.lifetime.abort();
+    this.loadRequests.cancel();
+    this.profileRequests.cancel();
+    this.securityRequests.cancel();
     removeEventListener("haneoka:locale-ready", this.onLocale);
-    if (this.avatarPreview) URL.revokeObjectURL(this.avatarPreview);
+    this.cancelAvatar();
+    this.removeTurnstile();
     super.disconnectedCallback();
   }
 
@@ -134,41 +152,69 @@ export class AccountWorkspace extends LitElement {
     this.error = "";
     this.message = "";
   }
+  private clearSession() {
+    this.loadRequests.cancel();
+    this.profileRequests.cancel();
+    this.securityRequests.cancel();
+    this.cancelAvatar();
+    this.session = null;
+    this.profile = null;
+    this.sessions = [];
+    this.accounts = [];
+    this.appeals = [];
+    this.appealOpen = false;
+    this.mode = "signIn";
+    this.phase = "ready";
+  }
   private nextPath() {
     const value = new URLSearchParams(location.search).get("next") || "";
     return value.startsWith("/") && !value.startsWith("//") ? value : "/account";
   }
   private date(value: unknown) {
-    const date = new Date(String(value || ""));
+    const date = typeof value === "number" ? new Date(value) : new Date(String(value || ""));
     return Number.isFinite(date.valueOf())
       ? new Intl.DateTimeFormat(document.documentElement.lang, { dateStyle: "medium", timeStyle: "short" }).format(date)
       : "—";
   }
 
   private async request(url: string, init: RequestInit = {}) {
+    if (!this.isConnected) throw new DOMException("Page closed", "AbortError");
     const headers = new Headers({ accept: "application/json" });
     new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     if (typeof init.body === "string" && !headers.has("content-type")) headers.set("content-type", "application/json");
-    const response = await fetch(url, { credentials: "same-origin", cache: "no-store", ...init, headers });
-    const data = (await response.json().catch(() => ({}))) as Value;
-    if (!response.ok)
-      throw new Error(String((data.error as Value | undefined)?.message || data.message || `HTTP ${response.status}`));
-    return data;
+    const signal = init.signal ? AbortSignal.any([this.lifetime.signal, init.signal]) : this.lifetime.signal;
+    const data = await fetchJson<Value | null>(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      ...init,
+      headers,
+      signal,
+    });
+    signal.throwIfAborted();
+    return data ?? {};
   }
 
   private captchaHeaders(): Record<string, string> {
     return this.captchaToken ? { "x-captcha-response": this.captchaToken } : {};
   }
-  private async action(work: () => Promise<unknown>, success?: string): Promise<Value | null> {
+  private async action(
+    work: () => Promise<unknown>,
+    success?: string,
+    refresh?: () => Promise<unknown>,
+  ): Promise<Value | null> {
     if (this.busy) return null;
     this.busy = true;
     this.clearMessages();
     try {
       const result = await work();
       if (success) this.message = success;
+      if (refresh) await refresh();
       return result && typeof result === "object" && !Array.isArray(result) ? (result as Value) : {};
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
+      if (this.isConnected) {
+        if (error instanceof JsonResponseError && error.status === 401) this.clearSession();
+        this.error = error instanceof Error ? error.message : String(error);
+      }
       return null;
     } finally {
       this.busy = false;
@@ -177,27 +223,60 @@ export class AccountWorkspace extends LitElement {
   }
 
   private async load() {
+    const signal = this.loadRequests.begin();
+    this.profileRequests.cancel();
+    this.securityRequests.cancel();
+    const current = () => this.isConnected && this.loadRequests.current(signal);
     this.phase = "loading";
+    this.error = "";
     try {
-      this.config = await this.request("/api/v1/account/config").catch(() => ({ available: false }));
-      const session: Value = (await this.request("/api/auth/get-session").catch(() => null)) || ({} as Value);
+      const config = await this.request("/api/v1/account/config", { signal });
+      if (!current()) return;
+      this.config = config;
+      if (config.available === false) {
+        this.clearSession();
+        return;
+      }
+      const session = await this.request("/api/auth/get-session", { signal });
+      if (!current()) return;
+      if ((session.user as Value | undefined)?.id !== this.user()?.id) this.cancelAvatar();
       this.session = session.user ? session : null;
-      if (this.session) await Promise.all([this.loadProfile(), this.loadSecurity()]);
-    } finally {
-      this.phase = "ready";
+      this.profile = null;
+      this.sessions = [];
+      this.accounts = [];
+      this.appeals = [];
+      if (this.session) await Promise.all([this.loadProfile(signal), this.loadSecurity(signal)]);
+      if (current()) this.phase = "ready";
+    } catch (error) {
+      if (!current()) return;
+      if (error instanceof JsonResponseError && error.status === 401) this.clearSession();
+      else this.phase = "error";
+      this.error = error instanceof Error ? error.message : String(error);
     }
   }
 
-  private async loadProfile() {
-    const value = await this.request("/api/v1/account/profile");
+  private async loadProfile(signal?: AbortSignal) {
+    const ownSignal = this.profileRequests.begin();
+    const userId = this.user()?.id;
+    const init: RequestInit = { signal: signal ? AbortSignal.any([signal, ownSignal]) : ownSignal };
+    const [value, appeals] = await Promise.all([
+      this.request("/api/v1/account/profile", init),
+      this.user()?.emailVerified ? this.request("/api/v1/community/appeals", init) : Promise.resolve<Value>({}),
+    ]);
+    if (!this.isConnected || !this.profileRequests.current(ownSignal) || userId !== this.user()?.id) return;
     this.profile = (value.profile as Value) || null;
+    this.appeals = Array.isArray(appeals.appeals) ? (appeals.appeals as Value[]) : [];
   }
 
-  private async loadSecurity() {
+  private async loadSecurity(signal?: AbortSignal) {
+    const ownSignal = this.securityRequests.begin();
+    const userId = this.user()?.id;
+    const init: RequestInit = { signal: signal ? AbortSignal.any([signal, ownSignal]) : ownSignal };
     const [sessions, accounts] = await Promise.all([
-      this.request("/api/auth/list-sessions"),
-      this.request("/api/auth/list-accounts"),
+      this.request("/api/auth/list-sessions", init),
+      this.request("/api/auth/list-accounts", init),
     ]);
+    if (!this.isConnected || !this.securityRequests.current(ownSignal) || userId !== this.user()?.id) return;
     this.sessions = Array.isArray(sessions)
       ? (sessions as unknown as Value[])
       : Array.isArray(sessions.sessions)
@@ -212,6 +291,10 @@ export class AccountWorkspace extends LitElement {
         : Array.isArray(accounts.data)
           ? (accounts.data as Value[])
           : [];
+  }
+
+  private permission(name: "write" | "upload" | "deleteAvatar") {
+    return (this.profile?.permissions as Value | undefined)?.[name] === true;
   }
 
   private async submitAuth(event: SubmitEvent) {
@@ -298,10 +381,7 @@ export class AccountWorkspace extends LitElement {
     await this.action(
       async () => {
         await this.request("/api/auth/sign-out", { method: "POST", body: "{}" });
-        this.session = null;
-        this.profile = null;
-        this.sessions = [];
-        this.accounts = [];
+        this.clearSession();
       },
       this.label("signedOut", "Signed out."),
     );
@@ -351,7 +431,7 @@ export class AccountWorkspace extends LitElement {
   private async uploadAvatar() {
     const file = this.avatarFile;
     if (!file) return;
-    const result = await this.action(
+    await this.action(
       () =>
         this.request("/api/v1/account/avatar", {
           method: "PUT",
@@ -359,30 +439,38 @@ export class AccountWorkspace extends LitElement {
           body: file,
         }),
       this.label("avatarPending", "Your avatar is being reviewed."),
+      async () => {
+        this.cancelAvatar();
+        await this.loadProfile();
+      },
     );
-    if (result) {
-      this.cancelAvatar();
-      await this.loadProfile();
-    }
   }
   private async deleteAvatar() {
-    const result = await this.action(
+    await this.action(
       () => this.request("/api/v1/account/avatar", { method: "DELETE" }),
       this.label("avatarDeleted", "Avatar deleted."),
+      () => this.loadProfile(),
     );
-    if (result) await this.loadProfile();
   }
 
-  private async submitAppeal() {
+  private async submitAppeal(
+    entityKind: "profile-name" | "attachment" = "profile-name",
+    entityId = String(this.user()?.id || ""),
+  ) {
     const statement = this.querySelector<HTMLTextAreaElement>('textarea[name="statement"]')?.value.trim() || "";
-    const userId = String(this.user()?.id || "");
     const result = await this.action(
       () =>
         this.request("/api/v1/community/appeals", {
           method: "POST",
-          body: JSON.stringify({ entityKind: "profile-name", entityId: userId, statement }),
+          body: JSON.stringify({
+            entityKind,
+            entityId,
+            statement,
+            ...(entityKind === "profile-name" ? { entityRevision: this.profile?.displayNameRevision } : {}),
+          }),
         }),
       this.label("appealSubmitted", "Appeal submitted."),
+      () => this.loadProfile(),
     );
     if (result) this.appealOpen = false;
   }
@@ -401,7 +489,8 @@ export class AccountWorkspace extends LitElement {
   }
   private async changePassword(event: SubmitEvent) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget as HTMLFormElement);
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
     const currentPassword = String(data.get("currentPassword") || "");
     const newPassword = String(data.get("newPassword") || "");
     const confirm = String(data.get("confirmPassword") || "");
@@ -409,39 +498,39 @@ export class AccountWorkspace extends LitElement {
       this.error = this.label("passwordMismatch", "The passwords do not match.");
       return;
     }
-    const result = await this.action(
+    await this.action(
       () =>
         this.request("/api/auth/change-password", {
           method: "POST",
           body: JSON.stringify({ currentPassword, newPassword, revokeOtherSessions: true }),
         }),
       this.label("passwordChanged", "Password changed."),
+      async () => {
+        form.reset();
+        await this.loadSecurity();
+      },
     );
-    if (result) {
-      (event.currentTarget as HTMLFormElement).reset();
-      await this.loadSecurity();
-    }
   }
   private async revokeSession(token: unknown) {
-    const result = await this.action(
+    await this.action(
       () => this.request("/api/auth/revoke-session", { method: "POST", body: JSON.stringify({ token }) }),
       this.label("sessionRevoked", "Session revoked."),
+      () => this.loadSecurity(),
     );
-    if (result) await this.loadSecurity();
   }
   private async revokeOthers() {
-    const result = await this.action(
+    await this.action(
       () => this.request("/api/auth/revoke-other-sessions", { method: "POST", body: "{}" }),
       this.label("sessionRevoked", "Sessions revoked."),
+      () => this.loadSecurity(),
     );
-    if (result) await this.loadSecurity();
   }
   private async revokeAll() {
-    const result = await this.action(
+    await this.action(
       () => this.request("/api/auth/revoke-sessions", { method: "POST", body: "{}" }),
       this.label("sessionRevoked", "Sessions revoked."),
+      () => this.load(),
     );
-    if (result) await this.load();
   }
   private async linkAccount(provider: string) {
     const data = await this.action(() =>
@@ -453,15 +542,15 @@ export class AccountWorkspace extends LitElement {
     if (data?.url) location.assign(String(data.url));
   }
   private async unlinkAccount(account: Value) {
-    const result = await this.action(
+    await this.action(
       () =>
         this.request("/api/auth/unlink-account", {
           method: "POST",
           body: JSON.stringify({ providerId: account.providerId, accountId: account.accountId }),
         }),
       this.label("accountUnlinked", "Account unlinked."),
+      () => this.loadSecurity(),
     );
-    if (result) await this.loadSecurity();
   }
   private async deleteAccount(event: SubmitEvent) {
     event.preventDefault();
@@ -471,8 +560,7 @@ export class AccountWorkspace extends LitElement {
       this.label("accountDeleted", "Account deleted."),
     );
     if (result) {
-      this.session = null;
-      this.profile = null;
+      this.clearSession();
       history.replaceState(history.state, "", "/account?deleted=1");
     }
   }
@@ -492,39 +580,105 @@ export class AccountWorkspace extends LitElement {
     if (widget && this.turnstileId != null) widget.reset(this.turnstileId);
     this.captchaToken = "";
   }
+  private removeTurnstile() {
+    const widget = (window as unknown as { turnstile?: { remove: (id: string | number) => void } }).turnstile;
+    if (widget && this.turnstileId != null) widget.remove(this.turnstileId);
+    this.turnstileId = null;
+    this.turnstileContainer = null;
+    this.captchaToken = "";
+  }
+  private retryTurnstile() {
+    const container = this.querySelector<HTMLElement>("[data-turnstile]");
+    if (container) delete container.dataset.mounted;
+    this.removeTurnstile();
+    this.clearMessages();
+    this.captchaFailed = false;
+    void this.mountTurnstile();
+  }
   private async mountTurnstile() {
     const sitekey = String(this.config.turnstileSiteKey || "");
     const container = this.querySelector<HTMLElement>("[data-turnstile]");
-    if (!sitekey || !container || container.dataset.mounted) return;
+    const action = this.mode === "signIn" ? "account_sign_in" : "account_register";
+    if (this.turnstileContainer && (container !== this.turnstileContainer || container?.dataset.action !== action))
+      this.removeTurnstile();
+    if (!sitekey || !container || (container.dataset.mounted && container.dataset.action === action)) return;
     container.dataset.mounted = "true";
-    const api = await new Promise<{ render: (target: HTMLElement, options: Value) => string | number }>((resolve) => {
-      const existing = (
-        window as unknown as { turnstile?: { render: (target: HTMLElement, options: Value) => string | number } }
-      ).turnstile;
-      if (existing) {
-        resolve(existing);
-        return;
+    container.dataset.action = action;
+    this.captchaFailed = false;
+    type TurnstileApi = { render: (target: HTMLElement, options: Value) => string | number };
+    try {
+      const api = await new Promise<TurnstileApi>((resolve, reject) => {
+        const existing = (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+        if (existing) {
+          resolve(existing);
+          return;
+        }
+        const script = document.createElement("script");
+        const finish = () => {
+          clearTimeout(timer);
+          script.onload = null;
+          script.onerror = null;
+        };
+        const fail = () => {
+          finish();
+          script.remove();
+          reject(new Error(this.label("challengeUnavailable", "Verification could not be loaded. Try again.")));
+        };
+        const timer = setTimeout(fail, 15_000);
+        script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+        script.async = true;
+        script.defer = true;
+        script.onerror = fail;
+        script.onload = () => {
+          const api = (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+          if (!api) {
+            fail();
+            return;
+          }
+          finish();
+          resolve(api);
+        };
+        document.head.append(script);
+      });
+      if (!this.isConnected || !container.isConnected || container.dataset.action !== action) return;
+      this.turnstileContainer = container;
+      this.turnstileId = api.render(container, {
+        sitekey,
+        action,
+        size: container.clientWidth < 300 ? "compact" : "flexible",
+        callback: (token: string) => {
+          this.captchaToken = token;
+          this.captchaFailed = false;
+        },
+        "expired-callback": () => {
+          this.captchaToken = "";
+        },
+        "error-callback": () => {
+          this.captchaToken = "";
+          this.captchaFailed = true;
+          this.error = this.label("challengeUnavailable", "Verification could not be loaded. Try again.");
+        },
+      });
+    } catch (error) {
+      if (!this.isConnected || !container.isConnected || container.dataset.action !== action) return;
+      this.captchaFailed = true;
+      this.error = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  private renderChallenge() {
+    return html`
+      <div data-turnstile></div>
+      ${
+        this.captchaFailed
+          ? html`
+              <button class="button button--text" type="button" @click=${this.retryTurnstile}>
+                ${this.label("retry", "Retry")}
+              </button>
+            `
+          : nothing
       }
-      const script = document.createElement("script");
-      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-      script.async = true;
-      script.defer = true;
-      script.onload = () =>
-        resolve(
-          (window as unknown as { turnstile: { render: (target: HTMLElement, options: Value) => string | number } })
-            .turnstile,
-        );
-      document.head.append(script);
-    });
-    this.turnstileId = api.render(container, {
-      sitekey,
-      callback: (token: string) => {
-        this.captchaToken = token;
-      },
-      "expired-callback": () => {
-        this.captchaToken = "";
-      },
-    });
+    `;
   }
 
   render() {
@@ -556,7 +710,18 @@ export class AccountWorkspace extends LitElement {
                 </div>
               `
             : nothing
-        }${this.session ? this.renderAccount() : this.renderAuth()}
+        }${
+          this.phase === "error"
+            ? html`
+                <section class="account-state surface surface--outlined">
+                  <h2>${this.label("loadFailed", "Account information could not be loaded")}</h2>
+                  <button class="button" @click=${this.load}>${this.label("retry", "Retry")}</button>
+                </section>
+              `
+            : this.session
+              ? this.renderAccount()
+              : this.renderAuth()
+        }
       </section>
     `;
   }
@@ -569,6 +734,7 @@ export class AccountWorkspace extends LitElement {
           ${icon("cloud_off", 36)}
           <h2>${this.label("unavailableTitle", "Accounts are unavailable")}</h2>
           <p>${this.label("unavailableBody", "The account service is temporarily unavailable.")}</p>
+          <button class="button" @click=${this.load}>${this.label("retry", "Retry")}</button>
         </section>
       `;
     if (this.mode === "forgotPassword")
@@ -604,8 +770,12 @@ export class AccountWorkspace extends LitElement {
               <span>${this.label("email", "Email")}</span>
               <span class="field"><input name="verification-email" type="email" autocomplete="email" required /></span>
             </label>
-            <div data-turnstile></div>
-            <button class="button" ?disabled=${this.busy} @click=${this.resendVerification}>
+            ${this.renderChallenge()}
+            <button
+              class="button"
+              ?disabled=${this.busy || Boolean(this.config.turnstileSiteKey && !this.captchaToken)}
+              @click=${this.resendVerification}
+            >
               ${this.label("resendVerification", "Resend setup email")}
             </button>
             <button class="button button--text" @click=${() => (this.mode = "signIn")}>
@@ -674,7 +844,7 @@ export class AccountWorkspace extends LitElement {
                   `
                 : nothing
             }
-            <div data-turnstile></div>
+            ${this.renderChallenge()}
             <label class="check-row">
               <input name="legal" type="checkbox" required />
               <span>
@@ -744,7 +914,7 @@ export class AccountWorkspace extends LitElement {
     const user = this.user() || {};
     const profile = this.profile || {};
     const identity = String(profile.displayName || profile.accountName || user.name || user.email || "?");
-    const avatar = this.avatarPreview || String(profile.avatarUrl || user.image || "");
+    const avatar = this.avatarPreview || String(profile.avatarUrl || "");
     const uid = profile.publicUid;
     const role = String(profile.role || "member");
     const status = String(profile.profileStatus || "active");
@@ -761,13 +931,6 @@ export class AccountWorkspace extends LitElement {
                     <span>${identity.slice(0, 1)}</span>
                   `
             }
-            <label
-              class="icon-button account-avatar-picker__action"
-              aria-label=${this.label("chooseAvatar", "Choose avatar")}
-            >
-              ${icon("photo_camera", 18)}
-              <input type="file" accept="image/jpeg,image/png,image/webp" @change=${this.selectAvatar} />
-            </label>
           </div>
           <div class="account-identity__copy">
             <h2>${identity}</h2>
@@ -796,9 +959,9 @@ export class AccountWorkspace extends LitElement {
                   `
                 : nothing
             }${
-              role === "admin"
+              role === "admin" || role === "moderator"
                 ? html`
-                    <a class="button button--tonal" href="/admin">
+                    <a class="button button--tonal" href=${role === "moderator" ? "/admin/appeals" : "/admin"}>
                       ${icon("admin_panel_settings", 18)}${this.label("adminConsole", "Admin console")}
                     </a>
                   `
@@ -824,13 +987,30 @@ export class AccountWorkspace extends LitElement {
   private renderProfile() {
     const p = this.profile || {};
     const u = this.user() || {};
-    const avatar = this.avatarPreview || String(p.avatarUrl || u.image || "");
+    const avatar = this.avatarPreview || String(p.avatarUrl || "");
+    const avatarReview = p.avatarReview as Value | undefined;
     return html`
       <section class="account-section">
         <header class="account-section__title">
           ${icon("person")}
           <h2>${this.label("profile", "Profile")}</h2>
+          <button
+            class="button button--text"
+            ?disabled=${this.busy}
+            @click=${() => this.action(() => this.loadProfile())}
+          >
+            ${icon("refresh", 18)}${this.label("refresh", "Refresh")}
+          </button>
         </header>
+        ${
+          !this.permission("write")
+            ? html`
+                <p class="profile-review-status">
+                  ${this.label("profileRestricted", "Profile changes are restricted for this account.")}
+                </p>
+              `
+            : nothing
+        }
         <div class="account-ledger">
           <div class="account-setting-row account-setting-row--avatar">
             <span class="account-setting-row__label">${this.label("avatar", "Avatar")}</span>
@@ -844,25 +1024,38 @@ export class AccountWorkspace extends LitElement {
               }
               <label class="button button--tonal">
                 ${icon("photo_library", 18)}${this.label("chooseAvatar", "Choose avatar")}
-                <input type="file" accept="image/jpeg,image/png,image/webp" @change=${this.selectAvatar} />
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  ?disabled=${this.busy || !this.permission("upload")}
+                  @change=${this.selectAvatar}
+                />
               </label>
             </div>
             <div class="account-row-actions">
               ${
                 this.avatarFile
                   ? html`
-                      <button class="button" ?disabled=${this.busy} @click=${this.uploadAvatar}>
+                      <button
+                        class="button"
+                        ?disabled=${this.busy || !this.permission("upload")}
+                        @click=${this.uploadAvatar}
+                      >
                         ${this.label("uploadAvatar", "Upload")}
                       </button>
-                      <button class="button button--text" @click=${this.cancelAvatar}>
+                      <button class="button button--text" ?disabled=${this.busy} @click=${this.cancelAvatar}>
                         ${this.label("cancelAvatar", "Cancel")}
                       </button>
                     `
                   : nothing
               }${
-                p.avatarUrl || u.image
+                p.avatarUrl || avatarReview
                   ? html`
-                      <button class="button button--danger" ?disabled=${this.busy} @click=${this.deleteAvatar}>
+                      <button
+                        class="button button--danger"
+                        ?disabled=${this.busy || !this.permission("deleteAvatar")}
+                        @click=${this.deleteAvatar}
+                      >
                         ${this.label("deleteAvatar", "Delete avatar")}
                       </button>
                     `
@@ -870,6 +1063,30 @@ export class AccountWorkspace extends LitElement {
               }
             </div>
           </div>
+          ${
+            avatarReview && avatarReview.status !== "ready"
+              ? html`
+                  <div class="profile-review-status" role="status">
+                    <span>
+                      ${
+                        avatarReview.moderationStatus === "block"
+                          ? this.label("avatarBlocked", "The new avatar did not pass review.")
+                          : this.label("avatarPending", "Your avatar is being reviewed.")
+                      }
+                    </span>
+                    ${
+                      avatarReview.moderationStatus === "block"
+                        ? html`
+                            <button class="button button--tonal" @click=${() => (this.appealOpen = !this.appealOpen)}>
+                              ${this.label("appeal", "Appeal")}
+                            </button>
+                          `
+                        : nothing
+                    }
+                  </div>
+                `
+              : nothing
+          }
           <form class="account-profile-form" @submit=${this.updateProfile}>
             <label class="account-setting-row">
               <span class="account-setting-row__label">${this.label("displayName", "Display name")}</span>
@@ -877,7 +1094,7 @@ export class AccountWorkspace extends LitElement {
                 <input
                   name="displayName"
                   .value=${String(p.candidateDisplayName || p.accountName || u.name || "")}
-                  maxlength="64"
+                  maxlength="160"
                   required
                 />
               </span>
@@ -915,13 +1132,53 @@ export class AccountWorkspace extends LitElement {
                 : nothing
             }
             <div class="account-profile-form__actions">
-              <button class="button" ?disabled=${this.busy}>${this.label("saveProfile", "Save profile")}</button>
+              <button class="button" ?disabled=${this.busy || !this.permission("write")}>
+                ${this.label("saveProfile", "Save profile")}
+              </button>
             </div>
           </form>
           ${
             this.appealOpen
               ? html`
-                  <div class="profile-appeal-form">
+                  <form
+                    class="profile-appeal-form"
+                    @submit=${(event: SubmitEvent) => {
+                      event.preventDefault();
+                      const target = String(
+                        new FormData(event.currentTarget as HTMLFormElement).get("target") || "profile-name",
+                      );
+                      void this.submitAppeal(
+                        target === "attachment" ? "attachment" : "profile-name",
+                        target === "attachment" ? String(avatarReview?.id || "") : String(this.user()?.id || ""),
+                      );
+                    }}
+                  >
+                    ${
+                      p.displayNameStatus === "block"
+                        ? html`
+                            <label class="check-row">
+                              <input name="target" type="radio" value="profile-name" checked required />
+                              ${this.label("displayName", "Display name")}
+                            </label>
+                          `
+                        : nothing
+                    }
+                    ${
+                      avatarReview?.moderationStatus === "block"
+                        ? html`
+                            <label class="check-row">
+                              <input
+                                name="target"
+                                type="radio"
+                                value="attachment"
+                                ?checked=${p.displayNameStatus !== "block"}
+                                required
+                              />
+                              ${this.label("avatar", "Avatar")}
+                            </label>
+                          `
+                        : nothing
+                    }
                     <textarea
                       class="text-area"
                       name="statement"
@@ -929,10 +1186,32 @@ export class AccountWorkspace extends LitElement {
                       required
                       placeholder=${this.label("appealStatement", "Appeal statement")}
                     ></textarea>
-                    <button class="button" type="button" ?disabled=${this.busy} @click=${this.submitAppeal}>
+                    <button class="button" ?disabled=${this.busy}>
                       ${this.label("submitAppeal", "Submit appeal")}
                     </button>
-                  </div>
+                  </form>
+                `
+              : nothing
+          }
+          ${
+            this.appeals.length
+              ? html`
+                  <section class="account-block" aria-label=${this.label("appealsTitle", "Your appeals")}>
+                    <h3>${this.label("appealsTitle", "Your appeals")}</h3>
+                    ${this.appeals.map(
+                      (appeal) => html`
+                        <article class="account-setting-row">
+                          <span>
+                            ${appeal.entityKind === "profile-name" ? this.label("displayName", "Display name") : appeal.entityKind === "attachment" ? this.label("avatar", "Avatar") : this.label("appeal", "Appeal")}
+                          </span>
+                          <span>
+                            ${this.label(`appealStatus.${appeal.status}`, String(appeal.status))} ·
+                            ${this.date(appeal.updatedAt)}
+                          </span>
+                        </article>
+                      `,
+                    )}
+                  </section>
                 `
               : nothing
           }
