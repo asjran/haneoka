@@ -2252,6 +2252,8 @@
   },
   "lookX": "水平视线",
   "lookY": "垂直视线",
+  "viewerModelPositionX": "水平位置",
+  "viewerModelPositionY": "竖直位置",
   "invalidParameterPose": "姿势文件中的参数值无效。",
   "modelDescriptorMissing": "模型配置文件不可用。",
   "back": "返回",

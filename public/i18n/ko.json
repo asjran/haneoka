@@ -2252,6 +2252,8 @@
   },
   "lookX": "수평 시선",
   "lookY": "수직 시선",
+  "viewerModelPositionX": "수평 위치",
+  "viewerModelPositionY": "수직 위치",
   "invalidParameterPose": "포즈 파일의 매개변수 값이 올바르지 않습니다.",
   "modelDescriptorMissing": "모델 설정 파일을 사용할 수 없습니다.",
   "back": "뒤로",

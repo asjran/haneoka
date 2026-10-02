@@ -4,6 +4,7 @@ import { canvasToPngBlob, downloadBlob } from "../lib/canvas-capture";
 import { facet } from "./ui/facet";
 import { collectionList, collectionTable, collectionView, viewSwitch, type CollectionView } from "./ui/collection-view";
 import { LitElement, html, nothing } from "lit";
+import { keyed } from "lit/directives/keyed.js";
 import { catalogUrl, fetchJson, localizedText, preferredLocale, readPath, uiText } from "./shared/catalog";
 import { clearBrowseBar, filterGroup, renderBrowse } from "./ui/browse";
 import { modelTile, modelTitle, modelPreviewSources, subCharacterLabel } from "./ui/model-tile";
@@ -94,6 +95,7 @@ export class Live2DWorkspace extends LitElement {
     blink: { state: true },
     sway: { state: true },
     loopMotion: { state: true },
+    selectedMotion: { state: true },
     dragEnabled: { state: true },
     backgroundTransparent: { state: true },
     backgroundColor: { state: true },
@@ -139,6 +141,7 @@ export class Live2DWorkspace extends LitElement {
   declare blink: boolean;
   declare sway: boolean;
   declare loopMotion: boolean;
+  declare selectedMotion: string;
   declare dragEnabled: boolean;
   declare backgroundTransparent: boolean;
   declare backgroundColor: string;
@@ -210,6 +213,7 @@ export class Live2DWorkspace extends LitElement {
     this.blink = false;
     this.sway = false;
     this.loopMotion = false;
+    this.selectedMotion = "";
     this.dragEnabled = false;
     this.backgroundTransparent = true;
     this.backgroundColor = "#ecf0f1";
@@ -328,6 +332,9 @@ export class Live2DWorkspace extends LitElement {
     this.abortPackaging();
     this.endDrag();
     this.releaseViewer();
+    this.loopMotion = false;
+    this.selectedMotion = "";
+    this.pendingPoseCapture = false;
     this.modelPhase = "idle";
     this.modelError = "";
     super.disconnectedCallback();
@@ -465,6 +472,8 @@ export class Live2DWorkspace extends LitElement {
     this.parameterOverrides = {};
     this.parameterMode = "none";
     this.pendingPoseCapture = false;
+    this.loopMotion = false;
+    this.selectedMotion = "";
     this.parts = [];
     this.initialPartOpacities = {};
     this.partOverrides = {};
@@ -558,6 +567,8 @@ export class Live2DWorkspace extends LitElement {
           if (!viewer || !this.isActiveSelection(generation, controller, key) || this.viewer !== viewer) return;
           this.modelPhase = "error";
           this.modelError = error instanceof Error ? error.message : String(error);
+          this.loopMotion = false;
+          this.pendingPoseCapture = false;
           this.releaseViewer(viewer);
         },
       });
@@ -610,9 +621,6 @@ export class Live2DWorkspace extends LitElement {
   private restoreViewerState(viewer: Viewer, generation: number, controller: AbortController, key: string) {
     if (!this.isActiveSelection(generation, controller, key) || this.viewer !== viewer) return;
     const poseFrozen = this.parameterMode === "pose";
-    const detail = this.detail;
-    const motions = Array.isArray(detail?.motions) ? (detail?.motions as Value[]) : [];
-    const defaultMotion = this.defaultMotionName(detail, motions);
     viewer.setBreathEnabled(this.breath);
     viewer.setEyeBlinkEnabled(this.blink);
     viewer.setPaused(this.paused);
@@ -622,7 +630,7 @@ export class Live2DWorkspace extends LitElement {
       ? this.parts.map((part) => [part.id, part.opacity] as const)
       : Object.entries(this.partOverrides);
     for (const [id, opacity] of parts) viewer.setPartOpacity(id, opacity);
-    viewer.setLoopMotion(this.loopMotion && defaultMotion ? defaultMotion : null);
+    viewer.setLoopMotion(this.loopMotion && !poseFrozen ? this.selectedMotion : null);
     const match = /^#?([0-9a-f]{6})$/i.exec(this.backgroundColor.trim());
     if (this.backgroundTransparent || !match) {
       viewer.setBackgroundColor(null);
@@ -663,6 +671,7 @@ export class Live2DWorkspace extends LitElement {
   }
   private setParameterMode(mode: "none" | "capture" | "pose") {
     this.cancelPosePreview();
+    if (mode === "pose") this.stopMotion();
     this.parameterMode = mode;
     if (mode === "none" || mode === "capture") {
       this.parameterOverrides = {};
@@ -693,7 +702,7 @@ export class Live2DWorkspace extends LitElement {
       this.pendingPoseCapture = false;
       this.snapshotPoseOverrides();
       viewer.setPoseFrozen(true);
-      viewer.finishMotionPreview();
+      viewer.stopMotions();
       return;
     }
     if (this.parameterMode !== "capture") return;
@@ -703,7 +712,17 @@ export class Live2DWorkspace extends LitElement {
     this.parameters = viewer.parameters();
   }
   private playMotion(name: string) {
-    if (!name) return;
+    if (this.modelPhase !== "ready" || !this.viewer) return;
+    const motions = Array.isArray(this.detail?.motions) ? (this.detail.motions as Value[]) : [];
+    if (!name || !motions.some((motion) => motion.name === name)) {
+      this.selectedMotion = "";
+      this.stopMotion();
+      return;
+    }
+    this.selectedMotion = name;
+    this.cancelPosePreview();
+    this.viewer.stopMotions();
+    this.viewer.setLoopMotion(this.loopMotion ? name : null);
     if (this.parameterMode === "pose") {
       // Let the clip advance so it can finish before re-freezing.
       if (this.paused) {
@@ -722,7 +741,7 @@ export class Live2DWorkspace extends LitElement {
   private cancelPosePreview() {
     if (!this.pendingPoseCapture) return;
     this.pendingPoseCapture = false;
-    this.viewer?.finishMotionPreview();
+    this.viewer?.stopMotions();
   }
   private stopMotion() {
     this.pendingPoseCapture = false;
@@ -770,6 +789,7 @@ export class Live2DWorkspace extends LitElement {
       this.modelError = "";
       this.poseId = "";
       this.cancelPosePreview();
+      this.stopMotion();
       this.parameterMode = "pose";
       this.parameterOverrides = values;
       this.viewer?.setPoseFrozen(true);
@@ -825,12 +845,14 @@ export class Live2DWorkspace extends LitElement {
       }
     }
     if (kind === "loop") {
-      this.loopMotion = !this.loopMotion;
-      const detail = this.detail;
-      const motions = Array.isArray(detail?.motions) ? (detail?.motions as Value[]) : [];
-      const defaultMotion = this.defaultMotionName(detail, motions);
-      this.viewer?.setLoopMotion(this.loopMotion && defaultMotion ? defaultMotion : null);
-      if (!this.loopMotion) this.viewer?.stopMotions();
+      if (this.loopMotion) {
+        this.loopMotion = false;
+        this.viewer?.setLoopMotion(null);
+      } else if (this.modelPhase === "ready" && this.selectedMotion) {
+        if (this.parameterMode === "pose") this.setParameterMode("none");
+        this.loopMotion = true;
+        this.viewer?.setLoopMotion(this.selectedMotion);
+      }
     }
     if (kind === "drag") {
       this.dragEnabled = !this.dragEnabled;
@@ -920,6 +942,7 @@ export class Live2DWorkspace extends LitElement {
   }
   private applyDefaultPose() {
     this.cancelPosePreview();
+    this.stopMotion();
     this.poseId = "";
     this.renamingPose = false;
     this.parameterMode = "pose";
@@ -941,6 +964,7 @@ export class Live2DWorkspace extends LitElement {
       return;
     }
     this.cancelPosePreview();
+    this.stopMotion();
     this.poseId = id;
     this.renamingPose = false;
     this.parameterMode = "pose";
@@ -1183,6 +1207,9 @@ export class Live2DWorkspace extends LitElement {
     this.abortPackaging();
     this.endDrag();
     this.releaseViewer();
+    this.loopMotion = false;
+    this.selectedMotion = "";
+    this.pendingPoseCapture = false;
     this.selected = "";
     this.detail = null;
     this.modelPhase = "idle";
@@ -1608,24 +1635,29 @@ export class Live2DWorkspace extends LitElement {
                     <span class="viewer-stage__preview viewer-stage__placeholder" aria-hidden="true"></span>
                   `
             }
-            <canvas
-              aria-label=${uiText(this.locale, "live2d")}
-              style=${this.dragEnabled ? `touch-action: none; cursor: ${this.dragging ? "grabbing" : "grab"}` : ""}
-              @pointerdown=${this.beginDrag}
-              @pointermove=${(event: PointerEvent) => {
-                this.moveDrag(event);
-                if (!this.dragging && this.sway && this.parameterMode !== "pose") {
-                  this.viewer?.setLookAtClientPosition(event.clientX, event.clientY);
-                }
-              }}
-              @pointerup=${this.endDrag}
-              @pointercancel=${this.endDrag}
-              @lostpointercapture=${this.endDrag}
-              @wheel=${this.zoomAtPointer}
-              @pointerleave=${() => {
-                if (this.sway && this.parameterMode !== "pose") this.applyLook();
-              }}
-            ></canvas>
+            ${keyed(
+              this.generation,
+              html`
+                <canvas
+                  aria-label=${uiText(this.locale, "live2d")}
+                  style=${this.dragEnabled ? `touch-action: none; cursor: ${this.dragging ? "grabbing" : "grab"}` : ""}
+                  @pointerdown=${this.beginDrag}
+                  @pointermove=${(event: PointerEvent) => {
+                    this.moveDrag(event);
+                    if (!this.dragging && this.sway && this.parameterMode !== "pose") {
+                      this.viewer?.setLookAtClientPosition(event.clientX, event.clientY);
+                    }
+                  }}
+                  @pointerup=${this.endDrag}
+                  @pointercancel=${this.endDrag}
+                  @lostpointercapture=${this.endDrag}
+                  @wheel=${this.zoomAtPointer}
+                  @pointerleave=${() => {
+                    if (this.sway && this.parameterMode !== "pose") this.applyLook();
+                  }}
+                ></canvas>
+              `,
+            )}
             ${
               this.modelPhase === "loading"
                 ? html`
@@ -1754,6 +1786,7 @@ export class Live2DWorkspace extends LitElement {
                     <span>${uiText(this.locale, key)}</span>
                     <md-switch
                       .selected=${selected}
+                      ?disabled=${key === "loop" && !this.selectedMotion}
                       @change=${() => this.toggle(key)}
                       aria-label=${uiText(this.locale, key)}
                     ></md-switch>
@@ -1801,30 +1834,30 @@ export class Live2DWorkspace extends LitElement {
                 ></md-slider>
               </label>
               <label>
-                <span>${uiText(this.locale, "lookX")}</span>
+                <span>${uiText(this.locale, "viewerModelPositionX")}</span>
                 <md-slider
-                  aria-label=${uiText(this.locale, "lookX")}
-                  min="-1"
-                  max="1"
+                  aria-label=${uiText(this.locale, "viewerModelPositionX")}
+                  min=${Math.min(-2, this.offsetX)}
+                  max=${Math.max(2, this.offsetX)}
                   step="0.01"
-                  .value=${String(this.lookX)}
+                  .value=${this.offsetX}
                   @input=${(event: Event) => {
-                    this.lookX = Number((event.target as HTMLElement & { value?: number }).value || 0);
-                    this.applyLook();
+                    this.offsetX = Number((event.target as HTMLElement & { value?: number }).value || 0);
+                    this.applyTransform();
                   }}
                 ></md-slider>
               </label>
               <label>
-                <span>${uiText(this.locale, "lookY")}</span>
+                <span>${uiText(this.locale, "viewerModelPositionY")}</span>
                 <md-slider
-                  aria-label=${uiText(this.locale, "lookY")}
-                  min="-1"
-                  max="1"
+                  aria-label=${uiText(this.locale, "viewerModelPositionY")}
+                  min=${Math.min(-2, this.offsetY)}
+                  max=${Math.max(2, this.offsetY)}
                   step="0.01"
-                  .value=${String(this.lookY)}
+                  .value=${this.offsetY}
                   @input=${(event: Event) => {
-                    this.lookY = Number((event.target as HTMLElement & { value?: number }).value || 0);
-                    this.applyLook();
+                    this.offsetY = Number((event.target as HTMLElement & { value?: number }).value || 0);
+                    this.applyTransform();
                   }}
                 ></md-slider>
               </label>
@@ -1838,6 +1871,7 @@ export class Live2DWorkspace extends LitElement {
                         <md-outlined-select
                           class="viewer-inspector-select"
                           label=${uiText(this.locale, "motion")}
+                          .value=${this.selectedMotion}
                           @change=${(event: Event) =>
                             this.playMotion(String((event.target as HTMLElement & { value?: string }).value || ""))}
                         >

@@ -2252,6 +2252,8 @@
   },
   "lookX": "Look horizontally",
   "lookY": "Look vertically",
+  "viewerModelPositionX": "Horizontal position",
+  "viewerModelPositionY": "Vertical position",
   "invalidParameterPose": "The pose file has invalid parameter values.",
   "modelDescriptorMissing": "The model descriptor is unavailable.",
   "back": "Back",

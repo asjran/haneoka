@@ -2252,6 +2252,8 @@
   },
   "lookX": "水平視線",
   "lookY": "垂直視線",
+  "viewerModelPositionX": "水平位置",
+  "viewerModelPositionY": "豎直位置",
   "invalidParameterPose": "姿勢檔案中的參數值無效。",
   "modelDescriptorMissing": "模型設定檔無法使用。",
   "back": "返回",

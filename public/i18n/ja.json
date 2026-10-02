@@ -2252,6 +2252,8 @@
   },
   "lookX": "横方向の視線",
   "lookY": "縦方向の視線",
+  "viewerModelPositionX": "横位置",
+  "viewerModelPositionY": "縦位置",
   "invalidParameterPose": "ポーズファイルのパラメーター値が正しくありません。",
   "modelDescriptorMissing": "モデルの設定ファイルが見つかりません。",
   "back": "戻る",
