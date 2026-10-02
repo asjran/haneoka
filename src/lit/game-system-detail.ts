@@ -1,3 +1,4 @@
+import { cardRarityName, rarityIcon } from "./shared/rarity-icon";
 /**
  * Detail sections for the rotating game systems (events, real lives, gacha,
  * login campaigns, shop, exchange, circle, challenge, missions, passes).
@@ -59,7 +60,7 @@ export interface ShopFxState {
 const rateText = (value: unknown, locale?: string) =>
   Number(value) > 0 ? `${(Number(value) * 100).toLocaleString(locale, { maximumFractionDigits: 3 })}%` : "";
 
-const RARITY_NAMES: Record<number, string> = { 2: "R", 3: "SR", 4: "SSR" };
+const rarityMark = (c: Controller, value: unknown) => rarityIcon(c.rarityMark(value), cardRarityName(value));
 
 /** One reward row: emblem, linked name, secondary credit, trailing number. */
 function rewardRow(c: Controller, reward: Item, trailing: unknown = nothing, badgeLabel?: string) {
@@ -278,10 +279,12 @@ function featuredGrid(c: Controller, featured: Item[]) {
 function renderRates(c: Controller, item: Item) {
   const rates = Array.isArray(item.rates) ? (item.rates as Item[]) : [];
   if (!rates.length) return nothing;
-  const slotLabel = (row: Item) =>
-    `${c.label(String(row.resourceType || ""), String(row.resourceType || ""))} · ${c.label("rarity", "Rarity")} ${
-      RARITY_NAMES[Number(row.rarity || 0)] || "—"
-    }`;
+  const slotLabel = (row: Item) => html`
+    <span class="rarity-inline">
+      ${c.label(String(row.resourceType || ""), String(row.resourceType || ""))}
+      ${cardRarityName(row.rarity) ? rarityMark(c, row.rarity) : nothing}
+    </span>
+  `;
   return html`
     <section class="detail-section">
       ${renderDetailSectionHeading(c.label("rates", "Rates"), "works", { count: rates.length })}
@@ -330,6 +333,14 @@ const gachaRates = (item: Item): Item[] =>
     (row) =>
       Number(row.rate) > 0 && Array.isArray(row.prizes) && row.prizes.some((prize: Item) => Number(prize.rate) > 0),
   );
+const prizeRarity = (group: Item, prize: Item) => Number(prize.rarity ?? group.rarity) || 0;
+const guaranteedRates = (rates: Item[], rarity: number): Item[] =>
+  rates.flatMap((group) => {
+    const available = (group.prizes as Item[]).filter((prize) => Number(prize.rate) > 0);
+    const prizes = available.filter((prize) => prizeRarity(group, prize) >= rarity);
+    const weight = (rows: Item[]) => rows.reduce((sum, prize) => sum + Number(prize.rate), 0);
+    return prizes.length ? [{ ...group, prizes, rate: (Number(group.rate) * weight(prizes)) / weight(available) }] : [];
+  });
 const optionDrawCount = (option: Item) => Math.max(1, Math.floor(Number(option.drawCount) || 1));
 
 function nextGachaPrice(sim: GachaSimState | null, key: string, option: Item): number {
@@ -354,7 +365,7 @@ export function drawGacha(c: Controller, item: Item, option: Item) {
   const limit = Math.max(0, Number(option.limitCount) || 0);
   if (!rates.length || (limit && (previous.uses[key] || 0) >= limit)) return;
   const ensured = Math.max(0, Number(option.guaranteedRarity) || 0);
-  const ensuredPool = rates.filter((row) => Number(row.rarity) >= ensured);
+  const ensuredPool = guaranteedRates(rates, ensured);
   if (ensured && !ensuredPool.length) return;
   const pickWeighted = (rows: Item[]) => {
     const available = rows.filter((row) => Number(row.rate) > 0);
@@ -368,7 +379,7 @@ export function drawGacha(c: Controller, item: Item, option: Item) {
   const drawOnce = (pool: Item[] = rates) => {
     const group = pickWeighted(pool);
     const prize = pickWeighted(group.prizes as Item[]);
-    const rarity = Number(group.rarity) || 0;
+    const rarity = prizeRarity(group, prize);
     return { prize: { ...prize, rarity: prize.rarity ?? rarity }, rarity };
   };
   const draws = optionDrawCount(option);
@@ -413,7 +424,7 @@ function renderSimulator(c: Controller, item: Item) {
   const remaining = limit ? Math.max(0, limit - (sim?.uses[key] || 0)) : null;
   const rates = gachaRates(item);
   const ensured = Number(selected.guaranteedRarity) || 0;
-  const canSimulate = rates.length > 0 && (!ensured || rates.some((row) => Number(row.rarity) >= ensured));
+  const canSimulate = rates.length > 0 && (!ensured || guaranteedRates(rates, ensured).length > 0);
   const action = eventText(c, "simulateDraw", "Simulate {count} draws", { count: draws });
   return html`
     <section class="detail-section" data-gacha-simulator>
@@ -467,7 +478,16 @@ function renderSimulator(c: Controller, item: Item) {
                 <div>
                   <dt>${c.label("guaranteed", "Guaranteed")}</dt>
                   <dd>
-                    ${eventText(c, "guaranteedDraws", "At least {count} {rarity} or higher", { count: Math.max(1, Number(selected.guaranteedCount) || 1), rarity: RARITY_NAMES[ensured] || ensured })}
+                    ${eventText(c, "guaranteedDraws", "At least {count} {rarity} or higher", {
+                      count: Math.max(1, Number(selected.guaranteedCount) || 1),
+                      rarity: "\uFFFC",
+                    })
+                      .split("\uFFFC")
+                      .map(
+                        (part, index) => html`
+                          ${index ? rarityMark(c, ensured) : nothing}${part}
+                        `,
+                      )}
                   </dd>
                 </div>
               `
@@ -573,7 +593,7 @@ function renderSimulator(c: Controller, item: Item) {
                   .map(
                     ([rarity, count]) => html`
                       <div>
-                        <dt>${RARITY_NAMES[Number(rarity)] || rarity}</dt>
+                        <dt>${cardRarityName(rarity) ? rarityMark(c, rarity) : c.label("reward", "Reward")}</dt>
                         <dd>${count.toLocaleString(c.settings.locale)}</dd>
                       </div>
                     `,

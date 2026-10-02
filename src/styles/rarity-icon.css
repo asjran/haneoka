@@ -1,0 +1,33 @@
+@layer tokens, reset, base, layout, components, shell, patterns, pages, utilities, accessibility;
+
+@layer components {
+  .rarity-icon {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    object-fit: contain;
+    vertical-align: middle;
+  }
+  .rarity-inline,
+  .chip__label:has(.rarity-icon) {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .filter-facet__option--icon > small {
+    margin-inline-start: auto;
+  }
+  .rarity-filter {
+    display: grid;
+    min-width: 0;
+    gap: 8px;
+  }
+  .rarity-filter .chip {
+    --chip-height: 40px;
+  }
+  .rarity-filter .chip.chip--rarity {
+    padding-inline: 8px;
+  }
+}

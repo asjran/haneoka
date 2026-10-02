@@ -1,6 +1,7 @@
 import { LitElement, html, nothing } from "lit";
 import { uiText } from "../shared/catalog";
 import { orderFacetOptions } from "../../lib/facet-order";
+import { rarityIcon } from "../shared/rarity-icon";
 import "@material/web/checkbox/checkbox.js";
 
 export interface FacetOption {
@@ -9,6 +10,7 @@ export interface FacetOption {
   label: string;
   language?: string;
   image?: string;
+  imageOnly?: boolean;
   count?: number;
 }
 export class FilterFacet extends LitElement {
@@ -72,7 +74,10 @@ export class FilterFacet extends LitElement {
         <div class="filter-facet__options">
           ${options.slice(0, this.limit).map(
             (option) => html`
-              <label class="filter-facet__option">
+              <label
+                class=${`filter-facet__option${option.imageOnly ? " filter-facet__option--icon" : ""}`}
+                title=${option.imageOnly ? option.label : nothing}
+              >
                 <md-checkbox
                   .checked=${this.selected.includes(option.value)}
                   ?disabled=${option.count === 0 && !this.selected.includes(option.value)}
@@ -80,20 +85,28 @@ export class FilterFacet extends LitElement {
                   @change=${() => this.onToggle(option.value)}
                 ></md-checkbox>
                 ${
-                  option.image
-                    ? html`
-                        <img
-                          src=${option.image}
-                          alt=""
-                          loading="lazy"
-                          @error=${(event: Event) => {
+                  option.imageOnly
+                    ? rarityIcon(option.image || "", option.label)
+                    : option.image
+                      ? html`
+                          <img
+                            src=${option.image}
+                            alt=""
+                            loading="lazy"
+                            @error=${(event: Event) => {
                             (event.target as HTMLImageElement).hidden = true;
                           }}
-                        />
-                      `
-                    : nothing
+                          />
+                        `
+                      : nothing
                 }
-                <span lang=${option.language || nothing}>${option.label}</span>
+                ${
+                  option.imageOnly
+                    ? nothing
+                    : html`
+                        <span lang=${option.language || nothing}>${option.label}</span>
+                      `
+                }
                 ${
                   option.count === undefined
                     ? nothing

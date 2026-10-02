@@ -1,3 +1,4 @@
+import { rarityIcon } from "./shared/rarity-icon";
 import { difficultyKey, difficultyPicker } from "./ui/difficulty-picker";
 import { LitElement, html, nothing } from "lit";
 import { icon } from "./ui/icon";
@@ -53,7 +54,6 @@ const COLUMNS: Record<string, Column[]> = {
     column("visual", "numeric", "visual"),
     column("total", "numeric", "total"),
     column("skills"),
-    column("category"),
     column("release", "text", "release"),
   ],
   support: [
@@ -396,13 +396,7 @@ export class CatalogTable extends LitElement {
     if (key === "rarity") {
       const source = c.rarityMark(item.rarity);
       const text = c.fieldValue(item, "rarity");
-      return wrap(
-        source
-          ? html`
-              <img src=${source} alt=${text} title=${text} width="24" height="24" />
-            `
-          : text || "—",
-      );
+      return wrap(rarityIcon(source, text));
     }
     if (["performance", "technique", "visual"].includes(key)) {
       const value = c.stat(item, key);

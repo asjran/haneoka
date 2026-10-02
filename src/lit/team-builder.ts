@@ -1,3 +1,4 @@
+import { cardRarityName, rarityIcon } from "./shared/rarity-icon";
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
 import "@material/web/textfield/outlined-text-field.js";
@@ -54,7 +55,7 @@ import {
 import { renderPane, PaneFocus } from "./ui/pane";
 import { specList } from "./ui/spec";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
-import { iconButton } from "./ui/controls";
+import { filterChip, iconButton } from "./ui/controls";
 import { selectionPane } from "./ui/selection-pane";
 import { songTile, liveMusicTypeMark } from "./shared/song-tile";
 import { cardTile } from "./shared/card-tile";
@@ -1128,7 +1129,11 @@ export class TeamBuilder extends LitElement {
         ];
   }
   private rarityName(card: MemberCatalog | SnapshotCatalog): string {
-    return ({ 2: "R", 3: "SR", 4: "SSR", 10: "EX", 20: "BD" } as Record<number, string>)[card.rarity] ?? "";
+    return cardRarityName(card.rarity);
+  }
+  private rarityMark(card: MemberCatalog | SnapshotCatalog) {
+    const label = this.rarityName(card);
+    return rarityIcon(this.visuals?.marks.get(`RarityIconCenter_${label}.png`) || "", label);
   }
   private attributeName(card: { attribute: number }): string {
     const key = ["", "red", "blue", "green", "yellow", "purple"][card.attribute];
@@ -1191,7 +1196,13 @@ export class TeamBuilder extends LitElement {
             <strong class="list-item__headline">${name}</strong>
             <span class="list-item__supporting">
               ${card ? this.cardOptions(card, kind).adornment : nothing} ${this.t(kind, kind)} ·
-              ${this.characterNames(card)}${card ? " · " + this.rarityName(card) + " · " + this.attributeName(card) : ""}
+              ${this.characterNames(card)}${
+                card
+                  ? html`
+                      · ${this.rarityMark(card)} · ${this.attributeName(card)}
+                    `
+                  : nothing
+              }
             </span>
             <small class="team-builder__hint">
               ${this.fieldName("level")}: ${entry.level ?? this.t("notSet", "Not set")} ·
@@ -1383,21 +1394,28 @@ export class TeamBuilder extends LitElement {
             this.pickerBand = value;
             this.pickerLimit = 30;
           })}
-          ${this.select(
-            clientText(this.locale, "rarity", "Rarity"),
-            this.pickerRarity,
-            [
-              all,
-              ...[...new Set(cards.map((row) => row.rarity))].map((value) => ({
-                value: String(value),
-                label: this.rarityName(cards.find((row) => row.rarity === value)!),
-              })),
-            ],
-            (value) => {
-              this.pickerRarity = value;
-              this.pickerLimit = 30;
-            },
-          )}
+          <div class="rarity-filter" role="group" aria-label=${clientText(this.locale, "rarity", "Rarity")}>
+            <span class="md-label-large">${clientText(this.locale, "rarity", "Rarity")}</span>
+            <div class="chip-set">
+              ${[
+                all,
+                ...[...new Set(cards.map((row) => row.rarity))]
+                  .sort((left, right) => left - right)
+                  .map((value) => ({ value: String(value), label: cardRarityName(value) })),
+              ].map((entry) =>
+                filterChip({
+                  label: entry.label,
+                  selected: this.pickerRarity === entry.value,
+                  imageOnly: Boolean(entry.value),
+                  image: entry.value ? this.visuals?.marks.get(`RarityIconCenter_${entry.label}.png`) : undefined,
+                  onToggle: () => {
+                    this.pickerRarity = this.pickerRarity === entry.value ? "" : entry.value;
+                    this.pickerLimit = 30;
+                  },
+                }),
+              )}
+            </div>
+          </div>
           ${this.select(
             clientText(this.locale, "attribute", "Attribute"),
             this.pickerAttribute,
@@ -1446,7 +1464,7 @@ export class TeamBuilder extends LitElement {
               ? html`
                   <strong>${this.text(chosen.name)}</strong>
                   <span>
-                    ${this.cardOptions(chosen).adornment}${this.characterNames(chosen)} · ${this.rarityName(chosen)} ·
+                    ${this.cardOptions(chosen).adornment}${this.characterNames(chosen)} · ${this.rarityMark(chosen)} ·
                     ${this.attributeName(chosen)}
                   </span>
                   ${this.check(
@@ -1560,7 +1578,7 @@ export class TeamBuilder extends LitElement {
               : nothing
           }
           ${specList([
-            { label: clientText(this.locale, "rarity", "Rarity"), value: card ? this.rarityName(card) : "" },
+            { label: clientText(this.locale, "rarity", "Rarity"), value: card ? this.rarityMark(card) : "" },
             { label: clientText(this.locale, "attribute", "Attribute"), value: card ? this.attributeName(card) : "" },
           ])}
           <div class="team-builder__actions">

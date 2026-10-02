@@ -1,3 +1,4 @@
+import { cardRarityName, rarityIcon } from "./shared/rarity-icon";
 import {gekisouMissionIcons} from "../lib/gekisou";
 import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { readPageData } from "../lib/page-data";
@@ -174,7 +175,7 @@ const profiles: Record<string, Profile> = {
     id: ["cardId", "id"],
     title: ["prefix", "cardName", "name"],
     image: ["images.thumbnail", "thumbnail", "image"],
-    detail: ["rarity", "cardType", "type", "releasedAt"],
+    detail: ["rarity", "cardType", "releasedAt"],
     presentation: "member",
     defaultSort: "release",
     defaultOrder: "desc",
@@ -183,7 +184,7 @@ const profiles: Record<string, Profile> = {
     id: ["supportCardId", "id"],
     title: ["prefix", "cardName", "name"],
     image: ["images.thumbnail", "thumbnail", "image"],
-    detail: ["rarity", "cardType", "type", "releasedAt"],
+    detail: ["rarity", "cardType", "releasedAt"],
     presentation: "support",
     defaultSort: "release",
     defaultOrder: "desc",
@@ -626,9 +627,16 @@ export class CatalogScreen extends LitElement {
       collectionBand: bandRail
         ? params.getAll("collectionBand")
         : [...params.getAll("band"), ...params.getAll("collectionBand")],
-      type: [...params.getAll(typeParam), ...(typeParam === "type" ? [] : params.getAll("type"))],
+      type: [
+        ...params.getAll(typeParam),
+        ...(typeParam === "type"
+          ? []
+          : params
+              .getAll("type")
+              .filter((value) => !["member", "support"].includes(this.profile.presentation) || /^[1-5]$/u.test(value))),
+      ],
       rarity: params.getAll("rarity"),
-      category: params.getAll("category"),
+      category: ["member", "support"].includes(this.profile.presentation) ? [] : params.getAll("category"),
       status: params.getAll("status"),
       kind: params.getAll("kind"),
       ...Object.fromEntries(EXTRA_FILTERS.map((key) => [key, params.getAll(key)])),
@@ -1054,6 +1062,7 @@ export class CatalogScreen extends LitElement {
     return clientText(this.settings.locale, alias, fallback);
   }
   private normalizeSort(value: string) {
+    if (value === "type" && ["member", "support"].includes(this.profile.presentation)) return this.profile.defaultSort;
     const aliases: Record<string, string> = {
       releasedAt: "release",
       publishedAt: "release",
@@ -1240,7 +1249,7 @@ export class CatalogScreen extends LitElement {
       );
       // Character details embed the exact member/support/song tiles, so their
       // rarity, attribute and music-type marks are required there too.
-      const needsGameMarks = ["member", "support", "song", "character"].includes(this.profile.presentation);
+      const needsGameMarks = ["member", "support", "song", "character", "system"].includes(this.profile.presentation);
       const needsItems = ["member", "support"].includes(this.profile.presentation);
       const [response, characters, bands, marks, gameItems] = await Promise.all([
         fetch(this.sourceUrl(this.profile.collection || this.settings.resource), {
@@ -1939,7 +1948,7 @@ export class CatalogScreen extends LitElement {
     const groups: Array<{
       key: string;
       label: string;
-      options: Array<{ id?: number; value: string; label: string; image?: string; count?: number }>;
+      options: Array<{ id?: number; value: string; label: string; image?: string; imageOnly?: boolean; count?: number }>;
     }> = [];
     /** How many entries each facet value would leave. Shown on every chip. */
     const tally = (values: (item: Item) => unknown[]) => {
@@ -1991,6 +2000,7 @@ export class CatalogScreen extends LitElement {
           value,
           label: this.fieldValue({ rarity: value }, "rarity"),
           image: this.rarityMark(value),
+          imageOnly: true,
           count: counts.get(value),
         })),
       });
@@ -2002,7 +2012,7 @@ export class CatalogScreen extends LitElement {
       });
       groups.push({
         key: "type",
-        label: this.label("type", "Type"),
+        label: this.label(kind === "item" ? "type" : "attribute", kind === "item" ? "Type" : "Attribute"),
         options: [...counts.keys()].map((value) => ({
           value,
           label:
@@ -2172,8 +2182,7 @@ export class CatalogScreen extends LitElement {
     );
   }
   private rarityMark(value: unknown) {
-    const name: Record<string, string> = { "2": "R", "3": "SR", "4": "SSR", "10": "EX", "20": "BD" };
-    const rarity = name[String(value || "")];
+    const rarity = cardRarityName(value);
     return rarity ? this.gameMarks.get(`RarityIconCenter_${rarity}.png`) || "" : "";
   }
   private attributeMark(value: unknown, live = false) {
@@ -2211,8 +2220,7 @@ export class CatalogScreen extends LitElement {
         "unit",
       );
     }
-    if (key === "rarity")
-      return ({ 2: "R", 3: "SR", 4: "SSR", 10: "EX", 20: "BD" } as Record<number, string>)[Number(raw || 0)] || "";
+    if (key === "rarity") return cardRarityName(raw);
     if (key === "cardType" || key === "musicType") {
       const name = ["", "red", "blue", "green", "yellow", "purple"][Number(raw || 0)] || "";
       return name ? this.label(name, name) : "";
@@ -2842,7 +2850,18 @@ export class CatalogScreen extends LitElement {
       (this.facets[group.key] || []).flatMap((value) => {
         const option = group.options.find((entry) => entry.value === value);
         return option
-          ? [inputChip(`${group.label}: ${option.label}`, remove, () => this.toggleFacet(group.key, value))]
+          ? [
+              inputChip(
+                `${group.label}: ${option.label}`,
+                remove,
+                () => this.toggleFacet(group.key, value),
+                group.key === "rarity"
+                  ? html`
+                      ${group.label}: ${rarityIcon(option.image || "", option.label)}
+                    `
+                  : undefined,
+              ),
+            ]
           : [];
       }),
     );
@@ -3009,7 +3028,7 @@ export class CatalogScreen extends LitElement {
         ["title", "title", "Title"],
         ["character", "character", "Character"],
         ["band", "band", "Band"],
-        ["cardType", "type", "Attribute"],
+        ["cardType", "attribute", "Attribute"],
         ["rarity", "rarity", "Rarity"],
         ["performance", "performance", "Performance"],
         ["technique", "technique", "Technique"],
@@ -3018,7 +3037,6 @@ export class CatalogScreen extends LitElement {
         ["leaderSkill", "leaderSkill", "Leader skill"],
         ["liveSkill", "liveSkill", "Live skill"],
         ["gekisouSkill", "gekisouSkill", "Gekisou skill"],
-        ["type", "type", "Type"],
         ["release", "release", "Release"],
       ],
       support: [
@@ -3026,7 +3044,7 @@ export class CatalogScreen extends LitElement {
         ["title", "title", "Title"],
         ["character", "character", "Character"],
         ["band", "band", "Band"],
-        ["cardType", "type", "Attribute"],
+        ["cardType", "attribute", "Attribute"],
         ["rarity", "rarity", "Rarity"],
         ["performance", "performance", "Performance"],
         ["technique", "technique", "Technique"],
@@ -3034,7 +3052,6 @@ export class CatalogScreen extends LitElement {
         ["total", "total", "Total"],
         ["supportSkill", "supportSkill", "Support skill"],
         ["gekisouSkill", "gekisouSkill", "Gekisou skill"],
-        ["type", "type", "Type"],
         ["release", "release", "Release"],
       ],
       character: [
@@ -4153,14 +4170,8 @@ export class CatalogScreen extends LitElement {
                               <dt>${this.detailLabel(key)}</dt>
                               <dd lang=${this.localizedLanguage(readPath(item, key))}>
                                 ${
-                                  key === "rarity" && this.rarityMark(item.rarity)
-                                    ? html`
-                                        <img
-                                          class="detail-fact-mark detail-fact-mark--rarity"
-                                          src=${this.rarityMark(item.rarity)}
-                                          alt=${value}
-                                        />
-                                      `
+                                  key === "rarity"
+                                    ? rarityIcon(this.rarityMark(item.rarity), value)
                                     : key === "cardType" && this.attributeMark(item.cardType)
                                       ? html`
                                           <img

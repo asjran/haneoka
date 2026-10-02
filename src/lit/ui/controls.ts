@@ -1,5 +1,6 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { icon } from "./icon";
+import { rarityIcon } from "../shared/rarity-icon";
 
 /**
  * Control renderers.
@@ -155,32 +156,34 @@ export interface FilterChipOptions {
   onToggle: () => void;
   /** 24dp leading avatar: band logo, character portrait, rarity mark. */
   image?: string;
+  imageOnly?: boolean;
   count?: number;
 }
 
-/**
- * Material filter chip. The label is always rendered — an avatar is a
- * *leading element*, not a replacement for the name of the thing.
- */
+/** Material filter chip; native emblems can replace the visible label. */
 export function filterChip(options: FilterChipOptions): TemplateResult {
   return html`
     <button
-      class="chip"
+      class=${options.imageOnly ? "chip chip--rarity" : "chip"}
       type="button"
       role="checkbox"
       aria-checked=${String(options.selected)}
+      aria-label=${options.imageOnly ? options.label : nothing}
+      title=${options.imageOnly ? options.label : nothing}
       @click=${options.onToggle}
     >
       ${
         options.selected
           ? icon("check", 18)
-          : options.image
+          : options.image && !options.imageOnly
             ? html`
                 <span class="chip__avatar"><img src=${options.image} alt="" loading="lazy" decoding="async" /></span>
               `
             : nothing
       }
-      <span class="chip__label">${options.label}</span>
+      <span class="chip__label">
+        ${options.imageOnly ? rarityIcon(options.image || "", options.label) : options.label}
+      </span>
       ${
         options.count === undefined
           ? nothing
@@ -193,10 +196,15 @@ export function filterChip(options: FilterChipOptions): TemplateResult {
 }
 
 /** Removable chip for the applied-filter row. */
-export function inputChip(label: string, removeLabel: string, onRemove: () => void): TemplateResult {
+export function inputChip(
+  label: string,
+  removeLabel: string,
+  onRemove: () => void,
+  content: unknown = label,
+): TemplateResult {
   return html`
     <button class="chip chip--input" type="button" @click=${onRemove} aria-label=${`${removeLabel}: ${label}`}>
-      <span class="chip__label">${label}</span>
+      <span class="chip__label">${content}</span>
       <span class="chip__remove">${icon("close", 18)}</span>
     </button>
   `;

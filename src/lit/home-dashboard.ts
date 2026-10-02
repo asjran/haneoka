@@ -1006,7 +1006,7 @@ export class HomeDashboard extends LitElement {
                     aspectRatio: 1,
                     marks: [
                       attribute ? { at: "start", image: attribute, label: this.text("attribute", "Attribute") } : null,
-                      rarity ? { at: "end", image: rarity, label: rarityName } : { at: "end", text: rarityName },
+                      rarity ? { at: "end", image: rarity, label: rarityName } : null,
                       {
                         at: "bottom-start",
                         text: uiText(this.locale, kind === "member-cards" ? "memberCards" : "supportCards"),
