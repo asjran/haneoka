@@ -786,21 +786,16 @@ function validateBounds(
   }
 }
 
-// Live/Unlit/SlideLine fragment composite (HoldRibbon): the authored
-// gradient runs along the line's length. The selected material's unbound
-// MainTex uses white; the strip mask supplies coverage at the outer edges.
+// Legacy September 30 ribbon appearance: midpoint tint over grayscale art.
 const SLIDE_STRIP_X = { normal: 505, pressed: 609, missed: 713 } as const;
-const SLIDE_LEGACY_ROW = 3693;
-// Use the legacy strip's middle row as a coverage mask. The selected native
-// material itself has a white MainTex and does not sample this grayscale art.
-const SLIDE_MASK_ROW = 3692 + 24;
+const SLIDE_SOURCE_ROW = 3693;
 const SLIDE_STRIP_WIDTH = 100;
 /** The authored grayscale line art spans x=6..93 of the 100px row. */
 const SLIDE_ART_SPAN = { left: 6, right: 93 } as const;
 
 type SlideGradient = { colors: readonly (readonly number[])[]; alpha: readonly number[] };
 
-function sampleSlideGradient(gradient: SlideGradient, time: number): [number, number, number, number] {
+function sampleLegacySlideGradient(gradient: SlideGradient, time: number): [number, number, number, number] {
   const stops = gradient.colors;
   if (!stops.length) return [1, 1, 1, 1];
   let left = stops[0]!;
@@ -816,12 +811,12 @@ function sampleSlideGradient(gradient: SlideGradient, time: number): [number, nu
   const amount = Math.min(1, Math.max(0, (time - left[0]!) / span));
   const channel = (offset: number): number =>
     Math.min(1, Math.max(0, left[offset]! + (right[offset]! - left[offset]!) * amount));
+  // Preserve the legacy sampler mapping to reproduce the accepted colors.
   const alphaKeys = gradient.alpha;
-  // Each alpha stop is [time, alpha], matching the authored Gradient keys.
   const a0 = alphaKeys[1] ?? 1;
-  const a1 = alphaKeys[3] ?? a0;
+  const a1 = alphaKeys[2] ?? a0;
   const t0 = alphaKeys[0] ?? 0;
-  const t1 = alphaKeys[2] ?? 1;
+  const t1 = alphaKeys[3] ?? 1;
   const alphaAmount = Math.min(1, Math.max(0, (time - t0) / Math.max(1e-6, t1 - t0)));
   return [channel(1), channel(2), channel(3), a0 + (a1 - a0) * alphaAmount];
 }
@@ -853,19 +848,12 @@ function hsvToRgb(h: number, s: number, v: number): readonly [number, number, nu
 }
 
 export function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNoteSkin): void {
-  // Keep the legacy midpoint aliases and sixteen authored length samples.
-  // Runtime selects a sample using the whole line's progress, independently
-  // of viewport clipping. Every sample preserves the same cross-section.
+  // Restore the September 30 midpoint tint and grayscale cross-section.
+  // Every length sample uses this appearance; the line's state still
+  // selects normal, pressed, or missed colors.
   const style = OUR_NOTES_SLIDE_LINE_STYLES[skinName];
-  // InitializeElement applies the reciprocal of the normal gradient's
-  // maximum alpha through the material's _Color.a, for every line state.
-  let normalMaxAlpha = 0;
-  for (let sample = 0; sample < 256; sample += 1) {
-    normalMaxAlpha = Math.max(normalMaxAlpha, sampleSlideGradient(style.normal, sample / 255)[3]);
-  }
-  const alphaScale = normalMaxAlpha > 0 ? 1 / normalMaxAlpha : 1;
   const stride = texture.width * 4;
-  const sourceOffset = SLIDE_MASK_ROW * stride;
+  const sourceOffset = SLIDE_SOURCE_ROW * stride;
   const states: ReadonlyArray<[keyof typeof SLIDE_STRIP_X, SlideGradient, number]> = [
     ["normal", style.normal, style.glow.enabledScale],
     ["pressed", style.pressed, style.glow.pressedScale],
@@ -873,26 +861,29 @@ export function bakeSkinSlideStrips(texture: DecodedRgbaPng, skinName: BundledNo
   ];
   for (const [state, gradient, stateScale] of states) {
     const targetX = SLIDE_STRIP_X[state];
-    for (let cell = -1; cell < 16; cell++) {
-      const targetY = cell < 0 ? SLIDE_LEGACY_ROW : 3720 + cell * 10;
-      const [baseR, baseG, baseB, baseA] = sampleSlideGradient(gradient, cell < 0 ? 0.5 : (cell + 0.5) / 16);
-      for (let column = 0; column < SLIDE_STRIP_WIDTH; column += 1) {
-        const sourceOffsetPixel = sourceOffset + Math.min(99, column) * 4;
-        const sourceA = texture.pixels[sourceOffsetPixel + 3]! / 255;
-        // Glow rides the authored art's outer rails: symmetric across the
-        // strip, strongest at the edges, zero from 12.5% inward.
-        const u = Math.min(1, Math.max(0, (column - SLIDE_ART_SPAN.left) / (SLIDE_ART_SPAN.right - SLIDE_ART_SPAN.left)));
-        const edge = Math.abs(2 * u - 1);
-        const glowBase = Math.min(1, Math.max(0, (edge / 0.125 - 7) / Math.max(0.001, style.glow.width)));
-        const glow =
-          (glowBase <= 0 ? 0 : Math.pow(glowBase, style.glow.falloff)) * style.glow.intensity * stateScale;
-        const [h, s, v] = rgbToHsv(baseR, baseG, baseB);
-        const [ar, ag, ab] = hsvToRgb(h, Math.min(1, Math.max(0, s - glow)), Math.min(1, v + glow));
-        const mixAmount = Math.min(1, glow);
-        const r = ar + (style.glow.color[0] - ar) * mixAmount;
-        const g = ag + (style.glow.color[1] - ag) * mixAmount;
-        const b = ab + (style.glow.color[2] - ab) * mixAmount;
-        const a = Math.min(1, (baseA + (1 - baseA) * mixAmount) * alphaScale) * sourceA;
+    const [baseR, baseG, baseB, baseA] = sampleLegacySlideGradient(gradient, 0.5);
+    for (let column = 0; column < SLIDE_STRIP_WIDTH; column += 1) {
+      const sourceOffsetPixel = sourceOffset + Math.min(99, column) * 4;
+      const gray = texture.pixels[sourceOffsetPixel]! / 255;
+      const sourceA = texture.pixels[sourceOffsetPixel + 3]! / 255;
+      // Glow rides the authored art's outer rails: symmetric across the
+      // strip, strongest at the edges, zero from 12.5% inward.
+      const u = Math.min(1, Math.max(0, (column - SLIDE_ART_SPAN.left) / (SLIDE_ART_SPAN.right - SLIDE_ART_SPAN.left)));
+      const edge = Math.abs(2 * u - 1);
+      const glowBase = Math.min(1, Math.max(0, edge / 0.125 - 7));
+      const glow =
+        (glowBase <= 0 ? 0 : Math.pow(glowBase, style.glow.falloff)) * style.glow.intensity * stateScale;
+      const [h, s, v] = rgbToHsv(baseR, baseG, baseB);
+      const [ar, ag, ab] = hsvToRgb(h, Math.min(1, Math.max(0, s - glow)), Math.min(1, v + glow));
+      const mixAmount = Math.min(1, glow);
+      const r = (ar + (style.glow.color[0] - ar) * mixAmount) * gray;
+      const g = (ag + (style.glow.color[1] - ag) * mixAmount) * gray;
+      const b = (ab + (style.glow.color[2] - ab) * mixAmount) * gray;
+      const a = (baseA + (1 - baseA) * mixAmount) * sourceA;
+      // All length aliases share the same strip, so clipping or distance
+      // cannot introduce a longitudinal color or brightness gradient.
+      for (let cell = -1; cell < 16; cell += 1) {
+        const targetY = cell < 0 ? SLIDE_SOURCE_ROW : 3720 + cell * 10;
         for (let y = targetY - 1; y <= targetY + 8; y += 1) {
           const target = y * stride + (targetX + column) * 4;
           texture.pixels[target] = Math.round(Math.min(1, Math.max(0, r)) * 255);
