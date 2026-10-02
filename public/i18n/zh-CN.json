@@ -2668,5 +2668,18 @@
   "characterRankRewards": "角色等级奖励",
   "characterRank": "角色等级",
   "artworkCard": "图片来源卡牌",
-  "unlockConditions": "解锁条件"
+  "unlockConditions": "解锁条件",
+  "metaReferenceBaseline": "基准参考",
+  "metaReferenceTeam": "参考队伍",
+  "metaReferencePool": "已发布卡池技能与留影延长",
+  "metaSkillMultiplier": "技能倍率",
+  "metaSkillDuration": "技能持续时间（秒）",
+  "metaDowntime": "场次间额外时间（秒）",
+  "metaTimeSource": "时长：各难度最晚判定音符的时间；效率包含上述额外时间。",
+  "metaGekisouEstimate": "激奏相对估算；个人分数与活动收益尚不可用。",
+  "metaCountMismatch": "计分节点数与 FULL COMBO 数不同；此排名为近似参考。",
+  "metaCountMismatchShort": "节点数不一致",
+  "metaQuality": "计分节点质量",
+  "metaEstimate": "估算",
+  "metaOfficialLevel": "官方难度"
 }

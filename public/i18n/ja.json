@@ -2668,5 +2668,18 @@
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",
   "artworkCard": "イラストのカード",
-  "unlockConditions": "解放条件"
+  "unlockConditions": "解放条件",
+  "metaReferenceBaseline": "基準リファレンス",
+  "metaReferenceTeam": "参考編成",
+  "metaReferencePool": "公開カードプールのスキルとサポート延長",
+  "metaSkillMultiplier": "スキル倍率",
+  "metaSkillDuration": "スキル継続時間（秒）",
+  "metaDowntime": "曲間の追加時間（秒）",
+  "metaTimeSource": "時間：全難易度の最終判定時点。効率には上記の追加時間を含む。",
+  "metaGekisouEstimate": "撃奏の相対推定値。個人スコアとイベント報酬は算出できません。",
+  "metaCountMismatch": "採点ノーツ数とFULL COMBO数が異なります。この順位は概算です。",
+  "metaCountMismatchShort": "ノーツ数不一致",
+  "metaQuality": "採点ノーツの品質",
+  "metaEstimate": "推定",
+  "metaOfficialLevel": "公式難易度"
 }

@@ -2668,5 +2668,18 @@
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",
   "artworkCard": "Artwork card",
-  "unlockConditions": "Unlock conditions"
+  "unlockConditions": "Unlock conditions",
+  "metaReferenceBaseline": "Baseline reference",
+  "metaReferenceTeam": "Reference team",
+  "metaReferencePool": "Published card-skill pool and support extension",
+  "metaSkillMultiplier": "Skill multiplier",
+  "metaSkillDuration": "Skill duration (s)",
+  "metaDowntime": "Between-play overhead (s)",
+  "metaTimeSource": "Time: latest judged note across song difficulties; efficiency includes the overhead above.",
+  "metaGekisouEstimate": "Gekisou relative estimate; player scores and event rewards are unavailable.",
+  "metaCountMismatch": "Score-node and FULL COMBO counts differ; treat this ranking as approximate.",
+  "metaCountMismatchShort": "Count mismatch",
+  "metaQuality": "Score-node quality",
+  "metaEstimate": "Estimate",
+  "metaOfficialLevel": "Official level"
 }

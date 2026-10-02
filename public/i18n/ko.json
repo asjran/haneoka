@@ -2668,5 +2668,18 @@
   "characterRankRewards": "캐릭터 랭크 보상",
   "characterRank": "캐릭터 랭크",
   "artworkCard": "일러스트 카드",
-  "unlockConditions": "해금 조건"
+  "unlockConditions": "해금 조건",
+  "metaReferenceBaseline": "기준 참조",
+  "metaReferenceTeam": "참조 팀",
+  "metaReferencePool": "공개 카드 스킬 풀 및 서포트 연장",
+  "metaSkillMultiplier": "스킬 배율",
+  "metaSkillDuration": "스킬 지속 시간(초)",
+  "metaDowntime": "플레이 간 추가 시간(초)",
+  "metaTimeSource": "시간: 전체 난이도의 마지막 판정 시점. 효율은 위 추가 시간을 포함합니다.",
+  "metaGekisouEstimate": "격주 상대 추정치. 개인 점수와 이벤트 보상은 계산할 수 없습니다.",
+  "metaCountMismatch": "점수 노드 수와 FULL COMBO 수가 다릅니다. 이 순위는 근사 참조입니다.",
+  "metaCountMismatchShort": "노드 수 불일치",
+  "metaQuality": "점수 노드 품질",
+  "metaEstimate": "추정",
+  "metaOfficialLevel": "공식 난이도"
 }

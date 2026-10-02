@@ -24,6 +24,8 @@ export interface SongSummaryRenderOptions {
   /** Gekisou (撃奏) summary: song-level mission pattern merged with the
    * per-difficulty segment metrics from the song-meta entry. */
   gekisou: Item;
+  metaView?: { mode: string; tier: string; band: number };
+  referenceSummary?: unknown;
   label(key: string, fallback: string): string;
   detailLabel(key: string): string;
   fieldValue(item: Item, key: string): string;
@@ -42,14 +44,16 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     detailLabel,
     fieldValue,
     selectDifficulty,
+    metaView,
+    referenceSummary,
   } = options;
   const percentage = (value: unknown) =>
     value !== null && value !== undefined && Number.isFinite(Number(value))
-      ? `${(Number(value) * 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}%`
+      ? `${(Number(value) * 100).toLocaleString(locale, { maximumFractionDigits: 0 })}%`
       : "—";
   const decimal = (value: unknown, digits = 0) =>
     value !== null && value !== undefined && Number.isFinite(Number(value))
-      ? Number(value).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+      ? Number(value).toLocaleString(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })
       : "—";
   const duration = (value: unknown) => {
     const seconds = Math.max(0, Math.round(Number(value || 0)));
@@ -59,21 +63,33 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
   const maximum = Number(meta.maxBpm ?? meta.firstBpm ?? 0);
   const bpm = minimum || maximum ? (minimum === maximum ? String(minimum) : `${minimum}–${maximum}`) : "—";
   const profiles = (meta.profiles as Record<string, Item> | undefined) || {};
-  const currentEff = Number(profiles.current?.eff ?? Number.NaN);
+  const tier = metaView?.tier || "theory";
+  const estimated = metaView?.mode === "gekisou";
+  const selected = estimated
+    ? gekisou
+    : tier === "theory"
+      ? meta
+      : profiles[tier === "band" ? `band:${metaView?.band || 0}` : "current"] || {};
+  const officialLevel =
+    meta.displayLevel ??
+    difficulty[selectedDifficulty]?.displayLevel ??
+    difficulty[selectedDifficulty]?.playLevel ??
+    meta.r;
   const metrics: Array<[string, string, string]> = [
-    ["metaR", "Difficulty Rating", decimal(meta.r)],
+    [
+      "metaOfficialLevel",
+      "Official level",
+      officialLevel !== null && officialLevel !== undefined && Number.isFinite(Number(officialLevel))
+        ? Number(officialLevel).toLocaleString(locale, { maximumFractionDigits: 20 })
+        : "—",
+    ],
     ["metaTime", "Song Duration", duration(meta.time)],
-    ["metaScore", "Relative Score Factor", percentage(meta.score)],
-    ["metaEff", "Score Efficiency per Minute", percentage(meta.eff)],
-    ...(Number.isFinite(currentEff)
-      ? ([["metaEffCurrent", "Current-deck Efficiency per Minute", percentage(currentEff)]] as Array<
-          [string, string, string]
-        >)
-      : []),
+    ["metaScore", "Relative Score Factor", percentage(selected.score)],
+    ["metaEff", "Score Efficiency per Minute", percentage(selected.eff)],
     ["metaBpm", "Beats per Minute", bpm],
     ["metaN", "Note Count", decimal(meta.n)],
     ["metaNps", "Notes per Second", decimal(meta.nps, 1)],
-    ["metaSr", "Skill Coverage", percentage(meta.sr)],
+    ["metaSr", "Skill Coverage", percentage(estimated ? undefined : selected.sr)],
   ];
   const facts: Array<{ key: string; value: string }> = ["composer", "lyricist", "arranger", "publishedAt"].flatMap(
     (key) => {
@@ -131,11 +147,14 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     <section class="detail-section song-detail-section song-detail-summary">
       ${renderDetailSectionHeading(label("details", "Details"), "details")}
       ${difficulty.length ? difficultyPicker({ rows: difficulty, selected: difficultyKey(difficulty[selectedDifficulty] || {}, selectedDifficulty), locale, onSelect: (_key, index) => selectDifficulty(index) }) : nothing}
+      ${referenceSummary ?? nothing}
       <dl class="song-data-grid song-meta-strip">
         ${metrics.map(
           ([key, fallback, value]) => html`
             <div>
-              <dt title=${label(key, fallback)}>${label(key, fallback)}</dt>
+              <dt title=${label(key, fallback)}>
+                ${label(key, fallback)}${estimated && (key === "metaScore" || key === "metaEff") ? ` · ${label("metaEstimate", "Estimate")}` : ""}
+              </dt>
               <dd lang=${resolveLocalizedText(item[key], locale).locale}>${value}</dd>
             </div>
           `,
