@@ -2000,13 +2000,13 @@ def _score_metrics(
     meta_profiles: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     metrics: dict[str, Any] = {
-        "r": math.trunc(display_level),
+        "r": display_level,
         "playLevel": play_level,
-        "displayLevel": math.trunc(display_level),
+        "displayLevel": display_level,
         "sortLevel": display_level,
         "n": note_count,
         "metricSources": {
-            "r": "trunc(MasterLiveMusicScore._musicScoreDisplayLevel)",
+            "r": "MasterLiveMusicScore._musicScoreDisplayLevel; missing value falls back to _musicScoreLevel",
             "n": "MasterLiveMusicScore._fullComboCount",
         },
     }
@@ -2266,8 +2266,9 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
             score_file = data.asset(score_path)
             note_count = int(score.get("_fullComboCount") or 0)
             play_level = int(score.get("_musicScoreLevel") or 0)
-            sort_level = float(score.get("_musicScoreDisplayLevel") or play_level)
-            display_level = math.trunc(sort_level)
+            raw_display_level = score.get("_musicScoreDisplayLevel")
+            sort_level = float(play_level if raw_display_level is None else raw_display_level)
+            display_level = sort_level
             difficulties.append(
                 _present(
                     difficulty=index,
