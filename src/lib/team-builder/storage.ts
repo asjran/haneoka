@@ -1,5 +1,12 @@
 import type { TeamBuilderData } from "./data";
-import { createEmptyInventory, validateInventory, type InventoryIssue, type InventoryV1 } from "./inventory";
+import {
+  createEmptyInventory,
+  upgradeInventory,
+  validateInventory,
+  type InventoryIssue,
+  type InventoryV1,
+  type InventoryV2,
+} from "./inventory";
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -48,17 +55,17 @@ export interface InventoryStoreState {
 const MAX_JSON_BYTES = 1024 * 1024;
 const key = (data: TeamBuilderData, owner: string | null) =>
   `haneoka:team-inventory:v1:${owner === null ? "anonymous" : `account:${encodeURIComponent(owner)}`}:${encodeURIComponent(data.identity.server)}:${encodeURIComponent(data.identity.releaseId)}`;
-function checked(value: unknown, data: TeamBuilderData, allowDifferentRelease = false): InventoryV1 {
+function checked(value: unknown, data: TeamBuilderData, allowDifferentRelease = false): InventoryV2 {
   const result = validateInventory(value, data, { allowDifferentRelease });
   if (!result.valid) throw new InventoryValidationError(result.issues);
-  return structuredClone(value as InventoryV1);
+  return upgradeInventory(value as InventoryV1);
 }
 export function importInventory(text: string, data: TeamBuilderData): InventoryV1 {
   if (new TextEncoder().encode(text).byteLength > MAX_JSON_BYTES) throw new Error("Inventory JSON is too large");
   return checked(JSON.parse(text), data);
 }
 export function exportInventory(inventory: InventoryV1): string {
-  return JSON.stringify(inventory, null, 2);
+  return JSON.stringify(upgradeInventory(inventory), null, 2);
 }
 export function readLocalInventory(
   storage: StorageLike,
@@ -81,6 +88,8 @@ export function writeLocalInventory(
 export function mergeInventories(cloud: InventoryV1, draft: InventoryV1, mapPriority?: "cloud" | "draft"): InventoryV1 {
   if (cloud.server !== draft.server || cloud.releaseId !== draft.releaseId)
     throw new Error("Cannot merge different inventory identities");
+  cloud = upgradeInventory(cloud);
+  draft = upgradeInventory(draft);
   const merged = structuredClone(cloud);
   const sameEntry = (a: object, b: object) =>
     JSON.stringify(Object.entries(a).sort(([a], [b]) => a.localeCompare(b))) ===
@@ -116,13 +125,30 @@ export function mergeInventories(cloud: InventoryV1, draft: InventoryV1, mapPrio
         throw new Error(`Inventory merge needs a choice: ${field}.${id}`);
       if (!(id in merged[field]) || mapPriority === "draft") merged[field][id] = level;
     }
+  for (const field of ["characterTotalRank", "vipRank"] as const) {
+    const remote = cloud.playerModifiers[field],
+      local = draft.playerModifiers[field];
+    if (remote !== null && local !== null && remote !== local && !mapPriority)
+      throw new Error(`Inventory merge needs a choice: playerModifiers.${field}`);
+    if (local !== null && (remote === null || mapPriority === "draft")) merged.playerModifiers[field] = local;
+  }
+  for (const field of ["musicMemoryPoints", "characterMemoryPoints"] as const)
+    for (const [id, points] of Object.entries(draft.playerModifiers[field])) {
+      const remote = merged.playerModifiers[field];
+      if (id in remote && remote[id] !== points && !mapPriority)
+        throw new Error(`Inventory merge needs a choice: playerModifiers.${field}.${id}`);
+      if (!(id in remote) || mapPriority === "draft") remote[id] = points;
+    }
   return merged;
 }
 
 /** Same-origin cookie session, JSON mutation and no-store follow the existing account client. */
 export function createCloudInventoryClient(server: string, fetcher: typeof fetch = fetch) {
   const url = `/api/v1/team-inventory/${encodeURIComponent(server)}`;
-  async function request(init: RequestInit, ownerId: string): Promise<{ conflict: boolean; value: CloudInventory }> {
+  async function request(
+    init: RequestInit,
+    ownerId: string,
+  ): Promise<{ conflict: boolean; conflictCode?: string; value: CloudInventory }> {
     const response = await fetcher(url, {
       credentials: "same-origin",
       cache: "no-store",
@@ -136,7 +162,8 @@ export function createCloudInventoryClient(server: string, fetcher: typeof fetch
     const payload = (await response.json()) as CloudInventory & { error?: { code?: string } };
     if (
       (!response.ok && response.status !== 409) ||
-      (response.status === 409 && payload.error?.code !== "revision_conflict")
+      (response.status === 409 &&
+        !["revision_conflict", "inventory_schema_conflict"].includes(payload.error?.code ?? ""))
     )
       throw new CloudInventoryRequestError(response.status, payload.error?.code || String(response.status));
     const value = payload;
@@ -149,15 +176,21 @@ export function createCloudInventoryClient(server: string, fetcher: typeof fetch
       throw new Error("Inventory response identity mismatch");
     if (
       value.inventory &&
-      (value.inventory.server !== server || value.inventory.schema !== "haneoka-team-inventory-v1")
+      (value.inventory.server !== server ||
+        !["haneoka-team-inventory-v1", "haneoka-team-inventory-v2"].includes(value.inventory.schema))
     )
       throw new Error("Inventory document identity mismatch");
-    return { conflict: response.status === 409, value };
+    if (value.inventory) value.inventory = upgradeInventory(value.inventory);
+    return {
+      conflict: response.status === 409,
+      ...(response.status === 409 ? { conflictCode: payload.error?.code } : {}),
+      value,
+    };
   }
   return {
     read: (owner: string, signal?: AbortSignal) => request({ signal }, owner),
     save: (owner: string, inventory: InventoryV1, expectedRevision: number, signal?: AbortSignal) => {
-      const body = JSON.stringify({ expectedRevision, inventory });
+      const body = JSON.stringify({ expectedRevision, inventory: upgradeInventory(inventory) });
       if (new TextEncoder().encode(body).byteLength > MAX_JSON_BYTES)
         return Promise.reject(new Error("Inventory request exceeds 1 MiB"));
       return request({ method: "PUT", body, signal }, owner);
@@ -251,7 +284,12 @@ export class InventoryStore {
           draft.snapshots.length ||
           Object.keys(draft.bandItems).length ||
           Object.keys(draft.characterRanks).length ||
-          Object.keys(draft.bandRanks).length);
+          Object.keys(draft.bandRanks).length ||
+          (draft.schema === "haneoka-team-inventory-v2" &&
+            (draft.playerModifiers.characterTotalRank !== null ||
+              draft.playerModifiers.vipRank !== null ||
+              Object.keys(draft.playerModifiers.musicMemoryPoints).length ||
+              Object.keys(draft.playerModifiers.characterMemoryPoints).length)));
       this.state.phase = hasDraft ? "merge-required" : "saved";
       this.emit();
     } catch (error) {
@@ -333,6 +371,7 @@ export class InventoryStore {
         if (result.conflict) {
           this.state.phase = "conflict";
           this.state.remote = result.value;
+          this.state.error = result.conflictCode;
           this.emit();
           return;
         }

@@ -37,6 +37,17 @@ export interface TeamInventoryV1 {
   characterRanks: Record<string, number | null>;
   bandRanks: Record<string, number | null>;
 }
+export interface TeamPlayerModifiers {
+  characterTotalRank: number | null;
+  musicMemoryPoints: Record<string, number | null>;
+  characterMemoryPoints: Record<string, number | null>;
+  vipRank: number | null;
+}
+export interface TeamInventoryV2 extends Omit<TeamInventoryV1, "schema"> {
+  schema: "haneoka-team-inventory-v2";
+  playerModifiers: TeamPlayerModifiers;
+}
+export type TeamInventory = TeamInventoryV1 | TeamInventoryV2;
 interface InventoryRow {
   revision: number;
   inventoryJson: string;
@@ -159,13 +170,26 @@ const readBody = async (request: Request): Promise<BodyResult> => {
   }
 };
 
-const rankMap = (value: unknown): boolean =>
+const modifierCounter = (value: unknown): value is number | null =>
+  value === null || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_ID);
+const rankMap = (value: unknown, validValue = counter): boolean =>
   object(value) &&
   Object.keys(value).length <= MAX_MAP_ENTRIES &&
-  Object.entries(value).every(([key, entry]) => /^[1-9]\d{0,9}$/u.test(key) && Number(key) <= MAX_ID && counter(entry));
+  Object.entries(value).every(
+    ([key, entry]) => /^[1-9]\d{0,9}$/u.test(key) && Number(key) <= MAX_ID && validValue(entry),
+  );
+
+const modifiersValid = (value: unknown): value is TeamPlayerModifiers =>
+  object(value) &&
+  exactKeys(value, ["characterTotalRank", "musicMemoryPoints", "characterMemoryPoints", "vipRank"]) &&
+  modifierCounter(value.characterTotalRank) &&
+  rankMap(value.musicMemoryPoints, modifierCounter) &&
+  rankMap(value.characterMemoryPoints, modifierCounter) &&
+  (value.vipRank === null || positiveId(value.vipRank));
 
 /** Transport bounds and shape; T20 validates the original Master values for the chosen release. */
-const inventoryValid = (value: unknown, server: string): value is TeamInventoryV1 => {
+const inventoryValid = (value: unknown, server: string): value is TeamInventory => {
+  const v2 = object(value) && value.schema === "haneoka-team-inventory-v2";
   if (
     !object(value) ||
     !exactKeys(value, [
@@ -177,8 +201,10 @@ const inventoryValid = (value: unknown, server: string): value is TeamInventoryV
       "bandItems",
       "characterRanks",
       "bandRanks",
+      ...(v2 ? ["playerModifiers"] : []),
     ]) ||
-    value.schema !== "haneoka-team-inventory-v1" ||
+    (value.schema !== "haneoka-team-inventory-v1" && !v2) ||
+    (v2 && !modifiersValid(value.playerModifiers)) ||
     value.server !== server ||
     !text(value.releaseId, 128) ||
     !Array.isArray(value.members) ||
@@ -222,7 +248,7 @@ const documentValue = (ownerId: string, server: string, row: InventoryRow | null
   ownerId,
   server,
   revision: row?.revision ?? 0,
-  inventory: row ? (JSON.parse(row.inventoryJson) as TeamInventoryV1) : null,
+  inventory: row ? (JSON.parse(row.inventoryJson) as TeamInventory) : null,
 });
 
 // Rechecked inside the mutation after reading the body, so a revoked session or
@@ -303,9 +329,10 @@ export const handleTeamInventoryRequest = async (request: Request, env: Env): Pr
           `UPDATE account_team_inventory
         SET inventory_json = ?, revision = revision + 1, updated_at = ?
         WHERE user_id = ? AND server = ? AND revision = ? AND ${writableOwner}
+          AND (? = 'haneoka-team-inventory-v2' OR json_extract(inventory_json, '$.schema') <> 'haneoka-team-inventory-v2')
           AND EXISTS (SELECT 1 FROM resource_server WHERE slug = ? AND status = 'active')
         RETURNING revision, inventory_json AS inventoryJson`,
-        ).bind(serialized, now, userId, server, expected, ...guardValues, server);
+        ).bind(serialized, now, userId, server, expected, ...guardValues, body.inventory.schema, server);
   const updated = await statement.first<InventoryRow>();
   if (updated) return json(request, documentValue(userId, server, updated));
   const refreshedAccess = await requireAccess(request, env, true);
@@ -315,11 +342,29 @@ export const handleTeamInventoryRequest = async (request: Request, env: Env): Pr
     .first<{ status: string }>();
   if (currentServer?.status !== "active")
     return error(request, 409, "server_unavailable", "This resource server is not active");
+  const current = await readInventory(env, userId, server);
+  if (
+    current?.revision === expected &&
+    body.inventory.schema === "haneoka-team-inventory-v1" &&
+    (JSON.parse(current.inventoryJson) as TeamInventory).schema === "haneoka-team-inventory-v2"
+  ) {
+    return json(
+      request,
+      {
+        error: {
+          code: "inventory_schema_conflict",
+          message: "Upgrade the inventory schema before saving to preserve player modifiers",
+        },
+        ...documentValue(userId, server, current),
+      },
+      409,
+    );
+  }
   return json(
     request,
     {
       error: { code: "revision_conflict", message: "The cloud inventory changed; merge with its current revision" },
-      ...documentValue(userId, server, await readInventory(env, userId, server)),
+      ...documentValue(userId, server, current),
     },
     409,
   );

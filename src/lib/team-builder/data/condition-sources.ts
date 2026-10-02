@@ -1,6 +1,6 @@
 import type { EvidenceGap } from "../contracts";
 import { dataRows, nativeRow, objectRow, type DataRow, type TeamBuilderData } from "../data";
-import { validateInventory, type InventoryV1 } from "../inventory";
+import { createUnknownPlayerModifiers, playerModifierRanges, validateInventory, type InventoryV1 } from "../inventory";
 
 /** Same-release raw rows for the native factory. Effect/target enums and
  * threshold selection remain with the native formula owner.
@@ -92,8 +92,22 @@ export function nativeConditionSources(data: TeamBuilderData, inventory: Invento
       return [id, { musicType, bestMusicTagIds }] as const;
     }),
   );
+  const playerModifiers =
+    inventory.schema === "haneoka-team-inventory-v2" ? inventory.playerModifiers : createUnknownPlayerModifiers();
+  const modifierRanges = playerModifierRanges(data);
+  if (playerModifiers.characterTotalRank === null)
+    gap("unknown-character-total-rank", "playerModifiers.characterTotalRank");
+  if (playerModifiers.vipRank === null) gap("unknown-vip-rank", "playerModifiers.vipRank");
+  if (!modifierRanges.vipRanks.length) gap("vip-domain-unavailable", "MasterVip");
+  const vipRankRows =
+    playerModifiers.vipRank === null
+      ? []
+      : (data.runtimeRules?.tables.vipRankBonuses.rows ?? []).filter((row) => row.vipRank === playerModifiers.vipRank);
   return {
     identity: { ...data.identity },
+    playerModifiers,
+    modifierRanges,
+    vipRankRows,
     members,
     snapshots,
     characterRanks,

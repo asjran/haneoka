@@ -2605,6 +2605,25 @@
     "noEligibleCharts": "Adjust song locks or exclusions to include a chart.",
     "narrowCharts": "Narrow the selection to at most 1,000 charts.",
     "chooseObjective": "Choose an objective to compare.",
-    "checkConditions": "Check the entered conditions."
+    "checkConditions": "Check the entered conditions.",
+    "playerModifiers": "Player bonuses",
+    "characterTotalRank": "All-character total rank",
+    "vipRank": "Actual VIP rank",
+    "musicMemoryPoints": "Song memory",
+    "characterMemoryPoints": "Character memory",
+    "memoryCharacter": "Character",
+    "chooseCharacter": "Choose character",
+    "memoryPoints": "Memory points per stat",
+    "memoryPointsHint": "Enter direct integer points added to each power stat. 0 means no bonus; blank means unknown.",
+    "memoryRulesPending": "Memory progression rules are unavailable in this data release. Entered points are retained for review.",
+    "editMemory": "Edit memory points",
+    "removeMemory": "Remove saved memory entry",
+    "needsReview": "Needs review",
+    "nativeRankRange": "{min}–{max}",
+    "modifierDomainUnavailable": "Rank rules unavailable",
+    "vipRulesPending": "VIP ranks are unavailable in this data release. Existing entries are retained for review.",
+    "savedSong": "Saved song {id}",
+    "savedCharacter": "Saved character {id}",
+    "totalRankHint": "Enter the all-character total rank shown in the game."
   }
 }

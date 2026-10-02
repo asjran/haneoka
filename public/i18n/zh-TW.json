@@ -2605,6 +2605,25 @@
     "noEligibleCharts": "請調整歌曲鎖定或排除條件，以加入候選譜面。",
     "narrowCharts": "請將候選範圍縮小至 1,000 個譜面以內。",
     "chooseObjective": "請選擇要比較的目標。",
-    "checkConditions": "請檢查已填寫的條件。"
+    "checkConditions": "請檢查已填寫的條件。",
+    "playerModifiers": "玩家加成",
+    "characterTotalRank": "全角色總評級",
+    "vipRank": "實際 VIP 等級",
+    "musicMemoryPoints": "歌曲回憶",
+    "characterMemoryPoints": "角色回憶",
+    "memoryCharacter": "角色",
+    "chooseCharacter": "選擇角色",
+    "memoryPoints": "每項能力的回憶點數",
+    "memoryPointsHint": "請填寫直接加到每項能力上的整數點數。0 表示沒有加成，空白表示未知。",
+    "memoryRulesPending": "此資料版本尚無可用的回憶養成規則，已填點數會保留供核對。",
+    "editMemory": "編輯回憶點數",
+    "removeMemory": "移除已存回憶紀錄",
+    "needsReview": "需要核對",
+    "nativeRankRange": "{min}～{max}",
+    "modifierDomainUnavailable": "暫無可用評級規則",
+    "vipRulesPending": "此資料版本尚無可用的 VIP 等級資料，原有輸入會保留供核對。",
+    "savedSong": "已存歌曲 {id}",
+    "savedCharacter": "已存角色 {id}",
+    "totalRankHint": "請填寫遊戲中顯示的全角色總評級。"
   }
 }

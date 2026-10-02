@@ -1,5 +1,7 @@
 import type { ReleaseIdentity, TeamAssignment } from "./contracts";
 import { dataRows, nativeRow, type TeamBuilderData } from "./data";
+import { createUnknownPlayerModifiers, validatePlayerModifiers, type PlayerModifiers } from "./data/player-modifiers";
+export { createUnknownPlayerModifiers, playerModifierRanges, type PlayerModifiers } from "./data/player-modifiers";
 
 export interface MemberEntry {
   instanceId: string;
@@ -20,13 +22,27 @@ export interface SnapshotEntry {
   locked: boolean;
   excluded: boolean;
 }
-export interface InventoryV1 extends ReleaseIdentity {
+export interface LegacyInventoryV1 extends ReleaseIdentity {
   schema: "haneoka-team-inventory-v1";
   members: MemberEntry[];
   snapshots: SnapshotEntry[];
   bandItems: Record<string, number | null>;
   characterRanks: Record<string, number | null>;
   bandRanks: Record<string, number | null>;
+}
+export interface InventoryV2 extends Omit<LegacyInventoryV1, "schema"> {
+  schema: "haneoka-team-inventory-v2";
+  playerModifiers: PlayerModifiers;
+}
+export type Inventory = LegacyInventoryV1 | InventoryV2;
+/** Historical caller name; use Inventory or InventoryV2 for new integrations. */
+export type InventoryV1 = Inventory;
+/** Caller validates the document before upgrading. Identity and all values are retained. */
+export function upgradeInventory(inventory: Inventory): InventoryV2 {
+  const cloned = structuredClone(inventory);
+  return cloned.schema === "haneoka-team-inventory-v2"
+    ? cloned
+    : { ...cloned, schema: "haneoka-team-inventory-v2", playerModifiers: createUnknownPlayerModifiers() };
 }
 export interface InventoryIssue {
   path: string;
@@ -53,9 +69,9 @@ const rangeCache = new WeakMap<TeamBuilderData, Map<string, Record<string, numbe
 const values = (rows: Record<string, unknown>[], key: string) =>
   [...new Set(rows.map((row) => Number(row[key])))].filter(Number.isFinite).sort((a, b) => a - b);
 
-export function createEmptyInventory(identity: ReleaseIdentity): InventoryV1 {
+export function createEmptyInventory(identity: ReleaseIdentity): InventoryV2 {
   return {
-    schema: "haneoka-team-inventory-v1",
+    schema: "haneoka-team-inventory-v2",
     server: identity.server,
     releaseId: identity.releaseId,
     members: [],
@@ -63,6 +79,7 @@ export function createEmptyInventory(identity: ReleaseIdentity): InventoryV1 {
     bandItems: {},
     characterRanks: {},
     bandRanks: {},
+    playerModifiers: createUnknownPlayerModifiers(),
   };
 }
 export function addInventoryEntry(
@@ -277,7 +294,7 @@ export function practiceRanges(
 export function validateInventory(
   value: unknown,
   data: TeamBuilderData,
-  options: { requirePractice?: boolean; allowDifferentRelease?: boolean } = {},
+  options: { requirePractice?: boolean; requireModifiers?: boolean; allowDifferentRelease?: boolean } = {},
 ): { valid: boolean; issues: InventoryIssue[] } {
   const issues: InventoryIssue[] = [];
   const problem = (path: string, code: string, allowed?: number[]) =>
@@ -295,8 +312,13 @@ export function validateInventory(
     "characterRanks",
     "bandRanks",
   ]);
+  if (inventory.schema === "haneoka-team-inventory-v2") rootKeys.add("playerModifiers");
   for (const field of Object.keys(inventory)) if (!rootKeys.has(field)) problem(field, "unknown-field");
-  if (inventory.schema !== "haneoka-team-inventory-v1") problem("schema", "unsupported-schema");
+  if (!["haneoka-team-inventory-v1", "haneoka-team-inventory-v2"].includes(inventory.schema))
+    problem("schema", "unsupported-schema");
+  if (inventory.schema === "haneoka-team-inventory-v2")
+    issues.push(...validatePlayerModifiers(inventory.playerModifiers, data, options.requireModifiers));
+  else if (options.requireModifiers) problem("playerModifiers", "unknown-modifiers");
   if (inventory.server !== data.identity.server) problem("server", "different-server");
   if (
     typeof inventory.releaseId !== "string" ||

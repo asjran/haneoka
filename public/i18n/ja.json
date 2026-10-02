@@ -2605,6 +2605,25 @@
     "noEligibleCharts": "曲の固定や除外条件を調整して、対象譜面を選んでください。",
     "narrowCharts": "対象譜面を1,000件以内に絞ってください。",
     "chooseObjective": "比較する目標を選択してください。",
-    "checkConditions": "入力した条件を確認してください。"
+    "checkConditions": "入力した条件を確認してください。",
+    "playerModifiers": "プレイヤーボーナス",
+    "characterTotalRank": "全キャラクター合計ランク",
+    "vipRank": "実際のVIPランク",
+    "musicMemoryPoints": "楽曲メモリー",
+    "characterMemoryPoints": "キャラクターメモリー",
+    "memoryCharacter": "キャラクター",
+    "chooseCharacter": "キャラクターを選択",
+    "memoryPoints": "各能力へのメモリーポイント",
+    "memoryPointsHint": "各能力に直接加算する整数ポイントを入力してください。0はボーナスなし、未入力は不明です。",
+    "memoryRulesPending": "このデータ版ではメモリー育成ルールを確認できません。入力値は確認用に保持します。",
+    "editMemory": "メモリーポイントを編集",
+    "removeMemory": "保存済みメモリーを削除",
+    "needsReview": "要確認",
+    "nativeRankRange": "{min}～{max}",
+    "modifierDomainUnavailable": "ランクルール未確認",
+    "vipRulesPending": "このデータ版ではVIPランクを確認できません。既存の入力値は確認用に保持します。",
+    "savedSong": "保存済み楽曲 {id}",
+    "savedCharacter": "保存済みキャラクター {id}",
+    "totalRankHint": "ゲームに表示される全キャラクター合計ランクを入力してください。"
   }
 }

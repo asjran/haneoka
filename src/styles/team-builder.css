@@ -53,6 +53,11 @@
     min-width: 0;
     gap: var(--md-sys-spacing-3);
   }
+  .team-builder__modifier-content {
+    display: grid;
+    min-width: 0;
+    gap: var(--md-sys-spacing-3);
+  }
   .team-builder__section-header {
     display: flex;
     min-width: 0;
@@ -259,6 +264,9 @@
     }
     .team-builder__fields > .team-builder__wide {
       grid-column: 1 / -1;
+    }
+    .team-builder__modifier-fields {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   @media (max-width: 399px) {

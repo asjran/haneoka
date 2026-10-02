@@ -40,6 +40,10 @@ import {
   validateInventory,
   practiceRanges,
   MAX_INVENTORY_ENTRIES,
+  upgradeInventory,
+  createUnknownPlayerModifiers,
+  playerModifierRanges,
+  type PlayerModifiers,
   type InventoryV1,
   type MemberEntry,
   type SnapshotEntry,
@@ -121,6 +125,8 @@ export class TeamBuilder extends LitElement {
     pendingRebase: { state: true },
     batchCards: { state: true },
     copyCount: { state: true },
+    memorySong: { state: true },
+    memoryCharacter: { state: true },
   };
   declare locale: string;
   declare server: string;
@@ -164,6 +170,8 @@ export class TeamBuilder extends LitElement {
   declare pickerRarity: string;
   declare batchCards: Map<number, number>;
   declare copyCount: number;
+  declare memorySong: string;
+  declare memoryCharacter: string;
   declare dataLoading: boolean;
   declare pendingRebase: RebaseDraft | null;
   private images = new LazyImages();
@@ -233,6 +241,8 @@ export class TeamBuilder extends LitElement {
       this.inventory = null;
       this.data = null;
       this.currentOwner = undefined;
+      this.memorySong = "";
+      this.memoryCharacter = "";
     }
     this.dataController?.abort();
     const controller = (this.dataController = new AbortController());
@@ -380,11 +390,12 @@ export class TeamBuilder extends LitElement {
           { label: this.t("latestRelease", "Latest data release"), value: this.data.identity.releaseId },
         ])}
         ${
-          preview.issues.length
+          preview.issues.some((issue) => !issue.path.startsWith("playerModifiers"))
             ? html`
                 <ul class="list">
                   ${preview.issues.map((issue) => {
                     const [kind, index, field] = issue.path.split(".");
+                    if (kind === "playerModifiers") return nothing;
                     if (kind === "members" || kind === "snapshots") {
                       const entry = pending.draft[kind][Number(index)];
                       if (!entry) return nothing;
@@ -433,6 +444,19 @@ export class TeamBuilder extends LitElement {
                     `;
                   })}
                 </ul>
+              `
+            : nothing
+        }
+        ${
+          preview.issues.some((issue) => issue.path.startsWith("playerModifiers"))
+            ? html`
+                <details open>
+                  <summary>${this.t("playerModifiers", "Player bonuses")}</summary>
+                  <p class="team-builder__hint">
+                    ${this.t("rebaseNeedsReview", "Review the changed fields before applying the new data release.")}
+                  </p>
+                  ${this.renderPlayerModifierFields()}
+                </details>
               `
             : nothing
         }
@@ -657,6 +681,8 @@ export class TeamBuilder extends LitElement {
     this.pickerRarity = "";
     this.batchCards = new Map();
     this.copyCount = 1;
+    this.memorySong = "";
+    this.memoryCharacter = "";
     this.dataLoading = false;
     this.pendingRebase = null;
   }
@@ -751,7 +777,7 @@ export class TeamBuilder extends LitElement {
     label: string,
     value: number | null,
     change: (value: number | null) => void,
-    limits: { min?: number; max?: number; step?: number } = {},
+    limits: { min?: number; max?: number; step?: number; hint?: string } = {},
   ) {
     return html`
       <md-outlined-text-field
@@ -761,7 +787,7 @@ export class TeamBuilder extends LitElement {
         min=${limits.min ?? nothing}
         max=${limits.max ?? nothing}
         step=${limits.step ?? 1}
-        supporting-text=${value === null ? this.t("notSet", "Not set") : ""}
+        supporting-text=${limits.hint ?? (value === null ? this.t("notSet", "Not set") : "")}
         @change=${(event: Event) => {
           const raw = (event.currentTarget as Control).value;
           const parsed = raw === "" ? null : Number(raw);
@@ -774,7 +800,7 @@ export class TeamBuilder extends LitElement {
   private select(
     label: string,
     value: string,
-    entries: { value: string; label: string }[],
+    entries: { value: string; label: string; disabled?: boolean }[],
     change: (value: string) => void,
   ) {
     return html`
@@ -786,7 +812,7 @@ export class TeamBuilder extends LitElement {
       >
         ${entries.map(
           (entry) => html`
-            <md-select-option value=${entry.value} ?selected=${entry.value === value}>
+            <md-select-option value=${entry.value} ?selected=${entry.value === value} ?disabled=${entry.disabled}>
               <div slot="headline">${entry.label}</div>
             </md-select-option>
           `,
@@ -1821,6 +1847,197 @@ export class TeamBuilder extends LitElement {
       </section>
     `;
   }
+  private get playerModifiers(): PlayerModifiers {
+    return this.inventory?.schema === "haneoka-team-inventory-v2"
+      ? this.inventory.playerModifiers
+      : createUnknownPlayerModifiers();
+  }
+  private patchPlayerModifiers(patch: Partial<PlayerModifiers>) {
+    if (!this.inventory) return;
+    const current = upgradeInventory(this.inventory);
+    this.replaceInventory({ ...current, playerModifiers: { ...current.playerModifiers, ...patch } });
+  }
+  private memoryName(field: "musicMemoryPoints" | "characterMemoryPoints", id: string): string {
+    const current = field === "musicMemoryPoints" ? this.data?.songs[id] : this.data?.characters[id];
+    const previous =
+      field === "musicMemoryPoints"
+        ? this.pendingRebase?.previousData?.songs[id]
+        : this.pendingRebase?.previousData?.characters[id];
+    const row = current ?? previous;
+    return (
+      this.text(field === "musicMemoryPoints" ? (row?.musicTitle ?? row?.title ?? row?.name) : row?.characterName) ||
+      this.t(
+        field === "musicMemoryPoints" ? "savedSong" : "savedCharacter",
+        field === "musicMemoryPoints" ? "Saved song {id}" : "Saved character {id}",
+        { id },
+      )
+    );
+  }
+  private renderMemoryFields(field: "musicMemoryPoints" | "characterMemoryPoints") {
+    if (!this.data) return nothing;
+    const music = field === "musicMemoryPoints";
+    const selected = music ? this.memorySong : this.memoryCharacter;
+    const entities = music ? this.data.songs : this.data.characters;
+    const values = this.playerModifiers[field];
+    const limits = playerModifierRanges(this.data).memoryPoints;
+    const options = Object.keys(entities).map((value) => ({ value, label: this.memoryName(field, value) }));
+    const setSelected = (id: string) => {
+      if (music) this.memorySong = id;
+      else this.memoryCharacter = id;
+    };
+    return html`
+      <details>
+        <summary>${this.t(field, music ? "Song memory" : "Character memory")}</summary>
+        <div class="team-builder__modifier-content" data-memory-kind=${field}>
+          <p class="team-builder__hint">
+            ${this.t("memoryPointsHint", "Enter direct integer points added to each power stat. 0 means no bonus; blank means unknown.")}
+          </p>
+          <p class="team-builder__hint">
+            ${this.t("memoryRulesPending", "Memory progression rules are unavailable in this data release. Entered points are retained for review.")}
+          </p>
+          <div class="team-builder__fields team-builder__modifier-fields">
+            ${this.select(
+              music ? this.t("song", "Song") : this.t("memoryCharacter", "Character"),
+              selected,
+              [
+                {
+                  value: "",
+                  label: this.t(music ? "chooseSong" : "chooseCharacter", music ? "Choose song" : "Choose character"),
+                },
+                ...options,
+              ],
+              setSelected,
+            )}
+            ${
+              selected && Object.hasOwn(entities, selected)
+                ? this.numericField(
+                    this.t("memoryPoints", "Memory points per stat"),
+                    values[selected] ?? null,
+                    (value) => {
+                      this.patchPlayerModifiers({ [field]: { ...values, [selected]: value } });
+                    },
+                    { min: limits.minimum, max: limits.maximum },
+                  )
+                : nothing
+            }
+          </div>
+          ${
+            Object.keys(values).length
+              ? html`
+                  <ul class="list team-builder__owned">
+                    ${Object.entries(values).map(([id, value]) => {
+                    const name = this.memoryName(field, id);
+                    return html`
+                      <li class="team-builder__owned-row">
+                        <div class="team-builder__identity">
+                          <span class="list-item__body">
+                            <strong class="list-item__headline">${name}</strong>
+                            <span class="list-item__supporting">
+                              ${this.t("memoryPoints", "Memory points per stat")}:
+                              ${value?.toLocaleString(this.locale) ?? this.t("notSet", "Not set")}
+                            </span>
+                          </span>
+                          ${
+                            Object.hasOwn(entities, id)
+                              ? iconButton({
+                                  icon: "edit",
+                                  label: this.t("editMemory", "Edit memory points") + ": " + name,
+                                  onClick: async () => {
+                                    setSelected(id);
+                                    await this.updateComplete;
+                                    const input = this.querySelector<HTMLElement>(
+                                      `[data-memory-kind="${field}"] md-outlined-text-field`,
+                                    );
+                                    requestAnimationFrame(() => {
+                                      if (!input?.isConnected) return;
+                                      input.focus();
+                                      input.scrollIntoView({ block: "nearest" });
+                                    });
+                                  },
+                                })
+                              : nothing
+                          }
+                          ${iconButton({
+                            icon: "delete",
+                            label: this.t("removeMemory", "Remove saved memory entry") + ": " + name,
+                            onClick: () => {
+                              const next = { ...values };
+                              delete next[id];
+                              this.patchPlayerModifiers({ [field]: next });
+                            },
+                          })}
+                        </div>
+                      </li>
+                    `;
+                  })}
+                  </ul>
+                `
+              : nothing
+          }
+        </div>
+      </details>
+    `;
+  }
+  private renderPlayerModifierFields() {
+    if (!this.inventory || !this.data) return nothing;
+    const modifiers = this.playerModifiers;
+    const ranges = playerModifierRanges(this.data);
+    const { minimum, maximum } = ranges.characterTotalRank;
+    const nativeTotalRange = minimum !== null && maximum !== null;
+    const vipEntries: { value: string; label: string; disabled?: boolean }[] = [
+      { value: "", label: this.t("notSet", "Not set") },
+      ...ranges.vipRanks.map((rank) => ({ value: String(rank), label: String(rank) })),
+    ];
+    if (modifiers.vipRank !== null && !ranges.vipRanks.includes(modifiers.vipRank))
+      vipEntries.push({
+        value: String(modifiers.vipRank),
+        label: `${modifiers.vipRank} · ${this.t("needsReview", "Needs review")}`,
+        disabled: true,
+      });
+    return html`
+      <div class="team-builder__modifier-content">
+        <div class="team-builder__fields team-builder__modifier-fields">
+          ${this.numericField(
+            this.t("characterTotalRank", "All-character total rank"),
+            modifiers.characterTotalRank,
+            (value) => this.patchPlayerModifiers({ characterTotalRank: value }),
+            {
+              min: minimum ?? 0,
+              max: maximum ?? ranges.memoryPoints.maximum,
+              hint: nativeTotalRange
+                ? this.t("nativeRankRange", "{min}–{max}", { min: minimum, max: maximum })
+                : this.t("modifierDomainUnavailable", "Rank rules unavailable"),
+            },
+          )}
+          ${this.select(this.t("vipRank", "Actual VIP rank"), modifiers.vipRank === null ? "" : String(modifiers.vipRank), vipEntries, (value) => this.patchPlayerModifiers({ vipRank: value === "" ? null : Number(value) }))}
+        </div>
+        <p class="team-builder__hint">
+          ${this.t("totalRankHint", "Enter the all-character total rank shown in the game.")}
+        </p>
+        ${
+          !ranges.vipRanks.length
+            ? html`
+                <p class="team-builder__hint">
+                  ${this.t("vipRulesPending", "VIP ranks are unavailable in this data release. Existing entries are retained for review.")}
+                </p>
+              `
+            : nothing
+        }
+        ${this.renderMemoryFields("musicMemoryPoints")} ${this.renderMemoryFields("characterMemoryPoints")}
+      </div>
+    `;
+  }
+  private renderPlayerModifiers() {
+    if (!this.inventory || !this.data) return nothing;
+    return html`
+      <section class="team-builder__section">
+        <details>
+          <summary>${this.t("playerModifiers", "Player bonuses")}</summary>
+          ${this.renderPlayerModifierFields()}
+        </details>
+      </section>
+    `;
+  }
   private renderBands() {
     if (!this.inventory || !this.data) return nothing;
     return html`
@@ -2328,7 +2545,7 @@ export class TeamBuilder extends LitElement {
                             ${
                               this.panel === "library"
                                 ? html`
-                                    ${this.renderLibrary()}${this.renderBands()}
+                                    ${this.renderLibrary()}${this.renderPlayerModifiers()}${this.renderBands()}
                                   `
                                 : this.panel === "goals"
                                   ? this.renderGoals()
