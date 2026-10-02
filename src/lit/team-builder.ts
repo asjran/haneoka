@@ -10,8 +10,15 @@ import { resolveLocalizedText } from "../lib/localized-text";
 import { readPageData } from "../lib/page-data";
 import { readReleaseServer } from "../lib/release-server";
 import { fetchTeamBuilderData } from "../lib/team-builder/data/fetch";
+import { getTeamBuilderCapabilities } from "../lib/team-builder/solver/capabilities";
 import { clearAppBarActions, setAppBarActions, clearAppBarSearch, setAppBarSearch } from "../lib/app-bar";
-import { dataRows, type TeamBuilderData, type MemberCatalog, type SnapshotCatalog } from "../lib/team-builder/data";
+import {
+  dataRows,
+  objectRow,
+  type TeamBuilderData,
+  type MemberCatalog,
+  type SnapshotCatalog,
+} from "../lib/team-builder/data";
 import type {
   Objective,
   PlayMode,
@@ -21,13 +28,18 @@ import type {
   OptimizationInput,
   SolverResponse,
   WorkerPreparationInput,
+  EvaluationBasisRequest,
+  MetricValue,
 } from "../lib/team-builder/contracts";
 import {
-  addInventoryEntry,
+  addInventoryEntries,
+  rebaseInventory,
+  snapshotSkillLevels,
   updateInventoryEntries,
   removeInventoryEntry,
   validateInventory,
   practiceRanges,
+  MAX_INVENTORY_ENTRIES,
   type InventoryV1,
   type MemberEntry,
   type SnapshotEntry,
@@ -44,15 +56,23 @@ import {
   InventoryStore,
   importInventory,
   exportInventory,
+  mergeInventories,
   type InventoryStoreState,
 } from "../lib/team-builder/storage";
 import { downloadBlob } from "../lib/canvas-capture";
 
 type Kind = "members" | "snapshots";
 type Panel = "library" | "goals" | "results";
+type RebaseDraft = {
+  original: InventoryV1;
+  draft: InventoryV1;
+  ownerId: string | null | undefined;
+  revision: number;
+  previousData?: TeamBuilderData;
+};
 type Control = HTMLElement & { value: string; checked: boolean };
 const OWNER = "team-builder";
-const OBJECTIVES: Objective[] = ["base-score", "score", "ss-surplus", "event-points", "event-items"];
+const OBJECTIVES: Objective[] = ["base-score", "score", "ss-ratio", "event-points", "event-items", "ss-surplus"];
 const MODES: PlayMode[] = ["normal", "gekiso", "multi", "battle"];
 
 export class TeamBuilder extends LitElement {
@@ -70,6 +90,14 @@ export class TeamBuilder extends LitElement {
     budgetSeconds: { state: true },
     selectedSong: { state: true },
     selectedDifficulty: { state: true },
+    lockSong: { state: true },
+    lockDifficulty: { state: true },
+    excludedCharts: { state: true },
+    metricBasis: { state: true },
+    songSeconds: { state: true },
+    downtimeSeconds: { state: true },
+    consumptionAmount: { state: true },
+    consumptionResource: { state: true },
     selectedEvent: { state: true },
     error: { state: true },
     result: { state: true },
@@ -89,6 +117,10 @@ export class TeamBuilder extends LitElement {
     editingId: { state: true },
     pickerBand: { state: true },
     pickerRarity: { state: true },
+    dataLoading: { state: true },
+    pendingRebase: { state: true },
+    batchCards: { state: true },
+    copyCount: { state: true },
   };
   declare locale: string;
   declare server: string;
@@ -103,6 +135,14 @@ export class TeamBuilder extends LitElement {
   declare budgetSeconds: number;
   declare selectedSong: string;
   declare selectedDifficulty: string;
+  declare lockSong: boolean;
+  declare lockDifficulty: boolean;
+  declare excludedCharts: Set<string>;
+  declare metricBasis: "single" | "time" | "consumption";
+  declare songSeconds: Record<string, number>;
+  declare downtimeSeconds: number | null;
+  declare consumptionAmount: number | null;
+  declare consumptionResource: "live-boost" | "event-item";
   declare selectedEvent: string;
   declare error: string;
   declare result: SearchResult | null;
@@ -122,6 +162,10 @@ export class TeamBuilder extends LitElement {
   declare editingId: string;
   declare pickerBand: string;
   declare pickerRarity: string;
+  declare batchCards: Map<number, number>;
+  declare copyCount: number;
+  declare dataLoading: boolean;
+  declare pendingRebase: RebaseDraft | null;
   private images = new LazyImages();
   private paneFocus = new PaneFocus();
   private worker?: Worker;
@@ -132,12 +176,13 @@ export class TeamBuilder extends LitElement {
   private authGeneration = 0;
   private currentOwner: string | null | undefined;
   private dataController?: AbortController;
+  private initialSourceCheck = false;
   private readonly refreshAccount = () => {
     void this.checkAccount();
   };
   private readonly localeReady = () => this.requestUpdate();
 
-  private bindStore(): void {
+  private bindStore(): InventoryStore | undefined {
     if (!this.data) return;
     try {
       this.store = new InventoryStore(this.data, {
@@ -146,7 +191,16 @@ export class TeamBuilder extends LitElement {
           this.storeState = state;
           this.saveState = state.phase;
           if (state.phase === "loading" || state.phase === "auth-loading") this.closePane();
-          if (state.inventory) this.inventory = state.inventory;
+          if (state.phase === "release-mismatch" && state.inventory && !this.pendingRebase) {
+            this.pendingRebase = {
+              original: structuredClone(state.inventory),
+              draft: structuredClone(state.inventory),
+              ownerId: state.ownerId,
+              revision: state.revision,
+            };
+          }
+          if (this.pendingRebase) this.inventory = this.pendingRebase.draft;
+          else if (state.inventory) this.inventory = state.inventory;
           else if (state.ownerId !== this.currentOwner && this.currentOwner) this.inventory = null;
           this.requestUpdate();
         },
@@ -156,8 +210,14 @@ export class TeamBuilder extends LitElement {
       this.saveState = "error";
       this.error = this.t("saveFailed", "Save failed. Your draft is retained.");
     }
+    return this.store;
   }
   private async loadSource(server: string): Promise<void> {
+    const sameServer = this.data?.identity.server === server;
+    const previousData = sameServer ? this.data : undefined;
+    const previousInventory = sameServer ? this.inventory : null;
+    const previousOwner = this.currentOwner;
+    const previousRevision = this.storeState?.revision ?? 0;
     this.cancelSearch();
     this.closePane();
     this.authController?.abort();
@@ -165,32 +225,56 @@ export class TeamBuilder extends LitElement {
     this.store?.dispose();
     this.store = undefined;
     this.storeState = null;
-    this.currentOwner = undefined;
-    this.inventory = null;
     this.result = null;
     this.optimizationInput = null;
     this.selectedIds = new Set();
+    this.pendingRebase = null;
+    if (!sameServer) {
+      this.inventory = null;
+      this.data = null;
+      this.currentOwner = undefined;
+    }
     this.dataController?.abort();
     const controller = (this.dataController = new AbortController());
     this.server = server;
-    this.data = null;
+    this.dataLoading = true;
     this.error = "";
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
       const data = await fetchTeamBuilderData(server, controller.signal);
       if (this.dataController !== controller || !this.isConnected) return;
       this.data = data;
+      if (previousInventory && previousInventory.releaseId !== data.identity.releaseId) {
+        this.pendingRebase = {
+          original: structuredClone(previousInventory),
+          draft: structuredClone(previousInventory),
+          ownerId: previousOwner,
+          revision: previousRevision,
+          previousData: previousData ?? undefined,
+        };
+        this.inventory = this.pendingRebase.draft;
+      }
+      this.dataLoading = false;
       this.bindStore();
     } catch {
       if (this.dataController === controller && this.isConnected) {
-        this.saveState = "error";
+        this.dataLoading = false;
+        this.data = previousData ?? null;
+        this.inventory = previousInventory;
         this.error = this.t("dataError", "Could not load card data.");
+        this.saveState = "error";
+        if (this.data) {
+          const restored = this.bindStore();
+          if (previousOwner === null) {
+            void restored?.setAccount(null);
+            this.currentOwner = null;
+          }
+        }
       }
     } finally {
       clearTimeout(timeout);
     }
   }
-
   private async checkAccount(force = false): Promise<void> {
     if (!this.store || !this.data || readReleaseServer() !== this.data.identity.server) return;
     this.authController?.abort();
@@ -213,12 +297,21 @@ export class TeamBuilder extends LitElement {
       if (session !== null && (typeof session !== "object" || (session.user && typeof session.user.id !== "string")))
         throw new Error("session-shape");
       const owner = typeof session?.user?.id === "string" ? session.user.id : null;
-      if (owner !== this.currentOwner || force) {
+      if (this.pendingRebase?.ownerId && owner !== this.pendingRebase.ownerId) {
+        this.pendingRebase = null;
+        this.inventory = null;
+      }
+      if (owner !== this.currentOwner || force || this.store.state.phase === "auth-loading") {
         this.cancelSearch();
         this.result = null;
         await this.store.setAccount(owner);
         if (generation !== this.authGeneration || !this.isConnected) return;
         this.currentOwner = owner;
+        this.requestUpdate();
+        if (!this.initialSourceCheck) {
+          this.initialSourceCheck = true;
+          void this.loadSource(this.server);
+        }
       }
     } catch {
       if ((!controller.signal.aborted || timedOut) && generation === this.authGeneration) {
@@ -231,9 +324,146 @@ export class TeamBuilder extends LitElement {
   }
   private get canEdit(): boolean {
     return Boolean(
+      !this.dataLoading &&
+      !this.pendingRebase &&
       this.storeState?.inventory &&
       ["anonymous", "saved", "pending", "saving", "offline"].includes(this.storeState.phase),
     );
+  }
+  private applyRebase(): void {
+    if (!this.pendingRebase || !this.data || !this.store || this.currentOwner === undefined) return;
+    const pending = this.pendingRebase,
+      state = this.store.state;
+    const preview = rebaseInventory(pending.draft, this.data);
+    if (
+      !preview.canApply ||
+      !state.inventory ||
+      ["loading", "auth-loading", "conflict", "merge-required", "error"].includes(state.phase)
+    )
+      return;
+    if (pending.ownerId && pending.ownerId !== state.ownerId) return;
+    let next = preview.candidate;
+    try {
+      if (state.ownerId && (pending.ownerId !== state.ownerId || pending.revision !== state.revision)) {
+        const cloud = rebaseInventory(state.inventory, this.data);
+        if (!cloud.canApply) throw new Error("cloud-rebase-needs-review");
+        next = mergeInventories(cloud.candidate, next, this.mergePriority);
+      }
+      this.pendingRebase = null;
+      if (state.phase === "release-mismatch") this.store.resolveRelease(next);
+      else this.store.edit(next);
+      this.inventory = next;
+      this.error = "";
+    } catch {
+      this.pendingRebase = pending;
+      this.inventory = pending.draft;
+      this.error = this.t("rebaseNeedsReview", "Review the changed fields before applying the new data release.");
+    }
+  }
+  private renderRebase() {
+    if (!this.pendingRebase || !this.data) return nothing;
+    const pending = this.pendingRebase,
+      preview = rebaseInventory(pending.draft, this.data);
+    const canApply =
+      preview.canApply &&
+      this.currentOwner !== undefined &&
+      !!this.storeState?.inventory &&
+      !["loading", "auth-loading", "conflict", "merge-required", "error"].includes(this.storeState.phase);
+    return html`
+      <section class="team-builder__section">
+        ${renderDetailSectionHeading(this.t("rebaseTitle", "Update inventory data"), "cards", { level: 2 })}
+        <p>
+          ${this.t("rebaseNotice", "Your existing inventory is retained. Review it before applying the new data release.")}
+        </p>
+        ${specList([
+          { label: this.t("previousRelease", "Inventory release"), value: pending.original.releaseId },
+          { label: this.t("latestRelease", "Latest data release"), value: this.data.identity.releaseId },
+        ])}
+        ${
+          preview.issues.length
+            ? html`
+                <ul class="list">
+                  ${preview.issues.map((issue) => {
+                    const [kind, index, field] = issue.path.split(".");
+                    if (kind === "members" || kind === "snapshots") {
+                      const entry = pending.draft[kind][Number(index)];
+                      if (!entry) return nothing;
+                      const name =
+                        this.text(this.catalogEntry(entry.cardId, kind)?.name) ||
+                        this.t("unavailable", "Required data or formula is unavailable");
+                      return html`
+                        <li>
+                          <button
+                            class="button button--text"
+                            @click=${() => {
+                              this.kind = kind;
+                              this.editingId = entry.instanceId;
+                            }}
+                          >
+                            ${name} · ${field ? this.fieldName(field) : this.t("editPractice", "Edit training")}
+                          </button>
+                        </li>
+                      `;
+                    }
+                    if (kind === "bandItems" || kind === "bandRanks" || kind === "characterRanks") {
+                      const rows =
+                        kind === "bandItems"
+                          ? this.data!.bandItems
+                          : kind === "bandRanks"
+                            ? this.data!.bands
+                            : this.data!.characters;
+                      const row = rows[index];
+                      const name =
+                        this.text(row?.name ?? row?.bandName ?? row?.characterName) ||
+                        this.t("unavailable", "Required data or formula is unavailable");
+                      return html`
+                        <li>
+                          ${this.numericField(name, pending.draft[kind][index] ?? null, (value) => {
+                            const draft = { ...pending.draft, [kind]: { ...pending.draft[kind], [index]: value } };
+                            this.pendingRebase = { ...pending, draft };
+                            this.inventory = draft;
+                          })}
+                        </li>
+                      `;
+                    }
+                    return html`
+                      <li>
+                        ${this.t("rebaseNeedsReview", "Review the changed fields before applying the new data release.")}
+                      </li>
+                    `;
+                  })}
+                </ul>
+              `
+            : nothing
+        }
+        ${
+          this.storeState?.ownerId
+            ? this.select(
+                this.t("mergePriority", "Conflicting training values"),
+                this.mergePriority,
+                [
+                  { value: "cloud", label: this.t("cloudPriority", "Keep cloud training values") },
+                  { value: "draft", label: this.t("draftPriority", "Keep draft training values") },
+                ],
+                (value) => {
+                  this.mergePriority = value as "cloud" | "draft";
+                },
+              )
+            : nothing
+        }
+        <div class="team-builder__actions">
+          <button class="button" ?disabled=${!canApply} @click=${() => this.applyRebase()}>
+            ${this.storeState?.ownerId && (pending.ownerId !== this.storeState.ownerId || pending.revision !== this.storeState.revision) ? this.t("mergeRebase", "Merge and update") : this.t("applyRebase", "Apply reviewed update")}
+          </button>
+          <button
+            class="button button--outlined"
+            @click=${() => downloadBlob(new Blob([exportInventory(pending.original)], { type: "application/json" }), `haneoka-inventory-${pending.original.server}-${pending.original.releaseId}.json`)}
+          >
+            ${this.t("exportPrevious", "Export original inventory")}
+          </button>
+        </div>
+      </section>
+    `;
   }
   private renderStorage() {
     const labels: Record<string, string> = {
@@ -398,6 +628,14 @@ export class TeamBuilder extends LitElement {
     this.budgetSeconds = 5;
     this.selectedSong = "";
     this.selectedDifficulty = "";
+    this.lockSong = true;
+    this.lockDifficulty = true;
+    this.excludedCharts = new Set();
+    this.metricBasis = "single";
+    this.songSeconds = {};
+    this.downtimeSeconds = 0;
+    this.consumptionAmount = null;
+    this.consumptionResource = "live-boost";
     this.selectedEvent = "";
     this.error = "";
     this.result = null;
@@ -417,6 +655,10 @@ export class TeamBuilder extends LitElement {
     this.editingId = "";
     this.pickerBand = "";
     this.pickerRarity = "";
+    this.batchCards = new Map();
+    this.copyCount = 1;
+    this.dataLoading = false;
+    this.pendingRebase = null;
   }
   createRenderRoot() {
     return this;
@@ -451,11 +693,13 @@ export class TeamBuilder extends LitElement {
     if (!this.isConnected) return;
     this.images.observe(this);
     const modal = this.addingCards || Boolean(this.editingId);
+    const content = this.querySelector<HTMLElement>(".team-builder__content");
+    // Enable the opener before PaneFocus restores focus when the dialog closes.
+    if (content && !modal) content.inert = false;
     this.paneFocus.sync(modal ? this.querySelector<HTMLElement>("[data-detail-pane].is-open") : null, () =>
       this.closePane(),
     );
-    const content = this.querySelector<HTMLElement>(".team-builder__content");
-    if (content) content.inert = modal;
+    if (content && modal) content.inert = true;
 
     setAppBarActions(
       OWNER,
@@ -486,8 +730,8 @@ export class TeamBuilder extends LitElement {
       });
     else clearAppBarSearch(OWNER);
   }
-  private t(key: string, fallback: string) {
-    return clientText(this.locale, `teamBuilder.${key}`, fallback);
+  private t(key: string, fallback: string, params?: Record<string, string | number>) {
+    return clientText(this.locale, `teamBuilder.${key}`, fallback, params);
   }
   private text(value: unknown) {
     return resolveLocalizedText(value, this.locale).text;
@@ -517,7 +761,7 @@ export class TeamBuilder extends LitElement {
         min=${limits.min ?? nothing}
         max=${limits.max ?? nothing}
         step=${limits.step ?? 1}
-        supporting-text=${value === null ? this.t("unknown", "Unknown or not entered") : ""}
+        supporting-text=${value === null ? this.t("notSet", "Not set") : ""}
         @change=${(event: Event) => {
           const raw = (event.currentTarget as Control).value;
           const parsed = raw === "" ? null : Number(raw);
@@ -564,6 +808,12 @@ export class TeamBuilder extends LitElement {
     `;
   }
   private replaceInventory(next: InventoryV1) {
+    if (this.pendingRebase) {
+      this.pendingRebase = { ...this.pendingRebase, draft: next };
+      this.inventory = next;
+      this.error = "";
+      return;
+    }
     this.cancelSearch();
     this.result = null;
     this.optimizationInput = null;
@@ -582,10 +832,22 @@ export class TeamBuilder extends LitElement {
     this.dispatchEvent(new CustomEvent("inventory-change", { detail: next, bubbles: true }));
   }
   private patch(ids: string[], patch: Record<string, number | null | boolean>) {
+    if (this.pendingRebase) {
+      const draft = updateInventoryEntries(this.pendingRebase.draft, this.kind, ids, patch);
+      this.pendingRebase = { ...this.pendingRebase, draft };
+      this.inventory = draft;
+      this.error = "";
+      return;
+    }
     if (this.inventory) this.replaceInventory(updateInventoryEntries(this.inventory, this.kind, ids, patch));
   }
   private catalogEntry(id: number, kind: Kind = this.kind): MemberCatalog | SnapshotCatalog | undefined {
-    return (kind === "members" ? this.data?.members : this.data?.snapshots)?.[String(id)];
+    return (
+      (kind === "members" ? this.data?.members : this.data?.snapshots)?.[String(id)] ??
+      (kind === "members" ? this.pendingRebase?.previousData?.members : this.pendingRebase?.previousData?.snapshots)?.[
+        String(id)
+      ]
+    );
   }
   private characterNames(card: MemberCatalog | SnapshotCatalog | undefined): string {
     if (!card) return "";
@@ -639,14 +901,24 @@ export class TeamBuilder extends LitElement {
     this.addingCards = false;
     this.editingId = "";
   }
+  private copyLabel(entry: MemberEntry | SnapshotEntry, kind: Kind = this.kind): string {
+    const copies = this.inventory?.[kind].filter((row) => row.cardId === entry.cardId) ?? [];
+    return copies.length > 1
+      ? this.t("copyNumber", "Copy {number}", {
+          number: copies.findIndex((row) => row.instanceId === entry.instanceId) + 1,
+        })
+      : "";
+  }
   private renderEntry(entry: MemberEntry | SnapshotEntry) {
     const card = this.catalogEntry(entry.cardId);
     const name = this.text(card?.name) || this.t("unavailable", "Required data or formula is unavailable");
+    const copy = this.copyLabel(entry);
+    const accessibleName = [name, copy].filter(Boolean).join(" · ");
     return html`
       <li class="team-builder__owned-row">
         <div class="team-builder__identity">
           ${this.check(
-            this.t("selected", "Selected") + ": " + name,
+            this.t("selected", "Selected") + ": " + accessibleName,
             this.selectedIds.has(entry.instanceId),
             (selected) => {
               const ids = new Set(this.selectedIds);
@@ -658,18 +930,25 @@ export class TeamBuilder extends LitElement {
           ${this.artwork(card)}
           <span class="list-item__body">
             <strong class="list-item__headline">${name}</strong>
+            ${
+              copy
+                ? html`
+                    <span class="team-builder__copy">${copy}</span>
+                  `
+                : nothing
+            }
             <span class="list-item__supporting">
               ${this.characterNames(card)}${card ? " · " + this.rarityName(card) + " · " + this.attributeName(card) : ""}
             </span>
             <small class="team-builder__hint">
-              ${this.fieldName("level")}: ${entry.level ?? this.t("unknown", "Unknown or not entered")} ·
-              ${this.fieldName("awakening")}: ${entry.awakening ?? this.t("unknown", "Unknown or not entered")}
+              ${this.fieldName("level")}: ${entry.level ?? this.t("notSet", "Not set")} ·
+              ${this.fieldName("awakening")}: ${entry.awakening ?? this.t("notSet", "Not set")}
               ${entry.locked ? " · " + this.t("locked", "Locked") : entry.excluded ? " · " + this.t("excluded", "Excluded") : ""}
             </small>
           </span>
           ${iconButton({
             icon: "edit",
-            label: this.t("editPractice", "Edit training") + ": " + name,
+            label: this.t("editPractice", "Edit training") + ": " + accessibleName,
             onClick: () => {
               this.editingId = entry.instanceId;
             },
@@ -677,6 +956,63 @@ export class TeamBuilder extends LitElement {
         </div>
       </li>
     `;
+  }
+  private addPickedCards(): void {
+    if (!this.inventory || !this.canEdit) return;
+    const requests = this.batchCards.size
+      ? [...this.batchCards].map(([cardId, copies]) => ({ cardId, copies }))
+      : this.picker
+        ? [{ cardId: Number(this.picker), copies: this.copyCount }]
+        : [];
+    const total = requests.reduce((sum, row) => sum + row.copies, 0);
+    if (
+      !requests.length ||
+      !Number.isSafeInteger(total) ||
+      total < 1 ||
+      total + this.inventory[this.kind].length > MAX_INVENTORY_ENTRIES ||
+      requests.some((row) => !Number.isSafeInteger(row.copies) || row.copies < 1 || !this.catalogEntry(row.cardId))
+    ) {
+      this.error = this.t("copyLimit", "Check the number of owned copies.");
+      return;
+    }
+    let next: InventoryV1;
+    try {
+      next = addInventoryEntries(this.inventory, this.kind, requests, this.data ?? undefined);
+    } catch {
+      this.error = this.t("copyLimit", "Check the number of owned copies.");
+      return;
+    }
+    this.replaceInventory(next);
+    if (!this.error) {
+      this.batchCards = new Map();
+      this.addingCards = false;
+      this.editingId = total === 1 ? (next[this.kind].at(-1)?.instanceId ?? "") : "";
+    }
+  }
+  private derivedSkillRows(entry: MemberEntry | SnapshotEntry, kind: Kind) {
+    if (!this.data) return [];
+    const card = this.catalogEntry(entry.cardId, kind);
+    if (!card) return [];
+    const rank = this.data.progression[kind === "members" ? "memberCardRanks" : "supportCardRanks"]?.find(
+      (row) => Number(row.group) === card.awakeningGroup && Number(row.rank) === entry.awakening,
+    );
+    const level = (field: string) => {
+      const value = rank ? Number(rank[field]) : NaN;
+      return Number.isSafeInteger(value) && value >= 0 ? value : this.t("unknown", "Unknown or not entered");
+    };
+    if (kind === "members")
+      return [{ label: this.t("leaderSkill", "Leader skill level"), value: level("leaderSkillLevel") }];
+    const levels = snapshotSkillLevels(this.data, entry.cardId, entry.awakening);
+    return [
+      ...levels.support.map((slot) => ({
+        label: this.t("supportSlot", "Support skill {slot}", { slot: slot.slot + 1 }),
+        value: slot.level ?? this.t("unknown", "Unknown or not entered"),
+      })),
+      ...levels.gekisoSupport.map((slot) => ({
+        label: this.t("gekisoSupportSlot", "GEKISO support skill {slot}", { slot: slot.slot + 1 }),
+        value: slot.level ?? this.t("unknown", "Unknown or not entered"),
+      })),
+    ];
   }
   private renderCardPane() {
     if (!this.data || (!this.addingCards && !this.editingId)) return nothing;
@@ -740,6 +1076,29 @@ export class TeamBuilder extends LitElement {
                 },
               )}
             </div>
+            <div class="team-builder__actions">
+              <button
+                class="button button--text"
+                @click=${() => {
+                  const next = new Map(this.batchCards);
+                  matching.forEach((card) => {
+                    if (!next.has(card.id)) next.set(card.id, 1);
+                  });
+                  this.batchCards = next;
+                }}
+              >
+                ${this.t("selectMatching", "Select matching cards")}
+              </button>
+              <button
+                class="button button--text"
+                ?disabled=${!this.batchCards.size}
+                @click=${() => {
+                  this.batchCards = new Map();
+                }}
+              >
+                ${clientText(this.locale, "clear", "Clear")}
+              </button>
+            </div>
             <div
               class=${`collection collection--${this.kind === "members" ? "member" : "support"}`}
               role="tablist"
@@ -749,12 +1108,19 @@ export class TeamBuilder extends LitElement {
                 this.picker,
                 (value) => {
                   this.picker = value;
+                  this.copyCount = this.batchCards.get(Number(value)) ?? 1;
                 },
               )}
             >
               ${visible.map((card, index) =>
                 tile({
                   ...this.cardOptions(card),
+                  marks: [
+                    ...(this.cardOptions(card).marks ?? []),
+                    ...(this.batchCards.has(card.id)
+                      ? [{ at: "bottom-start" as const, text: `×${this.batchCards.get(card.id)}` }]
+                      : []),
+                  ],
                   selected: String(card.id) === this.picker,
                   role: "tab",
                   controls: "team-card-preview",
@@ -765,6 +1131,7 @@ export class TeamBuilder extends LitElement {
                       : -1,
                   onOpen: () => {
                     this.picker = String(card.id);
+                    this.copyCount = this.batchCards.get(card.id) ?? 1;
                   },
                 }),
               )}
@@ -799,20 +1166,63 @@ export class TeamBuilder extends LitElement {
                     <span>${this.t("choose", "Choose card")}</span>
                   `
             }
+            ${
+              chosen
+                ? html`
+                    <div class="team-builder__batch-choice">
+                      ${this.check(
+                        this.t("includeBatch", "Include in batch"),
+                        this.batchCards.has(chosen.id),
+                        (checked) => {
+                          const next = new Map(this.batchCards);
+                          if (checked) next.set(chosen.id, this.copyCount);
+                          else next.delete(chosen.id);
+                          this.batchCards = next;
+                        },
+                      )}
+                      ${this.numericField(
+                        this.t("copies", "Owned copies"),
+                        this.batchCards.get(chosen.id) ?? this.copyCount,
+                        (value) => {
+                          if (value === null || !Number.isSafeInteger(value) || value < 1) return;
+                          this.copyCount = value;
+                          if (this.batchCards.has(chosen.id)) {
+                            const next = new Map(this.batchCards);
+                            next.set(chosen.id, value);
+                            this.batchCards = next;
+                          }
+                        },
+                        { min: 1, max: MAX_INVENTORY_ENTRIES - this.inventory![this.kind].length },
+                      )}
+                    </div>
+                  `
+                : nothing
+            }
+            ${
+              this.batchCards.size
+                ? html`
+                    <p role="status">
+                      ${this.t("batchSummary", "{cards} cards · {copies} copies", {
+                        cards: this.batchCards.size,
+                        copies: [...this.batchCards.values()].reduce((a, b) => a + b, 0),
+                      })}
+                    </p>
+                  `
+                : nothing
+            }
+            ${
+              this.error
+                ? html`
+                    <p class="team-builder__error" role="alert">${this.error}</p>
+                  `
+                : nothing
+            }
             <button
               class="button"
-              ?disabled=${!chosen || !this.canEdit}
-              @click=${() => {
-                if (!chosen || !this.inventory) return;
-                const next = addInventoryEntry(this.inventory, this.kind, chosen.id);
-                this.replaceInventory(next);
-                if (!this.error) {
-                  this.addingCards = false;
-                  this.editingId = next[this.kind].at(-1)?.instanceId ?? "";
-                }
-              }}
+              ?disabled=${(!chosen && !this.batchCards.size) || !this.canEdit}
+              @click=${() => this.addPickedCards()}
             >
-              ${this.t("addOwnedCopy", "Add owned copy")}
+              ${this.batchCards.size ? this.t("addBatch", "Add selected copies") : this.t("addOwnedCopy", "Add owned copy")}
             </button>
           </div>
         `,
@@ -828,15 +1238,26 @@ export class TeamBuilder extends LitElement {
         : ["level", "awakening"];
     return renderPane({
       title: this.text(card?.name),
-      subtitle: this.characterNames(card),
+      subtitle: [this.characterNames(card), this.copyLabel(entry)].filter(Boolean).join(" · "),
       open: true,
       backLabel: clientText(this.locale, "back", "Back"),
       onClose: () => this.closePane(),
       id: "team-card-edit",
+      kind: "team-builder-edit",
       leading: this.artwork(card),
       body: html`
         <section class="detail-section">
           ${renderDetailSectionHeading(this.t("editPractice", "Edit training"), "stats", { level: 2 })}
+          ${
+            this.dataLoading
+              ? html`
+                  <md-linear-progress
+                    indeterminate
+                    aria-label=${this.t("refreshData", "Check latest data")}
+                  ></md-linear-progress>
+                `
+              : nothing
+          }
           ${
             this.error
               ? html`
@@ -858,13 +1279,24 @@ export class TeamBuilder extends LitElement {
                     this.fieldName(field),
                     value === null ? "" : String(value),
                     [
-                      { value: "", label: this.t("unknown", "Unknown or not entered") },
+                      { value: "", label: this.t("notSet", "Not set") },
                       ...(ranges[field] ?? []).map((value) => ({ value: String(value), label: String(value) })),
                     ],
                     (value) => this.patch([entry.instanceId], { [field]: value === "" ? null : Number(value) }),
                   );
             })}
           </div>
+          ${
+            this.derivedSkillRows(entry, this.kind).length
+              ? html`
+                  ${renderDetailSectionHeading(clientText(this.locale, "skills", "Skills"), "skills")}
+                  ${specList(this.derivedSkillRows(entry, this.kind))}
+                  <p class="team-builder__hint">
+                    ${this.t("rankDerived", "These skill levels follow the entered awakening rank.")}
+                  </p>
+                `
+              : nothing
+          }
           ${specList([
             { label: clientText(this.locale, "rarity", "Rarity"), value: card ? this.rarityName(card) : "" },
             { label: clientText(this.locale, "attribute", "Attribute"), value: card ? this.attributeName(card) : "" },
@@ -986,8 +1418,8 @@ export class TeamBuilder extends LitElement {
       </section>
     `;
   }
-  private songIdentity() {
-    const song = this.data?.songs[this.selectedSong];
+  private songIdentity(songId = this.selectedSong, difficulty = this.selectedDifficulty) {
+    const song = this.data?.songs[songId];
     if (!song) return nothing;
     const title = this.text(song.musicTitle ?? song.title ?? song.name);
     const band = this.data?.bands[String(song.bandId ?? (Array.isArray(song.bandIds) ? song.bandIds[0] : ""))];
@@ -998,9 +1430,189 @@ export class TeamBuilder extends LitElement {
         </span>
         <span class="list-item__body">
           <strong class="list-item__headline">${title}</strong>
-          <span class="list-item__supporting">${this.text(band?.bandName ?? band?.name)}</span>
+          <span class="list-item__supporting">
+            ${this.text(band?.bandName ?? band?.name)} · ${difficultyKey({ difficulty }).toUpperCase()}
+          </span>
         </span>
       </div>
+    `;
+  }
+  private supportsObjective(objective: Objective): boolean {
+    if (!this.data) return false;
+    return getTeamBuilderCapabilities(this.data.identity).targets.some(
+      (target) =>
+        target.mode === this.mode &&
+        target.objective === objective &&
+        target.supported &&
+        target.bases.includes(this.metricBasis),
+    );
+  }
+  private get evaluationBasis(): EvaluationBasisRequest | null {
+    if (this.metricBasis === "single") return { kind: "single" };
+    if (this.metricBasis === "time") {
+      if (this.downtimeSeconds === null || !Number.isFinite(this.downtimeSeconds) || this.downtimeSeconds < 0)
+        return null;
+      const secondsBySong: Record<string, number> = {};
+      for (const chart of this.chartSelections) {
+        const key = `${chart.songId}:${chart.difficulty}`,
+          seconds = this.songSeconds[key];
+        if (!Number.isFinite(seconds) || seconds <= 0) return null;
+        secondsBySong[key] = seconds;
+      }
+      return {
+        kind: "time",
+        secondsBySong,
+        downtimeSeconds: this.downtimeSeconds,
+        source: "player-entered measured play and downtime seconds",
+      };
+    }
+    return this.consumptionAmount !== null && Number.isSafeInteger(this.consumptionAmount) && this.consumptionAmount > 0
+      ? {
+          kind: "consumption",
+          amount: this.consumptionAmount,
+          resource: this.consumptionResource,
+          source: "player-entered actual per-play consumption",
+        }
+      : null;
+  }
+  private clearResult() {
+    this.cancelSearch();
+    this.result = null;
+  }
+  private renderBasisFields() {
+    if (this.metricBasis === "single") return nothing;
+    const key = `${this.selectedSong}:${this.selectedDifficulty}`;
+    return html`
+      <div class="team-builder__fields">
+        ${
+          this.metricBasis === "time"
+            ? html`
+                ${
+                  this.selectedSong && this.selectedDifficulty !== ""
+                    ? this.numericField(
+                        this.t("songSeconds", "Selected chart duration (seconds)"),
+                        this.songSeconds[key] ?? null,
+                        (value) => {
+                          this.clearResult();
+                          const next = { ...this.songSeconds };
+                          if (value === null) delete next[key];
+                          else next[key] = value;
+                          this.songSeconds = next;
+                        },
+                        { min: 0.01, step: 0.01 },
+                      )
+                    : nothing
+                }
+                ${this.numericField(
+                  this.t("downtimeSeconds", "Between-run time (seconds)"),
+                  this.downtimeSeconds,
+                  (value) => {
+                    this.clearResult();
+                    this.downtimeSeconds = value;
+                  },
+                  { min: 0, step: 0.01 },
+                )}
+              `
+            : html`
+                ${this.numericField(
+                  this.t("consumptionAmount", "Consumed per run"),
+                  this.consumptionAmount,
+                  (value) => {
+                    this.clearResult();
+                    this.consumptionAmount = value;
+                  },
+                  { min: 1 },
+                )}
+                ${this.select(
+                  this.t("consumptionResource", "Resource"),
+                  this.consumptionResource,
+                  [
+                    { value: "live-boost", label: this.t("live-boost", "Live boost") },
+                    { value: "event-item", label: this.t("event-item", "Event item") },
+                  ],
+                  (value) => {
+                    this.clearResult();
+                    this.consumptionResource = value as "live-boost" | "event-item";
+                  },
+                )}
+              `
+        }
+      </div>
+      <p class="team-builder__hint" role="status">
+        ${
+          this.metricBasis === "time"
+            ? this.t("timeBasisHint", "Enter measured duration for each eligible chart and the time between runs.")
+            : this.t("consumptionBasisHint", "Enter the actual resource cost of one run.")
+        }
+        ${this.evaluationBasis ? "" : this.t("basisIncomplete", "Complete these values to compare efficiency.")}
+      </p>
+    `;
+  }
+  private renderEventConditions() {
+    const event = this.data?.events[this.selectedEvent];
+    if (!event) return nothing;
+    const rules = objectRow(event.bonusRules);
+    return html`
+      <details>
+        <summary>${this.t("eventConditions", "Event bonus conditions")}</summary>
+        <p class="team-builder__hint">
+          ${this.t("eventConditionsScope", "Published bonus conditions are separate from computed event rewards.")}
+        </p>
+        ${
+          this.text(event.bonusNote)
+            ? html`
+                <p>${this.text(event.bonusNote)}</p>
+              `
+            : nothing
+        }
+        ${["points", "items", "power"].map((kind) => {
+          const entries = dataRows(rules[kind]);
+          if (!entries.length) return nothing;
+          return html`
+            <section class="stack stack--tight">
+              <h3>
+                ${this.t(kind === "points" ? "event-points" : kind === "items" ? "event-items" : "powerBonus", kind)}
+              </h3>
+              <ul class="list">
+                ${entries.map((rule) => {
+                  const conditions = [
+                    rule.memberCardId ? this.text(this.catalogEntry(Number(rule.memberCardId), "members")?.name) : "",
+                    rule.supportCardId
+                      ? this.text(this.catalogEntry(Number(rule.supportCardId), "snapshots")?.name)
+                      : "",
+                    rule.characterId ? this.text(this.data?.characters[String(rule.characterId)]?.characterName) : "",
+                    rule.bandId ? this.text(this.data?.bands[String(rule.bandId)]?.bandName) : "",
+                    Number(rule.attribute) > 0
+                      ? clientText(
+                          this.locale,
+                          `liveMusicTypes.${["", "red", "blue", "green", "yellow", "purple"][Number(rule.attribute)]}`,
+                          "",
+                        )
+                      : "",
+                    Number(rule.tagId) > 0 ? this.t("tagCondition", "Tag condition") : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return html`
+                    <li>
+                      <strong>${conditions || clientText(this.locale, "all", "All")}</strong>
+                      ${specList(
+                        dataRows(rule.perRank).map((row) => ({
+                          label: this.t("rankValue", "Rank {rank}", { rank: Number(row.rank) }),
+                          value:
+                            typeof row.basisPoints === "number"
+                              ? (row.basisPoints / 100).toLocaleString(this.locale) + "%"
+                              : this.t("unknown", "Unknown or not entered"),
+                        })),
+                      )}
+                    </li>
+                  `;
+                })}
+              </ul>
+            </section>
+          `;
+        })}
+      </details>
     `;
   }
   private renderGoals() {
@@ -1083,28 +1695,76 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
+        <div class="team-builder__actions">
+          ${this.check(this.t("lockSong", "Use this song only"), this.lockSong, (value) => {
+            this.cancelSearch();
+            this.result = null;
+            this.lockSong = value;
+          })}
+          ${this.check(this.t("lockDifficulty", "Use this difficulty only"), this.lockDifficulty, (value) => {
+            this.cancelSearch();
+            this.result = null;
+            this.lockDifficulty = value;
+          })}
+          ${
+            this.selectedSong && this.selectedDifficulty !== ""
+              ? this.check(
+                  this.t("excludeChart", "Exclude this chart"),
+                  this.excludedCharts.has(`${this.selectedSong}:${this.selectedDifficulty}`),
+                  (value) => {
+                    const next = new Set(this.excludedCharts),
+                      key = `${this.selectedSong}:${this.selectedDifficulty}`;
+                    if (value) next.add(key);
+                    else next.delete(key);
+                    this.excludedCharts = next;
+                    this.cancelSearch();
+                    this.result = null;
+                  },
+                )
+              : nothing
+          }
+        </div>
+        <p class="team-builder__hint" role="status">
+          ${this.t("chartSummary", "{count} eligible charts", { count: this.chartSelections.length })}
+        </p>
+        ${this.select(
+          this.t("metricBasis", "Compare by"),
+          this.metricBasis,
+          [
+            { value: "single", label: this.t("singleRun", "Single run") },
+            { value: "time", label: this.t("perTime", "Per time") },
+            { value: "consumption", label: this.t("perConsumption", "Per consumption") },
+          ],
+          (value) => {
+            this.cancelSearch();
+            this.result = null;
+            this.metricBasis = value as "single" | "time" | "consumption";
+          },
+        )}
+        ${this.renderBasisFields()}
         <fieldset class="team-builder__objectives">
           <legend>${this.t("objectives", "Objectives to compare")}</legend>
-          ${OBJECTIVES.map((objective) =>
-            this.check(
-              this.t(objective, objective),
-              this.objectives.includes(objective),
-              (checked) => {
-                this.cancelSearch();
-                this.result = null;
-                this.objectives = checked
-                  ? [...this.objectives, objective]
-                  : this.objectives.filter((value) => value !== objective);
-              },
-              objective !== "base-score" &&
-                (objective === "score"
-                  ? !this.optimizationInput || this.optimizationInput.evaluation.scope === "growth-only"
-                  : objective !== "ss-surplus" ||
-                    this.mode === "battle" ||
-                    !Object.values(this.optimizationInput?.evaluation.songContexts ?? {}).some(
-                      (row) => row.personalSS !== null,
-                    )),
-            ),
+          ${OBJECTIVES.map(
+            (objective) => html`
+              <div class="team-builder__target-option">
+                ${this.check(this.t(objective, objective), this.objectives.includes(objective), (checked) => {
+                  this.cancelSearch();
+                  this.result = null;
+                  this.objectives = checked
+                    ? [...this.objectives, objective]
+                    : this.objectives.filter((value) => value !== objective);
+                })}
+                ${
+                  !this.supportsObjective(objective)
+                    ? html`
+                        <small class="team-builder__hint">
+                          ${this.t("targetUnavailable", "Calculation unavailable for this mode")}
+                        </small>
+                      `
+                    : nothing
+                }
+              </div>
+            `,
           )}
         </fieldset>
         ${
@@ -1132,6 +1792,7 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
+        ${this.renderEventConditions()}
         <p class="team-builder__hint">${this.t("perfect", "Other judgments: 100% PERFECT")}</p>
         ${
           this.objectives.includes("base-score")
@@ -1142,13 +1803,18 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
-        <button class="button" ?disabled=${!this.canOptimize || this.running} @click=${() => this.startOptimization()}>
+        <button
+          class="button"
+          aria-describedby=${!this.canOptimize ? "team-builder-start-hint" : nothing}
+          ?disabled=${!this.canOptimize || this.running}
+          @click=${() => this.startOptimization()}
+        >
           ${this.t("optimize", "Find candidates")}
         </button>
         ${
           !this.canOptimize
             ? html`
-                <p class="team-builder__hint">${this.t("unavailable", "Required data or formula is unavailable")}</p>
+                <p id="team-builder-start-hint" class="team-builder__hint">${this.optimizationHint}</p>
               `
             : nothing
         }
@@ -1171,6 +1837,22 @@ export class TeamBuilder extends LitElement {
               });
             })}
           </div>
+          <details>
+            <summary>${this.t("characterRanks", "Character ranks")}</summary>
+            <div class="team-builder__fields">
+              ${Object.entries(this.data.characters).map(([id, character]) => {
+                const name = this.text(character.characterName);
+                if (!name) return nothing;
+                return this.numericField(name, this.inventory!.characterRanks[id] ?? null, (value) => {
+                  if (this.inventory)
+                    this.replaceInventory({
+                      ...this.inventory,
+                      characterRanks: { ...this.inventory.characterRanks, [id]: value },
+                    });
+                });
+              })}
+            </div>
+          </details>
           <details>
             <summary>${clientText(this.locale, "bandItems", "Band items")}</summary>
             <div class="team-builder__fields">
@@ -1197,7 +1879,11 @@ export class TeamBuilder extends LitElement {
       excludedMemberIds: this.inventory?.members.filter((row) => row.excluded).map((row) => row.instanceId) ?? [],
       lockedSnapshotIds: this.inventory?.snapshots.filter((row) => row.locked).map((row) => row.instanceId) ?? [],
       excludedSnapshotIds: this.inventory?.snapshots.filter((row) => row.excluded).map((row) => row.instanceId) ?? [],
-      excludedSongKeys: [],
+      excludedSongKeys: [...this.excludedCharts],
+      lockedSongKey:
+        this.lockSong && this.lockDifficulty && this.selectedSong && this.selectedDifficulty !== ""
+          ? `${this.selectedSong}:${this.selectedDifficulty}`
+          : null,
       excludeJustMissions: this.mode === "gekiso" && this.excludeJust,
       justRate: this.mode === "gekiso" && !this.excludeJust ? this.justRate : 0,
       teamSize: 5,
@@ -1208,6 +1894,19 @@ export class TeamBuilder extends LitElement {
     this.worker?.terminate();
     this.worker = undefined;
     this.running = false;
+  }
+  private get chartSelections(): { songId: number; difficulty: number }[] {
+    if (!this.data) return [];
+    return Object.entries(this.data.songs).flatMap(([id, song]) => {
+      if (this.lockSong && id !== this.selectedSong) return [];
+      return dataRows(song.difficulty ?? song.difficulties).flatMap((row) => {
+        const difficulty = Number(row.difficulty);
+        if (!Number.isSafeInteger(difficulty)) return [];
+        if (this.lockDifficulty && String(difficulty) !== this.selectedDifficulty) return [];
+        if (this.excludedCharts.has(`${id}:${difficulty}`)) return [];
+        return [{ songId: Number(id), difficulty }];
+      });
+    });
   }
   private get difficulties(): { value: string; label: string }[] {
     return dataRows(
@@ -1225,8 +1924,11 @@ export class TeamBuilder extends LitElement {
       !this.inventory ||
       !this.canEdit ||
       !this.objectives.length ||
-      !this.selectedSong ||
-      !this.difficulties.some((row) => row.value === this.selectedDifficulty) ||
+      (this.lockSong && !this.selectedSong) ||
+      (this.lockDifficulty && !this.difficulties.some((row) => row.value === this.selectedDifficulty)) ||
+      !this.chartSelections.length ||
+      this.chartSelections.length > 1000 ||
+      !this.evaluationBasis ||
       !Number.isFinite(this.budgetSeconds) ||
       this.budgetSeconds < 1 ||
       this.budgetSeconds > 60 ||
@@ -1234,6 +1936,7 @@ export class TeamBuilder extends LitElement {
       this.justRate > 1
     )
       return false;
+    if (!this.objectives.every((objective) => this.supportsObjective(objective))) return false;
     if (this.optimizationInput)
       return (
         this.optimizationInput.server === this.server &&
@@ -1241,10 +1944,24 @@ export class TeamBuilder extends LitElement {
         this.optimizationInput.evaluation.mode === this.mode
       );
     return (
-      this.mode === "normal" &&
-      this.objectives.every((objective) => objective === "base-score") &&
+      this.objectives.every((objective) => this.supportsObjective(objective)) &&
       validateInventory(this.inventory, this.data).valid
     );
+  }
+  private get optimizationHint(): string {
+    if (!this.data || !this.inventory) return this.t("unavailable", "Required data or formula is unavailable");
+    if (this.lockSong && !this.selectedSong) return this.t("chooseSong", "Choose song");
+    if (this.lockDifficulty && !this.difficulties.some((row) => row.value === this.selectedDifficulty))
+      return this.t("chooseDifficulty", "Choose a difficulty.");
+    if (!this.chartSelections.length)
+      return this.t("noEligibleCharts", "Adjust song locks or exclusions to include a chart.");
+    if (this.chartSelections.length > 1000)
+      return this.t("narrowCharts", "Narrow the selection to at most 1,000 charts.");
+    if (!this.objectives.length) return this.t("chooseObjective", "Choose an objective to compare.");
+    if (!this.objectives.every((objective) => this.supportsObjective(objective)))
+      return this.t("targetUnavailable", "Calculation unavailable for this mode");
+    if (!this.evaluationBasis) return this.t("basisIncomplete", "Complete these values to compare efficiency.");
+    return this.t("checkConditions", "Check the entered conditions.");
   }
   startOptimization(): void {
     if (!this.canOptimize || !this.data || !this.inventory) return;
@@ -1294,8 +2011,9 @@ export class TeamBuilder extends LitElement {
           ...this.optimizationInput,
           objectives: [...this.objectives],
           constraints: this.constraints,
-          songs: this.optimizationInput.songs.filter(
-            (song) => String(song.songId) === this.selectedSong && String(song.difficulty) === this.selectedDifficulty,
+          basis: this.evaluationBasis!,
+          songs: this.optimizationInput.songs.filter((song) =>
+            this.chartSelections.some((row) => row.songId === song.songId && row.difficulty === song.difficulty),
           ),
           budget,
         };
@@ -1304,10 +2022,11 @@ export class TeamBuilder extends LitElement {
         const request: WorkerPreparationInput = {
           data: this.data,
           inventory: this.inventory,
-          selections: [{ songId: Number(this.selectedSong), difficulty: Number(this.selectedDifficulty) }],
+          selections: this.chartSelections,
           mode: this.mode,
           objectives: [...this.objectives],
           constraints: this.constraints,
+          basis: this.evaluationBasis!,
           budget,
         };
         worker.postMessage({ type: "prepare", runId, request });
@@ -1316,6 +2035,51 @@ export class TeamBuilder extends LitElement {
       this.cancelSearch();
       this.error = this.t("unavailable", "Required data or formula is unavailable");
     }
+  }
+  private metricUnit(metric: MetricValue): string {
+    return metric.basis && metric.basis.kind !== "single"
+      ? this.t("perUnit", "per {unit}", { unit: this.t(metric.basis.unit, metric.basis.unit) })
+      : "";
+  }
+  private metricLabel(objective: Objective, metric?: MetricValue): string {
+    if (objective === "ss-ratio") {
+      const domain = metric?.breakdown?.find((row) => row.key === "ss-ratio-numerator")?.source;
+      if (domain === "room") return this.t("roomSSRatio", "Room SS attainment");
+      if (domain === "personal") return this.t("personalSSRatio", "Personal SS attainment");
+    }
+    return this.t(objective, objective);
+  }
+  private renderMetricDetails(objective: Objective, metric: MetricValue) {
+    if ((!metric.basis || metric.basis.kind === "single") && !metric.breakdown?.length) return nothing;
+    return html`
+      <details>
+        <summary>
+          ${this.t("metricDetails", "{metric} breakdown", { metric: this.metricLabel(objective, metric) })}
+        </summary>
+        ${specList([
+          ...(metric.basis && metric.basis.kind !== "single"
+            ? [
+                {
+                  label: this.t("singleRun", "Single run"),
+                  value:
+                    metric.perPlayValue?.toLocaleString(this.locale) ??
+                    this.t("unavailable", "Required data or formula is unavailable"),
+                },
+                {
+                  label: this.t("denominator", "Per-run denominator"),
+                  value: `${metric.basis.denominator?.toLocaleString(this.locale) ?? this.t("notSet", "Not set")} ${this.t(metric.basis.unit, metric.basis.unit)}`,
+                },
+              ]
+            : []),
+          ...(metric.breakdown ?? []).map((row) => ({
+            label: this.t(row.key, row.key.replaceAll("-", " ")),
+            value:
+              row.value?.toLocaleString(this.locale) ??
+              this.t("unavailable", "Required data or formula is unavailable"),
+          })),
+        ])}
+      </details>
+    `;
   }
   private renderResults() {
     return html`
@@ -1357,7 +2121,7 @@ export class TeamBuilder extends LitElement {
                 ${this.result.candidates.map(
                   (candidate) => html`
                     <article class="team-builder__candidate">
-                      ${this.songIdentity()}
+                      ${this.songIdentity(candidate.songKey.split(":")[0], candidate.songKey.split(":")[1])}
                       <div class="team-builder__team-strip" role="group" aria-label=${this.t("members", "Members")}>
                         ${candidate.assignment.memberInstanceIds.map((id) => {
                           const member = this.inventory?.members.find((entry) => entry.instanceId === id);
@@ -1390,7 +2154,9 @@ export class TeamBuilder extends LitElement {
                               <div>
                                 <div class="team-builder__identity">
                                   ${this.artwork(this.catalogEntry(member?.cardId ?? 0, "members"), "members")}
-                                  <span>${this.text(this.catalogEntry(member?.cardId ?? 0, "members")?.name)}</span>
+                                  <span>
+                                    ${this.text(this.catalogEntry(member?.cardId ?? 0, "members")?.name)}${member && this.copyLabel(member, "members") ? " · " + this.copyLabel(member, "members") : ""}
+                                  </span>
                                 </div>
                                 <small>
                                   ${this.fieldName("level")}:
@@ -1410,6 +2176,7 @@ export class TeamBuilder extends LitElement {
                                   id === candidate.assignment.leaderInstanceId
                                     ? html`
                                         <strong>${this.t("leader", "Leader")}</strong>
+                                        ${member ? specList(this.derivedSkillRows(member, "members")) : nothing}
                                       `
                                     : nothing
                                 }
@@ -1423,6 +2190,7 @@ export class TeamBuilder extends LitElement {
                                           ${this.fieldName("awakening")}:
                                           ${snapshot.awakening ?? this.t("unknown", "Unknown or not entered")}
                                         </small>
+                                        ${specList(this.derivedSkillRows(snapshot, "snapshots"))}
                                       `
                                     : nothing
                                 }
@@ -1435,14 +2203,31 @@ export class TeamBuilder extends LitElement {
                         ${this.objectives.map((objective) => {
                           const metric = candidate.metrics[objective];
                           return html`
-                            <dt>${this.t(objective, objective)}</dt>
+                            <dt>${this.metricLabel(objective, metric)}</dt>
                             <dd>
-                              ${metric.value === null ? this.t("unavailable", "Required data or formula is unavailable") : metric.value.toLocaleString(this.locale)}
+                              ${metric.value === null ? this.t("unavailable", "Required data or formula is unavailable") : metric.value.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
+                              ${
+                                metric.value !== null
+                                  ? html`
+                                      <small>${this.metricUnit(metric)}</small>
+                                    `
+                                  : nothing
+                              }
+                              ${
+                                objective === "ss-ratio" && metric.value !== null && metric.status !== "unavailable"
+                                  ? html`
+                                      <small>
+                                        ${metric.value >= 1 ? this.t("ssReached", "SS threshold reached") : this.t("ssNotReached", "Below SS threshold")}
+                                      </small>
+                                    `
+                                  : nothing
+                              }
                               <small>${this.t(metric.status, metric.status)}</small>
                             </dd>
                           `;
                         })}
                       </dl>
+                      ${this.objectives.map((objective) => this.renderMetricDetails(objective, candidate.metrics[objective]))}
                       <details>
                         <summary>${this.t("whyRecommended", "Why this candidate")}</summary>
                         <p class="team-builder__hint">
@@ -1487,7 +2272,7 @@ export class TeamBuilder extends LitElement {
             : this.searchStatus
               ? nothing
               : html`
-                  <p>${this.t("unavailable", "Required data or formula is unavailable")}</p>
+                  <p>${this.t("resultsEmpty", "Set your cards and conditions, then find candidates.")}</p>
                 `
         }
       </section>
@@ -1523,14 +2308,21 @@ export class TeamBuilder extends LitElement {
               ? html`
                   <details class="team-builder__source-info">
                     <summary>${this.t("release", "Data release")}</summary>
+                    <button
+                      class="button button--text"
+                      ?disabled=${this.dataLoading}
+                      @click=${() => this.loadSource(this.server)}
+                    >
+                      ${this.t("refreshData", "Check latest data")}
+                    </button>
                     ${specList([
                       { label: clientText(this.locale, "server", "Server"), value: this.server },
                       { label: this.t("release", "Data release"), value: this.data.identity.releaseId },
                     ])}
                   </details>
-                  ${this.renderStorage()}
+                  ${this.renderStorage()}${this.renderRebase()}
                   ${
-                    this.inventory && this.saveState !== "release-mismatch"
+                    this.inventory && !this.pendingRebase && this.saveState !== "release-mismatch"
                       ? html`
                           <div class="team-builder__panels" ?inert=${!this.canEdit && this.panel !== "results"}>
                             ${
