@@ -77,7 +77,7 @@ export class InventoryUniquenessError extends Error {
   ) {
     super("Inventory card uniqueness needs confirmation");
     this.preview = preview;
-    this.local = local;
+    if (local !== undefined) this.local = local;
   }
 }
 export class InventoryCardMergeConflictError extends Error {
