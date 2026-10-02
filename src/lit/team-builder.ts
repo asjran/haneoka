@@ -48,6 +48,7 @@ import {
   applyInventoryUniqueness,
   InventoryUniquenessError,
   type InventoryUniquenessPreview,
+  type InventoryIssue,
   type InventoryV1,
   type MemberEntry,
   type SnapshotEntry,
@@ -83,6 +84,14 @@ type RebaseDraft = {
   previousData?: TeamBuilderData;
 };
 type Control = HTMLElement & { value: string; checked: boolean };
+type BulkPreview = {
+  original: InventoryV1;
+  ownerId: string | null | undefined;
+  field: string;
+  candidate: InventoryV1;
+  changes: { kind: Kind; instanceId: string; cardId: number; from: number | null; to: number }[];
+  issues: InventoryIssue[];
+};
 const OWNER = "team-builder";
 const OBJECTIVES: Objective[] = ["base-score", "score", "ss-ratio", "event-points", "event-items", "ss-surplus"];
 const MODES: PlayMode[] = ["normal", "gekiso", "multi", "battle"];
@@ -120,6 +129,8 @@ export class TeamBuilder extends LitElement {
     selectedIds: { state: true },
     bulkField: { state: true },
     bulkValue: { state: true },
+    bulkOnlyMissing: { state: true },
+    bulkPreview: { state: true },
     saveState: { state: true },
     visibleLimit: { state: true },
     mergePriority: { state: true },
@@ -177,6 +188,8 @@ export class TeamBuilder extends LitElement {
   declare selectedIds: Set<string>;
   declare bulkField: string;
   declare bulkValue: number | null;
+  declare bulkOnlyMissing: boolean;
+  declare bulkPreview: BulkPreview | null;
   declare saveState: string;
   declare visibleLimit: number;
   declare mergePriority: "cloud" | "draft";
@@ -318,6 +331,7 @@ export class TeamBuilder extends LitElement {
     this.result = null;
     this.optimizationInput = null;
     this.selectedIds = new Set();
+    this.bulkPreview = null;
     this.pendingRebase = null;
     if (!sameServer) {
       this.pendingUniqueness = null;
@@ -890,6 +904,8 @@ export class TeamBuilder extends LitElement {
     this.selectedIds = new Set();
     this.bulkField = "level";
     this.bulkValue = null;
+    this.bulkOnlyMissing = true;
+    this.bulkPreview = null;
     this.saveState = "auth-loading";
     this.visibleLimit = 30;
     this.mergePriority = "cloud";
@@ -1068,6 +1084,7 @@ export class TeamBuilder extends LitElement {
     `;
   }
   private replaceInventory(next: InventoryV1) {
+    this.bulkPreview = null;
     if (this.pendingRebase) {
       this.pendingRebase = { ...this.pendingRebase, draft: next };
       this.inventory = next;
@@ -1188,6 +1205,7 @@ export class TeamBuilder extends LitElement {
               if (selected) ids.add(entry.instanceId);
               else ids.delete(entry.instanceId);
               this.selectedIds = ids;
+              this.bulkPreview = null;
               if (!this.bulkFields.includes(this.bulkField)) this.bulkField = "level";
             },
           )}
@@ -1259,6 +1277,7 @@ export class TeamBuilder extends LitElement {
     }
     if (missing.length) this.replaceInventory(next);
     if (!this.error) {
+      this.bulkPreview = null;
       this.selectedCards = new Set();
       this.closePane();
       if (requests.length > 1) {
@@ -1293,14 +1312,125 @@ export class TeamBuilder extends LitElement {
       ? ["level", "awakening"]
       : ["level", "training", "awakening", "liveSkillLevel", "gekisoSkillLevel"];
   }
-  private applyBulk() {
-    if (!this.inventory || !this.bulkFields.includes(this.bulkField)) return;
-    let next = this.inventory;
+  private get visibleOwnedEntries() {
+    return this.ownedEntries
+      .filter(({ kind, entry }) => {
+        const card = this.catalogEntry(entry.cardId, kind);
+        return [this.text(card?.name), this.characterNames(card), this.t(kind, kind)]
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(this.query.toLocaleLowerCase());
+      })
+      .slice(0, this.visibleLimit);
+  }
+  private selectVisibleOwned() {
+    this.selectedIds = new Set([...this.selectedIds, ...this.visibleOwnedEntries.map(({ entry }) => entry.instanceId)]);
+    this.bulkPreview = null;
+    if (!this.bulkFields.includes(this.bulkField)) this.bulkField = "level";
+  }
+  private previewBulk() {
+    if (
+      !this.inventory ||
+      !this.data ||
+      !this.canEdit ||
+      this.bulkValue === null ||
+      !Number.isSafeInteger(this.bulkValue) ||
+      !this.bulkFields.includes(this.bulkField)
+    )
+      return;
+    const changes = this.selectedEntries.flatMap(({ kind, entry }) => {
+      const from = (entry as unknown as Record<string, number | null>)[this.bulkField];
+      return (this.bulkOnlyMissing && from !== null) || from === this.bulkValue
+        ? []
+        : [{ kind, instanceId: entry.instanceId, cardId: entry.cardId, from, to: this.bulkValue! }];
+    });
+    let candidate = this.inventory;
     for (const kind of ["members", "snapshots"] as const) {
-      const ids = this.selectedEntries.filter((row) => row.kind === kind).map(({ entry }) => entry.instanceId);
-      if (ids.length) next = updateInventoryEntries(next, kind, ids, { [this.bulkField]: this.bulkValue });
+      const ids = changes.filter((row) => row.kind === kind).map((row) => row.instanceId);
+      if (ids.length) candidate = updateInventoryEntries(candidate, kind, ids, { [this.bulkField]: this.bulkValue });
     }
-    this.replaceInventory(next);
+    this.bulkPreview = {
+      original: this.inventory,
+      ownerId: this.currentOwner,
+      field: this.bulkField,
+      candidate,
+      changes,
+      issues: validateInventory(candidate, this.data).issues,
+    };
+  }
+  private applyBulk() {
+    const preview = this.bulkPreview;
+    if (
+      !preview ||
+      !this.canEdit ||
+      preview.original !== this.inventory ||
+      preview.ownerId !== this.currentOwner ||
+      preview.issues.length ||
+      !preview.changes.length
+    )
+      return;
+    this.replaceInventory(preview.candidate);
+  }
+  private renderBulkPreview() {
+    const preview = this.bulkPreview;
+    if (!preview) return nothing;
+    const current = preview.original === this.inventory && preview.ownerId === this.currentOwner;
+    return html`
+      <div class="team-builder__bulk-preview" role="region" aria-label=${this.t("bulkPreview", "Training changes")}>
+        <strong>${this.t("bulkPreviewCount", "{count} cards will change", { count: preview.changes.length })}</strong>
+        <ul class="list">
+          ${preview.changes.map(
+            (row) => html`
+              <li>
+                ${this.text(this.catalogEntry(row.cardId, row.kind)?.name)} · ${this.fieldName(preview.field)}:
+                ${row.from ?? this.t("notSet", "Not set")} → ${row.to}
+              </li>
+            `,
+          )}
+        </ul>
+        ${
+          preview.issues.length
+            ? html`
+                <p class="team-builder__error" role="status">
+                  ${this.t("bulkValuesInvalid", "Check these training values before applying.")}
+                </p>
+                <ul class="list">
+                  ${preview.issues.map((issue) => {
+                    const [kind, index, field] = issue.path.split(".");
+                    const entry =
+                      kind === "members" || kind === "snapshots" ? preview.candidate[kind][Number(index)] : undefined;
+                    return html`
+                      <li>
+                        ${entry ? this.text(this.catalogEntry(entry.cardId, kind as Kind)?.name) : this.t("bulkPreview", "Training changes")}
+                        · ${this.fieldName(field ?? preview.field)}
+                      </li>
+                    `;
+                  })}
+                </ul>
+              `
+            : nothing
+        }
+        ${
+          !current
+            ? html`
+                <p role="status">${this.t("bulkPreviewStale", "Inventory changed. Preview again.")}</p>
+              `
+            : nothing
+        }
+        <div class="team-builder__actions">
+          <button
+            class="button"
+            ?disabled=${!current || preview.issues.length > 0 || !preview.changes.length}
+            @click=${() => this.applyBulk()}
+          >
+            ${this.t("confirmBulk", "Apply these changes")}
+          </button>
+          <button class="button button--text" @click=${() => (this.bulkPreview = null)}>
+            ${clientText(this.locale, "cancel", "Cancel")}
+          </button>
+        </div>
+      </div>
+    `;
   }
   private derivedSkillRows(entry: MemberEntry | SnapshotEntry, kind: Kind) {
     if (!this.data) return [];
@@ -1647,6 +1777,27 @@ export class TeamBuilder extends LitElement {
             : nothing
         }
         ${
+          entries.length
+            ? html`
+                <div class="team-builder__actions">
+                  <button class="button button--text" @click=${() => this.selectVisibleOwned()}>
+                    ${this.t("selectVisibleOwned", "Select visible cards")}
+                  </button>
+                  <button
+                    class="button button--text"
+                    ?disabled=${!this.selectedEntries.length}
+                    @click=${() => {
+                      this.selectedIds = new Set();
+                      this.bulkPreview = null;
+                    }}
+                  >
+                    ${this.t("clearCardSelection", "Clear selection")}
+                  </button>
+                </div>
+              `
+            : nothing
+        }
+        ${
           this.selectedEntries.length
             ? html`
                 <p class="team-builder__hint">
@@ -1660,13 +1811,28 @@ export class TeamBuilder extends LitElement {
                     this.t("bulk", "Apply to selected cards"),
                     this.bulkField,
                     this.bulkFields.map((value) => ({ value, label: this.fieldName(value) })),
-                    (value) => (this.bulkField = value),
+                    (value) => {
+                      this.bulkField = value;
+                      this.bulkPreview = null;
+                    },
                   )}
-                  ${this.numericField(this.fieldName(this.bulkField), this.bulkValue, (value) => (this.bulkValue = value))}
-                  <button class="button button--tonal" @click=${() => this.applyBulk()}>
-                    ${this.t("bulk", "Apply to selected cards")}
+                  ${this.numericField(this.fieldName(this.bulkField), this.bulkValue, (value) => {
+                    this.bulkValue = value;
+                    this.bulkPreview = null;
+                  })}
+                  <button
+                    class="button button--tonal"
+                    ?disabled=${this.bulkValue === null || !Number.isSafeInteger(this.bulkValue)}
+                    @click=${() => this.previewBulk()}
+                  >
+                    ${this.t("previewBulk", "Preview changes")}
                   </button>
                 </div>
+                ${this.check(this.t("bulkOnlyMissing", "Fill blank values only"), this.bulkOnlyMissing, (value) => {
+                  this.bulkOnlyMissing = value;
+                  this.bulkPreview = null;
+                })}
+                ${this.renderBulkPreview()}
               `
             : nothing
         }

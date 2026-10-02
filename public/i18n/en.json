@@ -2683,7 +2683,16 @@
     "inventoryAndGrowth": "Cards and training",
     "characterAndItems": "Characters and items",
     "applicableConditions": "Applicable conditions",
-    "goalUnavailable": "Unavailable"
+    "goalUnavailable": "Unavailable",
+    "selectVisibleOwned": "Select visible cards",
+    "clearCardSelection": "Clear selection",
+    "bulkOnlyMissing": "Fill blank values only",
+    "previewBulk": "Preview changes",
+    "bulkPreview": "Training changes",
+    "bulkPreviewCount": "{count} cards will change",
+    "bulkValuesInvalid": "Check these training values before applying.",
+    "bulkPreviewStale": "Inventory changed. Preview again.",
+    "confirmBulk": "Apply these changes"
   },
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",

@@ -2683,7 +2683,16 @@
     "inventoryAndGrowth": "カード・育成",
     "characterAndItems": "キャラクター・アイテム",
     "applicableConditions": "適用条件",
-    "goalUnavailable": "未対応"
+    "goalUnavailable": "未対応",
+    "selectVisibleOwned": "表示中のカードを選択",
+    "clearCardSelection": "選択を解除",
+    "bulkOnlyMissing": "未入力の値のみ記入",
+    "previewBulk": "変更を確認",
+    "bulkPreview": "育成の変更",
+    "bulkPreviewCount": "{count}枚を変更します",
+    "bulkValuesInvalid": "適用前に育成値を確認してください。",
+    "bulkPreviewStale": "所持状況が変わりました。再確認してください。",
+    "confirmBulk": "この変更を適用"
   },
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",

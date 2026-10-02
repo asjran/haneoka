@@ -2683,7 +2683,16 @@
     "inventoryAndGrowth": "卡库与养成",
     "characterAndItems": "角色与道具",
     "applicableConditions": "适用条件",
-    "goalUnavailable": "未开放"
+    "goalUnavailable": "未开放",
+    "selectVisibleOwned": "选取当前显示的卡片",
+    "clearCardSelection": "清除选择",
+    "bulkOnlyMissing": "只填写空值",
+    "previewBulk": "预览变更",
+    "bulkPreview": "养成变更",
+    "bulkPreviewCount": "将变更 {count} 张卡片",
+    "bulkValuesInvalid": "请核对养成值后应用。",
+    "bulkPreviewStale": "卡库已变动，请重新预览。",
+    "confirmBulk": "应用这些变更"
   },
   "characterRankRewards": "角色等级奖励",
   "characterRank": "角色等级",

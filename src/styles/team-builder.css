@@ -147,6 +147,19 @@
   .team-builder__owned {
     gap: 0;
   }
+  .team-builder__bulk-preview {
+    display: grid;
+    min-width: 0;
+    gap: var(--md-sys-spacing-3);
+    padding: var(--md-sys-spacing-3);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-surface-container);
+  }
+  .team-builder__bulk-preview > .list {
+    max-height: 240px;
+    overflow: auto;
+  }
   .team-builder__owned-row {
     padding-block: var(--md-sys-spacing-3);
   }

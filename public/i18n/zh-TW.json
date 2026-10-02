@@ -2683,7 +2683,16 @@
     "inventoryAndGrowth": "卡庫與養成",
     "characterAndItems": "角色與道具",
     "applicableConditions": "適用條件",
-    "goalUnavailable": "未開放"
+    "goalUnavailable": "未開放",
+    "selectVisibleOwned": "選取目前顯示的卡片",
+    "clearCardSelection": "清除選取",
+    "bulkOnlyMissing": "只填寫空值",
+    "previewBulk": "預覽變更",
+    "bulkPreview": "養成變更",
+    "bulkPreviewCount": "將變更 {count} 張卡片",
+    "bulkValuesInvalid": "請核對養成值後套用。",
+    "bulkPreviewStale": "卡庫已變動，請重新預覽。",
+    "confirmBulk": "套用這些變更"
   },
   "characterRankRewards": "角色等級獎勵",
   "characterRank": "角色等級",

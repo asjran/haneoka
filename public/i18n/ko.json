@@ -2683,7 +2683,16 @@
     "inventoryAndGrowth": "카드 및 육성",
     "characterAndItems": "캐릭터 및 아이템",
     "applicableConditions": "적용 조건",
-    "goalUnavailable": "미지원"
+    "goalUnavailable": "미지원",
+    "selectVisibleOwned": "현재 표시된 카드 선택",
+    "clearCardSelection": "선택 해제",
+    "bulkOnlyMissing": "빈 값만 채우기",
+    "previewBulk": "변경 미리보기",
+    "bulkPreview": "육성 변경",
+    "bulkPreviewCount": "카드 {count}장 변경 예정",
+    "bulkValuesInvalid": "적용 전에 육성 값을 확인하세요.",
+    "bulkPreviewStale": "보유 목록이 변경되었습니다. 다시 미리 보세요.",
+    "confirmBulk": "이 변경 적용"
   },
   "characterRankRewards": "캐릭터 랭크 보상",
   "characterRank": "캐릭터 랭크",
