@@ -1306,14 +1306,18 @@ export class TeamBuilder extends LitElement {
       return [{ label: this.t("leaderSkill", "Leader skill level"), value: level("leaderSkillLevel") }];
     const levels = snapshotSkillLevels(this.data, entry.cardId, entry.awakening);
     return [
-      ...levels.support.map((slot) => ({
-        label: this.t("supportSlot", "Support skill {slot}", { slot: slot.slot + 1 }),
-        value: slot.level ?? this.t("unknown", "Unknown or not entered"),
-      })),
-      ...levels.gekisoSupport.map((slot) => ({
-        label: this.t("gekisoSupportSlot", "GEKISO support skill {slot}", { slot: slot.slot + 1 }),
-        value: slot.level ?? this.t("unknown", "Unknown or not entered"),
-      })),
+      ...levels.support
+        .filter((slot) => slot.id > 0)
+        .map((slot) => ({
+          label: this.t("supportSlot", "Support skill {slot}", { slot: slot.slot + 1 }),
+          value: slot.level ?? this.t("unknown", "Unknown or not entered"),
+        })),
+      ...levels.gekisoSupport
+        .filter((slot) => slot.id > 0)
+        .map((slot) => ({
+          label: this.t("gekisoSupportSlot", "GEKISO support skill {slot}", { slot: slot.slot + 1 }),
+          value: slot.level ?? this.t("unknown", "Unknown or not entered"),
+        })),
     ];
   }
   private renderCardPane() {
@@ -1888,40 +1892,28 @@ export class TeamBuilder extends LitElement {
       )
     );
   }
-  private get snapshotsNeedExclusion(): boolean {
-    return this.normalForecast && !!this.inventory?.snapshots.some((entry) => !entry.excluded || entry.locked);
-  }
   private renderNormalForecastScope() {
-    if (!this.normalForecast) return nothing;
+    if (!this.normalForecast || !this.data) return nothing;
+    const conditions = [
+      ...new Set(
+        getTeamBuilderCapabilities(this.data.identity)
+          .targets.filter(
+            (target) => target.mode === this.mode && target.supported && this.objectives.includes(target.objective),
+          )
+          .flatMap((target) => target.conditions ?? []),
+      ),
+    ];
     return html`
       <p class="team-builder__hint">
-        ${this.t("normalForecastScope", "Normal solo forecast: five members, standard LIVE skills, no snapshots or event bonuses. The score is the average over 120 skill orders, rather than a fixed live result.")}
+        ${this.t("normalForecastScope", "Normal solo forecast supports resolved member and snapshot effects. The score averages 120 skill orders; actual play can vary.")}
       </p>
-      ${
-        this.snapshotsNeedExclusion
-          ? html`
-              <p class="team-builder__hint">
-                ${this.t("snapshotsMustExcluded", "Exclude snapshots to use this forecast.")}
-              </p>
-              <button
-                class="button button--outlined"
-                @click=${() => {
-                  if (this.inventory)
-                    this.replaceInventory(
-                      updateInventoryEntries(
-                        this.inventory,
-                        "snapshots",
-                        this.inventory.snapshots.map((row) => row.instanceId),
-                        { excluded: true, locked: false },
-                      ),
-                    );
-                }}
-              >
-                ${this.t("excludeSnapshots", "Exclude snapshots from forecast")}
-              </button>
-            `
-          : nothing
-      }
+      <ul class="team-builder__hint">
+        ${conditions.map(
+          (condition) => html`
+            <li>${this.t(condition, this.t("conditional", "Conditional estimate"))}</li>
+          `,
+        )}
+      </ul>
     `;
   }
   private get evaluationBasis(): EvaluationBasisRequest | null {
@@ -2598,7 +2590,6 @@ export class TeamBuilder extends LitElement {
       !this.chartSelections.length ||
       this.chartSelections.length > 1000 ||
       !this.evaluationBasis ||
-      this.snapshotsNeedExclusion ||
       !Number.isFinite(this.budgetSeconds) ||
       this.budgetSeconds < 1 ||
       this.budgetSeconds > 60 ||
@@ -2628,7 +2619,6 @@ export class TeamBuilder extends LitElement {
     if (this.chartSelections.length > 1000)
       return this.t("narrowCharts", "Narrow the selection to at most 1,000 charts.");
     if (!this.objectives.length) return this.t("chooseObjective", "Choose an objective to compare.");
-    if (this.snapshotsNeedExclusion) return this.t("snapshotsMustExcluded", "Exclude snapshots to use this forecast.");
     if (!this.objectives.every((objective) => this.supportsObjective(objective)))
       return this.t("targetUnavailable", "Calculation unavailable for this mode");
     if (!this.evaluationBasis) return this.t("basisIncomplete", "Complete these values to compare efficiency.");
@@ -2815,6 +2805,15 @@ export class TeamBuilder extends LitElement {
                 <p role="status">
                   ${this.result.completeness === "unavailable" && this.result.candidates.length ? this.t("partialCandidates", "Some teams could be calculated. Other cards need their training or supported rules checked.") : this.t(this.result.completeness, this.result.completeness)}
                 </p>
+                ${
+                  this.result.gaps.some((gap) => gap.code === "native-normal-incomplete-snapshot-search")
+                    ? html`
+                        <p role="status" class="team-builder__hint">
+                          ${this.t("native-normal-incomplete-snapshot-search", "Some snapshots need training values or include effects not yet supported. These results cover the calculated candidates.")}
+                        </p>
+                      `
+                    : nothing
+                }
                 ${this.result.candidates.map(
                   (candidate) => html`
                     <article class="team-builder__candidate">
