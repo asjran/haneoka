@@ -43,6 +43,7 @@ export async function resolveStoryUrls(
   story: AdvStory,
   loader: EmbedLoader<AdvStory>,
   signal: AbortSignal,
+  playbackUrl?: (key: string) => Promise<string>,
 ): Promise<AdvStory> {
   const seen = new WeakMap<object, unknown>();
   const resolve = (value: string) => (value ? loader.resourceUrl(value, { signal }) : Promise.resolve(value));
@@ -56,7 +57,7 @@ export async function resolveStoryUrls(
         maps.has(parent) ||
         parent === "textures"
       )
-        return resolve(value);
+        return field === "playableUrl" && playbackUrl ? playbackUrl(value) : resolve(value);
       return value;
     }
     if (!value || typeof value !== "object") return value;

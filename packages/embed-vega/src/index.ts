@@ -2,6 +2,7 @@ import { createEmbedLoader, memoryDataSource } from "@haneoka/embed-core";
 import { createHaneokaBranding } from "@haneoka/embed-core/branding";
 import type { VegaEngine, VegaPlayerHandle } from "@haneoka/vega/engine";
 import { resolveStoryUrls } from "./story-urls.js";
+import { createPlaybackUrls } from "./playback-urls.js";
 import type {
   MountStoryOptions,
   StoryEmbedEvent,
@@ -35,6 +36,7 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
     return url;
   };
   const controller = new AbortController();
+  const playbackUrls = createPlaybackUrls(loader, controller.signal, resourceTimeoutMs);
   const abort = () => controller.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) abort();
@@ -182,6 +184,7 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
         await stopPlayer().catch((error) => failures.push(error));
         await boot.catch(() => undefined);
         await loader.dispose().catch((error) => failures.push(error));
+        playbackUrls.dispose();
         stage.remove();
         resolvedUrls.clear();
         mounts.delete(container);
@@ -208,7 +211,11 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
       controller.signal.throwIfAborted();
       const story = await loader.load({ signal: controller.signal });
       if (!Array.isArray(story.commands)) throw new TypeError("Story document requires a commands array");
-      const resolved = await resolveStoryUrls(story, loader, controller.signal);
+      const resolved = await resolveStoryUrls(story, loader, controller.signal, async (key) => {
+        const url = await playbackUrls.resolve(key);
+        resolvedUrls.add(url);
+        return url;
+      });
       const [
         { createVega, createVegaPlayerState },
         { defineVegaPlugin },
