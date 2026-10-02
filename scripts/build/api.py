@@ -1123,6 +1123,7 @@ def _bands(data: BuildData) -> dict[str, Any]:
         output[str(identity)] = _present(
             bandId=identity,
             bandName=data.text(row.get("_nameTextID"), f"Band {identity}"),
+            description=data.text(row.get("_descriptionTextID"), ""),
             color=row.get("_mainColorCode"),
             logo=data.asset(f"{base}/band_logo.png"),
             icon=data.asset(f"{base}/band_small_Icon.png"),

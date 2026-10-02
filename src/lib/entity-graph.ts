@@ -128,7 +128,7 @@ const CHARACTER_FIELDS = [
   "faceImage",
   "thumbnailImage",
 ] as const;
-const BAND_FIELDS = ["bandId", "bandName", "shortName", "englishName", "logo", "icon", "color", "colorCode"] as const;
+const BAND_FIELDS = ["bandId", "bandName", "description", "shortName", "englishName", "logo", "icon", "color", "colorCode"] as const;
 const ITEM_FIELDS = ["itemId", "name", "image", "description", "itemTypeName", "max"] as const;
 
 // Tile projections of related entities on a character page.
