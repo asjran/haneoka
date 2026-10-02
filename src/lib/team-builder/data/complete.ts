@@ -30,12 +30,18 @@ export async function hydrateRuntimeDocuments(
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const documents = { ...input };
-  for (const resource of ["cards", "songs"]) {
+  for (const resource of ["cards", "support-cards", "songs"]) {
     const rows = Object.fromEntries(
       Object.entries(objectRow(input[resource])).map(([id, value]) => [id, completeLocalRow(resource, value)]),
     );
     const needs = Object.entries(rows).filter(([, value]) => {
       const row = objectRow(value);
+      if (resource === "support-cards") {
+        const raw = objectRow(row.raw);
+        return ["supportSkillId01", "supportSkillId02", "gekisouSupportSkillId01", "gekisouSupportSkillId02"].some(
+          (field) => !Number.isSafeInteger(row[field] ?? raw[`_${field}`]),
+        );
+      }
       return (
         !Array.isArray(row.bestMusicTagIds) ||
         (resource === "songs" &&

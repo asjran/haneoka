@@ -227,14 +227,24 @@ export function snapshotSkillLevels(
       : data.progression.supportCardRanks?.find(
           (row) => Number(row.group) === card.awakeningGroup && Number(row.rank) === awakening,
         );
-  const levels = (ids: number[], prefix: string) =>
+  const levels = (ids: number[], prefix: string, known: boolean) =>
     ids.map((id, slot) => {
+      if (!known) return { id, slot, level: null };
+      if (id === 0) return { id, slot, level: 0 };
       const value = rank?.[`${prefix}${String(slot + 1).padStart(2, "0")}Level`];
       return { id, slot, level: typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null };
     });
   return {
-    support: levels(card.supportSkillIds, "supportSkill"),
-    gekisoSupport: levels(card.gekisoSupportSkillIds, "gekisouSupportSkill"),
+    support: levels(
+      card.supportSkillIds,
+      "supportSkill",
+      card.supportSkillSlotsKnown ?? card.supportSkillIds.length === 2,
+    ),
+    gekisoSupport: levels(
+      card.gekisoSupportSkillIds,
+      "gekisouSupportSkill",
+      card.gekisoSupportSkillSlotsKnown ?? card.gekisoSupportSkillIds.length === 2,
+    ),
   };
 }
 export function updateInventoryEntries(

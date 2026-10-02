@@ -1,5 +1,5 @@
 import type { EvidenceGap, MemberOption, PowerStats, SnapshotOption } from "../contracts";
-import type { MemberCatalog, SnapshotCatalog, TeamBuilderData } from "../data";
+import { nativeSnapshotEquipRuleKnown, type MemberCatalog, type SnapshotCatalog, type TeamBuilderData } from "../data";
 import {
   snapshotSkillLevels,
   validateInventory,
@@ -119,10 +119,19 @@ export function inventoryOptions(
       gekisoSupportSkillLevel: skills.gekisoSupport[0]?.level ?? 0,
       gaps: [
         ...power.gaps,
-        { code: "native-snapshot-equip-restriction-unverified", source: "MasterSupportCard.characterIDs" },
+        ...(!nativeSnapshotEquipRuleKnown(data.identity)
+          ? [
+              {
+                code: "native-snapshot-equip-restriction-unverified",
+                source: "formal Intl support equip rule not established for this source",
+              },
+            ]
+          : []),
       ],
     });
     const option = snapshots.at(-1)!;
+    if (nativeSnapshotEquipRuleKnown(data.identity))
+      option.allowedCharacterIds = Object.keys(data.characters).map(Number);
     option.supportSkills = skills.support.map((skill) => ({ id: skill.id, level: skill.level! }));
     option.gekisoSupportSkills = skills.gekisoSupport.map((skill) => ({ id: skill.id, level: skill.level! }));
     if (power.bonusBP) option.bonusBP = power.bonusBP;

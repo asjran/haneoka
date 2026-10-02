@@ -40,6 +40,8 @@ export interface SnapshotCatalog {
   awakeningGroup: number;
   supportSkillIds: number[];
   gekisoSupportSkillIds: number[];
+  supportSkillSlotsKnown?: boolean;
+  gekisoSupportSkillSlotsKnown?: boolean;
 }
 export interface TeamBuilderData {
   schema: "haneoka-team-builder-data-v1";
@@ -82,6 +84,9 @@ const compactNative = (value: unknown): unknown => {
 };
 const positiveIds = (value: unknown): number[] =>
   (Array.isArray(value) ? value : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+/** Formal Intl 1.0.1 owned-support selection/SetDeck validates IDs, not depicted characters. */
+export const nativeSnapshotEquipRuleKnown = (identity: TeamBuilderData["identity"]) =>
+  identity.server === "intl" && /^v\d+-c0b6a1541e45-/u.test(identity.sourceId ?? "");
 const stats = (row: DataRow): PowerStats => {
   const stat = objectRow(row.stat);
   return {
@@ -134,14 +139,25 @@ export function adaptTeamBuilderData(
     Object.entries(objectRow(documents["support-cards"])).map(([key, value]) => {
       const row = nativeRow(value);
       const resolved = objectRow(row.resolvedSkills);
-      const skillIds = (group: string, explicit: unknown, nativeKeys: string[]) =>
-        Array.isArray(explicit)
+      const skillIds = (group: string, explicit: unknown, nativeKeys: string[]) => {
+        const validId = (id: unknown): id is number =>
+          typeof id === "number" && Number.isSafeInteger(id) && id >= 0 && id <= 0x7fffffff;
+        if (nativeKeys.every((field) => validId(row[field])))
+          return { ids: nativeKeys.map((field) => row[field] as number), known: true };
+        if (Array.isArray(explicit) && explicit.length === 2 && explicit.every(validId))
+          return { ids: [...explicit] as number[], known: true };
+        const compact = Array.isArray(explicit)
           ? positiveIds(explicit)
-          : dataRows(resolved[group]).length
-            ? dataRows(resolved[group])
-                .map((skill) => Number(skill.id))
-                .filter(Boolean)
-            : nativeKeys.map((field) => Number(row[field])).filter((id) => id > 0);
+          : dataRows(resolved[group])
+              .map((skill) => Number(skill.id))
+              .filter((id) => id > 0);
+        return { ids: [compact[0] ?? 0, compact[1] ?? 0], known: compact.length === 2 };
+      };
+      const support = skillIds("support", row.supportSkillIds, ["supportSkillId01", "supportSkillId02"]);
+      const gekisoSupport = skillIds("gekisouSupport", row.gekisouSupportSkillIds, [
+        "gekisouSupportSkillId01",
+        "gekisouSupportSkillId02",
+      ]);
       return [
         key,
         {
@@ -155,11 +171,10 @@ export function adaptTeamBuilderData(
           statMax: stats(row),
           levelGroup: Number(row.supportCardLevelGroup),
           awakeningGroup: Number(row.supportCardRankGroup),
-          supportSkillIds: skillIds("support", row.supportSkillIds, ["supportSkillId01", "supportSkillId02"]),
-          gekisoSupportSkillIds: skillIds("gekisouSupport", row.gekisouSupportSkillIds, [
-            "gekisouSupportSkillId01",
-            "gekisouSupportSkillId02",
-          ]),
+          supportSkillIds: support.ids,
+          gekisoSupportSkillIds: gekisoSupport.ids,
+          supportSkillSlotsKnown: support.known,
+          gekisoSupportSkillSlotsKnown: gekisoSupport.known,
         } satisfies SnapshotCatalog,
       ];
     }),
@@ -316,7 +331,7 @@ export function adaptTeamBuilderData(
     runtimeRules: adaptRuntimeRules(identity, documents["runtime-rules"]),
     gaps: [
       "full-player-and-song-power-stacking-unresolved",
-      "snapshot-character-list-is-not-an-established-equip-restriction",
+      ...(!nativeSnapshotEquipRuleKnown(identity) ? ["native-snapshot-equip-rule-unverified-for-source"] : []),
     ],
   };
 }
