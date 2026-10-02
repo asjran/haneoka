@@ -285,8 +285,14 @@ export function createNativeEventSubjectResolver(data: TeamBuilderData, inventor
     snapshotCache.set(id, result);
     return result;
   };
+  // The factory precomputes per-instance event bonuses from these maps once.
+  // Include unresolved profiles so candidate evaluation never repeats their conversion.
+  for (const id of memberStates.keys()) memberCache.set(id, memberProfile(id));
+  for (const id of snapshotStates.keys()) snapshotCache.set(id, snapshotProfile(id));
   return {
     identity,
+    memberById: memberCache as ReadonlyMap<string, { subject: EventMember | null; gaps: EvidenceGap[] }>,
+    snapshotById: snapshotCache as ReadonlyMap<string, { subject: EventSnapshot | null; gaps: EvidenceGap[] }>,
     resolve(assignment: TeamAssignment) {
       const gaps: EvidenceGap[] = [];
       const gap = (code: string, source: string) => gaps.push({ code, source });
