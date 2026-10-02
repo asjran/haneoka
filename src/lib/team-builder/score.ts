@@ -62,6 +62,18 @@ export function nativeComboFactor(ordinaryBonus: number, skillComboBonus: number
 export function nativeScoreUpFactor(generalBonus: number, judgementBonus = 0): number {
   return f(f(1 + f(generalBonus)) + f(judgementBonus));
 }
+/** LiveScoreController.AddJudgementNoteScoreUpFactor uses RoundToInt (ties-even)
+ * after the float32 mill-percent product; the general type2000 path uses floor. */
+export function nativeJudgementFactorMillPercent(additionalFactor: number): number {
+  if (!Number.isFinite(additionalFactor)) throw new RangeError("judgement-factor-input");
+  const scaled = mul(additionalFactor, 100000);
+  const lower = Math.floor(scaled),
+    fraction = scaled - lower;
+  const rounded = fraction < 0.5 ? lower : fraction > 0.5 ? lower + 1 : lower % 2 === 0 ? lower : lower + 1;
+  if (!Number.isSafeInteger(rounded) || rounded < -0x80000000 || rounded > 0x7fffffff)
+    throw new RangeError("judgement-factor-int32-overflow");
+  return rounded === 0 ? 0 : rounded;
+}
 export function nativeLuckFactorPercent(bonusPercent: number): number {
   return Math.min(100 + bonusPercent, 200);
 }

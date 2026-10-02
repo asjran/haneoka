@@ -37,7 +37,7 @@ function lowerBound(song: PreparedSong, timeMs: number): number {
 
 /** Prepare immutable live effects and chart event identities once. Per-order
  * commands retain the chart's original index even when their times are unsorted.
- * The first normal scope is positive-duration, unconditional type2000, with
+ * The normal scope includes positive-duration unconditional type2000/2004, with
  * snapshots excluded; unsupported state machines retain an explicit gap.
  */
 export function createNativeNormalScoreResolver(data: TeamBuilderData, input: OptimizationInput) {
@@ -52,7 +52,23 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
   const phaseByEffectType = Object.fromEntries(
     phaseRows.map((row) => [Number(row.skillEffectType), Number(row.phase)]),
   );
+  const targets = new Map(
+    dataRows(data.skillReference.targets)
+      .map(nativeRow)
+      .map((row) => [Number(row.id), row]),
+  );
+  const resolveJudgements = (row: Readonly<Record<string, unknown>>): readonly number[] | null => {
+    if (!Array.isArray(row.skillTargetIDs) || row.skillTargetIDs.some((id) => !int(id) || !targets.has(id)))
+      return null;
+    const values = row.skillTargetIDs.map((id) => targets.get(id)!.judgement);
+    return values.every((value) => typeof value === "number" && [3, 4, 5, 6].includes(value))
+      ? (values as number[])
+      : null;
+  };
   const members = new Map<string, NormalSkillPlan>();
+  const identities = new Map(
+    input.members.map((member) => [member.instanceId, { cardId: member.cardId, characterId: member.characterId }]),
+  );
   for (const member of input.members) {
     const raw = data.skills.live?.[String(member.liveSkillId)];
     const plan = resolveNormalSkillEffects({
@@ -61,8 +77,9 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
       skillId: member.liveSkillId,
       level: member.liveSkillLevel,
       phaseByEffectType,
+      resolveJudgements,
     });
-    if (plan.effects.some((effect) => effect.type !== 2000))
+    if (plan.effects.some((effect) => effect.type !== 2000 && effect.type !== 2004))
       members.set(member.instanceId, {
         effects: [],
         gaps: [...plan.gaps, gap("native-normal-basic-live-skills-required", member.instanceId)],
@@ -137,7 +154,15 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
         local.push(gap("native-normal-support-runtime-unresolved", "selected snapshots"));
       const nativeMembers = [...assignment.memberInstanceIds];
       const leaderSlot = nativeMembers.indexOf(assignment.leaderInstanceId);
-      if (nativeMembers.length !== 5 || leaderSlot < 0)
+      const selectedIdentities = nativeMembers.map((id) => identities.get(id));
+      if (
+        nativeMembers.length !== 5 ||
+        assignment.snapshotInstanceIds.length !== 5 ||
+        leaderSlot < 0 ||
+        selectedIdentities.some((identity) => !identity) ||
+        new Set(selectedIdentities.map((identity) => identity?.cardId)).size !== 5 ||
+        new Set(selectedIdentities.map((identity) => identity?.characterId)).size !== 5
+      )
         local.push(gap("native-normal-formation-unresolved", "assignment"));
       else [nativeMembers[2], nativeMembers[leaderSlot]] = [nativeMembers[leaderSlot]!, nativeMembers[2]!];
       const plans = nativeMembers.map((id) => members.get(id));
@@ -185,34 +210,40 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
         skills.assumptions.forEach((assumption) => assumptions.add(assumption));
         const commands = [...skills.factorCommands];
         // The native comparator uses owner ID before insertion order at equal time.
-        for (let index = 1; index < commands.length; index++) {
-          const left = commands[index - 1]!,
-            right = commands[index]!;
+        const sameTime = new Map<string, (typeof commands)[number]>();
+        for (const command of commands) {
+          const key = `${command.timeMs}:${command.judgement ?? "general"}`;
+          const previous = sameTime.get(key);
           if (
-            left.timeMs === right.timeMs &&
-            (left.factorOwnerId === undefined || right.factorOwnerId === undefined) &&
-            left.handleId !== right.handleId
+            previous &&
+            (previous.factorOwnerId === undefined || command.factorOwnerId === undefined) &&
+            previous.handleId !== command.handleId &&
+            (previous.memberSkillIndex !== command.memberSkillIndex || previous.effectId !== command.effectId)
           )
             return unavailableMetric("native-normal-factor-owner-order-unresolved", song.song.key);
+          sameTime.set(key, command);
         }
         commands.sort(
           (a, b) => a.timeMs - b.timeMs || (a.factorOwnerId ?? 0) - (b.factorOwnerId ?? 0) || a.sequence - b.sequence,
         );
         let score = input.evaluation.songContexts[song.song.key]!.fixedScore;
         let index = 0,
-          factor = f(1);
+          factor = f(1),
+          perfectExtra = f(0);
         for (const command of commands) {
           const end = lowerBound(song, command.timeMs);
           if (end > index) {
-            const sums = await prefix(song, power, factor, controls);
+            const sums = await prefix(song, power, f(factor + perfectExtra), controls);
             if (!sums) return unavailableMetric("native-normal-shuffle-interrupted", "search cancellation/budget");
             score += sums[end]! - sums[index]!;
           }
-          factor = f(factor + f(f(command.diffMillPercent) / f(100000)));
+          const diff = f(f(command.diffMillPercent) / f(100000));
+          if (command.judgement === undefined) factor = f(factor + diff);
+          else if (command.judgement === 5) perfectExtra = f(perfectExtra + diff);
           index = end;
         }
         if (index < song.nodes.length) {
-          const sums = await prefix(song, power, factor, controls);
+          const sums = await prefix(song, power, f(factor + perfectExtra), controls);
           if (!sums) return unavailableMetric("native-normal-shuffle-interrupted", "search cancellation/budget");
           score += sums[song.nodes.length]! - sums[index]!;
         }

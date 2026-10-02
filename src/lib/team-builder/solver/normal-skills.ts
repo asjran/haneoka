@@ -1,4 +1,5 @@
 import type { EvidenceGap, SkillWindow } from "../contracts.ts";
+import { nativeJudgementFactorMillPercent } from "../score.ts";
 
 const f = Math.fround;
 const int = (value: unknown): value is number =>
@@ -21,7 +22,7 @@ export interface NormalSkillCondition {
 }
 export interface NormalSkillEffect {
   id: number;
-  type: 2000 | 15000;
+  type: 2000 | 2004 | 15000;
   phase: 2;
   seconds: number;
   value: number;
@@ -30,6 +31,8 @@ export interface NormalSkillEffect {
   poolSize?: number;
   /** The score consumer resolves native FactorOwnerId; local handles remain distinct. */
   factorOwnerId?: number;
+  /** Each native target has its own handle; duplicate judgements stay duplicated. */
+  judgements?: readonly number[];
 }
 export interface NormalSkillPlan {
   effects: readonly NormalSkillEffect[];
@@ -57,6 +60,7 @@ export interface NormalFactorCommand {
   memberSkillIndex: number;
   effectId: number;
   sequence: number;
+  judgement?: number;
 }
 export interface NormalSkillWindow {
   window: SkillWindow;
@@ -87,6 +91,7 @@ export function resolveNormalSkillEffects(input: {
   level: number;
   phaseByEffectType: Readonly<Record<number, number>>;
   resolveCondition?: (row: Readonly<Record<string, unknown>>) => NormalSkillCondition | null;
+  resolveJudgements?: (row: Readonly<Record<string, unknown>>) => readonly number[] | null;
 }): NormalSkillPlan {
   const effects: NormalSkillEffect[] = [],
     gaps: EvidenceGap[] = [];
@@ -104,7 +109,7 @@ export function resolveNormalSkillEffects(input: {
     gaps.push(gap("native-normal-skill-level-unresolved", `${input.kind}:${input.skillId}/level:${input.level}`));
   for (const row of selected) {
     const source = `${input.kind}:${input.skillId}/level:${input.level}/effect:${row.id}`;
-    if (row.skillEffectType !== 2000 && row.skillEffectType !== 15000) {
+    if (row.skillEffectType !== 2000 && row.skillEffectType !== 2004 && row.skillEffectType !== 15000) {
       gaps.push(gap("native-normal-effect-type-unresolved", `${source}/type:${row.skillEffectType}`));
       continue;
     }
@@ -121,9 +126,17 @@ export function resolveNormalSkillEffects(input: {
         "maxEffectValue",
       ].some((key) => row[key] !== 0) ||
       !Array.isArray(row.skillTargetIDs) ||
-      row.skillTargetIDs.length
+      (row.skillEffectType !== 2004 && row.skillTargetIDs.length)
     ) {
       gaps.push(gap("native-normal-effect-counter-or-target-unresolved", source));
+      continue;
+    }
+    const judgements = row.skillEffectType === 2004 ? input.resolveJudgements?.(row) : undefined;
+    if (
+      row.skillEffectType === 2004 &&
+      (!judgements || !judgements.length || judgements.some((value) => ![3, 4, 5, 6].includes(value)))
+    ) {
+      gaps.push(gap("native-normal-judgement-target-unresolved", source));
       continue;
     }
     let condition: NormalSkillCondition | null = null;
@@ -159,6 +172,7 @@ export function resolveNormalSkillEffects(input: {
       seconds: f(row.activationTimeSecond),
       value: row.effectValue,
       condition,
+      judgements: judgements ?? undefined,
     });
   }
   return { effects, gaps };
@@ -200,6 +214,7 @@ interface Instance {
   handleId: number;
   delta: number;
   binding: NormalSkillWindow | null;
+  judgementBindings: { binding: NormalSkillWindow; delta: number; judgement: number }[];
 }
 const fresh = (): Instance => ({
   extendedMs: 0,
@@ -208,6 +223,7 @@ const fresh = (): Instance => ({
   handleId: 0,
   delta: 0,
   binding: null,
+  judgementBindings: [],
 });
 const duration = (runtime: EffectRuntime, instance: Instance) =>
   f(f(runtime.effect.seconds * f(1000)) + instance.extendedMs);
@@ -215,7 +231,7 @@ const disabled = (runtime: EffectRuntime, time: number) =>
   runtime.effect.condition.disabledIntervals?.some((interval) => interval.startMs <= time && time < interval.endMs) ??
   false;
 
-/** Construct type2000 score commands and type15000 duration changes for an explicit
+/** Construct general/type2004 judgement score commands and type15000 duration changes for an explicit
  * order. Exact supplied frames preserve phase/state timing. With no frame list,
  * positive Live windows and isolated support pulses use event-time dispatch;
  * support pool reuse needs explicit frames when multiple pulses exceed capacity.
@@ -286,7 +302,7 @@ export function buildNormalSkillWindows(input: NormalSkillInput): NormalSkillRes
       for (const effect of plan.effects) {
         const source = `slot:${formationSlot}/support:${physical ?? "live"}/effect:${effect.id}`;
         if (
-          (effect.type !== 2000 && effect.type !== 15000) ||
+          (effect.type !== 2000 && effect.type !== 2004 && effect.type !== 15000) ||
           effect.phase !== 2 ||
           !int(effect.id) ||
           !int(effect.value) ||
@@ -297,15 +313,22 @@ export function buildNormalSkillWindows(input: NormalSkillInput): NormalSkillRes
           continue;
         }
         const delta = Math.floor(f(f(f(effect.value) / f(10000)) * f(100000)));
-        if (effect.type === 2000 && !int(delta)) {
+        if ((effect.type === 2000 || effect.type === 2004) && !int(delta)) {
           fail("native-normal-score-delta-out-of-int32", source);
           continue;
         }
         if (
           (physical === null && !normalSupportHasTimedActivation(effect.seconds)) ||
-          (effect.type === 2000 && effect.seconds <= 0 && !effect.condition.releaseFramesMs)
+          ((effect.type === 2000 || effect.type === 2004) && effect.seconds <= 0 && !effect.condition.releaseFramesMs)
         ) {
           fail("native-normal-live-duration-unresolved", source);
+          continue;
+        }
+        if (
+          effect.type === 2004 &&
+          (!effect.judgements?.length || effect.judgements.some((value) => ![3, 4, 5, 6].includes(value)))
+        ) {
+          fail("native-normal-judgement-target-unresolved", source);
           continue;
         }
         const activations =
@@ -378,15 +401,23 @@ export function buildNormalSkillWindows(input: NormalSkillInput): NormalSkillRes
   // Native updates normal skills before support skills within the same phase.
   runtimes.sort((a, b) => Number(a.physicalSupportSlot !== null) - Number(b.physicalSupportSlot !== null));
   let nextHandle = 1;
-  const command = (runtime: EffectRuntime, instance: Instance, timeMs: number, diff: number) => {
+  const command = (
+    runtime: EffectRuntime,
+    instance: Instance,
+    timeMs: number,
+    diff: number,
+    handleId = instance.handleId,
+    judgement?: number,
+  ) => {
     result.factorCommands.push({
       timeMs,
       diffMillPercent: diff,
-      handleId: instance.handleId,
+      handleId,
       factorOwnerId: runtime.effect.factorOwnerId,
       memberSkillIndex: runtime.memberSkillIndex,
       effectId: runtime.effect.id,
       sequence: result.factorCommands.length,
+      judgement,
     });
   };
   const finish = (runtime: EffectRuntime, instance: Instance, timeMs: number) => {
@@ -395,6 +426,11 @@ export function buildNormalSkillWindows(input: NormalSkillInput): NormalSkillRes
       instance.binding.window.endMs = Math.min(input.musicLengthMs, timeMs);
       instance.binding.extendedTimeMs = instance.extendedMs;
       command(runtime, instance, instance.binding.window.endMs, -instance.delta);
+    }
+    for (const { binding, delta, judgement } of instance.judgementBindings) {
+      binding.window.endMs = Math.min(input.musicLengthMs, timeMs);
+      binding.extendedTimeMs = instance.extendedMs;
+      command(runtime, instance, binding.window.endMs, -delta, binding.handleId, judgement);
     }
   };
   const frames = [...frameSet].filter((time) => time <= input.musicLengthMs).sort((a, b) => a - b);
@@ -435,6 +471,7 @@ export function buildNormalSkillWindows(input: NormalSkillInput): NormalSkillRes
       instance.startMs = executeMs!;
       instance.handleId = nextHandle++;
       instance.binding = null;
+      instance.judgementBindings = [];
       runtime.active.push(instance);
       started.push({ runtime, instance });
     }
@@ -446,6 +483,37 @@ export function buildNormalSkillWindows(input: NormalSkillInput): NormalSkillRes
             for (const target of live.active)
               if (target.state === 2 || target.state === 3)
                 target.extendedMs = f(target.extendedMs + f(runtime.effect.value));
+      } else if (runtime.effect.type === 2004) {
+        const delta = nativeJudgementFactorMillPercent(f(f(runtime.effect.value) / f(10000)));
+        for (const judgement of runtime.effect.judgements!) {
+          const handleId = nextHandle++;
+          const extra = f(f(delta) / f(100000));
+          const window: SkillWindow = {
+            startMs: instance.startMs,
+            endMs: input.musicLengthMs,
+            scoreBonus: 0,
+            perfectBonus: judgement === 5 ? extra : 0,
+            justBonus: judgement === 6 ? extra : 0,
+            comboBonus: 0,
+            gekisoComboBonus: 0,
+            luckBonusPercent: 0,
+            powerDelta: 0,
+          };
+          const binding: NormalSkillWindow = {
+            window,
+            handleId,
+            effectId: runtime.effect.id,
+            formationSlot: runtime.formationSlot,
+            memberSkillIndex: runtime.memberSkillIndex,
+            physicalSupportSlot: runtime.physicalSupportSlot,
+            nativeCompactSkillIndex: runtime.nativeCompactSkillIndex,
+            extendedTimeMs: instance.extendedMs,
+          };
+          instance.judgementBindings.push({ binding, delta, judgement });
+          result.windows.push(window);
+          result.bindings.push(binding);
+          command(runtime, instance, instance.startMs, delta, handleId, judgement);
+        }
       } else {
         instance.delta = Math.floor(f(f(f(runtime.effect.value) / f(10000)) * f(100000)));
         const window: SkillWindow = {
