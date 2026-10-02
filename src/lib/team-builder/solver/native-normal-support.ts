@@ -1,6 +1,7 @@
 import type { EvidenceGap, OptimizationInput } from "../contracts.ts";
 import { dataRows, nativeRow, type DataRow, type TeamBuilderData } from "../data.ts";
 import { resolveNormalSkillEffects, type NormalSkillPlan } from "./normal-skills.ts";
+import { createNativeNormalAPNeutralResolver } from "./native-normal-ap-neutral.ts";
 
 type Match = boolean | "member-event" | null;
 const gap = (code: string, source: string): EvidenceGap => ({ code, source });
@@ -13,6 +14,7 @@ const ids = (value: unknown): value is number[] =>
  * conditions. Other support state machines retain their own evidence gap.
  */
 export function createNativeNormalSupportResolver(data: TeamBuilderData, input: OptimizationInput) {
+  const neutral = createNativeNormalAPNeutralResolver(data);
   const conditions = new Map(
     dataRows(data.skillReference.conditions)
       .map(nativeRow)
@@ -125,8 +127,27 @@ export function createNativeNormalSupportResolver(data: TeamBuilderData, input: 
       const plans = snapshot.supportSkills.map((skill, slot) => {
         if (skill.id === 0) return null;
         const rows = prepared!.rows![slot]!;
+        const selected = rows.filter(
+          (row) => row.level === skill.level && (row.supportSkillID === undefined || row.supportSkillID === skill.id),
+        );
+        if (!selected.length)
+          return {
+            effects: [],
+            gaps: [gap("native-normal-skill-level-unresolved", `support:${skill.id}/level:${skill.level}`)],
+          };
+        const accepted = selected.filter((row) => {
+          // Pure recovery and conversions are score-equivalent in this AP scope.
+          // Validate static enable/own-member trigger before omitting the effect.
+          return !(
+            input.evaluation.mode === "normal" &&
+            neutral(row) &&
+            typeof group(row.skillConditionGroup, member.bandId) === "boolean" &&
+            group(row.skillTriggerConditionGroup, member.bandId) === "member-event"
+          );
+        });
+        if (!accepted.length) return { effects: [], gaps: [] };
         return resolveNormalSkillEffects({
-          rows,
+          rows: accepted,
           kind: "support",
           skillId: skill.id,
           level: skill.level,
