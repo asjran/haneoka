@@ -69,3 +69,15 @@
     }
   }
 }
+
+@layer pages {
+  .character-rank-rewards .character-rank-rewards__image {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+  }
+  .character-rank-rewards__image > .tile__media {
+    height: 100%;
+    border-radius: var(--md-sys-shape-corner-extra-small);
+  }
+}

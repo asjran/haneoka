@@ -9,9 +9,9 @@ import { characterProfile } from "./shared/character-profile";
 import { characterPair } from "./ui/character-pair";
 import { renderDetailSectionHeading, type DetailSectionKind } from "./shared/detail-section-heading";
 import type { GridIdentityAdornment } from "./shared/grid-identity";
-import { tile } from "./ui/tile";
+import { tile, tileMedia } from "./ui/tile";
 import { storyCastMedia } from "./ui/story-media";
-import { LazyImages, nextImageCandidate } from "./ui/lazy-images";
+import { LazyImages, localeTaggedCandidates, nextImageCandidate } from "./ui/lazy-images";
 import { rovingKeydown } from "./ui/controls";
 import { storyCollectionPath, type ResourceKind } from "../lib/resource-route";
 import type { Locale } from "../i18n/locales";
@@ -663,7 +663,7 @@ export class CharacterDetailArchive extends LitElement {
     const rank = Number(selected.rank);
     const rewards = values(associations?.rewards).filter((row) => Number(row.rank) === rank);
     return html`
-      <section class="detail-section">
+      <section class="detail-section character-rank-rewards">
         ${this.sectionHeading(c.label("characterRankRewards", "Character rank rewards"), "rewards")}
         ${renderLevelSwitch(
           c.label("rank", "Rank"),
@@ -684,7 +684,7 @@ export class CharacterDetailArchive extends LitElement {
             <dd>${Number(selected.bonus || 0).toLocaleString(c.contentLocale)}</dd>
           </div>
         </dl>
-        <div class="reference-list">
+        <ul class="detail-object-list" role="list">
           ${rewards.map((row) => {
             const reward = row.reward as Item;
             const reference = reward.reference as Item | undefined;
@@ -695,17 +695,15 @@ export class CharacterDetailArchive extends LitElement {
               c.localized(reward.resourceTypeName) ||
               c.label("rewards", "Rewards");
             const image = String(reference?.image || resolved?.image || "");
+            const imageCandidates = image ? localeTaggedCandidates(image, c.contentLocale) : [];
             return html`
-              <div>
-                ${
-                  image
-                    ? html`
-                        <img src=${c.imageForLocale(image)} alt="" loading="lazy" />
-                      `
-                    : nothing
-                }
-                <span>
-                  ${
+              <li>
+                <div class="detail-object">
+                  <span class="character-rank-rewards__image">
+                    ${tileMedia({ title: name, label: name, image: imageCandidates[0] || "", imageCandidates, aspectRatio: 1, fit: "contain" })}
+                  </span>
+                  <span>
+                    ${
                     kind && reference?.id
                       ? html`
                           <a href=${c.relatedEntityHref(kind, String(reference.id))}>${name}</a>
@@ -714,12 +712,13 @@ export class CharacterDetailArchive extends LitElement {
                           <strong>${name}</strong>
                         `
                   }
-                </span>
-                <b>×${Number(reward.resourceCount || 0).toLocaleString(c.contentLocale)}</b>
-              </div>
+                  </span>
+                  <b>×${Number(reward.resourceCount || 0).toLocaleString(c.contentLocale)}</b>
+                </div>
+              </li>
             `;
           })}
-        </div>
+        </ul>
       </section>
     `;
   }

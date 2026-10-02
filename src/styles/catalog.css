@@ -726,3 +726,15 @@
     object-fit: contain;
   }
 }
+
+@layer pages {
+  .browse--character .browse__heading-art {
+    width: 48px;
+    height: 48px;
+    overflow: hidden;
+    border-radius: var(--md-sys-shape-corner-full);
+  }
+  .browse--character .browse__heading-art > img {
+    object-position: center;
+  }
+}

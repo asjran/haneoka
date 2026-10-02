@@ -69,9 +69,6 @@
     letter-spacing: 0.045em;
     overflow-wrap: anywhere;
   }
-  .sheet--detail-page .character-profile h2 {
-    display: none;
-  }
   .character-profile__alternate {
     margin: 8px 0 0;
     font: 400 14px/20px var(--app-font);

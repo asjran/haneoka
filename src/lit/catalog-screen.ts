@@ -2900,7 +2900,16 @@ export class CatalogScreen extends LitElement {
               },
             }
           : undefined,
-        heading: this.hasBandRail() && this.activeBand ? { title: this.bandName(this.activeBand) } : undefined,
+        heading:
+          this.hasBandRail() && this.activeBand
+            ? {
+                title: this.bandName(this.activeBand),
+                titleLanguage: this.localizedLanguage(this.band(this.activeBand)?.bandName),
+                image: String(this.band(this.activeBand)?.icon || ""),
+                supporting: this.localized(this.band(this.activeBand)?.description),
+                supportingLanguage: this.localizedLanguage(this.band(this.activeBand)?.description),
+              }
+            : undefined,
         controls: this.renderBarControls(items),
         modes: this.renderBarModes(),
         applied: appliedCount || this.query ? this.renderApplied() : undefined,
