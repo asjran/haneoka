@@ -7487,6 +7487,17 @@ def _live_tools(data: BuildData) -> dict[str, Any]:
         "challengeBoostBonuses": exact(
             "MasterChallengeMusicBoostBonus", "_consumedChallengePointCount", "_id"
         ),
+        "tableAvailability": {
+            key: {
+                "sourceTable": table,
+                "status": "ready" if data.rows(table) else "empty" if table in data.tables else "missing",
+                "rowCount": len(data.rows(table)),
+            }
+            for key, table in {
+                "liveBoostBonuses": "MasterLiveMusicBoostBonus",
+                "challengeBoostBonuses": "MasterChallengeMusicBoostBonus",
+            }.items()
+        },
         "bandHighScoreRatings": exact(
             "MasterLiveBandHighScoreRating", "_bandId", "_step", "_id"
         ),

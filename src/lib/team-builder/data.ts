@@ -1,6 +1,6 @@
 import type { PowerStats, ReleaseIdentity } from "./contracts";
 import { projectEventDetail } from "./data/events";
-import { adaptRuntimeRules, adaptChallengePointTable, type RuntimeRules, type LiveChallengePointTable } from "./data/runtime-rules";
+import { adaptRuntimeRules, adaptChallengePointTable, adaptBoostTables, type RuntimeRules, type LiveChallengePointTable } from "./data/runtime-rules";
 
 export type DataRow = Record<string, unknown>;
 export interface MemberCatalog {
@@ -220,6 +220,13 @@ export function adaptTeamBuilderData(
   };
   const growth = Object.fromEntries(growthKeys.map((key) => [key, dataRows(progression[key]).map(nativeRow)]));
   const challengePointTable = adaptChallengePointTable(identity, objectRow(documents["runtime-rules"]).challengePointTable);
+  const boosts = adaptBoostTables(identity, objectRow(documents["runtime-rules"]).boostTables);
+  const liveTools = compactNative(
+    pick(objectRow(documents["live-tools"]), [
+      "liveSettings", "scoreRanks", "noteParameters", "judgementParameters", "judgementTiming",
+      "comboScoreBonuses", "liveBoostBonuses", "challengeBoostBonuses", "tableAvailability", "expRewards",
+    ]),
+  ) as DataRow;
   return {
     schema: "haneoka-team-builder-data-v1",
     identity: { ...identity },
@@ -265,6 +272,9 @@ export function adaptTeamBuilderData(
               "kind",
               "title",
               "name",
+              "image",
+              "backgroundImage",
+              "logo",
               "startAt",
               "endAt",
               "displayEndAt",
@@ -316,19 +326,10 @@ export function adaptTeamBuilderData(
         "effectGroups",
       ]),
     ) as DataRow,
-    liveTools: compactNative(
-      pick(objectRow(documents["live-tools"]), [
-        "liveSettings",
-        "scoreRanks",
-        "noteParameters",
-        "judgementParameters",
-        "judgementTiming",
-        "comboScoreBonuses",
-        "liveBoostBonuses",
-        "challengeBoostBonuses",
-        "expRewards",
-      ]),
-    ) as DataRow,
+    liveTools: {
+      ...liveTools, ...boosts.rows,
+      tableAvailability: { ...objectRow(liveTools.tableAvailability), ...boosts.availability },
+    },
     gekisoRules: compactNative(objectRow(documents.gekisou)) as DataRow,
     runtimeRules: adaptRuntimeRules(identity, documents["runtime-rules"]),
     ...(challengePointTable ? { challengePointTable } : {}),

@@ -35,6 +35,14 @@ export interface NativeRewardResourceRow extends SelectedEventReward {
   rewardGroup: number;
   eventGroup: number;
 }
+export interface NativeBoostTableAvailability {
+  identity: TeamBuilderData["identity"];
+  sourceTable: "MasterLiveMusicBoostBonus" | "MasterChallengeMusicBoostBonus";
+  status: "ready" | "empty" | "missing" | "unverified";
+  gaps: EvidenceGap[];
+}
+/** Master locale slots remain slots; display locale does not select a held-event window. */
+export type NativeEventTime = number | (number | null)[] | null;
 
 /** Field translation only. Held-event selection, native rank calculation,
  * reward selection and all arithmetic belong to the runtime factory.
@@ -81,6 +89,30 @@ export function nativeRewardSources(data: TeamBuilderData, songId: number | null
   };
   const normalBoostRows = boostRows("normal"),
     challengeBoostRows = boostRows("challenge");
+  const boostAvailability = (mode: "normal" | "challenge", rows: BoostBonusRow[]): NativeBoostTableAvailability => {
+    const field = mode === "normal" ? "liveBoostBonuses" : "challengeBoostBonuses";
+    const sourceTable = mode === "normal" ? "MasterLiveMusicBoostBonus" : "MasterChallengeMusicBoostBonus";
+    const raw = data.liveTools[field], meta = objectRow(objectRow(data.liveTools.tableAvailability)[field]);
+    const sourceGaps = gaps.filter((gap) => gap.source === sourceTable);
+    let status: NativeBoostTableAvailability["status"] = "unverified";
+    if (!Array.isArray(raw)) status = "missing";
+    else if (rows.length === raw.length && !sourceGaps.length) {
+      if (!Object.keys(meta).length && raw.length) status = "ready";
+      else if (meta.sourceTable === sourceTable && meta.rowCount === raw.length &&
+          ((meta.status === "ready" && raw.length > 0) ||
+           ((meta.status === "empty" || meta.status === "missing") && raw.length === 0)))
+        status = meta.status as NativeBoostTableAvailability["status"];
+    }
+    if (status === "unverified")
+      sourceGaps.push({ code: "native-boost-table-availability-unverified", source: sourceTable });
+    else if (status === "missing" && !sourceGaps.length)
+      sourceGaps.push({ code: "native-reward-source-unavailable", source: sourceTable });
+    return { identity: { ...data.identity }, sourceTable, status, gaps: sourceGaps };
+  };
+  const boostTableAvailability = {
+    normal: boostAvailability("normal", normalBoostRows),
+    challenge: boostAvailability("challenge", challengeBoostRows),
+  };
   let scoreRankRows: NativeScoreRankRow[] = [];
   if (songId !== null) {
     const group = data.songs[String(songId)]?.liveScoreRankGroup;
@@ -104,7 +136,7 @@ export function nativeRewardSources(data: TeamBuilderData, songId: number | null
     if (!scoreRankRows.length) gap(`song:${songId}/MasterLiveScoreRank`, "native-score-rank-group-missing");
   }
   const events = Object.fromEntries(
-    Object.entries(data.events).map(([id, event]) => {
+    Object.entries(data.events).filter(([id]) => /^[1-9]\d*$/u.test(id) && int32(Number(id))).map(([id, event]) => {
       const tables = objectRow(event.tables),
         groups = objectRow(event.rewardGroups);
       const effects: NativeEventEffect[] = read(tables.MasterEventEffect, `event:${id}/MasterEventEffect`).flatMap(
@@ -202,6 +234,14 @@ export function nativeRewardSources(data: TeamBuilderData, songId: number | null
             ];
           });
       };
+      const eventTime = (value: unknown, field: string): NativeEventTime => {
+        const timestamp = (value: unknown): value is number =>
+          typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+        if (timestamp(value)) return value;
+        if (Array.isArray(value) && value.every((slot) => slot === null || timestamp(slot))) return [...value];
+        gap(`event:${id}/${field}`, "native-event-time-unresolved");
+        return null;
+      };
       return [
         id,
         {
@@ -210,12 +250,20 @@ export function nativeRewardSources(data: TeamBuilderData, songId: number | null
           challengePointRows: pointRows("MasterChallengeLiveEventPoint", "challengeLiveEventPoint"),
           normalItemRows: itemRows("MasterLiveEventReward", "liveEventReward"),
           challengeItemRows: itemRows("MasterChallengeLiveEventReward", "challengeLiveEventReward"),
-          timing: { startAt: event.startAt, endAt: event.endAt, displayEndAt: event.displayEndAt },
+          timing: {
+            startAt: eventTime(event.startAt, "startAt"),
+            endAt: eventTime(event.endAt, "endAt"),
+            displayEndAt: eventTime(event.displayEndAt, "displayEndAt"),
+          },
+          timingUnit: "milliseconds" as const,
         },
       ] as const;
     }),
   );
-  return { identity: { ...data.identity }, normalBoostRows, challengeBoostRows, scoreRankRows, events, gaps };
+  return {
+    identity: { ...data.identity }, normalBoostRows, challengeBoostRows,
+    boostTableAvailability, scoreRankRows, events, gaps,
+  };
 }
 
 /** Prepare once per immutable solver input; resolve only the chosen slots.

@@ -10,6 +10,10 @@ export const RUNTIME_MASTER_TABLES = {
   memoryMusicBonuses: "MasterMemoryMusicBonus",
   memoryMusicGroups: "MasterMemoryMusicGroup",
 } as const;
+export const BOOST_MASTER_TABLES = {
+  liveBoostBonuses: "MasterLiveMusicBoostBonus",
+  challengeBoostBonuses: "MasterChallengeMusicBoostBonus",
+} as const;
 export interface RuntimeRuleTable {
   sourceTable: string;
   status: "ready" | "empty" | "missing";
@@ -50,7 +54,12 @@ export async function readRuntimeRulesDocument(identity: RuntimeRulesIdentity, r
     for (const [key, table] of batch) tables[key] = table;
   }
   const challengePointTable = { ...await readTable("MasterLiveChallengePoint"), identity: { ...pin } };
-  return { schema: "haneoka-team-runtime-rules-v1", ...pin, tables, challengePointTable };
+  const boosts = await Promise.all(Object.entries(BOOST_MASTER_TABLES).map(async ([key, table]) =>
+    [key, { ...await readTable(table), identity: { ...pin } }] as const));
+  return {
+    schema: "haneoka-team-runtime-rules-v1", ...pin, tables, challengePointTable,
+    boostTables: Object.fromEntries(boosts),
+  };
 }
 export function adaptRuntimeRules(identity: TeamBuilderData["identity"], value: unknown): RuntimeRules {
   const document = objectRow(value);
@@ -110,4 +119,26 @@ export function adaptChallengePointTable(
   if ((status === "ready" && !rows.length) || (status !== "ready" && rows.length))
     throw new Error("Challenge point table status mismatch");
   return { identity: pin, sourceTable: "MasterLiveChallengePoint", status, rows };
+}
+
+/** Prefer observed Master rows over an older collection's ambiguous empty array. */
+export function adaptBoostTables(identity: TeamBuilderData["identity"], value: unknown) {
+  const input = objectRow(value), rows: Record<string, DataRow[]> = {}, availability: Record<string, DataRow> = {};
+  for (const [key, sourceTable] of Object.entries(BOOST_MASTER_TABLES)) {
+    const table = objectRow(input[key]);
+    if (!Object.keys(table).length) continue;
+    const pin = objectRow(table.identity);
+    if (!identity.sourceId || pin.server !== identity.server || pin.releaseId !== identity.releaseId || pin.sourceId !== identity.sourceId)
+      throw new Error("Boost table identity mismatch");
+    if (table.sourceTable !== sourceTable || !["ready", "empty", "missing"].includes(String(table.status)) ||
+        !Array.isArray(table.rows) || table.rows.some((row) => !row || typeof row !== "object" || Array.isArray(row)))
+      throw new Error("Boost table malformed");
+    if ((table.status === "ready" && !table.rows.length) || (table.status !== "ready" && table.rows.length))
+      throw new Error("Boost table status mismatch");
+    // A missing raw mirror does not erase rows already observed in the same-pin collection.
+    if (table.status === "missing") continue;
+    rows[key] = table.rows.map(nativeRow);
+    availability[key] = { sourceTable, status: table.status, rowCount: table.rows.length };
+  }
+  return { rows, availability };
 }
