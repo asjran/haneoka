@@ -1,16 +1,13 @@
 import { fetchCurrentTeamBuilderIdentity } from "../team-builder/data/fetch";
 import { loadCrossServerCatalog } from "./load";
+import { loadCrossServerCatalogs } from "./bundle";
+import type { CrossCatalogReader } from "./load";
 import type { CrossCatalogResource, OfficialCatalogServer } from "./catalog";
 
 /** Browser adapter: current identities are refreshed per load, with no retained/build fallback. */
-export function fetchCrossServerCatalog(
-  resource: CrossCatalogResource, selectedServer: OfficialCatalogServer, locale: string,
-  options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
-) {
+function reader(options: { signal?: AbortSignal; fetcher?: typeof fetch }): CrossCatalogReader {
   const fetcher = options.fetcher ?? fetch;
-  return loadCrossServerCatalog(resource, {
-    selectedServer, locale,
-    reader: {
+  return {
       async readIdentity(server) {
         const identity = await fetchCurrentTeamBuilderIdentity(server, options.signal, fetcher);
         return { ...identity, server };
@@ -27,6 +24,17 @@ export function fetchCrossServerCatalog(
         options.signal?.throwIfAborted();
         return value;
       },
-    },
-  });
+  };
+}
+export function fetchCrossServerCatalog(
+  resource: CrossCatalogResource, selectedServer: OfficialCatalogServer, locale: string,
+  options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
+) {
+  return loadCrossServerCatalog(resource, { selectedServer, locale, reader: reader(options) });
+}
+export function fetchCrossServerCatalogs(
+  resources: readonly CrossCatalogResource[], selectedServer: OfficialCatalogServer, locale: string,
+  options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
+) {
+  return loadCrossServerCatalogs(resources, { selectedServer, locale, reader: reader(options) });
 }

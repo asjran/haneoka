@@ -1,0 +1,62 @@
+import { staticCatalogRelease, fetchStaticCatalog } from "../static-catalog-source";
+import { loadCrossServerCatalogs } from "./bundle";
+import {
+  OFFICIAL_CATALOG_SERVERS, type CrossCatalogDTO, type CrossCatalogRow, type CrossCatalogResource,
+  type CrossCatalogIdentity, type OfficialCatalogServer,
+} from "./catalog";
+
+const HOME_FIELDS: Record<Exclude<CrossCatalogResource, "events">, string[]> = {
+  cards: ["cardId", "assetId", "prefix", "characterId", "cardType", "rarity", "releasedAt"],
+  "support-cards": ["supportCardId", "assetId", "prefix", "cardName", "characterId", "characterIds", "cardType", "rarity", "releasedAt"],
+  songs: ["musicId", "musicTitle", "bandId", "bandIds", "bandName", "artistId", "artistName", "musicType", "publishedAt", "jacketUrl", "jacketThumbUrl",
+    "vocalCharacterIds", "composer", "lyricist", "arranger"],
+  characters: ["characterId", "characterName", "englishName", "nickname", "bandId", "bandPart", "colorCode", "birthday", "slug",
+    "faceImage", "thumbnailImage", "profileImage", "voiceActor", "description"],
+  bands: ["bandId", "bandName", "description", "logo", "icon", "color", "colorCode"],
+};
+function compact(row: CrossCatalogRow, resource: Exclude<CrossCatalogResource, "events">): CrossCatalogRow {
+  const keys = HOME_FIELDS[resource], result = Object.fromEntries(Object.entries(row).filter(([key]) => keys.includes(key)));
+  const images = row.images as CrossCatalogRow | undefined;
+  if (images?.thumbnail !== undefined) result.images = { thumbnail: images.thumbnail };
+  return structuredClone(result);
+}
+/** Association happens on full source evidence first; compacting must never weaken the matcher. */
+export function compactCrossServerHomeCatalog(dto: CrossCatalogDTO): CrossCatalogDTO {
+  if (dto.resource === "events") throw new Error("Event home content uses its own edition projection");
+  const output = structuredClone(dto), resource = dto.resource;
+  for (const entry of output.entries) {
+    for (const variant of Object.values(entry.perServer)) if (variant) {
+      variant.row = compact(variant.row, resource);
+      variant.assets = compact(variant.assets, resource);
+    }
+    entry.nameOverrides = compact(entry.nameOverrides, resource);
+    entry.content.overrides = compact(entry.content.overrides, resource);
+    entry.content.supplements = entry.content.supplements.filter((item) => HOME_FIELDS[resource].includes(item.field) || item.field === "images.thumbnail");
+    entry.content.fields = entry.content.fields.filter((item) => HOME_FIELDS[resource].includes(item.field));
+  }
+  return output;
+}
+
+/** Feed the existing HomeSeed contract. The configured build cache observes current once per server. */
+export async function loadStaticCrossServerHome(selectedServer: OfficialCatalogServer, locale: string) {
+  const reader = {
+    async readIdentity(server: OfficialCatalogServer) {
+      const identity = await staticCatalogRelease(server);
+      return { ...identity, server };
+    },
+    readCollection: (resource: CrossCatalogResource, identity: CrossCatalogIdentity) => fetchStaticCatalog(resource, identity.server, identity),
+  };
+  const catalogs = await loadCrossServerCatalogs(["cards", "support-cards", "songs", "characters", "bands"], { selectedServer, locale, reader });
+  const serverMarks: Partial<Record<OfficialCatalogServer, { identity: CrossCatalogIdentity; marks: Record<string, string> }>> = {};
+  await Promise.all(OFFICIAL_CATALOG_SERVERS.map(async (server) => {
+    const identity = catalogs.cards?.identities[server];
+    if (!identity) return;
+    try {
+      const value = await fetchStaticCatalog("ui-marks", server, identity);
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      const marks = Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+      serverMarks[server] = { identity: { ...identity }, marks };
+    } catch { /* Unavailable marks do not borrow another server's symbols. */ }
+  }));
+  return { crossServerCatalogs: Object.fromEntries(Object.entries(catalogs).map(([key, dto]) => [key, compactCrossServerHomeCatalog(dto)])), serverMarks };
+}
