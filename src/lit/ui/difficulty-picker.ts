@@ -1,6 +1,7 @@
 import { html } from "lit";
 import { uiText } from "../shared/catalog";
 import { rovingKeydown } from "./controls";
+import { difficultyEstimateCaption } from "../shared/difficulty-caption";
 import "../../styles/difficulty-picker.css";
 
 type Row = Record<string, unknown>;
@@ -43,6 +44,7 @@ export function difficultyPicker(options: {
           >
             <small>${key.toUpperCase()}</small>
             <b>${level}</b>
+            ${difficultyEstimateCaption(row)}
           </button>
         `;
       })}

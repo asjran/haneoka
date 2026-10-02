@@ -1708,15 +1708,8 @@ export class TeamBuilder extends LitElement {
         attributeLabel: (row) => this.attributeName({ attribute: Number(row.musicType) }),
       },
       "",
-      [
-        level
-          ? {
-              at: "end",
-              text: level,
-              label: this.t("availableDifficulty", "Available difficulty") + ": " + level,
-            }
-          : null,
-      ],
+      [],
+      difficulty,
     );
     if (genres) options.marks = [...(options.marks ?? []), { at: "bottom-start", text: genres }];
     return { ...options, label: [options.label, bandNames, level].filter(Boolean).join(" · "), aspectRatio: 1 };

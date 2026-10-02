@@ -12,6 +12,8 @@ import { html, nothing } from "lit";
 import type { TemplateResult } from "lit";
 import type { TileMark, TileOptions } from "../ui/tile";
 import { nextImageCandidate } from "../ui/lazy-images";
+import { difficultyKey } from "../ui/difficulty-picker";
+import { difficultyEstimateCaption } from "./difficulty-caption";
 
 type Item = Record<string, unknown>;
 
@@ -59,6 +61,7 @@ export function songTile(
   deps: SongTileDeps,
   href: string,
   extraMarks: ReadonlyArray<TileMark | null | undefined> = [],
+  difficulty?: Item,
 ): TileOptions {
   const title = deps.title(item);
   const bandIcon = deps.bandIcon(item);
@@ -92,6 +95,20 @@ export function songTile(
     marks: [
       attribute ? { at: "start" as const, image: attribute, label: deps.attributeLabel(item) } : null,
       ...extraMarks,
+      difficulty
+        ? {
+            at: "end",
+            text: html`
+              <span class="song-tile__difficulty">
+                <span>
+                  ${difficultyKey(difficulty).toUpperCase()}
+                  ${difficulty.displayLevel ?? difficulty.playLevel ?? difficulty.level ?? "—"}
+                </span>
+                ${difficultyEstimateCaption(difficulty)}
+              </span>
+            `,
+          }
+        : null,
     ],
   };
 }
