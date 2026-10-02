@@ -173,6 +173,10 @@ const LIVE2D_TILE_FIELDS = [
 const STORY_TILE_FIELDS = [
   "storyId",
   "storyKey",
+  "storyCategory",
+  "birthday",
+  "isSpecialStory",
+  "publishedAt",
   "title",
   "chapterId",
   "chapterKey",
@@ -192,7 +196,7 @@ const STORY_TILE_FIELDS = [
   "unlockEpisodeStatus",
   "unlockConditions",
 ] as const;
-const CHAPTER_FIELDS = ["chapterId", "chapterName", "bandId", "banner", "image", "episodes"] as const;
+const CHAPTER_FIELDS = ["chapterId", "chapterName", "storyCategory", "birthday", "isSpecialStory", "publishedAt", "bandId", "banner", "image", "episodes"] as const;
 
 interface Graph {
   server: ReleaseServer;
