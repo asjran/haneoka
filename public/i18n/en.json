@@ -2696,7 +2696,13 @@
     "inventoryActions": "Inventory and sync",
     "inventoryReadyAction": "Open inventory",
     "cloudUnavailable": "Could not load account inventory. Your local draft is retained.",
-    "exportResult": "Export result"
+    "exportResult": "Export result",
+    "overallCandidates": "Overall",
+    "byChartCandidates": "Top 3 by chart",
+    "rankBy": "Rank by",
+    "chartProven": "Selected chart search complete",
+    "chartCandidate": "Provisional candidates",
+    "candidateCount": "{count} candidates found"
   },
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",

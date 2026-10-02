@@ -2696,7 +2696,13 @@
     "inventoryActions": "卡库与同步",
     "inventoryReadyAction": "打开卡库",
     "cloudUnavailable": "无法读取账户卡库，本地草稿已保留。",
-    "exportResult": "导出结果"
+    "exportResult": "导出结果",
+    "overallCandidates": "综合候选",
+    "byChartCandidates": "每谱面 Top 3",
+    "rankBy": "排序目标",
+    "chartProven": "所选范围已遍历",
+    "chartCandidate": "暂定候选",
+    "candidateCount": "已找到 {count} 个候选"
   },
   "characterRankRewards": "角色等级奖励",
   "characterRank": "角色等级",

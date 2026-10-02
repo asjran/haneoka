@@ -26,6 +26,7 @@ import type {
   PlayMode,
   SearchConstraints,
   SearchResult,
+  Candidate,
   SearchProgress,
   OptimizationInput,
   SolverResponse,
@@ -57,7 +58,7 @@ import {
 import { renderPane, PaneFocus } from "./ui/pane";
 import { specList } from "./ui/spec";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
-import { filterChip, iconButton } from "./ui/controls";
+import { filterChip, iconButton, segmented } from "./ui/controls";
 import { selectionPane } from "./ui/selection-pane";
 import { songTile, liveMusicTypeMark } from "./shared/song-tile";
 import { cardTile } from "./shared/card-tile";
@@ -123,6 +124,9 @@ export class TeamBuilder extends LitElement {
     selectedEvent: { state: true },
     error: { state: true },
     result: { state: true },
+    resultView: { state: true },
+    rankingObjective: { state: true },
+    rankingLimit: { state: true },
     progress: { state: true },
     running: { state: true },
     searchStatus: { state: true },
@@ -184,6 +188,9 @@ export class TeamBuilder extends LitElement {
   declare selectedEvent: string;
   declare error: string;
   declare result: SearchResult | null;
+  declare resultView: "overall" | "by-chart";
+  declare rankingObjective: Objective;
+  declare rankingLimit: number;
   declare progress: SearchProgress | null;
   declare running: boolean;
   declare searchStatus: string;
@@ -980,6 +987,9 @@ export class TeamBuilder extends LitElement {
     this.selectedEvent = "";
     this.error = "";
     this.result = null;
+    this.resultView = "overall";
+    this.rankingObjective = "score";
+    this.rankingLimit = 5;
     this.progress = null;
     this.running = false;
     this.searchStatus = "";
@@ -1977,17 +1987,16 @@ export class TeamBuilder extends LitElement {
   private songBands(song: Record<string, unknown>): number[] {
     return Array.isArray(song.bandIds) ? song.bandIds.map(Number) : [Number(song.bandId)];
   }
-  private songOptions(id: string): TileOptions {
+  private songOptions(id: string, difficultyId = this.pickerSongDifficulty): TileOptions {
     const song = this.visualSong(id);
     const bandNames = this.songBands(song)
       .map((band) => this.text(this.data?.bands[String(band)]?.bandName ?? this.data?.bands[String(band)]?.name))
       .filter(Boolean)
       .join(" · ");
     const rows = dataRows(song.difficulty ?? song.difficulties);
-    const difficulty =
-      (this.pickerSongDifficulty
-        ? rows.find((row) => String(row.difficulty) === this.pickerSongDifficulty)
-        : undefined) ?? [...rows].sort((a, b) => Number(b.playLevel ?? b.level) - Number(a.playLevel ?? a.level))[0];
+    const difficulty = difficultyId
+      ? rows.find((row) => String(row.difficulty) === difficultyId)
+      : [...rows].sort((a, b) => Number(b.playLevel ?? b.level) - Number(a.playLevel ?? a.level))[0];
     const level = difficulty
       ? `${difficultyKey(difficulty).toUpperCase()} ${difficulty.displayLevel ?? difficulty.playLevel ?? difficulty.level ?? ""}`.trim()
       : "";
@@ -2159,6 +2168,8 @@ export class TeamBuilder extends LitElement {
     const song = this.visualSong(songId);
     const title = songTitle(song, this.locale).text;
     const band = this.data?.bands[String(song.bandId ?? (Array.isArray(song.bandIds) ? song.bandIds[0] : ""))];
+    const chart = dataRows(song.difficulty ?? song.difficulties).find((row) => String(row.difficulty) === difficulty);
+    const level = chart?.displayLevel ?? chart?.playLevel ?? chart?.level ?? "";
     return html`
       <div class="list-item list-item--two-line team-builder__song-row">
         <span class="list-item__leading team-builder__artwork">
@@ -2167,7 +2178,7 @@ export class TeamBuilder extends LitElement {
         <span class="list-item__body">
           <strong class="list-item__headline">${title}</strong>
           <span class="list-item__supporting">
-            ${this.text(band?.bandName ?? band?.name)} · ${difficultyKey({ difficulty }).toUpperCase()}
+            ${this.text(band?.bandName ?? band?.name)} · ${difficultyKey({ difficulty }).toUpperCase()} ${level}
           </span>
         </span>
       </div>
@@ -2977,6 +2988,7 @@ export class TeamBuilder extends LitElement {
     this.progress = null;
     this.searchStatus = "";
     const generation = this.requestId;
+    this.rankingLimit = 5;
     const runId = crypto.randomUUID();
     let runRequest: SearchRunRequest;
     const budget = {
@@ -3127,6 +3139,193 @@ export class TeamBuilder extends LitElement {
       }
     `;
   }
+  private renderCandidate(candidate: Candidate, showSong = true) {
+    return html`
+      <article class="team-builder__candidate">
+        ${showSong ? this.songIdentity(candidate.songKey.split(":")[0], candidate.songKey.split(":")[1]) : nothing}
+        <dl class="team-builder__metrics">
+          ${this.objectives.map((objective) => {
+            const metric = candidate.metrics[objective];
+            return html`
+              <dt>${this.metricLabel(objective, metric)}</dt>
+              <dd>
+                ${metric.value === null ? (this.mode === "gekiso" ? this.t("gekisoConditionsPending", "Conditions pending") : this.t("unavailable", "Required data or formula is unavailable")) : metric.value.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
+                ${
+                  metric.value !== null
+                    ? html`
+                        <small>${this.metricUnit(metric)}</small>
+                      `
+                    : nothing
+                }
+                ${
+                  metric.range
+                    ? html`
+                        <small>
+                          ${this.t("outcomeRange", "Range")}:
+                          ${metric.range.minimum.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}–${metric.range.maximum.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
+                        </small>
+                      `
+                    : nothing
+                }
+                ${
+                  objective === "ss-ratio" && metric.value !== null && metric.status !== "unavailable"
+                    ? html`
+                        <small>
+                          ${metric.value >= 1 ? this.t("ssReached", "SS threshold reached") : this.t("ssNotReached", "Below SS threshold")}
+                        </small>
+                      `
+                    : nothing
+                }
+                <small>${this.t(metric.status, metric.status)}</small>
+              </dd>
+            `;
+          })}
+        </dl>
+        <div class="collection collection--member team-builder__team-strip" role="group" aria-label=${this.t("members", "Members")}>
+          ${candidate.assignment.memberInstanceIds.map((id) =>
+            this.resultCard(
+              this.inventory?.members.find((entry) => entry.instanceId === id),
+              "members",
+              id === candidate.assignment.leaderInstanceId,
+            ),
+          )}
+        </div>
+        <details>
+          <summary>${this.t("configuration", "Team configuration")}</summary>
+          <div class="team-builder__lineup">
+            ${candidate.assignment.memberInstanceIds.map((id, index) => {
+              const member = this.inventory?.members.find((entry) => entry.instanceId === id);
+              const snapshot = this.inventory?.snapshots.find(
+                (entry) => entry.instanceId === candidate.assignment.snapshotInstanceIds[index],
+              );
+              return html`
+                <div>
+                  <div class="collection collection--member">
+                    ${this.resultCard(member, "members", id === candidate.assignment.leaderInstanceId)}
+                  </div>
+                  <small>
+                    ${this.fieldName("level")}:
+                    ${member?.level ?? this.t("unknown", "Unknown or not entered")} ·
+                    ${this.fieldName("training")}:
+                    ${member?.training ?? this.t("unknown", "Unknown or not entered")} ·
+                    ${this.fieldName("awakening")}:
+                    ${member?.awakening ?? this.t("unknown", "Unknown or not entered")}
+                  </small>
+                  <small>
+                    ${this.fieldName("liveSkillLevel")}:
+                    ${member?.liveSkillLevel ?? this.t("unknown", "Unknown or not entered")} ·
+                    ${this.fieldName("gekisoSkillLevel")}:
+                    ${member?.gekisoSkillLevel ?? this.t("unknown", "Unknown or not entered")}
+                  </small>
+                  ${
+                    id === candidate.assignment.leaderInstanceId
+                      ? html`
+                          <strong>${this.t("leader", "Leader")}</strong>
+                          ${member ? specList(this.derivedSkillRows(member, "members")) : nothing}
+                        `
+                      : nothing
+                  }
+                  ${
+                    snapshot
+                      ? html`
+                          <div class="collection collection--support">
+                            ${this.resultCard(snapshot, "snapshots")}
+                          </div>
+                          <small>
+                            ${this.fieldName("level")}:
+                            ${snapshot.level ?? this.t("unknown", "Unknown or not entered")} ·
+                            ${this.fieldName("awakening")}:
+                            ${snapshot.awakening ?? this.t("unknown", "Unknown or not entered")}
+                          </small>
+                          ${specList(this.derivedSkillRows(snapshot, "snapshots"))}
+                        `
+                      : nothing
+                  }
+                </div>
+              `;
+            })}
+          </div>
+        </details>
+
+        ${this.objectives.map((objective) => this.renderMetricDetails(objective, candidate.metrics[objective]))}
+        <details>
+          <summary>${this.t("whyRecommended", "Why this candidate")}</summary>
+          <p class="team-builder__hint">
+            ${this.t("comparisonScope", "Compared within the entered cards and selected chart.")}
+          </p>
+          ${specList([
+            {
+              label: this.t("evaluated", "Evaluated configurations"),
+              value: this.result!.evaluated.toLocaleString(this.locale),
+            },
+            {
+              label: this.t("elapsed", "Elapsed seconds"),
+              value: (this.result!.elapsedMs / 1000).toLocaleString(this.locale, {
+                maximumFractionDigits: 2,
+              }),
+            },
+            { label: this.t("budget", "Search budget (seconds)"), value: this.budgetSeconds },
+          ])}
+          ${this.objectives
+            .flatMap((objective) => candidate.metrics[objective].assumptions)
+            .map(
+              (value) => html`
+                <p class="team-builder__hint">
+                  ${value.startsWith("growth-only-unboosted-component") ? this.t("baseScope", "Normal-live growth component. Skills, snapshots, song and player bonuses are separate.") : value === "native-normal-nominal-uniform-member-shuffle" ? this.t("normalForecastScope", "Normal solo forecast averages 120 skill orders.") : value === "100-percent-perfect" ? this.t("perfect", "Other judgments: 100% PERFECT") : value === "normal-live-event-power-disabled" ? this.t("normalNoEvent", "Event bonuses are excluded.") : value === "normal-skill-event-time-dispatch" ? this.t("normalEventTiming", "Skill timing follows the chart triggers.") : this.t("conditional", "Conditional estimate")}
+                </p>
+              `,
+            )}
+        </details>
+      </article>
+    `;
+  }
+  private renderResultCandidates() {
+    if (!this.result) return nothing;
+    const rankings = this.result.bySong ?? [];
+    if (!rankings.length) return this.result.candidates.map((candidate) => this.renderCandidate(candidate));
+    const objective = this.objectives.includes(this.rankingObjective)
+      ? this.rankingObjective
+      : this.objectives[0] ?? "base-score";
+    return html`
+      ${segmented({
+        label: this.t("results", "Candidates"),
+        value: this.resultView,
+        options: [
+          { value: "overall", label: this.t("overallCandidates", "Overall") },
+          { value: "by-chart", label: this.t("byChartCandidates", "Top 3 by chart") },
+        ],
+        grow: true,
+        onSelect: (value) => {
+          this.resultView = value;
+          this.rankingLimit = 5;
+        },
+      })}
+      ${
+        this.resultView === "overall"
+          ? this.result.candidates.map((candidate) => this.renderCandidate(candidate))
+          : html`
+              ${this.objectives.length > 1
+                ? this.select(this.t("rankBy", "Rank by"), objective, this.objectives.map((value) => ({ value, label: this.metricLabel(value) })), (value) => { this.rankingObjective = value as Objective; this.rankingLimit = 5; })
+                : nothing}
+              ${rankings.slice(0, this.rankingLimit).map((ranking, index) => html`
+                <details class="team-builder__chart-results" ?open=${index === 0}>
+                  <summary>
+                    ${this.songIdentity(String(ranking.songId), String(ranking.difficulty))}
+                    <span class="team-builder__hint">${ranking.proven ? this.t("chartProven", "Selected chart search complete") : this.t("chartCandidate", "Provisional candidates")}</span>
+                  </summary>
+                  ${(ranking.top3[objective] ?? []).map((candidate) => this.renderCandidate(candidate, false))}
+                  ${!(ranking.top3[objective]?.length)
+                    ? html`<p>${this.t("noCandidates", "No candidates match these constraints.")}</p>`
+                    : nothing}
+                </details>
+              `)}
+              ${rankings.length > this.rankingLimit
+                ? html`<button class="button button--text" @click=${() => (this.rankingLimit += 5)}>${clientText(this.locale, "more", "More")}</button>`
+                : nothing}
+            `
+      }
+    `;
+  }
   private renderResults() {
     return html`
       <section
@@ -3158,6 +3357,9 @@ export class TeamBuilder extends LitElement {
                 ></md-linear-progress>
                 <p role="status">
                   ${this.progress?.phase === "loading" ? clientText(this.locale, "loading", "Loading") : this.t("evaluated", "Evaluated configurations") + ": " + (this.progress?.evaluated.toLocaleString(this.locale) ?? "0")}
+                  ${Number.isSafeInteger(this.progress?.candidateCount) && this.progress!.candidateCount! >= 0
+                    ? html` · ${this.t("candidateCount", "{count} candidates found", { count: this.progress!.candidateCount! })}`
+                    : nothing}
                 </p>
                 <button
                   class="button button--outlined"
@@ -3202,146 +3404,7 @@ export class TeamBuilder extends LitElement {
                       `
                     : nothing
                 }
-                ${this.result.candidates.map(
-                  (candidate) => html`
-                    <article class="team-builder__candidate">
-                      ${this.songIdentity(candidate.songKey.split(":")[0], candidate.songKey.split(":")[1])}
-                      <dl class="team-builder__metrics">
-                        ${this.objectives.map((objective) => {
-                          const metric = candidate.metrics[objective];
-                          return html`
-                            <dt>${this.metricLabel(objective, metric)}</dt>
-                            <dd>
-                              ${metric.value === null ? (this.mode === "gekiso" ? this.t("gekisoConditionsPending", "Conditions pending") : this.t("unavailable", "Required data or formula is unavailable")) : metric.value.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
-                              ${
-                                metric.value !== null
-                                  ? html`
-                                      <small>${this.metricUnit(metric)}</small>
-                                    `
-                                  : nothing
-                              }
-                              ${
-                                metric.range
-                                  ? html`
-                                      <small>
-                                        ${this.t("outcomeRange", "Range")}:
-                                        ${metric.range.minimum.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}–${metric.range.maximum.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
-                                      </small>
-                                    `
-                                  : nothing
-                              }
-                              ${
-                                objective === "ss-ratio" && metric.value !== null && metric.status !== "unavailable"
-                                  ? html`
-                                      <small>
-                                        ${metric.value >= 1 ? this.t("ssReached", "SS threshold reached") : this.t("ssNotReached", "Below SS threshold")}
-                                      </small>
-                                    `
-                                  : nothing
-                              }
-                              <small>${this.t(metric.status, metric.status)}</small>
-                            </dd>
-                          `;
-                        })}
-                      </dl>
-                      <div class="collection collection--member team-builder__team-strip" role="group" aria-label=${this.t("members", "Members")}>
-                        ${candidate.assignment.memberInstanceIds.map((id) =>
-                          this.resultCard(
-                            this.inventory?.members.find((entry) => entry.instanceId === id),
-                            "members",
-                            id === candidate.assignment.leaderInstanceId,
-                          ),
-                        )}
-                      </div>
-                      <details>
-                        <summary>${this.t("configuration", "Team configuration")}</summary>
-                        <div class="team-builder__lineup">
-                          ${candidate.assignment.memberInstanceIds.map((id, index) => {
-                            const member = this.inventory?.members.find((entry) => entry.instanceId === id);
-                            const snapshot = this.inventory?.snapshots.find(
-                              (entry) => entry.instanceId === candidate.assignment.snapshotInstanceIds[index],
-                            );
-                            return html`
-                              <div>
-                                <div class="collection collection--member">
-                                  ${this.resultCard(member, "members", id === candidate.assignment.leaderInstanceId)}
-                                </div>
-                                <small>
-                                  ${this.fieldName("level")}:
-                                  ${member?.level ?? this.t("unknown", "Unknown or not entered")} ·
-                                  ${this.fieldName("training")}:
-                                  ${member?.training ?? this.t("unknown", "Unknown or not entered")} ·
-                                  ${this.fieldName("awakening")}:
-                                  ${member?.awakening ?? this.t("unknown", "Unknown or not entered")}
-                                </small>
-                                <small>
-                                  ${this.fieldName("liveSkillLevel")}:
-                                  ${member?.liveSkillLevel ?? this.t("unknown", "Unknown or not entered")} ·
-                                  ${this.fieldName("gekisoSkillLevel")}:
-                                  ${member?.gekisoSkillLevel ?? this.t("unknown", "Unknown or not entered")}
-                                </small>
-                                ${
-                                  id === candidate.assignment.leaderInstanceId
-                                    ? html`
-                                        <strong>${this.t("leader", "Leader")}</strong>
-                                        ${member ? specList(this.derivedSkillRows(member, "members")) : nothing}
-                                      `
-                                    : nothing
-                                }
-                                ${
-                                  snapshot
-                                    ? html`
-                                        <div class="collection collection--support">
-                                          ${this.resultCard(snapshot, "snapshots")}
-                                        </div>
-                                        <small>
-                                          ${this.fieldName("level")}:
-                                          ${snapshot.level ?? this.t("unknown", "Unknown or not entered")} ·
-                                          ${this.fieldName("awakening")}:
-                                          ${snapshot.awakening ?? this.t("unknown", "Unknown or not entered")}
-                                        </small>
-                                        ${specList(this.derivedSkillRows(snapshot, "snapshots"))}
-                                      `
-                                    : nothing
-                                }
-                              </div>
-                            `;
-                          })}
-                        </div>
-                      </details>
-
-                      ${this.objectives.map((objective) => this.renderMetricDetails(objective, candidate.metrics[objective]))}
-                      <details>
-                        <summary>${this.t("whyRecommended", "Why this candidate")}</summary>
-                        <p class="team-builder__hint">
-                          ${this.t("comparisonScope", "Compared within the entered cards and selected chart.")}
-                        </p>
-                        ${specList([
-                          {
-                            label: this.t("evaluated", "Evaluated configurations"),
-                            value: this.result!.evaluated.toLocaleString(this.locale),
-                          },
-                          {
-                            label: this.t("elapsed", "Elapsed seconds"),
-                            value: (this.result!.elapsedMs / 1000).toLocaleString(this.locale, {
-                              maximumFractionDigits: 2,
-                            }),
-                          },
-                          { label: this.t("budget", "Search budget (seconds)"), value: this.budgetSeconds },
-                        ])}
-                        ${this.objectives
-                          .flatMap((objective) => candidate.metrics[objective].assumptions)
-                          .map(
-                            (value) => html`
-                              <p class="team-builder__hint">
-                                ${value.startsWith("growth-only-unboosted-component") ? this.t("baseScope", "Normal-live growth component. Skills, snapshots, song and player bonuses are separate.") : value === "native-normal-nominal-uniform-member-shuffle" ? this.t("normalForecastScope", "Normal solo forecast averages 120 skill orders.") : value === "100-percent-perfect" ? this.t("perfect", "Other judgments: 100% PERFECT") : value === "normal-live-event-power-disabled" ? this.t("normalNoEvent", "Event bonuses are excluded.") : value === "normal-skill-event-time-dispatch" ? this.t("normalEventTiming", "Skill timing follows the chart triggers.") : this.t("conditional", "Conditional estimate")}
-                              </p>
-                            `,
-                          )}
-                      </details>
-                    </article>
-                  `,
-                )}
+                ${this.renderResultCandidates()}
                 ${
                   this.result.candidates.length
                     ? nothing

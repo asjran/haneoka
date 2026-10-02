@@ -2696,7 +2696,13 @@
     "inventoryActions": "卡庫與同步",
     "inventoryReadyAction": "開啟卡庫",
     "cloudUnavailable": "無法讀取帳戶卡庫，本機草稿已保留。",
-    "exportResult": "匯出結果"
+    "exportResult": "匯出結果",
+    "overallCandidates": "綜合候選",
+    "byChartCandidates": "每譜面 Top 3",
+    "rankBy": "排序目標",
+    "chartProven": "所選範圍已遍歷",
+    "chartCandidate": "暫定候選",
+    "candidateCount": "已找到 {count} 個候選"
   },
   "characterRankRewards": "角色等級獎勵",
   "characterRank": "角色等級",

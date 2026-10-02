@@ -2696,7 +2696,13 @@
     "inventoryActions": "보유 목록 및 동기화",
     "inventoryReadyAction": "보유 목록 열기",
     "cloudUnavailable": "계정 보유 목록을 불러오지 못했습니다. 로컬 초안은 보존됩니다.",
-    "exportResult": "결과 내보내기"
+    "exportResult": "결과 내보내기",
+    "overallCandidates": "전체 후보",
+    "byChartCandidates": "채보별 상위 3개",
+    "rankBy": "순위 기준",
+    "chartProven": "선택 범위 탐색 완료",
+    "chartCandidate": "잠정 후보",
+    "candidateCount": "후보 {count}개 발견"
   },
   "characterRankRewards": "캐릭터 랭크 보상",
   "characterRank": "캐릭터 랭크",

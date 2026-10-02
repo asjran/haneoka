@@ -2696,7 +2696,13 @@
     "inventoryActions": "所持状況・同期",
     "inventoryReadyAction": "所持状況を開く",
     "cloudUnavailable": "アカウントの所持状況を読み込めませんでした。ローカルの下書きは保持されています。",
-    "exportResult": "結果をエクスポート"
+    "exportResult": "結果をエクスポート",
+    "overallCandidates": "総合候補",
+    "byChartCandidates": "譜面別トップ3",
+    "rankBy": "順位の基準",
+    "chartProven": "選択範囲の探索完了",
+    "chartCandidate": "暫定候補",
+    "candidateCount": "候補 {count} 件"
   },
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",

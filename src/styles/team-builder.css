@@ -312,6 +312,21 @@
     gap: var(--md-sys-spacing-2);
     min-height: var(--md-comp-control-height-touch);
   }
+  .team-builder__chart-results {
+    min-width: 0;
+  }
+  .team-builder__chart-results > .team-builder__candidate {
+    margin-block-start: var(--md-sys-spacing-3);
+  }
+  .team-builder__chart-results > summary .team-builder__song-row {
+    display: inline-flex;
+    width: calc(100% - var(--md-sys-spacing-4));
+    vertical-align: middle;
+  }
+  .team-builder__chart-results > summary > .team-builder__hint {
+    display: block;
+    margin-block: var(--md-sys-spacing-2);
+  }
   .team-builder__candidate {
     display: grid;
     gap: var(--md-sys-spacing-3);
