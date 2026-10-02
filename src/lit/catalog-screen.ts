@@ -595,6 +595,7 @@ export class CatalogScreen extends LitElement {
   private unionItems = new WeakMap<Item, CrossCatalogEntry>();
   private unionCharacters: Partial<Record<OfficialCatalogServer, Map<number, Item>>> = {};
   private unionBands: Partial<Record<OfficialCatalogServer, Map<number, Item>>> = {};
+  private unionFacetKeys = { character: new Map<string, string>(), collectionBand: new Map<string, string>() };
   private unionMarks: Partial<Record<OfficialCatalogServer, Map<string, string>>> = {};
   private unionDetail?: Awaited<ReturnType<typeof fetchCrossServerDetail>>;
   private unionRequests = new RequestScope();
@@ -721,6 +722,26 @@ export class CatalogScreen extends LitElement {
       }
     return this.pinUnionRow(row, own.identity);
   }
+  private indexUnionFacets(characters?: CrossCatalogDTO, bands?: CrossCatalogDTO) {
+    for (const [key, catalog] of [["character", characters], ["collectionBand", bands]] as const) {
+      const tokens = this.unionFacetKeys[key];
+      tokens.clear();
+      for (const entry of catalog?.entries || []) {
+        if (entry.association.status !== "verified") continue;
+        const selected = entry.perServer[this.dataServer() as OfficialCatalogServer];
+        if (!selected) continue;
+        const selectedPin = this.unionCatalog?.identities[selected.identity.server];
+        if (selectedPin?.releaseId !== selected.identity.releaseId || selectedPin.sourceId !== selected.identity.sourceId)
+          continue;
+        for (const variant of Object.values(entry.perServer)) {
+          if (!variant) continue;
+          const pin = this.unionCatalog?.identities[variant.identity.server];
+          if (pin?.releaseId === variant.identity.releaseId && pin.sourceId === variant.identity.sourceId)
+            tokens.set(`${variant.identity.server}:${variant.id}`, `${selected.identity.server}:${selected.id}`);
+        }
+      }
+    }
+  }
   private async loadUnionCollection(signal: AbortSignal): Promise<void> {
     const resource = this.unionResource()!;
     const selectedServer = this.dataServer() as OfficialCatalogServer;
@@ -734,6 +755,7 @@ export class CatalogScreen extends LitElement {
     const dto = catalogs[resource];
     if (!dto) throw new Error("Cross-server catalogue unavailable");
     this.unionCatalog = dto;
+    this.indexUnionFacets(catalogs.characters, catalogs.bands);
     this.unionItems = new WeakMap();
     this.unionEntries.clear();
     this.unionCharacters = {};
@@ -1174,8 +1196,11 @@ export class CatalogScreen extends LitElement {
       ...Object.fromEntries(EXTRA_FILTERS.map((key) => [key, params.getAll(key)])),
     };
     if (this.unionCatalog)
-      for (const key of ["character", "collectionBand"])
-        this.facets[key] = this.facets[key].map((value) => /^\d+$/u.test(value) ? `${this.dataServer()}:${value}` : value);
+      for (const key of ["character", "collectionBand"] as const)
+        this.facets[key] = this.facets[key].map((value) => {
+          const token = /^\d+$/u.test(value) ? `${this.dataServer()}:${value}` : value;
+          return this.unionFacetKeys[key].get(token) || token;
+        });
   }
   private selectionParam() {
     return (
@@ -1710,6 +1735,7 @@ export class CatalogScreen extends LitElement {
     this.unionCharacters = {};
     this.unionBands = {};
     this.unionMarks = {};
+    for (const tokens of Object.values(this.unionFacetKeys)) tokens.clear();
     this.unionItems = new WeakMap();
     this.nativeReferenceRequests.cancel();
     this.nativeReference = undefined;
@@ -1803,6 +1829,7 @@ export class CatalogScreen extends LitElement {
     this.unionCharacters = {};
     this.unionBands = {};
     this.unionMarks = {};
+    for (const tokens of Object.values(this.unionFacetKeys)) tokens.clear();
     this.unionItems = new WeakMap();
     this.unionEntries.clear();
     this.nativeReferenceRequests.cancel();
@@ -2431,8 +2458,10 @@ export class CatalogScreen extends LitElement {
       "—"
     );
   }
-  private facetToken(item: Item, id: number): string {
-    return this.unionEntry(item) ? `${this.itemSourceServer(item)}:${id}` : String(id);
+  private facetToken(item: Item, id: number, key: "character" | "collectionBand" = "character"): string {
+    if (!this.unionEntry(item)) return String(id);
+    const token = `${this.itemSourceServer(item)}:${id}`;
+    return this.unionFacetKeys[key].get(token) || token;
   }
   private facetEntity(value: string, kind: "character" | "band"): Item | undefined {
     const match = /^(jp|intl):(\d+)$/u.exec(value);
@@ -2450,7 +2479,7 @@ export class CatalogScreen extends LitElement {
       if (key === "category") return String(item.category || "") ? [String(item.category)] : [];
     }
     if (key === "collectionBand") {
-      const ids = this.itemBandIds(item).map((id) => this.facetToken(item, id));
+      const ids = this.itemBandIds(item).map((id) => this.facetToken(item, id, "collectionBand"));
       const credit = String(item.artistId || this.creditKey(item.artistName || item.bandName));
       return ids.length ? ids : credit ? [`credit:${credit}`] : [];
     }
