@@ -292,8 +292,11 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
       player.root.append(brand, scene);
       stage.append(player.root);
       viewport.remove();
-      player.player.setLocale(loader.locale, { refresh: true });
+      // Shell settings are reapplied together, including after UI changes.
+      // Keep the story preference aligned with the embed's requested locale.
+      player.shell?.setSetting("language", loader.locale);
       player.shell?.setSetting("uiLanguage", loader.locale);
+      player.player.setLocale(loader.locale, { refresh: true });
       phase = "ready";
       timer = setInterval(publish, 100);
       publish();
