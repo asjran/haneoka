@@ -1,6 +1,7 @@
 import { nativeRow, objectRow, dataRows, type DataRow, type TeamBuilderData } from "../data";
 
 export const RUNTIME_MASTER_TABLES = {
+  parameters: "MasterParameter",
   vipRanks: "MasterVip",
   vipRankBonuses: "MasterVipRankBonus",
   memoryMemberLevels: "MasterMemoryMemberLevel",

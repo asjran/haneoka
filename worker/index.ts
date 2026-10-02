@@ -2253,6 +2253,7 @@ async function handleCatalogApi(
 
 
 const TEAM_BUILDER_RUNTIME_MASTER_TABLES: ReadonlySet<string> = new Set([
+  "MasterParameter",
   "MasterVip",
   "MasterVipRankBonus",
   "MasterMemoryMemberLevel",

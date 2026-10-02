@@ -12,6 +12,7 @@ TABLES = {
     "memberCardAwakeResources": "MasterMemberCardAwakeResource", "skillLevelResources": "MasterSkillLevelResource",
 }
 RUNTIME_TABLES = {
+    "parameters": "MasterParameter",
     "vipRanks": "MasterVip", "vipRankBonuses": "MasterVipRankBonus",
     "memoryMemberLevels": "MasterMemoryMemberLevel", "memorySupportLevels": "MasterMemorySupportLevel",
     "memoryMusic": "MasterMemoryMusic", "memoryMusicBonuses": "MasterMemoryMusicBonus", "memoryMusicGroups": "MasterMemoryMusicGroup",
@@ -106,5 +107,5 @@ def build_team_builder_data(data: Any, source_id: str) -> dict[str, Any]:
                 "liveBoostBonuses": "MasterLiveMusicBoostBonus", "challengeBoostBonuses": "MasterChallengeMusicBoostBonus",
                 "expRewards": "MasterLiveMusicExpReward"}.items()},
             "progression": {key: exact(table) for key, table in TABLES.items()}, **skills},
-        "sourceTables": ["MasterMemberCard", "MasterSupportCard", *TABLES.values()],
+        "sourceTables": ["MasterMemberCard", "MasterSupportCard", *TABLES.values(), *RUNTIME_TABLES.values()],
     }
