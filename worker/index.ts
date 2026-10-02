@@ -2349,6 +2349,7 @@ const TEAM_BUILDER_RUNTIME_MASTER_TABLES: ReadonlySet<string> = new Set([
   "MasterMemoryMusic",
   "MasterMemoryMusicBonus",
   "MasterMemoryMusicGroup",
+  "MasterLiveChallengePoint",
 ]);
 
 async function handleTeamBuilderDataApi(
@@ -2391,7 +2392,7 @@ async function handleTeamBuilderDataApi(
           identity.sourceId !== pinned.sourceId) {
         throw new Error("Runtime Master pin does not match the selected release");
       }
-      return readReleaseJson(env, pinned, `master/${sourceTable}.json`);
+      return readReleaseJson(env, pinned, `objects/master/${sourceTable}.json`);
     },
   );
 }
