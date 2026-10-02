@@ -4,7 +4,7 @@ import { announcementPath } from "../lib/announcements";
 import { announcementText, announcementRow } from "./shared/announcement";
 import { fetchAnnouncements, type Announcement } from "../lib/announcements";
 import "../styles/announcements.css";
-import { localePath, type Locale } from "../i18n/locales";
+import type { Locale } from "../i18n/locales";
 import { clientText } from "../i18n/client";
 import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
 import { variants as githubVariants } from "@thesvg/icons/github";
@@ -22,7 +22,6 @@ import {
   uiText,
   type JsonRecord,
 } from "./shared/catalog";
-import { CATALOG_HUB, NAV_SECTIONS, type NavItem } from "../config/navigation";
 import { tile } from "./ui/tile";
 import { eventArtwork } from "./ui/event-artwork";
 import { liveMusicTypeMark, songTile } from "./shared/song-tile";
@@ -79,15 +78,6 @@ const PROFILE_BAND_SEED: Record<string, string> = {
 /** Fixed in-repo avatars: the birthday list never depends on release assets. */
 const CHARACTER_AVATAR = (id: unknown) => `/images/avatars/characters/${String(id || "")}.png`;
 const CAST_AVATAR = (id: string) => `/images/avatars/cast/${id}.jpg?v=official-20261002`;
-/** The directory shares all drawer sections; catalog counts are optional. */
-const directoryGroups = (): ReadonlyArray<readonly [label: string, items: NavItem[]]> =>
-  NAV_SECTIONS.map((section) => ({
-    label: section.label,
-    items: section.items,
-  }))
-    .filter((section) => section.items.length > 0)
-    .map(({ label, items }) => [label, items] as const);
-
 const icon = (name: string, size = 20) => html`
   <svg class="material-icon" width=${size} height=${size} aria-hidden="true">
     <use href=${`/icons.svg#${name}`}></use>
@@ -1132,38 +1122,6 @@ export class HomeDashboard extends LitElement {
       </section>
     `;
   }
-  private renderDirectory() {
-    const ready = this.phase !== "loading";
-    return html`
-      <section class="home-directory" aria-labelledby="home-directory-title">
-        <h2 id="home-directory-title">${this.text("primaryNavigation", "Navigation")}</h2>
-        ${directoryGroups().map(
-          ([group, items]) => html`
-            <div class="home-directory__group">
-              <h3>${this.text(group, group)}</h3>
-              <ul class="hub-grid" role="list">
-                ${items.map((item) => {
-                  const resource = CATALOG_HUB.find((entry) => entry.route === item.route)?.resource;
-                  const value = resource ? this.counts[resource] : undefined;
-                  return html`
-                    <li>
-                      <a class="hub-link state-layer" href=${resourceCollectionHref(item.route, this.sourceServer(), this.locale as Locale) ?? (item.route === "/announcements" ? announcementPath(this.sourceServer(), this.locale as Locale) : localePath(item.route, this.locale as Locale))}>
-                        <span class="hub-link__icon">${icon(item.icon, 22)}</span>
-                        <span class="hub-link__label">${this.text(item.label, item.label)}</span>
-                        <span class="hub-link__count tabular">
-                          ${ready && value !== undefined ? this.count(value) : ""}
-                        </span>
-                      </a>
-                    </li>
-                  `;
-                })}
-              </ul>
-            </div>
-          `,
-        )}
-      </section>
-    `;
-  }
   private renderBirthdays() {
     const items = this.birthdays();
     const today = new Date().setHours(0, 0, 0, 0);
@@ -1391,18 +1349,6 @@ export class HomeDashboard extends LitElement {
             `,
           )}
         </div>
-        ${this.renderDirectory()}
-        <footer class="home-footer">
-          <p>haneoka · ${this.text("fanArchive", "Unofficial archive and community")}</p>
-          <nav aria-label=${this.text("legalNavigation", "Policies and project information")}>
-            <a class="text-link" href="https://bdon.moe" target="_blank" rel="noreferrer">
-              ${icon("favorite", 14)} MoeNotes ${icon("open_in_new", 14)}
-            </a>
-            <a class="text-link" href="/privacy">${this.text("privacy", "Privacy Policy")}</a>
-            <a class="text-link" href="/terms">${this.text("terms", "Terms of Use")}</a>
-            <a class="text-link" href="/about">${this.text("about", "About")}</a>
-          </nav>
-        </footer>
         ${this.renderDialog()}
       </div>
     `;

@@ -408,36 +408,6 @@
     padding: 24px;
   }
 
-  /* ---------- Directory: the whole catalogue, grouped, at the bottom ---------- */
-  .home-directory {
-    display: grid;
-    gap: 12px;
-    padding: 20px 8px 8px;
-    border-radius: var(--md-sys-shape-corner-extra-large);
-    background: var(--md-sys-color-surface-container-low);
-  }
-  .home-directory > h2 {
-    margin: 0 0 4px;
-    padding-inline: 16px;
-    font: var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size) /
-      var(--md-sys-typescale-title-medium-line-height) var(--app-font);
-  }
-  .home-directory__group {
-    display: grid;
-    gap: 4px;
-  }
-  .home-directory__group > h3 {
-    margin: 0;
-    padding-inline: 16px;
-    color: var(--md-sys-color-on-surface-variant);
-    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size) /
-      var(--md-sys-typescale-label-large-line-height) var(--app-font);
-  }
-  .home-directory__group .hub-grid {
-    margin: 0;
-    padding: 0;
-  }
-
   /* Footer */
   .home-footer {
     display: flex;
