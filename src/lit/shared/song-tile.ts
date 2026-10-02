@@ -56,6 +56,14 @@ export function liveMusicTypeMark(marks: Map<string, string>, musicType: unknown
   return (fallback && marks.get(fallback)) || "";
 }
 
+/** Use declared artwork URLs; a caller's thumbnail must not outrank the original. */
+export function songJacketCandidates(item: Item, fallback = ""): string[] {
+  return [item.jacketUrl, fallback, item.jacketThumbUrl].filter(
+    (value, index, values): value is string =>
+      typeof value === "string" && Boolean(value) && values.indexOf(value) === index,
+  );
+}
+
 export function songTile(
   item: Item,
   deps: SongTileDeps,
@@ -66,11 +74,8 @@ export function songTile(
   const title = deps.title(item);
   const bandIcon = deps.bandIcon(item);
   const attribute = deps.attributeMark(item);
-  const image = deps.image(item);
-  const imageCandidates = [image, item.jacketUrl, item.jacketThumbUrl].filter(
-    (value, index, values): value is string =>
-      typeof value === "string" && Boolean(value) && values.indexOf(value) === index,
-  );
+  const imageCandidates = songJacketCandidates(item, deps.image(item));
+  const image = imageCandidates[0] || "";
   return {
     kind: "song",
     title: title.text,
