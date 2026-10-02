@@ -1521,6 +1521,10 @@ export class CatalogScreen extends LitElement {
     return { items, source: source.length };
   }
   private releaseTimestamp(item: Item) {
+    if (this.settings.origin === "bestdori" && "releaseAt" in item) {
+      const release = Number(item.releaseAt || 0);
+      return Number.isFinite(release) ? release : 0;
+    }
     const value = item.releasedAt ?? item.publishedAt ?? item.publicStartAt ?? item.startAt;
     if (Array.isArray(value)) return Number(value.find((entry) => Number(entry) > 0) || 0);
     return Number(value || 0);
@@ -4356,7 +4360,7 @@ export class CatalogScreen extends LitElement {
                     </section>
                   `
                 : nothing
-            }${this.renderExtendedDetail(item)}
+            }${this.renderExtendedDetail(item)}${this.renderSourceReference(item)}
           `,
         ),
       })}
@@ -4425,6 +4429,24 @@ export class CatalogScreen extends LitElement {
         localized: (value) => this.localized(value),
       }) ?? nothing
     );
+  }
+  private renderSourceReference(item: Item) {
+    const href = item.sourceUrl;
+    if (this.settings.origin !== "bestdori" || typeof href !== "string" || !href.startsWith("https://bestdori.com/"))
+      return nothing;
+    return html`
+      <section class="detail-section">
+        ${renderDetailSectionHeading(this.label("source", "Source"), "details")}
+        <ul class="detail-object-list">
+          <li>
+            <a class="detail-object" href=${href} target="_blank" rel="noopener noreferrer">
+              ${icon("open_in_new", 24)}
+              <span class="detail-object__copy"><strong class="detail-object__title">Bestdori</strong></span>
+            </a>
+          </li>
+        </ul>
+      </section>
+    `;
   }
   private renderExtendedDetail(item: Item) {
     if (this.profile.presentation === "band-item") return nothing;
