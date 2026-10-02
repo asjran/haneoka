@@ -32,7 +32,7 @@ export interface SongSummaryRenderOptions {
   selectDifficulty(index: number): void;
 }
 
-function estimatedDifficulty(row: Item | undefined, locale: string, label: SongSummaryRenderOptions["label"]) {
+function estimatedDifficulty(row: Item | undefined, locale: string) {
   const estimate = row?.difficultyEstimate as Item | undefined;
   const quality = estimate?.quality as Item | undefined;
   const value = estimate?.estimatedConstant;
@@ -44,13 +44,9 @@ function estimatedDifficulty(row: Item | undefined, locale: string, label: SongS
     !["estimated", "low-confidence"].includes(String(quality?.status))
   )
     return undefined;
-  const low = quality?.status === "low-confidence" || quality?.confidence === "low";
   return html`
-    <small
-      title=${label("difficultyEstimateScope", "FC operation load estimate; score, SS and event rewards are separate metrics.")}
-    >
-      ${label("difficultyEstimatedConstant", "Estimated constant")}
-      ${value.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${low ? ` · ${label("difficultyEstimateLowConfidence", "Low confidence")}` : ""}
+    <small>
+      ${value.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
     </small>
   `;
 }
@@ -98,7 +94,7 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     difficulty[selectedDifficulty]?.displayLevel ??
     difficulty[selectedDifficulty]?.playLevel ??
     meta.r;
-  const estimateCaption = estimatedDifficulty(difficulty[selectedDifficulty], locale, label);
+  const estimateCaption = estimatedDifficulty(difficulty[selectedDifficulty], locale);
   const metrics: Array<[string, string, string]> = [
     [
       "metaOfficialLevel",

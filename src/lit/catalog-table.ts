@@ -262,13 +262,9 @@ export class CatalogTable extends LitElement {
     )
       return undefined;
     const c = this.controller;
-    const low = quality?.status === "low-confidence" || quality?.confidence === "low";
     return html`
-      <small
-        title=${c.label("difficultyEstimateScope", "FC operation load estimate; score, SS and event rewards are separate metrics.")}
-      >
-        ${c.label("difficultyEstimatedConstant", "Estimated constant")}
-        ${value.toLocaleString(this.locale || c.settings.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${low ? ` · ${c.label("difficultyEstimateLowConfidence", "Low confidence")}` : ""}
+      <small>
+        ${value.toLocaleString(this.locale || c.settings.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
       </small>
     `;
   }

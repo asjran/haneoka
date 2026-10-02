@@ -1235,6 +1235,13 @@ export class StampMaker extends LitElement {
     `;
   }
 
+  private positionSlider(axis:"x"|"y") {
+    const value=(this.imageTransform||this.settings)[axis];
+    return html`<label class="stamp-maker__slider"><span>${this.t(axis)}<output>${Math.round(value*10)/10}%</output></span>
+      <md-slider class="md3-slider" aria-label=${this.t(axis)} min="0" max="100" step="0.5" .value=${value}
+        @input=${(event:Event)=>this.changePosition({[axis]:clampPosition(Number((event.target as ValueControl).value))})}></md-slider></label>`;
+  }
+
   private imageSlider(key: "scale" | "rotation", min: number, max: number) {
     const value = this.imageTransform![key];
     return html`<label class="stamp-maker__slider"
@@ -1446,29 +1453,10 @@ export class StampMaker extends LitElement {
           ${
             this.imageTransform
               ? html`
-                  <div class="stamp-maker__row stamp-maker__position">
-                    ${(["x", "y"] as const).map(
-                (axis) =>
-                  html` <md-outlined-text-field
-                    type="number"
-                    inputmode="decimal"
-                    min="0"
-                    max="100"
-                    step="1"
-                    label=${this.t(axis)}
-                    suffix-text="%"
-                    .value=${live(String(Math.round(this.imageTransform![axis] * 10) / 10))}
-                    @input=${(event: Event) => {
-                    const value = String((event.target as ValueControl).value);
-                    if (value.trim())
-                      this.changeImage({
-                        [axis]: clampPosition(Number(value)),
-                      });
-                  }}
-                  ></md-outlined-text-field>`,
-              )}
-                    ${iconButton({ label: this.t("center"), icon: "center_focus_strong", onClick: () => this.changeImage({ x: 50, y: 50 }) })}
-                  </div>
+                  <div class="field-stack">
+                      ${this.positionSlider("x")}${this.positionSlider("y")}
+                      ${iconButton({label:this.t("center"),icon:"center_focus_strong",onClick:()=>this.changePosition({x:50,y:50})})}
+                    </div>
                   ${this.imageSlider("scale", 10, 300)}${this.imageSlider("rotation", -180, 180)}
                 `
               : html`
@@ -1652,29 +1640,9 @@ export class StampMaker extends LitElement {
                         >${icon("expand_more", 20)}</span
                       >
                     </summary>
-                    <div class="stamp-maker__row stamp-maker__position">
-                      ${(["x", "y"] as const).map(
-                (axis) => html`
-                  <md-outlined-text-field
-                    type="number"
-                    inputmode="decimal"
-                    min="0"
-                    max="100"
-                    step="1"
-                    label=${this.t(axis)}
-                    suffix-text="%"
-                    .value=${live(String(Math.round(this.settings[axis] * 10) / 10))}
-                    @input=${(event: Event) => {
-                      const value = String(
-                        (event.target as ValueControl).value,
-                      );
-                      if (value.trim())
-                        this.change({ [axis]: clampPosition(Number(value)) });
-                    }}
-                  ></md-outlined-text-field>
-                `,
-              )}
-                      ${iconButton({ label: this.t("center"), icon: "center_focus_strong", onClick: () => this.change({ x: 50, y: 50 }) })}
+                    <div class="field-stack">
+                      ${this.positionSlider("x")}${this.positionSlider("y")}
+                      ${iconButton({label:this.t("center"),icon:"center_focus_strong",onClick:()=>this.changePosition({x:50,y:50})})}
                     </div>
                     ${this.slider("rotation", -180, 180)}
                     <div class="stamp-maker__row stamp-maker__colors">
