@@ -102,7 +102,6 @@ const sections: NavSection[] = [
       { route: "/catalog/support-cards", icon: "collections", label: "supportCards" },
       { route: "/team-builder", icon: "groups", label: "teamBuilder.title" },
       { route: "/catalog/comics", icon: "menu_book", label: "comics" },
-      { route: "/catalog/real-lives", icon: "festival", label: "realLives" },
       { route: "/catalog/gacha", icon: "redeem", label: "gacha" },
       { route: "/catalog/login-campaigns", icon: "event_available", label: "loginCampaigns" },
       { route: "/catalog/missions", icon: "fact_check", label: "systemNavMissions" },
@@ -117,6 +116,7 @@ const sections: NavSection[] = [
       { route: "/catalog/backgrounds", icon: "wallpaper", label: "backgrounds" },
       { route: "/catalog/items", icon: "inventory_2", label: "items" },
       { route: "/catalog/band-items", icon: "piano", label: "bandItems" },
+      { route: "/catalog/real-lives", icon: "festival", label: "realLives" },
     ],
   },
   {
@@ -214,7 +214,6 @@ export const CATALOG_HUB: Array<NavItem & { resource?: string; countKey?: string
   { route: "/catalog/stories", icon: "auto_stories", label: "stories", resource: "stories", countKey: "episodes" },
   { route: "/catalog/comics", icon: "menu_book", label: "comics", resource: "comics" },
   { route: "/catalog/events", icon: "event", label: "events", resource: "events" },
-  { route: "/catalog/real-lives", icon: "festival", label: "realLives", resource: "real-lives" },
   { route: "/catalog/gacha", icon: "redeem", label: "gacha", resource: "gacha" },
   { route: "/catalog/login-campaigns", icon: "event_available", label: "loginCampaigns", resource: "login-campaigns" },
   { route: "/catalog/missions", icon: "fact_check", label: "systemNavMissions", resource: "missions" },
@@ -234,6 +233,7 @@ export const CATALOG_HUB: Array<NavItem & { resource?: string; countKey?: string
   { route: "/catalog/assets", icon: "folder_open", label: "assets" },
   { route: "/catalog/help", icon: "help", label: "help", resource: "help" },
   { route: "/catalog/anon-tokyo/characters", icon: "storefront", label: "anonTokyo" },
+  { route: "/catalog/real-lives", icon: "festival", label: "realLives", resource: "real-lives" },
 ];
 
 export const isRouteActive = (target: string, route: string) =>
