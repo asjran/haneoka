@@ -2537,12 +2537,28 @@ async function handleReleaseMedia(
   }
   if (tree === "objects" && !relative.startsWith("unity/"))
     return new Response("not found", { status: 404, headers: CORS });
-  const release = await currentRelease(env, server);
-  if (!release) return new Response("not found", { status: 404, headers: CORS });
-  // These URLs name the current release rather than immutable bytes.
+  const releaseValues = new URL(request.url).searchParams.getAll("release");
+  if (releaseValues.length > 1 || (releaseValues[0] !== undefined && !RELEASE_ID_PATTERN.test(releaseValues[0]))) {
+    return errorResponse(request, 400, "invalid_release", "Release must be a valid immutable release id");
+  }
+  const requested = releaseValues[0];
+  let release: Release | null;
+  try {
+    release = requested ? await requestedRelease(env, server, requested) : await currentRelease(env, server);
+  } catch (error) {
+    if (error instanceof ReleaseIdentityError) {
+      return errorResponse(request, error.status, error.code, error.message);
+    }
+    throw error;
+  }
+  if (!release) {
+    return requested
+      ? errorResponse(request, 404, "release_not_found", "Requested release is not available")
+      : new Response("not found", { status: 404, headers: CORS });
+  }
   const cacheControl = CATALOG_API_CACHE_CONTROL;
   const cacheRequest = releaseCacheRequest(request, release.releaseId);
-  return edgeCached(
+  const response = await edgeCached(
     cacheRequest,
     ctx,
     MEDIA_CACHE_TTL,
@@ -2556,6 +2572,7 @@ async function handleReleaseMedia(
     },
     cacheControl,
   );
+  return releaseResponseHeaders(response, release);
 }
 
 async function handleArtifact(

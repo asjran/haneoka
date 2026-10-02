@@ -2,6 +2,30 @@ import { tickToTimeMs } from "../song-metrics.ts";
 import type { SongOption } from "../contracts.ts";
 import { dataRows, objectRow, type TeamBuilderData } from "../data.ts";
 
+/** The DTO observes current once; all of its chart requests keep that identity. */
+export function pinnedSongAssetUrl(identity: TeamBuilderData["identity"], file: string): string {
+  if (
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(identity.server) ||
+    !/^r-[a-f0-9]{20}$/u.test(identity.releaseId) ||
+    !identity.sourceId
+  )
+    throw new Error("chart-release-identity-missing");
+  if (!file.startsWith(`/assets/${identity.server}/`)) throw new Error("chart-asset-server-mismatch");
+  const url = new URL(file, "https://release.invalid");
+  if (!url.pathname.startsWith(`/assets/${identity.server}/`)) throw new Error("chart-asset-server-mismatch");
+  url.searchParams.set("release", identity.releaseId);
+  return url.pathname + url.search;
+}
+
+export function verifySongAssetIdentity(response: Response, identity: TeamBuilderData["identity"]): void {
+  if (
+    response.headers.get("x-haneoka-release-id") !== identity.releaseId ||
+    !identity.sourceId ||
+    response.headers.get("x-haneoka-source-id") !== identity.sourceId
+  )
+    throw new Error("chart-release-identity-mismatch");
+}
+
 /** Load selected same-release chart assets in the worker; reuse the player and
  * build metric converter instead of maintaining a second note resolver.
  */
@@ -28,8 +52,9 @@ export async function loadSongOptions(
     seen.add(key);
     const file = String(difficulty.file ?? objectRow(difficulty.score).file ?? "");
     if (!file) throw new RangeError("chart-file-missing");
-    const response = await fetch(file, { signal, credentials: "omit" });
+    const response = await fetch(pinnedSongAssetUrl(data.identity, file), { signal, credentials: "omit" });
     if (!response.ok) throw new Error(`chart-http:${response.status}`);
+    verifySongAssetIdentity(response, data.identity);
     if (Number(response.headers.get("content-length")) > 2 * 1024 * 1024) throw new RangeError("chart-byte-limit");
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.length > 2 * 1024 * 1024) throw new RangeError("chart-byte-limit");
