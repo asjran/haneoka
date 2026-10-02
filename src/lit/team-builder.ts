@@ -450,6 +450,20 @@ export class TeamBuilder extends LitElement {
       clearTimeout(timer);
     }
   }
+  private async retryInventory(): Promise<void> {
+    const store = this.store;
+    const state = store?.state;
+    if (
+      store &&
+      state?.phase === "offline" &&
+      state.dirty &&
+      state.inventory &&
+      state.ownerId &&
+      state.ownerId === this.currentOwner
+    )
+      await store.saveNow();
+    else await this.checkAccount(true);
+  }
   private get canEdit(): boolean {
     return Boolean(
       !this.dataLoading &&
@@ -786,8 +800,8 @@ export class TeamBuilder extends LitElement {
       saved: "saved",
       pending: "saving",
       saving: "saving",
-      offline: "saveFailed",
-      error: "saveFailed",
+      offline: this.storeState?.dirty ? "saveFailed" : "cloudUnavailable",
+      error: this.storeState?.dirty ? "saveFailed" : "cloudUnavailable",
       conflict: "conflict",
       "merge-required": "merge",
       "release-mismatch": "releaseMismatch",
@@ -815,12 +829,9 @@ export class TeamBuilder extends LitElement {
               ? html`
                   <button
                     class="button button--outlined"
-                    @click=${() => {
-                      if (this.saveState === "offline") void this.store?.saveNow();
-                      else void this.checkAccount(true);
-                    }}
+                    @click=${() => void this.retryInventory()}
                   >
-                    ${this.t("retrySave", "Retry save")}
+                    ${clientText(this.locale, "retry", "Retry")}
                   </button>
                 `
               : nothing

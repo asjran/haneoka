@@ -2694,7 +2694,8 @@
     "bulkPreviewStale": "所持状況が変わりました。再確認してください。",
     "confirmBulk": "この変更を適用",
     "inventoryActions": "所持状況・同期",
-    "inventoryReadyAction": "所持状況を開く"
+    "inventoryReadyAction": "所持状況を開く",
+    "cloudUnavailable": "アカウントの所持状況を読み込めませんでした。ローカルの下書きは保持されています。"
   },
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",

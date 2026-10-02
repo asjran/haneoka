@@ -2694,7 +2694,8 @@
     "bulkPreviewStale": "보유 목록이 변경되었습니다. 다시 미리 보세요.",
     "confirmBulk": "이 변경 적용",
     "inventoryActions": "보유 목록 및 동기화",
-    "inventoryReadyAction": "보유 목록 열기"
+    "inventoryReadyAction": "보유 목록 열기",
+    "cloudUnavailable": "계정 보유 목록을 불러오지 못했습니다. 로컬 초안은 보존됩니다."
   },
   "characterRankRewards": "캐릭터 랭크 보상",
   "characterRank": "캐릭터 랭크",

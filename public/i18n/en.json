@@ -2694,7 +2694,8 @@
     "bulkPreviewStale": "Inventory changed. Preview again.",
     "confirmBulk": "Apply these changes",
     "inventoryActions": "Inventory and sync",
-    "inventoryReadyAction": "Open inventory"
+    "inventoryReadyAction": "Open inventory",
+    "cloudUnavailable": "Could not load account inventory. Your local draft is retained."
   },
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",
