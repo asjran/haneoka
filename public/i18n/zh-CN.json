@@ -2678,7 +2678,12 @@
     "personalSoloSSRatio": "个人 Solo SS 达成率",
     "personalSoloSSSurplus": "个人 Solo SS 余量",
     "personalSoloScore": "Solo 分数",
-    "personalSoloSSThreshold": "Solo SS 门槛"
+    "personalSoloSSThreshold": "Solo SS 门槛",
+    "planningControls": "配队与演出条件",
+    "inventoryAndGrowth": "卡库与养成",
+    "characterAndItems": "角色与道具",
+    "applicableConditions": "适用条件",
+    "goalUnavailable": "未开放"
   },
   "characterRankRewards": "角色等级奖励",
   "characterRank": "角色等级",

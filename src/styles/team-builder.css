@@ -90,10 +90,41 @@
     align-items: center;
     flex-wrap: wrap;
   }
-  .team-builder__flow {
+  .team-builder__workspace,
+  .team-builder__controls {
     display: grid;
     gap: var(--md-sys-spacing-4);
     min-width: 0;
+  }
+  .team-builder__workspace {
+    align-items: start;
+  }
+  .team-builder__result-area {
+    min-width: 0;
+  }
+  .team-builder__inventory-fold > .team-builder__section,
+  .team-builder__growth-fold > .team-builder__section {
+    padding-inline: 0;
+    background: transparent;
+  }
+  .team-builder__inventory-fold .team-builder__owned {
+    max-height: min(48dvh, 480px);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .team-builder__results {
+    padding: 0;
+    background: transparent;
+  }
+  .team-builder__results-empty {
+    display: grid;
+    place-content: center;
+    min-height: 300px;
+    padding: var(--md-sys-spacing-6);
+    text-align: center;
+    color: var(--md-sys-color-on-surface-variant);
+    background: var(--md-sys-color-surface-container-low);
+    border-radius: var(--md-sys-shape-corner-large);
   }
   .team-builder__content {
     display: grid;
@@ -282,6 +313,7 @@
     padding: var(--md-sys-spacing-4);
     border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-low);
   }
   .team-builder__lineup {
     display: grid;
@@ -301,6 +333,20 @@
   .team-builder__metrics dd {
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
+  }
+  .team-builder__metrics dd:first-of-type {
+    color: var(--md-sys-color-primary);
+    font: var(--md-sys-typescale-headline-small-weight) var(--md-sys-typescale-headline-small-size) /
+      var(--md-sys-typescale-headline-small-line-height) var(--app-font);
+  }
+  .team-builder__metrics dd small {
+    font: var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size) /
+      var(--md-sys-typescale-body-small-line-height) var(--app-font);
+  }
+  @media (min-width: 960px) {
+    .team-builder__workspace {
+      grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    }
   }
   @media (max-width: 599px) {
     .team-builder__section {

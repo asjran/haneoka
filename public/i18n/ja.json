@@ -2678,7 +2678,12 @@
     "personalSoloSSRatio": "個人Solo SS達成率",
     "personalSoloSSSurplus": "個人Solo SS余裕",
     "personalSoloScore": "Soloスコア",
-    "personalSoloSSThreshold": "Solo SS基準"
+    "personalSoloSSThreshold": "Solo SS基準",
+    "planningControls": "編成・演奏条件",
+    "inventoryAndGrowth": "カード・育成",
+    "characterAndItems": "キャラクター・アイテム",
+    "applicableConditions": "適用条件",
+    "goalUnavailable": "未対応"
   },
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",

@@ -2678,7 +2678,12 @@
     "personalSoloSSRatio": "개인 Solo SS 달성률",
     "personalSoloSSSurplus": "개인 Solo SS 여유",
     "personalSoloScore": "Solo 점수",
-    "personalSoloSSThreshold": "Solo SS 기준"
+    "personalSoloSSThreshold": "Solo SS 기준",
+    "planningControls": "편성 및 연주 조건",
+    "inventoryAndGrowth": "카드 및 육성",
+    "characterAndItems": "캐릭터 및 아이템",
+    "applicableConditions": "적용 조건",
+    "goalUnavailable": "미지원"
   },
   "characterRankRewards": "캐릭터 랭크 보상",
   "characterRank": "캐릭터 랭크",

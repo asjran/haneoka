@@ -1925,28 +1925,31 @@ export class TeamBuilder extends LitElement {
     const conditions = this.forecastConditions;
     if (!conditions.length) return nothing;
     return html`
-      <p class="team-builder__hint">
-        ${
-          this.gekisoSoloForecast
-            ? this.t(
-                "gekisoSoloForecastScope",
-                "Personal Solo SS forecast. Live score and event rewards are unavailable.",
-              )
-            : this.t(
-                "normalForecastScope",
-                "Normal solo forecast supports resolved member and snapshot effects. The score averages 120 skill orders; actual play can vary.",
-              )
-        }
-      </p>
-      <ul class="team-builder__hint">
-        ${conditions.map(
-          (condition) => html`
-            <li>
-              ${this.t(this.gekisoSoloForecast && condition === "native-normal-non-event" ? "gekisoNonEvent" : condition, this.t("gekisoConditionsPending", "Conditions pending"))}
-            </li>
-          `,
-        )}
-      </ul>
+      <details class="team-builder__scope-fold">
+        <summary>${this.t("applicableConditions", "Applicable conditions")}</summary>
+        <p class="team-builder__hint">
+          ${
+            this.gekisoSoloForecast
+              ? this.t(
+                  "gekisoSoloForecastScope",
+                  "Personal Solo SS forecast. Live score and event rewards are unavailable.",
+                )
+              : this.t(
+                  "normalForecastScope",
+                  "Normal solo forecast supports resolved member and snapshot effects. The score averages 120 skill orders; actual play can vary.",
+                )
+          }
+        </p>
+        <ul class="team-builder__hint">
+          ${conditions.map(
+            (condition) => html`
+              <li>
+                ${this.t(this.gekisoSoloForecast && condition === "native-normal-non-event" ? "gekisoNonEvent" : condition, this.t("gekisoConditionsPending", "Conditions pending"))}
+              </li>
+            `,
+          )}
+        </ul>
+      </details>
     `;
   }
   private get evaluationBasis(): EvaluationBasisRequest | null {
@@ -2260,9 +2263,7 @@ export class TeamBuilder extends LitElement {
                 ${
                   !this.supportsObjective(objective)
                     ? html`
-                        <small class="team-builder__hint">
-                          ${this.t("targetUnavailable", "Calculation unavailable for this mode")}
-                        </small>
+                        <small class="team-builder__hint">${this.t("goalUnavailable", "Unavailable")}</small>
                       `
                     : nothing
                 }
@@ -2826,7 +2827,11 @@ export class TeamBuilder extends LitElement {
   }
   private renderResults() {
     return html`
-      <section id="team-results" class="team-builder__section" aria-label=${this.t("results", "Candidates")}>
+      <section
+        id="team-results"
+        class="team-builder__section team-builder__results"
+        aria-label=${this.t("results", "Candidates")}
+      >
         ${renderDetailSectionHeading(this.t("results", "Candidates"), "stats", { level: 2 })}
         ${
           this.running
@@ -2885,6 +2890,44 @@ export class TeamBuilder extends LitElement {
                   (candidate) => html`
                     <article class="team-builder__candidate">
                       ${this.songIdentity(candidate.songKey.split(":")[0], candidate.songKey.split(":")[1])}
+                      <dl class="team-builder__metrics">
+                        ${this.objectives.map((objective) => {
+                          const metric = candidate.metrics[objective];
+                          return html`
+                            <dt>${this.metricLabel(objective, metric)}</dt>
+                            <dd>
+                              ${metric.value === null ? (this.mode === "gekiso" ? this.t("gekisoConditionsPending", "Conditions pending") : this.t("unavailable", "Required data or formula is unavailable")) : metric.value.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
+                              ${
+                                metric.value !== null
+                                  ? html`
+                                      <small>${this.metricUnit(metric)}</small>
+                                    `
+                                  : nothing
+                              }
+                              ${
+                                metric.range
+                                  ? html`
+                                      <small>
+                                        ${this.t("outcomeRange", "Range")}:
+                                        ${metric.range.minimum.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}–${metric.range.maximum.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
+                                      </small>
+                                    `
+                                  : nothing
+                              }
+                              ${
+                                objective === "ss-ratio" && metric.value !== null && metric.status !== "unavailable"
+                                  ? html`
+                                      <small>
+                                        ${metric.value >= 1 ? this.t("ssReached", "SS threshold reached") : this.t("ssNotReached", "Below SS threshold")}
+                                      </small>
+                                    `
+                                  : nothing
+                              }
+                              <small>${this.t(metric.status, metric.status)}</small>
+                            </dd>
+                          `;
+                        })}
+                      </dl>
                       <div class="team-builder__team-strip" role="group" aria-label=${this.t("members", "Members")}>
                         ${candidate.assignment.memberInstanceIds.map((id) => {
                           const member = this.inventory?.members.find((entry) => entry.instanceId === id);
@@ -2960,44 +3003,7 @@ export class TeamBuilder extends LitElement {
                           })}
                         </div>
                       </details>
-                      <dl class="team-builder__metrics">
-                        ${this.objectives.map((objective) => {
-                          const metric = candidate.metrics[objective];
-                          return html`
-                            <dt>${this.metricLabel(objective, metric)}</dt>
-                            <dd>
-                              ${metric.value === null ? (this.mode === "gekiso" ? this.t("gekisoConditionsPending", "Conditions pending") : this.t("unavailable", "Required data or formula is unavailable")) : metric.value.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
-                              ${
-                                metric.value !== null
-                                  ? html`
-                                      <small>${this.metricUnit(metric)}</small>
-                                    `
-                                  : nothing
-                              }
-                              ${
-                                metric.range
-                                  ? html`
-                                      <small>
-                                        ${this.t("outcomeRange", "Range")}:
-                                        ${metric.range.minimum.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}–${metric.range.maximum.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
-                                      </small>
-                                    `
-                                  : nothing
-                              }
-                              ${
-                                objective === "ss-ratio" && metric.value !== null && metric.status !== "unavailable"
-                                  ? html`
-                                      <small>
-                                        ${metric.value >= 1 ? this.t("ssReached", "SS threshold reached") : this.t("ssNotReached", "Below SS threshold")}
-                                      </small>
-                                    `
-                                  : nothing
-                              }
-                              <small>${this.t(metric.status, metric.status)}</small>
-                            </dd>
-                          `;
-                        })}
-                      </dl>
+
                       ${this.objectives.map((objective) => this.renderMetricDetails(objective, candidate.metrics[objective]))}
                       <details>
                         <summary>${this.t("whyRecommended", "Why this candidate")}</summary>
@@ -3043,7 +3049,9 @@ export class TeamBuilder extends LitElement {
             : this.searchStatus
               ? nothing
               : html`
-                  <p>${this.t("resultsEmpty", "Set your cards and conditions, then find candidates.")}</p>
+                  <div class="team-builder__results-empty">
+                    <p>${this.t("resultsEmpty", "Set your cards and conditions, then find candidates.")}</p>
+                  </div>
                 `
         }
       </section>
@@ -3071,9 +3079,27 @@ export class TeamBuilder extends LitElement {
                     !this.pendingUniqueness &&
                     this.saveState !== "release-mismatch"
                       ? html`
-                          <div class="team-builder__flow" ?inert=${!this.canEdit}>
-                            ${this.renderLibrary()} ${this.renderPlayerModifiers()}${this.renderBands()}
-                            ${this.renderGoals()} ${this.renderResults()}
+                          <div class="team-builder__workspace" ?inert=${!this.canEdit}>
+                            <aside
+                              class="team-builder__controls"
+                              aria-label=${this.t("planningControls", "Team and resource conditions")}
+                            >
+                              ${this.renderGoals()}
+                              <details class="team-builder__section team-builder__inventory-fold" open>
+                                <summary class="team-builder__section-header">
+                                  <span>${this.t("inventoryAndGrowth", "Cards and training")}</span>
+                                  <span class="team-builder__hint">
+                                    ${this.t("selectedKinds", "{members} members · {snapshots} snapshots", { members: this.inventory.members.length, snapshots: this.inventory.snapshots.length })}
+                                  </span>
+                                </summary>
+                                ${this.renderLibrary()}
+                              </details>
+                              <details class="team-builder__section team-builder__growth-fold">
+                                <summary>${this.t("characterAndItems", "Characters and items")}</summary>
+                                ${this.renderPlayerModifiers()}${this.renderBands()}
+                              </details>
+                            </aside>
+                            <div class="team-builder__result-area">${this.renderResults()}</div>
                           </div>
                         `
                       : ["loading", "auth-loading", "authLoading"].includes(this.saveState)

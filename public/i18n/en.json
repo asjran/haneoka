@@ -2678,7 +2678,12 @@
     "personalSoloSSRatio": "Personal Solo SS attainment",
     "personalSoloSSSurplus": "Personal Solo SS margin",
     "personalSoloScore": "Solo score",
-    "personalSoloSSThreshold": "Solo SS threshold"
+    "personalSoloSSThreshold": "Solo SS threshold",
+    "planningControls": "Team and play conditions",
+    "inventoryAndGrowth": "Cards and training",
+    "characterAndItems": "Characters and items",
+    "applicableConditions": "Applicable conditions",
+    "goalUnavailable": "Unavailable"
   },
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",
