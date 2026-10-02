@@ -1286,7 +1286,7 @@ export class StampMaker extends LitElement {
               @pointermove=${this.pointerMove}
               @pointerup=${this.pointerEnd}
               @pointercancel=${this.pointerEnd}
-              @lostpointercapture=${() => (this.drag = undefined)}
+              @lostpointercapture=${this.pointerEnd}
               @keydown=${this.canvasKey}
             ></canvas>
             ${
