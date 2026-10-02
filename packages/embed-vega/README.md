@@ -4,7 +4,7 @@
 
 ## Distribution status
 
-This `0.1.0` embed is prepared in source and local release artifacts. Registry publication and an official hosted ESM URL are pending. Use matching local tarballs for the embed and its rendering peers, or bundle them for your own static host/CDN. See the [embedding guide](https://docs.haneoka.org/embed/) for the build and script-module workflow.
+The standalone browser module is hosted at [haneoka.org/embed/vega.js](https://haneoka.org/embed/vega.js). Registry publication is pending. Use matching local tarballs for the embed and its rendering peers, or bundle them for your own static host/CDN. See the [embedding guide](https://docs.haneoka.org/embed/) for the build and script-module workflow.
 
 ## Install and mount
 
@@ -222,3 +222,44 @@ Other embed hosts can reuse `createHaneokaBranding(document, { corner })` from `
 Use a container that preserves its space while loading. Place accessible, clearly labelled controls outside its interactive stage, with touch targets of at least 48 pixels and a layout that wraps at narrow widths. Your host controls the loading indicator, error presentation and UI language. Reuse your component library and design tokens for these controls; the embed adds no page navigation.
 
 The package ships ESM and TypeScript declarations. Its main entry uses the portable renderer peers; the Haneoka adapter and theme are optional. Import the main entry on the server if needed, and call `mountStory` in the browser after the container exists. Run `npm run build` before packing a local checkout. Source documents and your assets stay under their own licenses; this host module is MPL-2.0.
+
+## First-party Haneoka story bootstrap
+
+The optional `@haneoka/embed-vega/hosted` entry provides `mountHaneokaStory`.
+The browser distribution exposes it at `/embed/vega-haneoka.js` after the
+corresponding source build is deployed. It reads one SDK manifest, selects
+Core, Vega and theme from that release, and reads the hash-covered Cubism
+runtime descriptor from the same release. The existing `mountStory` entry
+continues to accept authored JSON and caller-owned data sources.
+
+```js
+import { mountHaneokaStory } from "@haneoka/embed-vega/hosted";
+const player = mountHaneokaStory(container, {
+  id: "millsage_004_1_02",
+  server: "intl",
+  locale: "zh-CN",
+});
+await player.ready;
+playButton.onclick = () => player.play();
+exitButton.onclick = () => player.dispose();
+```
+
+Only `id` is required. `server` defaults to `intl`, `locale` to `ja`, and the
+player uses the Haneoka theme. Loading stages are emitted as `stage` events;
+source/resource and player events retain their existing contracts. `cancel`
+ends bootstrap while `dispose` aborts work and releases the player and source.
+Await disposal before reusing the same container.
+
+Advanced hosts can select `manifestUrl`, `apiBase`, a complete `runtime`
+override, `playerOptions`, or the existing `fetcher`, `headers`, `credentials`,
+`maxBytes`, `signal` and listener callbacks. `manifestUrl` accepts the stable
+manifest or its copy inside a versioned release directory. Both resolve the
+modules and runtime descriptor from that exact release. A runtime override is explicit;
+the default never guesses a module or silently falls back to another release.
+An old manifest without a runtime descriptor rejects default bootstrap. Its
+ordinary `mountStory` modules remain usable, or an advanced host may supply a
+complete compatible runtime configuration.
+
+For custom JSON, retain `mountStory`, `httpDataSource` or `fileDataSource` and
+an explicit asset directory or file resolver. Catalog assets keep the data
+source's origin unless the advanced caller intentionally overrides it.

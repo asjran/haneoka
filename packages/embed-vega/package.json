@@ -29,6 +29,11 @@
       "types": "./dist/theme.d.ts",
       "import": "./dist/theme.js",
       "default": "./dist/theme.js"
+    },
+    "./hosted": {
+      "types": "./dist/hosted.d.ts",
+      "import": "./dist/hosted.js",
+      "default": "./dist/hosted.js"
     }
   },
   "scripts": {

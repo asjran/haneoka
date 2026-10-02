@@ -65,6 +65,7 @@ for (const name of ["core", "vega", "cassiopeia", "home-spot"]) {
 }
 sourceEntries.set("@haneoka/embed-core/branding", path.join(root, "packages/embed-core/src/branding.ts"));
 sourceEntries.set("@haneoka/embed-vega/theme", path.join(root, "packages/embed-vega/src/theme.ts"));
+sourceEntries.set("@haneoka/embed-vega/hosted", path.join(root, "packages/embed-vega/src/hosted.ts"));
 for (const entry of ["index", "haneoka"])
   sourceEntries.set(
     `@haneoka/api-client${entry === "index" ? "" : "/haneoka"}`,
@@ -148,6 +149,12 @@ const entries = {
   vega: `export * from "@haneoka/embed-vega";export * from "@haneoka/embed-vega/haneoka";`,
   "home-spot": `export * from "@haneoka/embed-home-spot";export * from "@haneoka/embed-home-spot/haneoka";`,
   "vega-theme": `export * from "@haneoka/embed-vega/theme";`,
+  "vega-haneoka": `
+    import {mountHaneokaStory as mount} from "@haneoka/embed-vega/hosted";
+    export function mountHaneokaStory(container,options){
+      return mount(container,{manifestUrl:new URL("./manifest.json",import.meta.url).href,...options});
+    }
+  `,
   cassiopeia: `
     import {mountChart as originalMount} from "@haneoka/embed-cassiopeia";
     export * from "@haneoka/embed-cassiopeia/haneoka";
@@ -267,6 +274,33 @@ const files = new Map(
     Buffer.from(file.contents),
   ]),
 );
+// Runtime metadata belongs to this hashed SDK epoch; licensed files stay in
+// their existing provisioned locations and exact eight-file production set.
+const cubismLock = JSON.parse(await readFile(path.join(root, "config/cubism-runtime.lock.json"), "utf8"));
+const cubismFile = (source) => {
+  const file = cubismLock.files.find((item) => item.source === source && item.output);
+  if (!file) throw new Error(`Missing pinned Cubism runtime source: ${source}`);
+  return { url: `/${file.output}`, bytes: file.bytes, sha256: file.sha256 };
+};
+files.set(
+  "runtime.json",
+  Buffer.from(
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        runtimeId: cubismLock.runtimeId,
+        module: cubismFile("Framework/vega-cubism-web-runtime.mjs"),
+        core: {
+          cubismCoreUrl: cubismFile("Core/live2dcubismcore.js"),
+          cubism2CoreUrl: cubismFile("Core/live2d.min.js"),
+          motionSyncCoreUrl: cubismFile("Core/CRI/live2dcubismmotionsynccore.min.js"),
+        },
+      },
+      null,
+      2,
+    ) + "\n",
+  ),
+);
 const assetBytes = [...assets.values()].reduce((sum, file) => sum + file.bytes, 0);
 if (assetBytes > 64 * 1024 * 1024)
   throw new Error(`Embed asset closure exceeds the 64 MiB distribution budget: ${assetBytes}`);
@@ -321,6 +355,7 @@ const manifest = {
   release,
   sha256: releaseHash,
   modules: Object.fromEntries(Object.keys(entries).map((name) => [name, `./${release}/${name}.js`])),
+  runtimes: { cubism: `./${release}/runtime.json` },
   files: Object.fromEntries(ordered.map(([name, bytes]) => [name, { bytes: bytes.length, sha256: hash(bytes) }])),
 };
 await writeFile(path.join(releaseDirectory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
