@@ -154,12 +154,15 @@ const upstreamJson = async (
     const response = await fetch(target, {
       method: "GET",
       headers: { Accept: "application/json", ...headers },
-      redirect: headers.Authorization ? "error" : "follow",
+      redirect: headers.Authorization ? "manual" : "follow",
       signal: deadline,
     });
     upstreamStatus = response.status;
     if (!response.ok) {
-      if (headers.Authorization && (response.status === 401 || response.status === 403)) {
+      if (
+        headers.Authorization &&
+        ((response.status >= 300 && response.status < 400) || response.status === 401 || response.status === 403)
+      ) {
         await response.body?.cancel();
         throw new RequestFailure(502, "upstream");
       }
