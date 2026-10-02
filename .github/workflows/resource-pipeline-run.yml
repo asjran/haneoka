@@ -766,6 +766,20 @@ jobs:
           # Immutable originals remain in R2 CAS. No subsequent build stage
           # reads this local 4–5 GiB source directory after CRI extraction.
           rm -rf -- "data/servers/$RESOURCE_SERVER/sources/${{ needs.prepare.outputs.source_id }}/android/cri"
+      - name: Install CPU stamp reconstruction dependencies
+        if: inputs.server == 'intl' || inputs.server == 'intl-cbt'
+        run: python -m pip install --disable-pip-version-check --requirement scripts/build/requirements-textless-stamps.txt
+      - name: Cache pinned stamp detector
+        if: inputs.server == 'intl' || inputs.server == 'intl-cbt'
+        uses: actions/cache@v6
+        with:
+          path: .cache/stamp-cv
+          key: stamp-detector-${{ runner.os }}-${{ hashFiles('scripts/build/textless-stamps-models.json') }}
+      - name: Restore verified private Intl stamp bootstrap
+        if: inputs.server == 'intl'
+        run: >-
+          python scripts/core/stamp_ci_inputs.py --server "$RESOURCE_SERVER"
+          --output "$RUNNER_TEMP/stamp-reviewed"
       - name: Assemble release
         run: |
           SOURCE_ID="${{ needs.prepare.outputs.source_id }}"
@@ -775,6 +789,16 @@ jobs:
             extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
           fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" build-api --source "$SOURCE_ID" --build "$BUILD_ID" "${extra[@]}"
+          if [[ "$RESOURCE_SERVER" == "intl" || "$RESOURCE_SERVER" == "intl-cbt" ]]; then
+            stamp_extra=()
+            if [[ "$RESOURCE_SERVER" == "intl" ]]; then
+              stamp_extra+=(--seed-manifest "$RUNNER_TEMP/stamp-reviewed/seed/manifest.json"
+                --seed-provenance "$RUNNER_TEMP/stamp-reviewed/provenance.json"
+                --repair-cache-manifest "$RUNNER_TEMP/stamp-reviewed/repair/manifest.json")
+            fi
+            python scripts/pipeline.py --server "$RESOURCE_SERVER" build-textless-stamps \
+              --source "$SOURCE_ID" --build "$BUILD_ID" --reuse-current "${extra[@]}" "${stamp_extra[@]}"
+          fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" build-release --source "$SOURCE_ID" --build "$BUILD_ID" "${extra[@]}" > "$RUNNER_TEMP/release.json"
       - name: Publish CAS delta and switch current release
         id: publish_release

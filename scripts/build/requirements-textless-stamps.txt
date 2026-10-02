@@ -1,0 +1,5 @@
+# CPU-only wheels for GitHub Actions ubuntu-latest / Python 3.13.
+# No GUI, CUDA, Paddle runtime or text-recognition language packages.
+opencv-python-headless==4.14.0.94
+numpy==2.5.1
+Pillow==12.2.0

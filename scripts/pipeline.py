@@ -826,6 +826,35 @@ def command_build_ktx2(args: argparse.Namespace) -> None:
                       fetch_original=fetch_original, allow_basis_reencode=args.basis_reencode))
 
 
+def command_build_textless_stamps(args: argparse.Namespace) -> None:
+    from build.stamp_pipeline import build_textless_stamps, MANIFEST
+
+    config = load_server_config(args.server)
+    identity = args.build or build_id(config, args.source)
+    delta = _delta_context(config, args.delta_plan) if args.delta_plan else None
+    reuse_manifest = None
+    restore_output = None
+    if config.id in ("intl", "intl-cbt") and delta is None and args.reuse_current:
+        try:
+            store = R2Store(config, 2)
+            snapshot = current_release_document(store, config, MANIFEST)
+            if isinstance(snapshot, dict):
+                reuse_manifest = snapshot["document"]
+                restore_output = _preview_restore(store, snapshot)
+                # _preview_restore also pins the expected object SHA.
+                pinned = restore_output
+                restore_output = lambda path, target: pinned(path, snapshot["entries"][path]["sha256"], target)
+        except Exception as error:
+            sys.stderr.write(f"stamp current-release cache unavailable; rebuilding: {error}\n")
+    _print(build_textless_stamps(config.id, args.source, identity,
+                                 model=Path(args.model) if args.model else None,
+                                 delta=delta,
+                                 reuse_manifest=reuse_manifest, restore_output=restore_output,
+                                 seed_manifest=Path(args.seed_manifest) if args.seed_manifest else None,
+                                 seed_provenance=Path(args.seed_provenance) if args.seed_provenance else None,
+                                 repair_cache_manifest=Path(args.repair_cache_manifest) if args.repair_cache_manifest else None))
+
+
 def command_build_announcements(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
     identity = args.build or build_id(config, args.source)
@@ -852,6 +881,7 @@ def _run_build(
     include_ktx2: bool,
     include_live2d_bc7: bool = False,
     include_basis_reencode: bool = False,
+    offline: bool = False,
 ) -> dict:
     extract_master(
         _source_package(config.id, source_id),
@@ -899,6 +929,8 @@ def _run_build(
         build_ktx2(config.id, identity, source_id=source_id,
                    allow_basis_reencode=include_basis_reencode)
     build_api(config, source_id, identity)
+    from build.stamp_pipeline import build_textless_stamps
+    build_textless_stamps(config.id, source_id, identity, allow_model_download=not offline)
     # NOTE: the Sonolus payload is intentionally NOT built here. It is decoupled
     # from the resource pipeline (it is slow and changes independently): the engine
     # is a shared global asset built via `pnpm sonolus:build`, and chart data is
@@ -945,6 +977,7 @@ def command_run(args: argparse.Namespace) -> None:
         args.ktx2,
         getattr(args, "live2d_bc7", False),
         getattr(args, "basis_reencode", False),
+        offline=args.offline,
     )
     pointer = publish_release(store, config, release["releaseId"]) if store else None
     _print(
@@ -1356,6 +1389,17 @@ def parser() -> argparse.ArgumentParser:
         help="delta plan from prepare-unity-reuse; compose the release against the pinned base release",
     )
     release.set_defaults(run=command_build_release)
+
+    stamp_build = commands.add_parser("build-textless-stamps", help="build all international stamps for normal release publication")
+    stamp_build.add_argument("--source", required=True)
+    stamp_build.add_argument("--build")
+    stamp_build.add_argument("--delta-plan")
+    stamp_build.add_argument("--reuse-current", action="store_true", help="reuse matching images from one pinned current release")
+    stamp_build.add_argument("--model", help="verified detector; defaults to the pinned download/cache")
+    stamp_build.add_argument("--seed-manifest", help="content-verified reviewed local images for initial cache population")
+    stamp_build.add_argument("--seed-provenance", help="portable reviewed repair metadata bound into the production recipe")
+    stamp_build.add_argument("--repair-cache-manifest", help="verified repair objects accompanying the reviewed seed")
+    stamp_build.set_defaults(run=command_build_textless_stamps)
 
     run = commands.add_parser(
         "run",

@@ -1,0 +1,69 @@
+{
+  "schema": "haneoka-stamp-seed-provenance-v1",
+  "seedManifestSha256": "d41ac2553180ee049a5ee18d25c23cd9a8d27f34e53dad4916e3bd1a951e1ad9",
+  "seedArchiveSha256": "10872fdfea417009c7125daea2f59ba7fc0a40db8f4f1cbd38e3dbe27b3de220",
+  "repairCacheManifestSha256": "612daa9323345a7544e3bf380efc58195247cfdf8d3dbf62325ad9e5112018f3",
+  "repairCacheArchiveSha256": "b78a5970275217838180fd4f47b3176a62faff1fcce5bca3cf06ea642ce47b80",
+  "sourceIdentity": {
+    "releaseId": "r-31fd4555b15455da7f44",
+    "schema": "haneoka-resource-release-identity-v1",
+    "server": "intl",
+    "sourceId": "v25-c0b6a1541e45-3a5d2eec9935-n653c6392"
+  },
+  "records": [
+    {
+      "inputFingerprint": "33491b1b2a54d9e2277a634bbf29d9adf8d74017a5398896570facb041dffc08",
+      "sourceHash": "0c81b2617ca7a74f99050acb487c7daf8fd537776951cecbe352bb03fbaf0076",
+      "localGeneratedRepair": true,
+      "localRepairCacheApplied": true,
+      "repairSourceIdentity": {
+        "releaseId": "r-31fd4555b15455da7f44",
+        "schema": "haneoka-resource-release-identity-v1",
+        "server": "intl",
+        "sourceId": "v25-c0b6a1541e45-3a5d2eec9935-n653c6392"
+      },
+      "repairInputSourceHash": "07294e7fb4392a63cab1c1cbc9990c1fab3871e8bd5b8de0846ef06957e6312a",
+      "localRepair": {
+        "method": "local generated contour/background restoration",
+        "inputPixelSha256": "da19dd27f089f550de7c4dd00e8bc2da8285895897e7c77d35372e3a79a2b93c",
+        "patchImageSha256": "db98eeb010a74c14eb7e1cef70b3efb05827f52c2329c8a70c301be3e332057a",
+        "patchMaskSha256": "6a0f25c039e9837c695aed79a851f5247875b44d53b784ce16c6d34918fa1b3a",
+        "changedPixels": 2051,
+        "outsideMaskRgbaIdentity": true,
+        "bbox": [
+          0,
+          165,
+          64,
+          86
+        ]
+      }
+    },
+    {
+      "inputFingerprint": "4f5a760655c9ddcdeaaba83ed68553dd2da554c91d49dafd86450f8408c166a4",
+      "sourceHash": "19d0ad9e21bd098194f9e502058d62be6f5c5d0d4a5f7aefd1e82b6ba5b4d29e",
+      "localGeneratedRepair": true,
+      "localRepairCacheApplied": true,
+      "repairSourceIdentity": {
+        "releaseId": "r-31fd4555b15455da7f44",
+        "schema": "haneoka-resource-release-identity-v1",
+        "server": "intl",
+        "sourceId": "v25-c0b6a1541e45-3a5d2eec9935-n653c6392"
+      },
+      "repairInputSourceHash": "9aec1b50d9d02931827a6f8c62e5af2106af4cb3c1e0880a5092424affeafc67",
+      "localRepair": {
+        "method": "local generated contour/background restoration",
+        "inputPixelSha256": "f8dbaea9ae4e074bb5b7975376d742760a22aa783e72de167cfe88bf78cef693",
+        "patchImageSha256": "d7eb17b364ce1fa68f8e74b07f23c1f3db7b57dc8c8675b12a8a9d5fcee6a67a",
+        "patchMaskSha256": "667741793565b21d7403e214780aaa735bce62a636d2a1021aec8265abbb9953",
+        "changedPixels": 4798,
+        "outsideMaskRgbaIdentity": true,
+        "bbox": [
+          20,
+          100,
+          101,
+          103
+        ]
+      }
+    }
+  ]
+}
