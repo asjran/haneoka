@@ -1,4 +1,5 @@
 import { cardRarityName, rarityIcon } from "./shared/rarity-icon";
+import { catalogCharacterRelationship } from "./shared/catalog-relationships";
 import {
   fetchNativeMetaSidecar,
   nativeMetaIdentity,
@@ -2031,13 +2032,9 @@ export class CatalogScreen extends LitElement {
     if (kind === "song") return this.itemArtistContent(item);
     if (kind === "member" || kind === "support") {
       const characters = asItems(item.characterDetails);
-      return localizedList(
-        this.itemCharacterIds(item).map((id) => {
-          const character = this.character(id, characters);
-          return character?.characterName || character?.englishName;
-        }),
-        this.settings.locale,
-      );
+      return catalogCharacterRelationship(this.itemCharacterIds(item), this.settings.locale, (id) =>
+        this.character(id, characters),
+      ).content;
     }
     return this.tileDescription(item);
   }
@@ -2466,20 +2463,12 @@ export class CatalogScreen extends LitElement {
     return ["performance", "technique", "visual"].reduce((sum, key) => sum + this.stat(item, key), 0);
   }
   private characterAvatars(ids: number[], supplemental: Item[] = []) {
-    const visible = [...new Set(ids)].slice(0, 5);
-    return html`
-      <span class="avatar-stack">
-        ${visible.map((id) => {
-          const character = this.character(id, supplemental);
-          const source = String(character?.faceImage || character?.thumbnailImage || "");
-          return source
-            ? html`
-                <img src=${source} alt=${this.characterName(id, supplemental)} loading="lazy" decoding="async" />
-              `
-            : nothing;
-        })}
-      </span>
-    `;
+    return catalogCharacterRelationship(
+      ids,
+      this.settings.locale,
+      (id) => this.character(id, supplemental),
+      (id) => this.characterName(id, supplemental),
+    ).adornment;
   }
   private secondary(item: Item) {
     const kind = this.profile.presentation;

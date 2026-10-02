@@ -1685,6 +1685,9 @@
     "garupaCastBirthday": "GBP 聲優生日",
     "externalLive": "外部演出"
   },
+  "relationships": {
+    "speakerNameSeparator": " & "
+  },
   "homePage": {
     "overview": "首頁概覽",
     "purpose": "BanG Dream! Our Notes 資料檔案與社群",
@@ -2264,6 +2267,8 @@
   "downloadChart": "下載譜面圖片",
   "category": "分類",
   "initial": "初始值",
+  "catalogJapanOnly": "僅日服",
+  "catalogInternationalOnly": "僅國際服",
   "rankUpItem": "升階素材",
   "notes": "音符數",
   "battle": "對戰",

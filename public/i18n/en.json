@@ -1685,6 +1685,9 @@
     "garupaCastBirthday": "GBP voice actor birthdays",
     "externalLive": "External live events"
   },
+  "relationships": {
+    "speakerNameSeparator": " & "
+  },
   "homePage": {
     "overview": "Home overview",
     "purpose": "BanG Dream! Our Notes archive and community",
@@ -2264,6 +2267,8 @@
   "downloadChart": "Download chart image",
   "category": "Category",
   "initial": "Initial",
+  "catalogJapanOnly": "Japan only",
+  "catalogInternationalOnly": "International only",
   "rankUpItem": "Rank-up material",
   "notes": "Notes",
   "battle": "Battle",

@@ -1685,6 +1685,9 @@
     "garupaCastBirthday": "GBP 声優の誕生日",
     "externalLive": "外部ライブ"
   },
+  "relationships": {
+    "speakerNameSeparator": "・"
+  },
   "homePage": {
     "overview": "ホーム概要",
     "purpose": "BanG Dream! Our Notes の資料アーカイブとコミュニティ",
@@ -2264,6 +2267,8 @@
   "downloadChart": "譜面画像をダウンロード",
   "category": "カテゴリー",
   "initial": "初期値",
+  "catalogJapanOnly": "日本版のみ",
+  "catalogInternationalOnly": "グローバル版のみ",
   "rankUpItem": "ランクアップ素材",
   "notes": "ノーツ数",
   "battle": "バトル",

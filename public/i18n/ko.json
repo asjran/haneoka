@@ -1685,6 +1685,9 @@
     "garupaCastBirthday": "GBP 성우 생일",
     "externalLive": "외부 라이브"
   },
+  "relationships": {
+    "speakerNameSeparator": "・"
+  },
   "homePage": {
     "overview": "홈 개요",
     "purpose": "BanG Dream! Our Notes 자료 아카이브와 커뮤니티",
@@ -2264,6 +2267,8 @@
   "downloadChart": "채보 이미지 다운로드",
   "category": "분류",
   "initial": "초기값",
+  "catalogJapanOnly": "일본판 전용",
+  "catalogInternationalOnly": "글로벌판 전용",
   "rankUpItem": "랭크 업 재료",
   "notes": "노트 수",
   "battle": "배틀",
