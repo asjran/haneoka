@@ -1,6 +1,22 @@
 import { cardRarityName, rarityIcon } from "./shared/rarity-icon";
 import { catalogCharacterRelationship } from "./shared/catalog-relationships";
 import {
+  serverAvailabilityBadge,
+  serverAvailabilityImage,
+  serverAvailabilityLabel,
+} from "./shared/server-availability";
+import {
+  crossServerDetail, crossServerDisplayRow,
+  type CrossCatalogDTO,
+  type CrossCatalogEntry,
+  type CrossCatalogIdentity,
+  type CrossCatalogResource,
+  type OfficialCatalogServer,
+} from "../lib/cross-server/catalog";
+import { fetchCrossServerCatalogs } from "../lib/cross-server/fetch";
+import { fetchCrossServerDetail } from "../lib/cross-server/detail";
+import { specList } from "./ui/spec";
+import {
   fetchNativeMetaSidecar,
   nativeMetaIdentity,
   nativeMetaPublication,
@@ -574,6 +590,328 @@ export class CatalogScreen extends LitElement {
   private gameMarks = new Map<string, string>();
   private gameItems: Item[] = [];
   private songMeta: Item = {};
+  private unionCatalog?: CrossCatalogDTO;
+  private unionEntries = new Map<string, CrossCatalogEntry>();
+  private unionItems = new WeakMap<Item, CrossCatalogEntry>();
+  private unionCharacters: Partial<Record<OfficialCatalogServer, Map<number, Item>>> = {};
+  private unionBands: Partial<Record<OfficialCatalogServer, Map<number, Item>>> = {};
+  private unionMarks: Partial<Record<OfficialCatalogServer, Map<string, string>>> = {};
+  private unionDetail?: Awaited<ReturnType<typeof fetchCrossServerDetail>>;
+  private unionRequests = new RequestScope();
+  private unionResource(): CrossCatalogResource | undefined {
+    return this.settings.origin !== "bestdori" &&
+      ["jp", "intl"].includes(this.dataServer()) &&
+      ["cards", "support-cards", "songs"].includes(this.settings.resource)
+      ? (this.settings.resource as CrossCatalogResource)
+      : undefined;
+  }
+  private unionEntry(item: Item) {
+    return this.unionItems.get(item);
+  }
+  private itemSourceServer(item: Item): ReleaseServer {
+    return this.unionEntry(item)?.displayServer || this.dataServer();
+  }
+  private itemKey(item: Item): string {
+    const entry = this.unionEntry(item);
+    return entry
+      ? `${entry.resource}:${entry.displayServer}:${entry.perServer[entry.displayServer]!.id}`
+      : this.itemId(item);
+  }
+  private itemCharacter(item: Item, id: number): Item | undefined {
+    const server = this.itemSourceServer(item);
+    return (
+      this.unionCharacters[server as OfficialCatalogServer]?.get(id) ||
+      (server === this.dataServer()
+        ? this.character(id, asItems(item.characterDetails))
+        : asItems(item.characterDetails).find((row) => Number(row.characterId) === id))
+    );
+  }
+  private itemCharacterRelation(item: Item) {
+    return catalogCharacterRelationship(this.itemCharacterIds(item), this.settings.locale, (id) =>
+      this.itemCharacter(item, id),
+    );
+  }
+  private itemBand(item: Item, id: number): Item | undefined {
+    const server = this.itemSourceServer(item);
+    return (
+      this.unionBands[server as OfficialCatalogServer]?.get(id) ||
+      (server === this.dataServer()
+        ? this.band(id)
+        : Number((item.bandDetails as Item | undefined)?.bandId) === id
+          ? (item.bandDetails as Item)
+          : undefined)
+    );
+  }
+  private itemMark(item: Item, name: string): string {
+    return (
+      this.unionMarks[this.itemSourceServer(item) as OfficialCatalogServer]?.get(name) ||
+      (this.itemSourceServer(item) === this.dataServer() ? this.gameMarks.get(name) || "" : "")
+    );
+  }
+  private itemRarityMark(item: Item): string {
+    return this.itemMark(item, `RarityIconCenter_${cardRarityName(item.rarity)}.png`);
+  }
+  private itemAttributeMark(item: Item, song = false): string {
+    const value = Number(song ? item.musicType : item.cardType);
+    const color = ["", "Red", "Blue", "Green", "Yellow", "Purple"][value];
+    return (
+      (song ? this.itemMark(item, `sp_icon_live_music_type_${value}.png`) : "") ||
+      this.itemMark(item, `CardType-${color}.png`)
+    );
+  }
+  private itemExclusive(item: Item) {
+    const exclusive = this.unionEntry(item)?.exclusive;
+    return exclusive ? serverAvailabilityBadge([exclusive], this.settings.locale) : nothing;
+  }
+  private unionTile(options: TileOptions, item: Item): TileOptions {
+    const exclusive = this.unionEntry(item)?.exclusive;
+    if (!exclusive) return options;
+    const label = serverAvailabilityLabel([exclusive], this.settings.locale);
+    return {
+      ...options,
+      serverMark: { image: serverAvailabilityImage(exclusive), label },
+    };
+  }
+  private pinnedUnionAsset(source: string, identity: CrossCatalogIdentity): string {
+    if (!source) return source;
+    const url = new URL(source, "https://asset.invalid");
+    if (!/^\/(?:assets|runtime|objects)\//u.test(url.pathname)) return source;
+    if (
+      !url.pathname.startsWith(`/assets/${identity.server}/`) &&
+      !url.pathname.startsWith(`/runtime/${identity.server}/`) &&
+      !url.pathname.startsWith(`/objects/${identity.server}/`)
+    )
+      throw new Error("Union asset server mismatch");
+    url.searchParams.set("release", identity.releaseId);
+    return url.pathname + url.search;
+  }
+  private pinUnionRow(row: Item, identity: CrossCatalogIdentity): Item {
+    const pin = (value: unknown): unknown => {
+      if (typeof value === "string" && /^\/(?:assets|runtime|objects)\//u.test(value))
+        return this.pinnedUnionAsset(value, identity);
+      if (Array.isArray(value)) return value.map(pin);
+      if (value && typeof value === "object")
+        return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, pin(entry)]));
+      return value;
+    };
+    return pin(row) as Item;
+  }
+  private unionPrimaryRow(entry: CrossCatalogEntry): Item {
+    const variant = entry.perServer[entry.displayServer]!;
+    const row = crossServerDisplayRow(entry);
+    // Shared text may supplement this presentation; primary artwork remains on its own source.
+    for (const supplement of entry.content.supplements)
+      if (supplement.classification === "source-asset") {
+        const field = supplement.field.split(".")[0];
+        if (variant.row[field] === undefined) delete row[field];
+        else row[field] = structuredClone(variant.row[field]);
+      }
+    const pinned = this.pinUnionRow(row, variant.identity);
+    this.unionItems.set(pinned, entry);
+    return pinned;
+  }
+  private unionDetailRow(detail: ReturnType<typeof crossServerDetail>): Item {
+    const own = detail.perServer[detail.activeServer]!;
+    const row = { ...detail.row };
+    for (const supplement of detail.content.supplements)
+      if (supplement.classification === "source-asset") {
+        const field = supplement.field.split(".")[0];
+        if (own.row[field] === undefined) delete row[field];
+        else row[field] = own.row[field];
+      }
+    return this.pinUnionRow(row, own.identity);
+  }
+  private async loadUnionCollection(signal: AbortSignal): Promise<void> {
+    const resource = this.unionResource()!;
+    const selectedServer = this.dataServer() as OfficialCatalogServer;
+    const catalogs = await fetchCrossServerCatalogs(
+      [resource, "characters", "bands"],
+      selectedServer,
+      this.settings.locale,
+      { signal },
+    );
+    if (!this.isConnected || !this.catalogRequests.current(signal)) return;
+    const dto = catalogs[resource];
+    if (!dto) throw new Error("Cross-server catalogue unavailable");
+    this.unionCatalog = dto;
+    this.unionItems = new WeakMap();
+    this.unionEntries.clear();
+    this.unionCharacters = {};
+    this.unionBands = {};
+    this.unionMarks = {};
+    for (const server of ["jp", "intl"] as const) {
+      const identity = dto.identities[server];
+      if (!identity) continue;
+      const characters = new Map<number, Item>(),
+        bands = new Map<number, Item>();
+      for (const entry of catalogs.characters?.entries || []) {
+        const variant = entry.perServer[server];
+        if (variant && variant.identity.releaseId === identity.releaseId && variant.identity.sourceId === identity.sourceId) {
+          const view = this.unionDetailRow(crossServerDetail(entry, server));
+          characters.set(Number(variant.id), this.pinUnionRow({ ...view, ...variant.assets }, identity));
+        }
+      }
+      for (const entry of catalogs.bands?.entries || []) {
+        const variant = entry.perServer[server];
+        if (variant && variant.identity.releaseId === identity.releaseId && variant.identity.sourceId === identity.sourceId) {
+          const view = this.unionDetailRow(crossServerDetail(entry, server));
+          bands.set(Number(variant.id), this.pinUnionRow({ ...view, ...variant.assets }, identity));
+        }
+      }
+      this.unionCharacters[server] = characters;
+      this.unionBands[server] = bands;
+      try {
+        const response = await fetch(
+          `/api/v1/servers/${server}/ui-marks?release=${encodeURIComponent(identity.releaseId)}`,
+          { signal },
+        );
+        if (
+          response.ok &&
+          response.headers.get("x-haneoka-release-id") === identity.releaseId &&
+          response.headers.get("x-haneoka-source-id") === identity.sourceId
+        ) {
+          const marks = (await response.json()) as Record<string, string>;
+          this.unionMarks[server] = new Map(
+            Object.entries(marks)
+              .filter(([, path]) => typeof path === "string")
+              .map(([name, path]) => [name, this.pinnedUnionAsset(`/runtime/${server}/${path.replace(/^runtime\//u, "")}`, identity)]),
+          );
+        }
+      } catch {
+        if (signal.aborted) return;
+      }
+    }
+    if (!this.isConnected || !this.catalogRequests.current(signal)) return;
+    this.items = dto.entries.map((entry) => this.unionPrimaryRow(entry));
+    for (const item of this.items) this.unionEntries.set(this.itemKey(item), this.unionEntry(item)!);
+    this.characters = [...(this.unionCharacters[selectedServer]?.values() || [])];
+    this.bands = [...(this.unionBands[selectedServer]?.values() || [])];
+    this.nativeCatalogPin = dto.identities[selectedServer];
+    this.gameMarks = this.unionMarks[selectedServer] || new Map();
+    this.facetCache = undefined;
+    this.resultCache = undefined;
+    this.expandedCache = undefined;
+    this.phase = "ready";
+    this.restoreLocationState();
+    this.ensureSongMeta();
+    if (this.settings.nativeMetaReference) void this.loadNativeMetaReference(this.settings.nativeMetaReference);
+  }
+  private unionDetailHref(href: string | null): string {
+    if (!href || typeof window === "undefined" || !this.isConnected) return href || "";
+    const documentUrl = navigationDocumentUrl();
+    if (!documentUrl.searchParams.has("return")) return href;
+    const returnTo = entityReturnHref();
+    if (!returnTo) return href;
+    const target = new URL(href, documentUrl);
+    if (target.origin !== documentUrl.origin || parseEntitySelection(target.pathname)?.source !== "canonical") return href;
+    target.searchParams.set("return", returnTo);
+    return `${target.pathname}${target.search}${target.hash}`;
+  }
+  private renderUnionDetail() {
+    const detail = this.unionDetail;
+    if (!detail) return nothing;
+    const variants = Object.values(detail.perServer).filter((variant) => Boolean(variant));
+    return html`
+      <section class="detail-section">
+        ${renderDetailSectionHeading(this.label("releaseServer", "Release server"), "details")}
+        <div class="cluster">
+          ${variants.map(
+            (variant) => html`
+              <a
+                class="button button--text"
+                href=${this.unionDetailHref(variant!.href)}
+                aria-current=${variant!.identity.server === detail.activeServer ? "page" : nothing}
+              >
+                <img src=${serverAvailabilityImage(variant!.identity.server)} alt="" width="18" height="18" />
+                ${this.label(variant!.identity.server === "jp" ? "settingsJapan" : "settingsGlobal", variant!.identity.server === "jp" ? "Japan" : "International")}
+              </a>
+            `,
+          )}
+        </div>
+        ${detail.content.supplements
+          .filter((s) => detail.fullSources.includes(s.fromServer) && (s.classification === "foreign-variant-content" || s.classification === "source-asset"))
+          .map(
+            (s) => html`
+              <details class="detail-fold">
+                <summary>
+                  <span class="detail-fold__title">
+                    ${this.detailLabel(s.field)} ·
+                    ${this.label(s.fromServer === "jp" ? "settingsJapan" : "settingsGlobal", s.fromServer)}
+                  </span>
+                </summary>
+                <div class="detail-fold__body">
+                  ${
+                    s.classification === "source-asset" && typeof s.value === "string"
+                      ? html`
+                          <a href=${this.unionDetailHref(s.href || s.value)}>
+                            <img
+                              src=${this.pinnedUnionAsset(s.value, s.identity)}
+                              alt=${this.detailLabel(s.field)}
+                              loading="lazy"
+                              style="max-width:100%;max-height:320px;object-fit:contain"
+                            />
+                          </a>
+                        `
+                      : ["musicUrl", "mvUrl", "musicVideos", "diarySound", "movies"].includes(s.field)
+                        ? html`<a class="button button--text" href=${this.unionDetailHref(s.href)}>${this.label("details", "Details")}</a>`
+                        : localizedContent(s.value, this.settings.locale)
+                  }
+                </div>
+              </details>
+            `,
+          )}
+        ${variants
+          .filter((variant) => variant!.identity.server !== detail.activeServer && detail.fullSources.includes(variant!.identity.server))
+          .map(
+            (variant) => html`
+              <details class="detail-fold">
+                <summary>
+                  <span class="detail-fold__title">
+                    ${this.label(variant!.identity.server === "jp" ? "settingsJapan" : "settingsGlobal", variant!.identity.server)}
+                  </span>
+                </summary>
+                <div class="detail-fold__body">
+                  ${specList([
+                    { label: this.label("release", "Release"), value: this.release(variant!.releasedAt) },
+                    ...["performance", "technique", "visual"].map((key) => ({
+                      label: this.detailLabel(key),
+                      value:
+                        (variant!.row.stat as Item | undefined)?.[key] === undefined
+                          ? ""
+                          : this.displayValue((variant!.row.stat as Item)[key]),
+                    })),
+                    ...Object.entries((variant!.row.resolvedSkills as Item) || {}).map(([key, skill]) => ({
+                      label: this.detailLabel(key + "Skill"),
+                      value: this.localized((skill as Item)?.name) || this.localized((skill as Item)?.skillName),
+                    })),
+                  ])}
+                  <a class="button button--text" href=${this.unionDetailHref(variant!.href)}>${this.label("details", "Details")}</a>
+                </div>
+              </details>
+            `,
+          )}
+      </section>
+    `;
+  }
+  private async ensureUnionDetail(payload: EntityPayload): Promise<void> {
+    if (!this.unionResource() || this.unionDetail || !this.isConnected || !payload.server || !payload.releaseId) return;
+    const signal = this.unionRequests.begin();
+    try {
+      const resource = this.unionResource()!;
+      const catalogs = await fetchCrossServerCatalogs([resource], this.dataServer() as OfficialCatalogServer, this.settings.locale, { signal });
+      const dto = catalogs[resource];
+      const pin = dto?.identities[this.dataServer() as OfficialCatalogServer];
+      if (!pin || pin.server !== payload.server || pin.releaseId !== payload.releaseId || (payload.sourceId && payload.sourceId !== pin.sourceId)) return;
+      const entry = dto.entries.find(entry => entry.perServer[pin.server]?.id === payload.id);
+      if (!entry) return;
+      const detail = await fetchCrossServerDetail(entry, pin.server, { signal });
+      if (!this.unionRequests.current(signal) || !this.isConnected || this.payload !== payload || !detail.fullSources.includes(pin.server)) return;
+      this.unionDetail = detail;
+      this.items = [{ ...payload.item, ...this.unionDetailRow(detail) }];
+      this.selected = this.items[0];
+      this.resultCache = undefined; this.requestUpdate();
+    } catch { /* Keep the trusted source page; a pruned/foreign variant never becomes current. */ }
+  }
   private songMetaPin?: { server: string; releaseId: string; sourceId?: string };
   private songMetaCompatible(): boolean {
     const expected = this.nativeCatalogPin || this.nativeReference?.pin;
@@ -745,6 +1083,7 @@ export class CatalogScreen extends LitElement {
     );
   }
   nativeSongScore(item: Item): number | null | undefined {
+    if (this.itemSourceServer(item) !== this.dataServer()) return null;
     if (!this.hasNativeMetaReference()) return undefined;
     const rows = asItems(item.difficulty);
     const index = this.profile.perDifficulty
@@ -805,6 +1144,7 @@ export class CatalogScreen extends LitElement {
   };
   private restoreFacets(params: URLSearchParams) {
     const bandRail = this.hasBandRail();
+    const card = ["member", "support"].includes(this.profile.presentation);
     this.activeBand = bandRail ? Number(params.get("band") || 0) : 0;
     const typeParam = ["member", "support"].includes(this.profile.presentation)
       ? "cardType"
@@ -826,13 +1166,16 @@ export class CatalogScreen extends LitElement {
           : params
               .getAll("type")
               .filter((value) => !["member", "support"].includes(this.profile.presentation) || /^[1-5]$/u.test(value))),
-      ],
+      ].filter((value) => !card || /^[1-5]$/u.test(value)),
       rarity: params.getAll("rarity"),
       category: ["member", "support"].includes(this.profile.presentation) ? [] : params.getAll("category"),
-      status: params.getAll("status"),
-      kind: params.getAll("kind"),
+      status: card ? [] : params.getAll("status"),
+      kind: card ? [] : params.getAll("kind"),
       ...Object.fromEntries(EXTRA_FILTERS.map((key) => [key, params.getAll(key)])),
     };
+    if (this.unionCatalog)
+      for (const key of ["character", "collectionBand"])
+        this.facets[key] = this.facets[key].map((value) => /^\d+$/u.test(value) ? `${this.dataServer()}:${value}` : value);
   }
   private selectionParam() {
     return (
@@ -998,6 +1341,7 @@ export class CatalogScreen extends LitElement {
     void this.load();
   }
   disconnectedCallback() {
+    this.unionRequests.cancel();
     this.catalogRequests.cancel();
     this.nativeReferenceRequests.cancel();
     this.nativeReference = undefined;
@@ -1036,7 +1380,7 @@ export class CatalogScreen extends LitElement {
       event.preventDefault();
     }
     const id = holder.getAttribute("data-open-item");
-    const item = (this.items || []).find((it) => this.itemId(it) === id);
+    const item = (this.items || []).find((it) => this.itemKey(it) === id);
     if (item) this.open(item);
   };
   private setEntityReady(value: boolean) {
@@ -1233,12 +1577,12 @@ export class CatalogScreen extends LitElement {
     const url = new URL(target, "https://route.invalid");
     return legacyEntityRedirectTarget(url.pathname, url.search) || target;
   }
-  private entityLink(id: string, difficulty?: number): string | undefined {
+  private entityLink(id: string, difficulty?: number, server: ReleaseServer = this.dataServer()): string | undefined {
     const kind = this.canonicalKind();
     if (!kind || this.settings.origin === "bestdori") return undefined;
     const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
     return entityHref({
-      server: this.dataServer(),
+      server,
       locale: this.settings.locale as Locale,
       kind,
       id,
@@ -1250,6 +1594,12 @@ export class CatalogScreen extends LitElement {
           : {}),
       },
     });
+  }
+  private itemEntityLink(item: Item, difficulty?: number): string | undefined {
+    const entry = this.unionEntry(item);
+    const variant = entry?.perServer[entry.displayServer];
+    const id = variant?.id || (this.profile.perDifficulty ? String(item.musicId || "") : "") || this.itemId(item);
+    return this.entityLink(id, difficulty, variant?.identity.server || this.dataServer());
   }
   private label(key: string, fallback: string) {
     const alias = this.settings.labelAliases?.[key] || key;
@@ -1355,6 +1705,12 @@ export class CatalogScreen extends LitElement {
     return this.image(item);
   }
   async prepareEntity(payload: EntityPayload, config: string = this.config, signal?: AbortSignal): Promise<void> {
+    this.unionRequests.cancel();
+    this.unionCatalog = undefined;
+    this.unionCharacters = {};
+    this.unionBands = {};
+    this.unionMarks = {};
+    this.unionItems = new WeakMap();
     this.nativeReferenceRequests.cancel();
     this.nativeReference = undefined;
     this.settings = JSON.parse(config || "{}") as Config;
@@ -1375,10 +1731,23 @@ export class CatalogScreen extends LitElement {
         : undefined;
     this.songMetaProvision = Promise.resolve();
     this.detailAux = { ...(payload.aux || {}) };
+    this.unionDetail = undefined;
+    const cross = this.detailAux.crossServer as Awaited<ReturnType<typeof fetchCrossServerDetail>> | undefined;
+    if (
+      cross?.schema === "haneoka-cross-server-detail-v1" &&
+      cross.activeServer === payload.server &&
+      cross.identity.server === payload.server &&
+      cross.identity.releaseId === payload.releaseId &&
+      (!payload.sourceId || cross.identity.sourceId === payload.sourceId) &&
+      cross.fullSources.includes(cross.activeServer)
+    ) {
+      this.unionDetail = cross;
+      this.items = [{ ...payload.item, ...this.unionDetailRow(cross) }];
+    }
     this.gameMarks.clear();
     for (const [logical, path] of Object.entries(payload.marks || {}))
       this.gameMarks.set(logical, `/runtime/${this.dataServer()}/${path.replace(/^runtime\//u, "")}`);
-    this.selected = payload.item;
+    this.selected = this.items[0];
     const card = ["member", "support"].includes(this.profile.presentation);
     const [skill, cards, rewards, systems] = await Promise.all([
       card ? import("./shared/skill-text") : undefined,
@@ -1407,6 +1776,7 @@ export class CatalogScreen extends LitElement {
     this.detailReady = true;
     if (typeof window !== "undefined" && this.isConnected && this.settings.nativeMetaReference)
       void this.loadNativeMetaReference(this.settings.nativeMetaReference);
+    if (typeof window !== "undefined") void this.ensureUnionDetail(payload);
   }
   get contentLocale() {
     return this.settings.locale;
@@ -1427,6 +1797,14 @@ export class CatalogScreen extends LitElement {
     });
   }
   private async load() {
+    this.unionRequests.cancel();
+    this.unionCatalog = undefined;
+    this.unionDetail = undefined;
+    this.unionCharacters = {};
+    this.unionBands = {};
+    this.unionMarks = {};
+    this.unionItems = new WeakMap();
+    this.unionEntries.clear();
     this.nativeReferenceRequests.cancel();
     this.nativeReference = undefined;
     this.nativeCatalogPin = undefined;
@@ -1448,6 +1826,10 @@ export class CatalogScreen extends LitElement {
       return;
     }
     try {
+      if (this.unionResource() && !this.settings.entityContext) {
+        await this.loadUnionCollection(signal);
+        return;
+      }
       if (this.profile.presentation === "character") await import("./character-detail-archive");
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
       const needsRelations = ["member", "support", "character", "comic", "stamp", "song", "band-item"].includes(
@@ -1699,13 +2081,16 @@ export class CatalogScreen extends LitElement {
       if (!difficulties.length) continue;
       const haystack = `${this.itemId(song)} ${this.itemTitle(song)} ${this.secondary(song)} ${JSON.stringify(song)}`;
       difficulties.forEach((row, index) => {
-        rows.push({
+        const expanded = {
           ...song,
           difficulty: [row],
           metaId: `${this.itemId(song)}-${difficultyKey(row, index)}`,
           __difficultyIndex: index,
           __haystack: haystack,
-        });
+        };
+        const union = this.unionEntry(song);
+        if (union) this.unionItems.set(expanded, union);
+        rows.push(expanded);
       });
     }
     this.expandedCache = { source: this.items, rows };
@@ -1831,6 +2216,7 @@ export class CatalogScreen extends LitElement {
     return this.localized(skill?.skillName) || this.displayValue(skill?.id) || "";
   }
   private songMetaValue(item: Item, key: string) {
+    if (this.itemSourceServer(item) !== this.dataServer()) return Number.NaN;
     if (!this.songMetaCompatible()) return Number.NaN;
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
     const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
@@ -1981,7 +2367,7 @@ export class CatalogScreen extends LitElement {
       ...new Set([
         ...direct,
         ...this.itemCharacterIds(item)
-          .map((id) => Number(this.character(id)?.bandId || 0))
+          .map((id) => Number(this.itemCharacter(item, id)?.bandId || 0))
           .filter(Boolean),
       ]),
     ];
@@ -2024,16 +2410,15 @@ export class CatalogScreen extends LitElement {
     for (const value of [item.artistName, item.bandName])
       if (this.localized(value)) return localizedContent(value, this.settings.locale);
     return localizedList(
-      this.itemBandIds(item).map((id) => this.band(id)?.bandName),
+      this.itemBandIds(item).map((id) => this.itemBand(item, id)?.bandName),
       this.settings.locale,
     );
   }
   private tileDescriptionContent(item: Item, kind: Presentation = this.profile.presentation) {
     if (kind === "song") return this.itemArtistContent(item);
     if (kind === "member" || kind === "support") {
-      const characters = asItems(item.characterDetails);
       return catalogCharacterRelationship(this.itemCharacterIds(item), this.settings.locale, (id) =>
-        this.character(id, characters),
+        this.itemCharacter(item, id),
       ).content;
     }
     return this.tileDescription(item);
@@ -2042,19 +2427,30 @@ export class CatalogScreen extends LitElement {
     return (
       this.localized(item.artistName) ||
       this.localized(item.bandName) ||
-      this.formatList(this.itemBandIds(item).map((id) => this.bandName(id))) ||
+      this.formatList(this.itemBandIds(item).map((id) => this.localized(this.itemBand(item, id)?.bandName))) ||
       "—"
     );
   }
+  private facetToken(item: Item, id: number): string {
+    return this.unionEntry(item) ? `${this.itemSourceServer(item)}:${id}` : String(id);
+  }
+  private facetEntity(value: string, kind: "character" | "band"): Item | undefined {
+    const match = /^(jp|intl):(\d+)$/u.exec(value);
+    if (match)
+      return (kind === "character" ? this.unionCharacters : this.unionBands)[match[1] as OfficialCatalogServer]?.get(
+        Number(match[2]),
+      );
+    return kind === "character" ? this.character(Number(value)) : this.band(Number(value));
+  }
   private facetValues(item: Item, key: string): string[] {
-    if (key === "character") return this.itemCharacterIds(item).map(String);
+    if (key === "character") return this.itemCharacterIds(item).map((id) => this.facetToken(item, id));
     if (this.profile.presentation === "system") {
       if (key === "status") return [this.entryState(item)];
       if (key === "kind") return String(item.kind || "") ? [String(item.kind)] : [];
       if (key === "category") return String(item.category || "") ? [String(item.category)] : [];
     }
     if (key === "collectionBand") {
-      const ids = this.itemBandIds(item).map(String);
+      const ids = this.itemBandIds(item).map((id) => this.facetToken(item, id));
       const credit = String(item.artistId || this.creditKey(item.artistName || item.bandName));
       return ids.length ? ids : credit ? [`credit:${credit}`] : [];
     }
@@ -2189,26 +2585,25 @@ export class CatalogScreen extends LitElement {
           value,
           label: value.startsWith("credit:")
             ? this.itemArtist(this.items.find((item) => this.facetValues(item, "collectionBand").includes(value)) || {})
-            : this.bandName(Number(value)),
-          image: value.startsWith("credit:") ? "" : String(this.band(Number(value))?.icon || ""),
+            : this.localized(this.facetEntity(value, "band")?.bandName),
+          image: value.startsWith("credit:") ? "" : String(this.facetEntity(value, "band")?.icon || ""),
           count: counts.get(value),
         })),
       });
     }
     if (["member", "support", "comic", "stamp", "song"].includes(kind)) {
-      const counts = tally((item) => this.itemCharacterIds(item));
+      const counts = tally((item) => this.facetValues(item, "character"));
       groups.push({
         key: "character",
         label: this.label("character", "Character"),
-        options: [...counts.keys()]
-          .map(Number)
-          .sort((a, b) => a - b)
-          .map((id) => ({
-            value: String(id),
-            label: this.characterName(id),
-            image: String(this.character(id)?.faceImage || ""),
-            count: counts.get(String(id)),
-          })),
+        options: [...counts.keys()].map((value) => ({
+          value,
+          label:
+            this.localized(this.facetEntity(value, "character")?.characterName) ||
+            this.localized(this.facetEntity(value, "character")?.englishName),
+          image: String(this.facetEntity(value, "character")?.faceImage || ""),
+          count: counts.get(value),
+        })),
       });
     }
     if (["member", "support"].includes(kind)) {
@@ -2546,8 +2941,8 @@ export class CatalogScreen extends LitElement {
     // its own: its canonical entity is the song it belongs to.
     const songId = this.profile.perDifficulty ? String(item.musicId || "") || id : id;
     const rowDifficulty = Number(item.__difficultyIndex);
-    const canonical = this.entityLink(
-      songId,
+    const canonical = this.itemEntityLink(
+      item,
       this.profile.perDifficulty && Number.isFinite(rowDifficulty) && rowDifficulty >= 0 ? rowDifficulty : undefined,
     );
     if (canonical) {
@@ -2555,7 +2950,7 @@ export class CatalogScreen extends LitElement {
       const kind = this.canonicalKind();
       if (!kind) return;
       const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
-      this.captureLocationState(returnTo, id);
+      this.captureLocationState(returnTo, this.itemKey(item));
       this.pendingNavigation = canonical;
       try {
         // The collection stays untouched until Astro has adopted the
@@ -3378,13 +3773,14 @@ export class CatalogScreen extends LitElement {
         : this.view === "list"
           ? collectionList(
               items.map((item) => ({
-                id: this.itemId(item),
+                id: this.itemKey(item),
                 title: this.itemTitle(item),
                 titleLanguage: this.itemTitleLanguage(item),
                 subtitle: this.tileDescriptionContent(item),
+                trailing: this.itemExclusive(item),
                 image: this.image(item),
                 onOpen: () => this.open(item),
-                itemId: this.itemId(item),
+                itemId: this.itemKey(item),
               })),
             )
           : html`
@@ -3399,14 +3795,16 @@ export class CatalogScreen extends LitElement {
     const resolved = resolveLocalizedText(name, this.settings.locale);
     const title = cleanMarkup(resolved.text) || "—";
     const image = this.imageSource(this.first(item, ["images.thumbnail", "thumbnail", "image"]));
-    const attribute = this.attributeMark(item.cardType);
-    const rarity = this.rarityMark(item.rarity);
+    const attribute = this.itemAttributeMark(item);
+    const rarity = this.itemRarityMark(item);
     return {
       kind,
       title,
       titleLanguage: resolved.locale,
       subtitle: this.tileDescriptionContent(item, kind),
-      adornment: this.tileAdornment(item, this.itemCharacterIds(item), kind),
+      adornment: catalogCharacterRelationship(this.itemCharacterIds(item), this.settings.locale, (id) =>
+        this.itemCharacter(item, id),
+      ).adornment,
       label: title,
       image,
       imageFallback: image,
@@ -3431,10 +3829,9 @@ export class CatalogScreen extends LitElement {
           image: (entry) =>
             this.imageSource(this.first(entry, ["jacketUrl", "jacketThumbUrl", "jacket", "thumbnail", "image"])),
           artist: (entry) => this.itemArtistContent(entry),
-          bandIcon: (entry) =>
-            this.bandIcon(Number(entry.bandId || 0)) || String((entry.bandDetails as Item | undefined)?.icon || ""),
+          bandIcon: (entry) => String(this.itemBand(entry, Number(entry.bandId || 0))?.icon || ""),
           imageForLocale: (source) => this.imageForLocale(source),
-          attributeMark: (entry) => liveMusicTypeMark(this.gameMarks, entry.musicType),
+          attributeMark: (entry) => this.itemAttributeMark(entry, true),
           attributeLabel: (entry) => this.fieldValue(entry, "musicType"),
         },
         "",
@@ -3452,10 +3849,12 @@ export class CatalogScreen extends LitElement {
     const kind = this.profile.presentation;
     const image = this.image(item);
     const title = this.itemTitle(item);
-    const href = this.entityLink(this.itemId(item));
+    const href = this.itemEntityLink(item);
     const onOpen = href ? undefined : () => this.open(item);
     if (kind === "member" || kind === "support")
-      return tile({ ...this.cardTileOptions(item, kind), href, onOpen, itemId: this.itemId(item) });
+      return tile(
+        this.unionTile({ ...this.cardTileOptions(item, kind), href, onOpen, itemId: this.itemKey(item) }, item),
+      );
     if (kind === "character")
       return tile({
         kind: "character",
@@ -3474,7 +3873,8 @@ export class CatalogScreen extends LitElement {
         style: `--entity-accent:${String(item.colorCode || "var(--md-sys-color-primary)")}`,
       });
     const ids = this.itemCharacterIds(item);
-    if (kind === "song") return tile({ ...this.songTileOptions(item), href, onOpen, itemId: this.itemId(item) });
+    if (kind === "song")
+      return tile(this.unionTile({ ...this.songTileOptions(item), href, onOpen, itemId: this.itemKey(item) }, item));
     const attribute = this.attributeMark(item.cardType);
     return tile({
       kind,
@@ -3527,8 +3927,8 @@ export class CatalogScreen extends LitElement {
             musicUrl: url,
           });
     const track = (item: Item) => ({
-      id: this.itemId(item),
-      songKey: `${this.settings.origin === "bestdori" ? "gbp" : "our-notes"}:${item.musicId || this.itemId(item)}`,
+      id: this.itemKey(item),
+      songKey: `${this.settings.origin === "bestdori" ? "gbp" : "our-notes"}:${this.itemSourceServer(item)}:${item.musicId || this.itemId(item)}`,
       title: this.itemTitle(item),
       titleSource: item.musicTitle || item.title,
       artistSource: item.bandName || item.artist,
@@ -3537,7 +3937,7 @@ export class CatalogScreen extends LitElement {
       cover: String(item.jacketUrl || item.jacketThumbUrl || ""),
       url: String(item.musicUrl || ""),
     });
-    const requested = { ...track(item), id, url };
+    const requested = { ...track(item), url };
     const { AudioDock } = await import("./runtime/audio-dock");
     let dock = document.querySelector("audio-dock") as InstanceType<typeof AudioDock> | null;
     if (!dock) {
@@ -3755,7 +4155,7 @@ export class CatalogScreen extends LitElement {
           rows.find((row) => row.file);
     if (!row?.file) return "";
     const difficulty = difficultyKey(row, rows.indexOf(row));
-    const source = this.settings.origin === "bestdori" ? "gbp" : this.dataServer();
+    const source = this.settings.origin === "bestdori" ? "gbp" : this.itemSourceServer(item);
     return `${SONOLUS_SERVER_LINK}/levels/${encodeURIComponent(releaseChartLevelName(source, String(Number(item.musicId || 0)), difficulty))}`;
   }
   private chartPageTitle(item: Item) {
@@ -3775,7 +4175,7 @@ export class CatalogScreen extends LitElement {
     // the owning song's.
     const fallback = this.itemId(item);
     const id = this.profile.perDifficulty ? String(item.musicId || fallback) : fallback;
-    const server = this.dataServer();
+    const server = this.itemSourceServer(item);
     const locale = this.settings.locale as Locale;
     const target = new URL(chartPath({ server, locale, id }), location.href);
     // The child returns to this complete canonical song URL. Its own return
@@ -4367,6 +4767,7 @@ export class CatalogScreen extends LitElement {
         body: detailLayout(
           this.profile.presentation === "character" ? nothing : this.renderDetailMedia(item),
           html`
+            ${this.renderUnionDetail()}
             ${
               this.profile.presentation === "character"
                 ? this.renderCharacterArchive(item, fields)

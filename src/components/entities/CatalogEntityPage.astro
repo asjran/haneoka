@@ -2,7 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import AppShell from "../AppShell.astro";
 import { nativeMetaPublicationFor } from "../../server/native-meta-publication";
-import { staticCatalogRelease } from "../../lib/static-catalog-source";
+import { staticCatalogRelease, fetchStaticCatalog } from "../../lib/static-catalog-source";
 import { catalogConfig } from "../../config/catalog-labels";
 import { findRoute, titleOf } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
@@ -20,6 +20,9 @@ import "../../styles/catalog.css";
 import { renderCatalog } from "../../server/render-catalog";
 import { catalogEntityData, type EntityPayload } from "../../lib/entity-graph";
 import { serializePageData } from "../../lib/page-data";
+import { loadStaticCrossServerCatalog } from "../../lib/cross-server/static";
+import { loadCrossServerDetail } from "../../lib/cross-server/detail";
+import type { CrossCatalogResource, OfficialCatalogServer } from "../../lib/cross-server/catalog";
 
 interface Props {
   page: SearchableCatalogPage;
@@ -52,6 +55,21 @@ const seoTitleValues = Object.fromEntries(
 ) as Record<Locale, string>;
 const payload = await catalogEntityData(server,page.resource,page.id) as EntityPayload | undefined;
 if(!payload)throw new Error(`Missing page data: ${server}/${page.resource}/${page.id}`);
+if (["jp", "intl"].includes(server) && ["cards", "support-cards", "songs"].includes(page.resource)) {
+  const pin = await staticCatalogRelease(server);
+  if (pin.releaseId === payload.releaseId && pin.server === payload.server && pin.sourceId === payload.sourceId) {
+    const union = await loadStaticCrossServerCatalog(page.resource as CrossCatalogResource, server as OfficialCatalogServer, locale);
+    const entry = union.entries.find(entry => entry.perServer[server as OfficialCatalogServer]?.id === page.id);
+    const own = entry?.perServer[server as OfficialCatalogServer];
+    if (entry && own?.identity.releaseId === pin.releaseId && own.identity.sourceId === pin.sourceId) {
+      const detail = await loadCrossServerDetail(entry, server as OfficialCatalogServer, {
+        readEntity: (resource, identity, id) => fetchStaticCatalog(`${resource}/${encodeURIComponent(id)}`, identity.server, identity),
+      });
+      payload.aux = { ...(payload.aux || {}), crossServer: detail };
+    }
+  }
+}
+
 const pageDataId=`catalog-page-${page.resource}-${page.id}`;
 const nativeMetaReference = process.env.NATIVE_META_REFERENCE_RECEIPTS_JSON && page.resource === "songs"
   ? nativeMetaPublicationFor(await staticCatalogRelease(server))

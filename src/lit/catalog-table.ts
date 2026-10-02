@@ -308,9 +308,9 @@ export class CatalogTable extends LitElement {
     `;
     const characterIds: number[] = c.itemCharacterIds(item);
     const characterId = characterIds[0] || Number(item.characterId || 0);
-    const character = c.character(characterId);
+    const character = c.itemCharacter(item, characterId);
     const bandId = Number(item.bandId || (c.profile.presentation === "song" ? 0 : character?.bandId) || 0);
-    const band = c.band(bandId);
+    const band = c.itemBand(item, bandId);
 
     if (key === "title") {
       const image = c.image(item);
@@ -321,7 +321,7 @@ export class CatalogTable extends LitElement {
           <button
             class="table-entity state-layer"
             type="button"
-            data-open-item=${c.itemId(item)}
+            data-open-item=${c.itemKey(item)}
             @click=${() => c.open(item)}
           >
             ${
@@ -334,7 +334,7 @@ export class CatalogTable extends LitElement {
                 : nothing
             }
             <span class="table-entity__copy">
-              <span class="table-entity__name" lang=${c.itemTitleLanguage(item)}>${c.itemTitle(item)}</span>
+              <span class="table-entity__name" lang=${c.itemTitleLanguage(item)}>${c.itemTitle(item)} ${c.itemExclusive(item)}</span>
               ${
                 c.tileDescription(item)
                   ? html`
@@ -351,9 +351,9 @@ export class CatalogTable extends LitElement {
       const ids: number[] = characterIds;
       return wrap(html`
         <span class="table-entity">
-          ${c.characterAvatars(ids)}
+          ${c.itemCharacterRelation(item).adornment}
           <span class="table-entity__copy">
-            <span class="table-entity__name">${c.formatList(ids.map((id: number) => c.characterName(id))) || "—"}</span>
+            <span class="table-entity__name">${c.itemCharacterRelation(item).content}</span>
           </span>
         </span>
       `);
@@ -377,14 +377,14 @@ export class CatalogTable extends LitElement {
           }
           <span class="table-entity__copy">
             <span class="table-entity__name">
-              ${c.profile.presentation === "song" ? c.itemArtistContent(item) : c.bandName(bandId)}
+              ${c.profile.presentation === "song" ? c.itemArtistContent(item) : c.localized(band?.bandName)}
             </span>
           </span>
         </span>
       `);
     if (key === "attribute") {
       const song = c.profile.presentation === "song";
-      const source = c.attributeMark(song ? item.musicType : item.cardType, song);
+      const source = c.itemAttributeMark(item, song);
       const text = c.fieldValue(item, song ? "musicType" : "cardType");
       return wrap(
         source
@@ -397,7 +397,7 @@ export class CatalogTable extends LitElement {
       );
     }
     if (key === "rarity") {
-      const source = c.rarityMark(item.rarity);
+      const source = c.itemRarityMark(item);
       const text = c.fieldValue(item, "rarity");
       return wrap(rarityIcon(source, text));
     }
