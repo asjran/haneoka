@@ -12,6 +12,8 @@ import {
   loadBestdoriSonolusChartText,
 } from "./bestdori";
 import { handleGameRecordsApi } from "./game-records";
+import { handleChartImageRequest } from "./chart-image";
+import { rasterizeChartSvg } from "./chart-image-rasterizer";
 import { eventArtworkIndex } from "../src/lib/event-artwork-index";
 import { handleCommunityRequest } from "./community";
 import { handleCommunityActivityRequest } from "./community-activity";
@@ -2309,6 +2311,71 @@ async function handleTeamBuilderDataApi(
 }
 
 
+async function handleChartImageApi(env: Env, request: Request): Promise<Response | null> {
+  const url = new URL(request.url);
+  let scopedRequest = request;
+  const alias = /^\/api\/v1\/songs\/([^/]+)\/charts\/([^/]+)\/image\.([a-z0-9]+)$/u.exec(url.pathname);
+  if (alias) {
+    const servers = url.searchParams.getAll("server");
+    if (servers.length > 1) return errorResponse(request, 400, "invalid_server", "Server must be specified once");
+    const server = servers[0] ?? "intl";
+    if (!RESOURCE_SERVER_SLUG_PATTERN.test(server))
+      return errorResponse(request, 404, "server_not_found", "Server not found");
+    url.searchParams.delete("server");
+    url.pathname = `/api/v1/servers/${server}/songs/${alias[1]}/charts/${alias[2]}/image.${alias[3]}`;
+    scopedRequest = new Request(url, request);
+  }
+  if (!/^\/api\/v1\/servers\/[^/]+\/songs\/[^/]+\/charts\/[^/]+\/image\.[a-z0-9]+$/u.test(url.pathname)) return null;
+  let resolved: Release | null = null;
+  const releaseFor = (identity: { server: string; releaseId: string }): Release => {
+    if (!resolved || resolved.server !== identity.server || resolved.releaseId !== identity.releaseId) {
+      throw new Error("Chart image release does not match request snapshot");
+    }
+    return resolved;
+  };
+  const response = await handleChartImageRequest({
+    request: scopedRequest,
+    sources: {
+      hasServer: async (slug) => (await activeResourceServer(env, slug)) !== null,
+      currentRelease: async (slug) => {
+        const server = await activeResourceServer(env, slug);
+        resolved = server ? await currentRelease(env, server) : null;
+        return resolved;
+      },
+      readSong: async (identity, id) => {
+        const release = releaseFor(identity);
+        const manifest = await catalogStorageManifest(env, release);
+        const storage = manifest?.resources.songs?.entities;
+        const song = storage ? ownJsonValue(await readCatalogShard(env, release, storage, id), id) : undefined;
+        return isJsonObject(song) ? song : null;
+      },
+      readReleaseBytes: async (identity, path, maxBytes) => {
+        const release = releaseFor(identity);
+        const entry = await releaseEntry(env, release, path);
+        if (entry && entry.bytes > maxBytes) throw new RangeError("Release object exceeds input budget");
+        return readReleaseBytes(env, release, path);
+      },
+      rasterizeSvg: (svg, width, height) => rasterizeChartSvg(svg, width, height, env.ASSETS),
+    },
+  });
+  if (!response) return null;
+  const headers = new Headers(response.headers);
+  const id = requestId(request);
+  headers.set("X-Request-Id", id);
+  headers.set("Access-Control-Expose-Headers", `${headers.get("Access-Control-Expose-Headers") || ""}, X-Request-Id`);
+  if (response.status >= 400 && request.method !== "HEAD") {
+    const value = parseJson(await response.text());
+    if (isJsonObject(value) && isJsonObject(value.error)) {
+      return new Response(JSON.stringify({ ...value, error: { ...value.error, requestId: id } }), {
+        status: response.status,
+        headers,
+      });
+    }
+    return new Response(JSON.stringify(value), { status: response.status, headers });
+  }
+  return new Response(response.body, { status: response.status, headers });
+}
+
 const LATEST_CATALOG_RESERVED_SEGMENTS = new Set([
   "game",
   "search",
@@ -3165,6 +3232,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (releaseRegistry) return releaseRegistry;
   const teamBuilderData = await handleTeamBuilderDataApi(env, ctx, request);
   if (teamBuilderData) return teamBuilderData;
+  const chartImage = await handleChartImageApi(env, request);
+  if (chartImage) return chartImage;
   const latestCatalog = await handleLatestCatalogApi(env, ctx, request, url.pathname);
   if (latestCatalog) return latestCatalog;
   const api = await handleCatalogApi(env, ctx, request, url.pathname);
