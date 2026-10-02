@@ -768,6 +768,44 @@ export class HomeDashboard extends LitElement {
           ]),
       ).values(),
     ];
+    const bonusTargets = unique
+      .filter((target) => target.homeTargetKind === "band" || target.homeTargetKind === "attribute")
+      .map((target) => {
+        const source = String(
+          target.image || (target.homeTargetKind === "attribute" && this.cardAttributeMark(target.cardType)) || "",
+        );
+        const image = source
+          ? html`
+              <img src=${source} width="64" height="24" alt=${localizedText(target.name, this.locale)} loading="lazy" />
+            `
+          : nothing;
+        const name =
+          target.homeTargetKind === "band" && target.image ? nothing : localizedText(target.name, this.locale);
+        return html`
+          <span class="home-event__target" data-target=${target.homeTargetKind}>${image}${name}</span>
+        `;
+      });
+    const bonusCharacters = this.characters
+      .filter((character) =>
+        unique.some((target) => target.homeTargetKind === "band" && Number(target.bandId) === Number(character.bandId)),
+      )
+      .map(
+        (character) => html`
+          <a
+            class="home-event__character"
+            aria-label=${localizedText(character.characterName, this.locale)}
+            title=${localizedText(character.characterName, this.locale)}
+            href=${entityHref({ server: this.sourceServer(), locale: this.locale as Locale, kind: "characters", id: String(character.characterId) })}
+          >
+            <img src=${CHARACTER_AVATAR(character.characterId)} width="32" height="32" alt="" loading="lazy" />
+            <span>${localizedText(character.characterName, this.locale)}</span>
+          </a>
+        `,
+      );
+    const bonusContents = html`
+      <div class="home-event__targets">${bonusTargets}</div>
+      <div class="home-event__characters">${bonusCharacters}</div>
+    `;
     return html`
       <section class="home-card home-event" aria-labelledby="home-event-title">
         <h2 id="home-event-title" class="visually-hidden">${uiText(this.locale, "events")}</h2>
@@ -783,76 +821,27 @@ export class HomeDashboard extends LitElement {
                     ${eventArtwork(String(event.details.backgroundImage || event.image), String(event.details.logo || ""), event.title)}
                   </a>
                   <div class="home-event__body">
-                    <div class="home-event__chips">
-                      <span class="home-event__overline">${uiText(this.locale, "events")}</span>
-                      <span class="home-event__countdown tabular" role="timer" aria-live="off">
-                        ${this.eventPhrase(event.startAt, event.endAt)}
-                      </span>
-                    </div>
-                    <h3>
-                      <a
-                        href=${entityHref({ server: this.sourceServer(), locale: this.locale as Locale, kind: "events", id: event.id })}
-                      >
-                        ${event.title}
-                      </a>
-                    </h3>
-                    <p class="home-event__range">
-                      <time datetime=${new Date(event.startAt).toISOString()}>${this.formatDate(event.startAt)}</time>
-                      –
-                      <time datetime=${new Date(event.endAt).toISOString()}>${this.formatDate(event.endAt)}</time>
-                    </p>
-                    <div class="home-event__targets">
-                      ${unique
-                        .filter((target) => target.homeTargetKind === "band" || target.homeTargetKind === "attribute")
-                        .map(
-                          (target) => html`
-                            <span class="home-event__target" data-target=${target.homeTargetKind}>
-                              ${
-                                target.image ||
-                                (target.homeTargetKind === "attribute" && this.cardAttributeMark(target.cardType))
-                                  ? html`
-                                      <img
-                                        src=${String(target.image || this.cardAttributeMark(target.cardType))}
-                                        width="64"
-                                        height="24"
-                                        alt=${localizedText(target.name, this.locale)}
-                                        loading="lazy"
-                                      />
-                                    `
-                                  : nothing
-                              }${target.homeTargetKind === "band" && target.image ? nothing : localizedText(target.name, this.locale)}
-                            </span>
-                          `,
-                        )}
-                    </div>
-                    <div class="home-event__characters">
-                      ${this.characters
-                        .filter((character) =>
-                          unique.some(
-                            (target) =>
-                              target.homeTargetKind === "band" && Number(target.bandId) === Number(character.bandId),
-                          ),
-                        )
-                        .map(
-                          (character) => html`
-                            <a
-                              class="home-event__character"
-                              aria-label=${localizedText(character.characterName, this.locale)}
-                              title=${localizedText(character.characterName, this.locale)}
-                              href=${entityHref({ server: this.sourceServer(), locale: this.locale as Locale, kind: "characters", id: String(character.characterId) })}
-                            >
-                              <img
-                                src=${CHARACTER_AVATAR(character.characterId)}
-                                width="32"
-                                height="32"
-                                alt=""
-                                loading="lazy"
-                              />
-                              <span>${localizedText(character.characterName, this.locale)}</span>
-                            </a>
-                          `,
-                        )}
-                    </div>
+                    <header class="home-event__heading">
+                      <div class="home-event__chips">
+                        <span class="home-event__overline">${uiText(this.locale, "events")}</span>
+                        <span class="home-event__countdown tabular" role="timer" aria-live="off">
+                          ${this.eventPhrase(event.startAt, event.endAt)}
+                        </span>
+                      </div>
+                      <h3>
+                        <a
+                          href=${entityHref({ server: this.sourceServer(), locale: this.locale as Locale, kind: "events", id: event.id })}
+                        >
+                          ${event.title}
+                        </a>
+                      </h3>
+                      <p class="home-event__range">
+                        <time datetime=${new Date(event.startAt).toISOString()}>${this.formatDate(event.startAt)}</time>
+                        –
+                        <time datetime=${new Date(event.endAt).toISOString()}>${this.formatDate(event.endAt)}</time>
+                      </p>
+                    </header>
+                    <div class="home-event__bonuses">${bonusContents}</div>
                     <nav class="home-event__links" aria-label=${uiText(this.locale, "events")}>
                       <a
                         class="icon-button"
