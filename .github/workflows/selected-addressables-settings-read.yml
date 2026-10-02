@@ -1,0 +1,46 @@
+name: Read selected current initial Addressables settings
+on:
+  workflow_dispatch:
+    inputs:
+      reader_pin:
+        description: Full reviewed commit containing the bounded settings reader
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: selected-current-initial-settings-read
+  cancel-in-progress: false
+jobs:
+  settings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: resource-intl
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.reader_pin }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install existing locked R2 reader dependencies
+        run: |
+          python scripts/publish/reference_postpin.py --bootstrap "$RUNNER_TEMP/settings-dependencies"
+          python -m pip install --disable-pip-version-check --require-hashes \
+            --requirement "$RUNNER_TEMP/settings-dependencies/requirements.txt"
+      - name: HEAD and read one bounded settings entry
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+          READER_PIN: ${{ inputs.reader_pin }}
+        run: python scripts/verify/selected_addressables_settings.py --output "$RUNNER_TEMP/settings-output"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: selected-initial-settings-${{ github.run_id }}
+          path: ${{ runner.temp }}/settings-output/*.json
+          if-no-files-found: ignore
+          retention-days: 7
