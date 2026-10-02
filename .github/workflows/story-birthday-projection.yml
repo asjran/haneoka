@@ -1,0 +1,62 @@
+name: Publish current native story birthdays
+on:
+  workflow_dispatch:
+    inputs:
+      producer_pin:
+        description: Full reviewed commit containing the bounded birthday publisher
+        required: true
+        type: string
+      input_gzip_base64:
+        description: Reviewed five-table native input for Intl and JP under exact current pins
+        required: true
+        type: string
+      publish:
+        description: Promote after unchanged-parent and story preservation checks
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: current-story-birthday-projection
+  cancel-in-progress: false
+jobs:
+  stories:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        server: [intl, jp]
+    environment: resource-${{ matrix.server }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.producer_pin }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install the existing small R2 import closure
+        run: |
+          python scripts/publish/reference_postpin.py --bootstrap "$RUNNER_TEMP/birthday-dependencies"
+          python -m pip install --disable-pip-version-check --require-hashes \
+            --requirement "$RUNNER_TEMP/birthday-dependencies/requirements.txt"
+      - name: Preserve story entities and add native birthday metadata
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+          PRODUCER_PIN: ${{ inputs.producer_pin }}
+          RESOURCE_SERVER: ${{ matrix.server }}
+          BIRTHDAY_INPUT_GZIP_BASE64: ${{ inputs.input_gzip_base64 }}
+          PUBLISH: ${{ inputs.publish }}
+        run: python scripts/publish/story_birthdays.py --output "$RUNNER_TEMP/birthday-output"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: story-birthday-${{ matrix.server }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/birthday-output/*.json
+          if-no-files-found: ignore
+          retention-days: 7

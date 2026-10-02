@@ -37,6 +37,7 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
     "support-cards",
     "gacha",
     "real-lives",
+    "stories",
   ];
   const results = await Promise.all(keys.map((key) => fetchOptionalStaticCatalog(key, server, release)));
   const documents = Object.fromEntries(
@@ -93,6 +94,10 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
       ]),
     );
   documents.gacha = compactHomeGacha(documents.gacha, documents.cards);
+  documents.stories = {
+    birthdayStories: (documents.stories.birthdayStories && typeof documents.stories.birthdayStories === "object" &&
+      !Array.isArray(documents.stories.birthdayStories)) ? documents.stories.birthdayStories : {},
+  };
   const entries = rows(documents.events.entries);
   documents.events = {
     ...documents.events,
