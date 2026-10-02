@@ -33,6 +33,11 @@ export interface CalendarBirthday {
   readonly href?: string;
   readonly sourceUrls?: readonly string[];
 }
+export interface CalendarGameWindow {
+  readonly startAtMs?: number;
+  readonly endAtMs?: number;
+  readonly href: string;
+}
 export interface CalendarActivity {
   readonly id: string;
   readonly kind: Exclude<CalendarKind, "character" | "cast">;
@@ -50,9 +55,7 @@ export interface CalendarActivity {
   readonly venue?: string;
   readonly sourceUrl?: string;
   readonly facets?: readonly CalendarFacet[];
-  readonly liveDate?: CalendarDate;
-  readonly liveStartAtMs?: number;
-  readonly liveEndAtMs?: number;
+  readonly gameWindow?: CalendarGameWindow;
   readonly liveStartLocal?: string;
 }
 export interface CalendarLiveSource {
@@ -92,9 +95,7 @@ export interface CalendarOccurrence {
   readonly game?: "our-notes" | "garupa";
   readonly voices?: readonly CalendarVoiceRole[];
   readonly facets?: readonly CalendarFacet[];
-  readonly liveDate?: CalendarDate;
-  readonly liveStartAtMs?: number;
-  readonly liveEndAtMs?: number;
+  readonly gameWindow?: CalendarGameWindow;
   readonly liveStartLocal?: string;
   readonly startAtMs?: number;
   readonly endAtMs?: number;
@@ -200,11 +201,13 @@ export function calendarOccurrences(
     const end =
       hasTime && Number.isFinite(activity.endAtMs) && activity.endAtMs! > activity.startAtMs!
         ? calendarDayAt(activity.endAtMs! - (activity.endExclusive === false ? 0 : 1), timeZone)
-        : activity.endDate && parseCalendarDate(activity.endDate)
-          ? activity.endExclusive
-            ? addCalendarDays(activity.endDate, -1)
-            : activity.endDate
-          : start;
+        : hasTime
+          ? start
+          : activity.endDate && parseCalendarDate(activity.endDate)
+            ? activity.endExclusive
+              ? addCalendarDays(activity.endDate, -1)
+              : activity.endDate
+            : start;
     if (end < start || end < first || start > last) continue;
     result.push({
       ...activity,

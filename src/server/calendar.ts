@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import { characterProfiles } from "../data/characterProfiles";
 import { castProfiles } from "../data/castProfiles";
 import {
@@ -16,6 +15,7 @@ import {
 } from "../lib/static-catalog-source";
 import { resourcePath, type ReleaseServer } from "../lib/resource-route";
 import type { Locale } from "../i18n/locales";
+import { prepareCalendarLives } from "./calendar-live-build";
 import {
   parseCalendarDate,
   type CalendarBirthday,
@@ -60,10 +60,10 @@ function instant(value: unknown, locale: Locale): number | undefined {
 /** Same-current snapshots only: neither the path nor a source identity comes from a research fixture. */
 async function bandoriLiveSnapshot(
   release: StaticCatalogRelease,
+  realLives: unknown,
 ): Promise<{ lives: CalendarLiveSource[]; unavailable: boolean; buildId?: string }> {
-  const root = process.env.CALENDAR_LIVES_ROOT || path.join(process.cwd(), "data", "calendar");
-  const selected = path.join(root, release.server, release.releaseId, "calendar-lives.json");
-  const value = fs.existsSync(selected)
+  const selected = await prepareCalendarLives(release.server, release, realLives ?? { entries: {} });
+  const value = selected
     ? JSON.parse(fs.readFileSync(selected, "utf8"))
     : (await fetchOptionalStaticCatalog("calendar-lives", release.server, release)).value;
   if (!value) return { lives: [], unavailable: false };
@@ -338,7 +338,7 @@ export async function loadCalendarData(
       }
     const liveSnapshot = sources.lives
       ? { lives: sources.lives, unavailable: false, buildId: undefined }
-      : await bandoriLiveSnapshot(release);
+      : await bandoriLiveSnapshot(release, documents["real-lives"]);
     if (liveSnapshot.unavailable) unavailable.push("live-information");
     const lives = sources.lives ?? liveSnapshot.lives;
     for (const live of lives) {
@@ -350,14 +350,19 @@ export async function loadCalendarData(
             ...entry,
             kind: "live",
             title: live.title,
-            // Calendar interval remains the actual game availability window; concert metadata is a distinct fact.
+            // The concert is the calendar occurrence; game availability is a separate linked fact.
             facets: ["game-live", "external-live"],
-            liveDate: live.date,
-            liveStartAtMs: live.startAtMs,
-            liveEndAtMs: live.endAtMs,
+            date: live.date,
+            endDate: live.endDate,
+            startAtMs: live.startAtMs,
+            endAtMs: live.endAtMs,
+            allDay: live.allDay,
+            endExclusive: live.endExclusive,
+            href: live.sourceUrl,
+            gameWindow: { startAtMs: entry.startAtMs, endAtMs: entry.endAtMs, href: entry.href },
             liveStartLocal: live.startLocal,
             timeZone: live.timeZone,
-            image: live.image || entry.image,
+            image: live.image,
             venue: live.venue,
             sourceUrl: live.sourceUrl,
           });

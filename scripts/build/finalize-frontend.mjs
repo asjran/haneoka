@@ -2,8 +2,11 @@
 import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import * as pagefind from "pagefind";
+import { copyCalendarStaticAssets } from "./calendar-static-assets.mjs";
 
 const output = path.resolve(".output/public");
+const calendarImages = await copyCalendarStaticAssets({ outputRoot: output });
+if (calendarImages) console.log(`finalized ${calendarImages} generated calendar images`);
 // The Cubism declaration is useful to developers but is not a browser asset
 // and is intentionally outside the runtime's exact production file set.
 for (const relative of ["Core/CRI/live2dcubismmotionsynccore.d.ts"]) {

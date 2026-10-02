@@ -308,8 +308,7 @@ export class CalendarPage extends LitElement {
       this.select(shiftCalendarMonth(date, event.key === "PageUp" ? -1 : 1), true);
     }
   }
-  private gameRange(item: CalendarOccurrence) {
-    if (!item.startAtMs) return this.t("allDay");
+  private timedRange(startAtMs: number, endAtMs?: number) {
     const date = new Intl.DateTimeFormat(this.locale, {
       timeZone: this.zone,
       year: "numeric",
@@ -318,34 +317,31 @@ export class CalendarPage extends LitElement {
       hour: "numeric",
       minute: "2-digit",
     });
-    return `${date.format(item.startAtMs)}${item.endAtMs ? ` – ${date.format(item.endAtMs)}` : ""}`;
+    return `${date.format(startAtMs)}${endAtMs ? ` – ${date.format(endAtMs)}` : ""}`;
+  }
+  private gameRange(item: CalendarOccurrence) {
+    const window = item.gameWindow;
+    return window?.startAtMs ? this.timedRange(window.startAtMs, window.endAtMs) : this.t("allDay");
   }
   private range(item: CalendarOccurrence) {
-    const source = item.liveStartLocal;
-    const offset = source?.match(/([+-])(\d{2}):(\d{2})$/u);
-    if (source && offset && Number.isFinite(Date.parse(source))) {
-      const minutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === "+" ? 1 : -1);
-      const date = new Intl.DateTimeFormat(this.locale, {
-        timeZone: "UTC",
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-      return `${date.format(Date.parse(source) + minutes * 60000)} (UTC${offset[0]})`;
+    if (item.kind === "character" || item.kind === "cast") return this.t("allDay");
+    if (item.allDay || !item.startAtMs) {
+      return item.kind === "live"
+        ? `${this.dateLabel(item.start)}${item.end !== item.start ? ` – ${this.dateLabel(item.end)}` : ""} · ${this.t("allDay")}`
+        : this.t("allDay");
     }
-    if (item.liveStartAtMs)
-      return this.gameRange({ ...item, startAtMs: item.liveStartAtMs, endAtMs: item.liveEndAtMs });
-    if (item.liveDate) return `${this.dateLabel(item.liveDate)} · ${this.t("allDay")}`;
-    if (item.kind === "character" || item.kind === "cast" || item.allDay || !item.startAtMs) return this.t("allDay");
-    return this.gameRange(item);
+    return this.timedRange(item.startAtMs, item.endAtMs);
   }
   private entries(items: readonly CalendarOccurrence[]) {
     if (!items.length) return emptyState({ title: this.t("empty"), icon: "event" });
     return html`<md-list class="calendar-list">
       ${items.map((item, index) => {
         const title = this.itemTitle(item);
+        const actorHref = item.kind === "cast" && item.voices?.length === 1 ? item.voices[0].href : undefined;
+        const primaryHref = item.kind === "cast" ? actorHref : item.href;
+        const actorLabel = actorHref
+          ? `${title.text} · ${this.t("voiceRoles").replace("{roles}", resolveLocalizedText(item.voices![0].name, this.locale).text)} · Bestdori`
+          : undefined;
         return html`
           ${index ? html`<md-divider></md-divider>` : nothing}
           <md-list-item type=${item.kind !== "cast" && item.href ? "link" : "text"} href=${item.kind !== "cast" ? item.href || nothing : nothing}>
@@ -360,7 +356,7 @@ export class CalendarPage extends LitElement {
               }
               ${icon(item.kind === "character" || item.kind === "cast" ? "cake" : item.kind === "live" ? "festival" : "event", 24)}
             </span>
-            <span slot="headline" lang=${title.lang}>${item.kind === "cast" && item.href ? html`<a href=${item.href}>${title.text}</a>` : title.text}</span>
+            <span slot="headline" lang=${title.lang}>${actorHref ? html`<a href=${actorHref} aria-label=${actorLabel}>${title.text}</a>` : title.text}</span>
             <span slot="supporting-text" class="calendar-list-supporting">
               <span>${this.t(item.kind)}</span>
               ${
@@ -382,11 +378,11 @@ export class CalendarPage extends LitElement {
                   : nothing
               }
               <time>${this.range(item)}</time>
-              ${item.liveStartAtMs || item.liveDate ? html`<span>${this.t("game-live")} · ${this.gameRange(item)}</span>` : nothing}
               ${item.venue ? html`<span>${item.venue}</span>` : nothing}
             </span>
-            ${item.href ? html`<span slot="end">${icon("chevron_right", 24)}</span>` : nothing}
+            ${primaryHref ? html`<span slot="end">${icon("chevron_right", 24)}</span>` : nothing}
           </md-list-item>
+          ${item.gameWindow ? html`<a class="calendar-source-link" href=${item.gameWindow.href}>${this.t("game-live")} · ${this.gameRange(item)}${icon("chevron_right", 16)}</a>` : nothing}
           ${item.sourceUrl && item.sourceUrl !== item.href ? html`<a class="calendar-source-link" href=${item.sourceUrl} rel="noopener noreferrer">${this.t("source")}${icon("open_in_new", 16)}</a>` : nothing}
         `;
       })}
