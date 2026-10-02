@@ -29,6 +29,7 @@ import { applyEvaluationBasis } from "./basis.ts";
 import { unavailableMetric } from "../score.ts";
 import type { PreparedSong } from "../song-metrics.ts";
 import type { SearchEvaluationControls } from "../optimizer.ts";
+import { nativeRuleGaps, nativeRuleSupports } from "./native-rule-profile.ts";
 const zero = (): PowerStats => ({ performance: 0, technique: 0, visual: 0 });
 const rates = (row: Record<string, unknown>): PowerStats => ({
   performance: Number(row.performanceRate),
@@ -224,6 +225,7 @@ export function prepareEvaluationForSearch(request: EvaluationRequest): Prepared
     )
   ) {
     const normal = prepareEvaluationForSearch({ ...request, mode: "normal" });
+    normal.input.evaluation.gaps.push(...nativeRuleGaps(request.data.identity, "personal-solo"));
     return createNativeGekisoSoloEvaluator(request.data, normal);
   }
   if (
@@ -242,11 +244,8 @@ export function prepareEvaluationForSearch(request: EvaluationRequest): Prepared
     ? ["native-explicit-single-held-event", `native-live-start:${request.eventScene.liveStartServerTime?.source}`]
     : ["normal-live-event-power-disabled"];
   input.evaluation.gaps = input.evaluation.gaps.filter((gap) => gap.code !== "snapshot-full-slot-path-unresolved");
-  if (request.data.identity.server !== "intl" || !/^v\d+-c0b6a1541e45-/u.test(request.data.identity.sourceId ?? ""))
-    input.evaluation.gaps.push(
-      gap("native-normal-source-unverified", request.data.identity.sourceId ?? request.data.identity.server),
-    );
-  if (request.data.identity.server === "intl") {
+  input.evaluation.gaps.push(...nativeRuleGaps(request.data.identity, "normal-score"));
+  if (nativeRuleSupports(request.data.identity, "snapshot-equip")) {
     // Native edit/save paths validate owned support IDs and duplicates; the
     // photo's character list does not restrict the member assigned to its slot.
     const characters = [...new Set(input.members.map((member) => member.characterId))];

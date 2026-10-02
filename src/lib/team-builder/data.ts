@@ -1,6 +1,8 @@
 import type { PowerStats, ReleaseIdentity } from "./contracts";
 import { projectEventDetail } from "./data/events";
 import { adaptRuntimeRules, adaptChallengePointTable, adaptBoostTables, type RuntimeRules, type LiveChallengePointTable } from "./data/runtime-rules";
+import { nativeRuleSupports } from "./solver/native-rule-profile";
+import { withNativeRuleEvidence } from "./data/native-rule-evidence";
 
 export type DataRow = Record<string, unknown>;
 export interface MemberCatalog {
@@ -87,7 +89,7 @@ const positiveIds = (value: unknown): number[] =>
   (Array.isArray(value) ? value : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
 /** Formal Intl 1.0.1 owned-support selection/SetDeck validates IDs, not depicted characters. */
 export const nativeSnapshotEquipRuleKnown = (identity: TeamBuilderData["identity"]) =>
-  identity.server === "intl" && /^v\d+-c0b6a1541e45-/u.test(identity.sourceId ?? "");
+  nativeRuleSupports(identity, "snapshot-equip");
 const stats = (row: DataRow): PowerStats => {
   const stat = objectRow(row.stat);
   return {
@@ -102,6 +104,7 @@ export function adaptTeamBuilderData(
   identity: TeamBuilderData["identity"],
   documents: Record<string, unknown>,
 ): TeamBuilderData {
+  identity = withNativeRuleEvidence(identity, documents["native-rule-evidence"] ?? identity.nativeRuleEvidence);
   const characters = map(documents.characters);
   const members = Object.fromEntries(
     Object.entries(objectRow(documents.cards)).map(([key, value]) => {

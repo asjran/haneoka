@@ -3,11 +3,13 @@ import { readRuntimeRulesDocument, type RuntimeMasterReader } from "../src/lib/t
 
 export type TeamBuilderCatalogReader = (request: Request) => Promise<Response | null>;
 export type TeamBuilderRuntimeMasterReader = RuntimeMasterReader;
+export type TeamBuilderNativeRuleEvidenceReader = (identity: Parameters<RuntimeMasterReader>[0]) => Promise<unknown | null>;
 /** Public wrapper reuses the dispatcher's catalog handler, including its server/pin validation. */
 export async function handleTeamBuilderData(
   request: Request,
   readCatalog: TeamBuilderCatalogReader,
   readRuntimeMaster?: TeamBuilderRuntimeMasterReader,
+  readNativeRuleEvidence?: TeamBuilderNativeRuleEvidenceReader,
 ): Promise<Response | null> {
   const url = new URL(request.url),
     match = /^\/api\/v1\/team-builder\/([^/]+)\/?$/u.exec(url.pathname);
@@ -56,6 +58,9 @@ export async function handleTeamBuilderData(
       readEntity: (resource, id) => read(`${resource}/${encodeURIComponent(id)}`),
       ...(readRuntimeMaster
         ? { readRuntimeRules: () => readRuntimeRulesDocument({ server, releaseId, sourceId }, readRuntimeMaster) }
+        : {}),
+      ...(readNativeRuleEvidence
+        ? { readNativeRuleEvidence: () => readNativeRuleEvidence({ server, releaseId, sourceId }) }
         : {}),
     });
     if (request.method === "HEAD") {

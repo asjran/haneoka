@@ -1,5 +1,6 @@
 import { adaptTeamBuilderData, objectRow, type TeamBuilderData } from "../data";
 import { hydrateRuntimeDocuments } from "./complete";
+import { withNativeRuleEvidence } from "./native-rule-evidence";
 
 export interface CurrentTeamBuilderIdentity {
   server: string;
@@ -54,6 +55,7 @@ export async function fetchTeamBuilderData(
       data.identity.sourceId !== identity.sourceId
     )
       throw new Error("Team data DTO identity mismatch");
+    data.identity = withNativeRuleEvidence(data.identity);
     signal?.throwIfAborted();
     return data;
   }

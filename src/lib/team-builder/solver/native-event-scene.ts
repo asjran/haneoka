@@ -1,6 +1,7 @@
 import type { EvidenceGap, NativeEventScene } from "../contracts.ts";
 import { dataRows, nativeRow, type TeamBuilderData } from "../data.ts";
 import { nativeRewardSources } from "../data/reward-input.ts";
+import { nativeRuleGaps } from "./native-rule-profile.ts";
 
 /** MasterEvent.GetEventStatus uses start>now and end>now: start is inclusive,
  * end exclusive. An unset native end leaves the held state open indefinitely.
@@ -10,8 +11,7 @@ export function validateNativeEventScene(data: TeamBuilderData, scene: NativeEve
   const gaps: EvidenceGap[] = [];
   const gap = (code: string, source: string) => gaps.push({ code, source });
   const int = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value);
-  if (data.identity.server !== "intl" || !/^v\d+-c0b6a1541e45-/u.test(data.identity.sourceId ?? ""))
-    gap("native-event-source-unverified", data.identity.sourceId ?? data.identity.server);
+  gaps.push(...nativeRuleGaps(data.identity, "ordinary-event-points"));
   if (
     !int(scene.eventId) ||
     scene.eventId < 1 ||

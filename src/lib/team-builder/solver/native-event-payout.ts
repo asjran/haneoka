@@ -17,6 +17,7 @@ import {
 } from "./event-rewards.ts";
 import { resolveNativeScoreRank, type NativeRankInput, type NativeScoreRankRow } from "./score-ranks.ts";
 import type { FixedPlayRewardOutcome } from "./resource-cycle.ts";
+import { nativeRuleGaps } from "./native-rule-profile.ts";
 
 type Identity = ReleaseIdentity & { sourceId: string };
 export interface NativeEventPayoutScenario {
@@ -62,8 +63,7 @@ export function createNativeEventPayoutResolver(
   const gaps: EvidenceGap[] = [];
   const pointGaps: EvidenceGap[] = [],
     itemGaps: EvidenceGap[] = [];
-  if (data.identity.server !== "intl" || !/^v\d+-c0b6a1541e45-/u.test(data.identity.sourceId ?? ""))
-    gaps.push(gap("native-event-source-unverified", data.identity.sourceId ?? data.identity.server));
+  gaps.push(...nativeRuleGaps(data.identity, "ordinary-event-points"));
   if (data.identity.server !== inventory.server || data.identity.releaseId !== inventory.releaseId)
     gaps.push(gap("native-event-inventory-release-mismatch", inventory.releaseId));
   if (

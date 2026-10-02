@@ -1,4 +1,5 @@
 import type { Objective, PlayMode, ReleaseIdentity, TeamBuilderCapabilities } from "../contracts.ts";
+import { nativeRuleSupports } from "./native-rule-profile.ts";
 
 /** Factory capabilities are declared where native input paths are implemented.
  * UI reads this list instead of maintaining its own supported-target table.
@@ -6,7 +7,9 @@ import type { Objective, PlayMode, ReleaseIdentity, TeamBuilderCapabilities } fr
 export function getTeamBuilderCapabilities(identity: ReleaseIdentity & { sourceId?: string }): TeamBuilderCapabilities {
   const modes: PlayMode[] = ["normal", "gekiso", "multi", "battle"];
   const objectives: Objective[] = ["score", "ss-ratio", "ss-surplus", "event-points", "event-items", "base-score"];
-  const nativeSourceKnown = identity.server === "intl" && /^v\d+-c0b6a1541e45-/u.test(identity.sourceId ?? "");
+  const nativeSourceKnown = nativeRuleSupports(identity, "normal-score");
+  const soloKnown = nativeSourceKnown && nativeRuleSupports(identity, "personal-solo");
+  const eventKnown = nativeSourceKnown && nativeRuleSupports(identity, "ordinary-event-points");
   return {
     ...identity,
     targets: modes.flatMap((mode) =>
@@ -14,11 +17,13 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity & { sourceI
         const normalForecast = mode === "normal" && ["score", "ss-ratio", "ss-surplus"].includes(objective);
         const gekisoSolo = mode === "gekiso" && ["ss-ratio", "ss-surplus"].includes(objective);
         const eventPoints =
-          (mode === "normal" || mode === "gekiso") && objective === "event-points" && nativeSourceKnown;
+          (mode === "normal" || (mode === "gekiso" && soloKnown)) && objective === "event-points" && eventKnown;
         const supported =
           identity.server === "intl" &&
           ((mode === "normal" && objective === "base-score") ||
-            (nativeSourceKnown && (normalForecast || gekisoSolo || eventPoints)));
+            (nativeSourceKnown && normalForecast) ||
+            (soloKnown && gekisoSolo) ||
+            eventPoints);
         const code =
           identity.server !== "intl"
             ? "native-server-rules-unverified"

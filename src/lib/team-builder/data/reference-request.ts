@@ -2,6 +2,7 @@ import type { ChartEvent, EvaluationBasisRequest, SearchConstraints, TeamAssignm
 import { dataRows, objectRow, type MemberCatalog, type TeamBuilderData } from "../data";
 import { validateAssignment, validateInventory, type Inventory } from "../inventory";
 import type { MetaReferenceChart, MetaReferenceIdentity, MetaReferenceProfile } from "./meta-reference";
+import { nativeRuleSupports } from "../solver/native-rule-profile";
 
 export interface TeamReferenceRecipe {
   schema: "haneoka-team-reference-recipe-v1";
@@ -48,7 +49,9 @@ export function materializeReferenceRequest(
   canonical: ReadonlyMap<string, CanonicalReferenceChart | null>,
   options: { calculatedAt: string; maxMilliseconds: number },
 ) {
-  const identity = data.identity as MetaReferenceIdentity;
+  const identity: MetaReferenceIdentity = {
+    server: data.identity.server, releaseId: data.identity.releaseId, sourceId: data.identity.sourceId ?? "",
+  };
   if (!identity.sourceId || !/^r-[a-f0-9]{20}$/u.test(identity.releaseId))
     throw new Error("reference-target-identity");
   if (recipe.schema !== "haneoka-team-reference-recipe-v1" || recipe.metadata.kind !== "fixed-reference" ||
@@ -56,8 +59,7 @@ export function materializeReferenceRequest(
       recipe.validatedIdentity.server !== identity.server || recipe.inventory.server !== identity.server ||
       recipe.inventory.releaseId !== recipe.validatedIdentity.releaseId)
     throw new Error("reference-recipe-server-or-schema");
-  if (identity.server !== "intl" || !/^v\d+-c0b6a1541e45-/u.test(identity.sourceId) ||
-      !/^v\d+-c0b6a1541e45-/u.test(recipe.validatedIdentity.sourceId))
+  if (!nativeRuleSupports(data.identity, "normal-score"))
     throw new Error("reference-native-source-unverified");
   if (recipe.mode !== "normal" || recipe.basis.kind !== "single" ||
       !equal(recipe.scenario, {

@@ -2361,6 +2361,7 @@ async function handleTeamBuilderDataApi(
 ): Promise<Response | null> {
   // Per-request snapshot captured from the existing validated catalog pin.
   let pinned: Release | null = null;
+  let pinnedServer: ResourceServerRoute | null = null;
   return handleTeamBuilderData(
     request,
     async (catalogRequest) => {
@@ -2383,6 +2384,7 @@ async function handleTeamBuilderDataApi(
           indexPrefix: `${server.resourcePrefix}/releases/${releaseId}/index/`,
           manifestKey: `${server.resourcePrefix}/releases/${releaseId}/release.json`,
         };
+        pinnedServer = server;
       }
       return response;
     },
@@ -2395,6 +2397,18 @@ async function handleTeamBuilderDataApi(
         throw new Error("Runtime Master pin does not match the selected release");
       }
       return readReleaseJson(env, pinned, `objects/master/${sourceTable}.json`);
+    },
+    async (identity) => {
+      if (
+        !pinned ||
+        !pinnedServer ||
+        identity.server !== pinned.server ||
+        identity.releaseId !== pinned.releaseId ||
+        identity.sourceId !== pinned.sourceId
+      ) {
+        throw new Error("Native rule evidence pin does not match the selected release");
+      }
+      return readR2Json(env, `${pinnedServer.resourcePrefix}/sources/${pinned.sourceId}/native-rule-evidence.json`);
     },
   );
 }
