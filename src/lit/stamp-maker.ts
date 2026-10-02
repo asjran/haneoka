@@ -301,6 +301,69 @@ export class StampMaker extends LitElement {
     }
   }
 
+    private dragCanvas?: HTMLCanvasElement;
+  private readonly windowPointerMove = (event: PointerEvent) => {
+    if (this.drag?.pointer !== event.pointerId) return;
+    if (event.cancelable) event.preventDefault();
+    this.pointerMove(event);
+    event.stopPropagation();
+  };
+  private readonly windowPointerEnd = (event: PointerEvent) => {
+    if (this.drag?.pointer !== event.pointerId) return;
+    if (event.cancelable) event.preventDefault();
+    this.pointerEnd(event);
+    event.stopPropagation();
+  };
+  private readonly windowDragBlur = () => this.endPointerDrag();
+  private get interactive() {
+    return !!this.image && !this.imageLoading && !this.imageError;
+  }
+  private beginPointerDrag(
+    event: PointerEvent,
+    canvas: HTMLCanvasElement,
+    drag: NonNullable<StampMaker["drag"]>,
+  ) {
+    this.drag = drag;
+    this.dragCanvas = canvas;
+    if (event.cancelable) event.preventDefault();
+    // Focusing a canvas can close the on-screen keyboard and change the touch coordinate system.
+    if (event.pointerType === "mouse") canvas.focus({ preventScroll: true });
+    window.addEventListener("pointermove", this.windowPointerMove, {
+      capture: true,
+      passive: false,
+    });
+    window.addEventListener("pointerup", this.windowPointerEnd, {
+      capture: true,
+      passive: false,
+    });
+    window.addEventListener("pointercancel", this.windowPointerEnd, {
+      capture: true,
+      passive: false,
+    });
+    window.addEventListener("blur", this.windowDragBlur);
+    // Native capture is useful, but a rejected/lost capture must not erase an active drag.
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch {}
+  }
+  private endPointerDrag() {
+    const canvas = this.dragCanvas,
+      id = this.drag?.pointer;
+    this.drag = undefined;
+    this.dragCanvas = undefined;
+    window.removeEventListener("pointermove", this.windowPointerMove, true);
+    window.removeEventListener("pointerup", this.windowPointerEnd, true);
+    window.removeEventListener("pointercancel", this.windowPointerEnd, true);
+    window.removeEventListener("blur", this.windowDragBlur);
+    if (canvas) {
+      canvas.style.cursor = "grab";
+      try {
+        if (id !== undefined && canvas.hasPointerCapture(id))
+          canvas.releasePointerCapture(id);
+      } catch {}
+    }
+  }
+
   constructor() {
     super();
     this.locale = "en";
@@ -360,6 +423,7 @@ export class StampMaker extends LitElement {
   }
 
   disconnectedCallback() {
+    this.endPointerDrag();
     this.saveDraft();
     clearTimeout(this.draftTimer);
     window.removeEventListener("pagehide", this.pageHide);
@@ -670,7 +734,7 @@ export class StampMaker extends LitElement {
     this.image = undefined;
     this.imageError = false;
     if (this.exportState !== "saving") this.exportState = "";
-    this.drag = undefined;
+    this.endPointerDrag();
     const choice = this.choice;
     this.imageLoading = !!choice;
     this.schedulePaint();
@@ -801,7 +865,8 @@ export class StampMaker extends LitElement {
   }
 
   private pointerPoint(event: PointerEvent) {
-    const canvas = event.currentTarget as HTMLCanvasElement;
+    const canvas =
+      this.dragCanvas || (event.currentTarget as HTMLCanvasElement);
     const rect = canvas.getBoundingClientRect();
     return {
       canvas,
@@ -812,7 +877,7 @@ export class StampMaker extends LitElement {
 
   private pointerDown(event: PointerEvent) {
     if (
-      !this.ready ||
+      !this.interactive ||
       this.drag ||
       (event.pointerType === "mouse" && event.button !== 0)
     )
@@ -829,16 +894,13 @@ export class StampMaker extends LitElement {
     );
     if (!hit) return;
     if (hit !== this.activeLayerId) this.selectLayer(hit);
-    event.preventDefault();
-    canvas.focus({ preventScroll: true });
-    canvas.setPointerCapture(event.pointerId);
-    this.drag = {
+    this.beginPointerDrag(event, canvas, {
       pointer: event.pointerId,
       x,
       y,
       startX: (this.imageTransform || this.settings).x,
       startY: (this.imageTransform || this.settings).y,
-    };
+    });
   }
 
   private pointerMove(event: PointerEvent) {
@@ -855,11 +917,7 @@ export class StampMaker extends LitElement {
   }
 
   private pointerEnd(event: PointerEvent) {
-    if (this.drag?.pointer !== event.pointerId) return;
-    const canvas = event.currentTarget as HTMLCanvasElement;
-    if (canvas.hasPointerCapture(event.pointerId))
-      canvas.releasePointerCapture(event.pointerId);
-    this.drag = undefined;
+    if (this.drag?.pointer === event.pointerId) this.endPointerDrag();
   }
 
   private canvasKey(event: KeyboardEvent) {
@@ -872,7 +930,7 @@ export class StampMaker extends LitElement {
     const direction = directions[event.key];
     if (
       !direction ||
-      !this.ready ||
+      !this.interactive ||
       (!this.imageTransform &&
         !this.settings.text.trim() &&
         !(this.settings.background && this.settings.background.alpha > 0))
@@ -996,6 +1054,7 @@ export class StampMaker extends LitElement {
   }
 
   private selectLayer(id: string) {
+    if (id !== this.activeLayerId) this.endPointerDrag();
     const layer = this.layers.find((item) => item.id === id);
     if (!layer) return;
     this.activeLayerId = id;
@@ -1279,6 +1338,7 @@ export class StampMaker extends LitElement {
             <canvas
               width="512"
               height="512"
+              style="touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"
               tabindex="0"
               role="img"
               aria-label=${this.t("preview")}
@@ -1286,11 +1346,10 @@ export class StampMaker extends LitElement {
               @pointermove=${this.pointerMove}
               @pointerup=${this.pointerEnd}
               @pointercancel=${this.pointerEnd}
-              @lostpointercapture=${this.pointerEnd}
               @keydown=${this.canvasKey}
             ></canvas>
             ${
-              this.catalogLoading || this.imageLoading || this.fontLoading
+              this.catalogLoading || this.imageLoading
                 ? html`
                     <div class="stamp-maker__overlay">
                       <md-circular-progress
@@ -1439,6 +1498,7 @@ export class StampMaker extends LitElement {
             grow: true,
           })}
                   <div class="stamp-maker__font-row">
+                    ${this.fontLoading?html`<md-circular-progress style="width:20px;height:20px" indeterminate aria-label=${this.t("loading")}></md-circular-progress>`:nothing}
                     <md-outlined-select
                       label=${this.t("font")}
                       .value=${this.settings.font}
