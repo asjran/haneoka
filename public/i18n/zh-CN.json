@@ -1900,6 +1900,7 @@
   },
   "catalogCompat": {
     "songRanking": {
+    "profileSearch": "玩家个人资料 ID",
       "title": "歌曲排行榜",
       "region": "排行榜地区",
       "regionJp": "JP",

@@ -1900,6 +1900,7 @@
   },
   "catalogCompat": {
     "songRanking": {
+    "profileSearch": "Player profile ID",
       "title": "Song ranking",
       "region": "Ranking region",
       "regionJp": "JP",

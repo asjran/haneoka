@@ -16,7 +16,7 @@ import { localizedText } from "./shared/catalog";
 import { resourcePath } from "../lib/resource-route";
 import type { RankingCardCatalog, RankingCardArtwork } from "../lib/game-records";
 import { emptyState, errorState, loadingState } from "./ui/state";
-import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
+import { clearAppBarActions, clearAppBarSearch, setAppBarActions, setAppBarSearch } from "../lib/app-bar";
 import {
   GAME_RECORDS_REGIONS as REGIONS,
   defaultGameRecordsRegion as defaultRegion,
@@ -91,6 +91,7 @@ export class SongRanking extends LitElement {
   private cache = new Map<string, RankingCache>();
   private selectedEntry: RankingEntry | null = null;
   private selectedProfileId = "";
+  private profileQuery = "";
   private rankingFailure: GameRecordsErrorDto["error"] | null = null;
   private retryAt = 0;
   private retryTimer = 0;
@@ -154,6 +155,7 @@ export class SongRanking extends LitElement {
     this.pageBackLink?.removeEventListener("click", this.onPageBackClick);
     this.pageBackLink = undefined;
     clearAppBarActions(this.pageAppBarOwner);
+    clearAppBarSearch(this.pageAppBarOwner);
     super.disconnectedCallback();
   }
 
@@ -242,12 +244,14 @@ export class SongRanking extends LitElement {
     this.region = region;
     const url = new URL(location.href);
     url.searchParams.set("region", region);
+    url.searchParams.delete("profileId");
     history.replaceState(history.state, "", url);
     this.view = "ranking";
     this.profileRequests.cancel();
     this.profile = null;
     this.selectedEntry = null;
     this.selectedProfileId = "";
+    this.profileQuery = "";
     this.profilePhase = "idle";
     this.expanded = false;
     this.rankingRequests.cancel();
@@ -275,6 +279,13 @@ export class SongRanking extends LitElement {
     this.view = "profile";
     this.selectedEntry = entry;
     this.selectedProfileId = profileId;
+    this.profileQuery = profileId;
+    if (!this.embedded) {
+      const url = new URL(navigationDocumentUrl());
+      url.searchParams.set("region", this.region);
+      url.searchParams.set("profileId", profileId);
+      if (url.pathname === location.pathname) history.replaceState(history.state, "", url);
+    }
     this.profile = null;
     this.profilePhase = "loading";
     try {
@@ -303,6 +314,11 @@ export class SongRanking extends LitElement {
     this.selectedEntry = null;
     this.selectedProfileId = "";
     this.profilePhase = "idle";
+    if (!this.embedded) {
+      const url = new URL(location.href);
+      url.searchParams.delete("profileId");
+      history.replaceState(history.state, "", url);
+    }
     void this.updateComplete.then(() => {
       requestAnimationFrame(() => {
         const main = document.querySelector<HTMLElement>("#main-content");
@@ -402,6 +418,30 @@ export class SongRanking extends LitElement {
       }
     }
     setAppBarActions(this.pageAppBarOwner, this.renderPageActions(), this);
+    const pattern =
+      this.region === "jp"
+        ? "[1-9][0-9]{0,18}"
+        : `[${this.region === "tw" ? "2" : this.region === "en" ? "3" : "4"}][0-9]{10}`;
+    setAppBarSearch(this.pageAppBarOwner, {
+      value: this.profileQuery,
+      label: this.label("profileSearch", "Player profile ID"),
+      onInput: (value) => {
+        this.profileQuery = value;
+      },
+      onSubmit: (value) => {
+        const profileId = value.trim();
+        if (new RegExp(`^${pattern}$`, "u").test(profileId)) void this.openProfileById(profileId);
+      },
+    });
+    const search = document.querySelector<HTMLInputElement>(
+      `[data-app-bar-search-owner="${this.pageAppBarOwner}"] input`,
+    );
+    if (search) {
+      search.inputMode = "numeric";
+      search.maxLength = this.region === "jp" ? 19 : 11;
+      search.pattern = pattern;
+      search.required = true;
+    }
   }
 
   private cardArtwork(cardId: number | null, support: boolean) {
