@@ -1678,7 +1678,12 @@
     "date": "Date",
     "game-live": "Game live event",
     "invalidDate": "Invalid date",
-    "voiceRoles": "Voices: {roles}"
+    "voiceRoles": "Voices: {roles}",
+    "ourNotesCharacterBirthday": "Our Notes character birthdays",
+    "ourNotesCastBirthday": "Our Notes voice actor birthdays",
+    "garupaCharacterBirthday": "GBP character birthdays",
+    "garupaCastBirthday": "GBP voice actor birthdays",
+    "externalLive": "External live events"
   },
   "homePage": {
     "overview": "Home overview",

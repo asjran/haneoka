@@ -1678,7 +1678,12 @@
     "date": "日付",
     "game-live": "ゲーム内ライブイベント",
     "invalidDate": "日付が正しくありません",
-    "voiceRoles": "担当役：{roles}"
+    "voiceRoles": "担当役：{roles}",
+    "ourNotesCharacterBirthday": "Our Notes キャラクターの誕生日",
+    "ourNotesCastBirthday": "Our Notes 声優の誕生日",
+    "garupaCharacterBirthday": "GBP キャラクターの誕生日",
+    "garupaCastBirthday": "GBP 声優の誕生日",
+    "externalLive": "外部ライブ"
   },
   "homePage": {
     "overview": "ホーム概要",

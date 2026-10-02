@@ -1678,7 +1678,12 @@
     "date": "日期",
     "game-live": "游戏演出活动",
     "invalidDate": "日期无效",
-    "voiceRoles": "配音：{roles}"
+    "voiceRoles": "配音：{roles}",
+    "ourNotesCharacterBirthday": "Our Notes 角色生日",
+    "ourNotesCastBirthday": "Our Notes 声优生日",
+    "garupaCharacterBirthday": "GBP 角色生日",
+    "garupaCastBirthday": "GBP 声优生日",
+    "externalLive": "外部演出"
   },
   "homePage": {
     "overview": "首页概览",

@@ -1678,7 +1678,12 @@
     "date": "날짜",
     "game-live": "게임 라이브 이벤트",
     "invalidDate": "날짜가 올바르지 않습니다",
-    "voiceRoles": "담당 배역: {roles}"
+    "voiceRoles": "담당 배역: {roles}",
+    "ourNotesCharacterBirthday": "Our Notes 캐릭터 생일",
+    "ourNotesCastBirthday": "Our Notes 성우 생일",
+    "garupaCharacterBirthday": "GBP 캐릭터 생일",
+    "garupaCastBirthday": "GBP 성우 생일",
+    "externalLive": "외부 라이브"
   },
   "homePage": {
     "overview": "홈 개요",
