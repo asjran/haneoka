@@ -15,11 +15,11 @@ export interface EvidenceGap {
 export type EvaluationBasisRequest =
   | { kind: "single" }
   | { kind: "time"; secondsBySong: Record<string, number>; downtimeSeconds: number; source: string }
-  | { kind: "consumption"; amount: number; resource: "live-boost" | "event-item"; source: string };
+  | { kind: "consumption"; amount: number; resource: "live-boost" | "event-item" | "challenge-point"; source: string };
 export interface EvaluationBasis {
   kind: EvaluationBasisRequest["kind"];
   denominator: number | null;
-  unit: "play" | "second" | "live-boost" | "event-item";
+  unit: "play" | "second" | "live-boost" | "event-item" | "challenge-point";
   source: string;
 }
 export interface MetricBreakdownEntry {
@@ -256,6 +256,23 @@ export interface WorkerPreparationInput {
   objectives: Objective[];
   constraints: SearchConstraints;
   budget: SearchBudget;
+  eventScene?: NativeEventScene;
+}
+/** A recorded native start or explicitly identified replay scenario. The
+ * server's held-event list and Master time-column choice are supplied together;
+ * the public event picker alone does not establish these runtime facts.
+ */
+export interface NativeEventScene {
+  eventId: number;
+  kind: "normal" | "challenge";
+  consumedCount: number;
+  heldEventIds: number[];
+  masterTimeSlot: 0 | 1 | 2 | 3 | 4;
+  liveStartServerTime: {
+    epochMilliseconds: number;
+    source: "game-server" | "explicit-scenario";
+    reference: string;
+  };
 }
 export type SolverRequest =
   | { type: "prepare"; runId: string; request: WorkerPreparationInput; checkpoint?: SearchCheckpoint }

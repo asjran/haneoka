@@ -11,6 +11,8 @@ import type {
   ScoreEvaluationModel,
   SongOption,
   TeamAssignment,
+  NativeEventScene,
+  MetricValue,
 } from "../contracts.ts";
 import { dataRows, nativeRow, type TeamBuilderData } from "../data.ts";
 import { inventoryOptions, type PowerResolver } from "../data/solver-input.ts";
@@ -18,8 +20,13 @@ import type { InventoryV1 } from "../inventory.ts";
 import { addPower, calcMemberLevelOrRankPower, calcMemberTrainingPower, calcSnapshotBonusBP } from "./power.ts";
 import { createAssignmentEvaluator } from "./evaluate.ts";
 import { createNativeNormalSlotResolver } from "./native-normal.ts";
-import { createNativeNormalScoreResolver } from "./native-normal-score.ts";
+import { createNativeNormalScoreResolver, type NativeNormalPlayScoreLaw } from "./native-normal-score.ts";
 import { createNativeGekisoSoloEvaluator } from "./native-gekiso-solo.ts";
+import { createNativeEventPayoutResolver } from "./native-event-payout.ts";
+import { validateNativeEventScene } from "./native-event-scene.ts";
+import { nativeChallengePointTable } from "../data/reward-input.ts";
+import { applyEvaluationBasis } from "./basis.ts";
+import { unavailableMetric } from "../score.ts";
 import type { PreparedSong } from "../song-metrics.ts";
 import type { SearchEvaluationControls } from "../optimizer.ts";
 const zero = (): PowerStats => ({ performance: 0, technique: 0, visual: 0 });
@@ -79,6 +86,7 @@ export interface EvaluationRequest {
   /** Native runtime plans are passed only after the full power/skill path is resolved. */
   nativeRuntime?: ScoreEvaluationModel;
   basis?: EvaluationBasisRequest;
+  eventScene?: NativeEventScene;
 }
 /** Real inventory → actual growth rows → canonical chart → native note core.
  * base-score is a named component; full-score/rewards remain unavailable until
@@ -211,7 +219,9 @@ export function prepareEvaluationForSearch(request: EvaluationRequest): Prepared
     request.mode === "gekiso" &&
     request.constraints.justRate === 0 &&
     request.objectives.length > 0 &&
-    request.objectives.every((objective) => objective === "ss-ratio" || objective === "ss-surplus")
+    request.objectives.every(
+      (objective) => objective === "ss-ratio" || objective === "ss-surplus" || objective === "event-points",
+    )
   ) {
     const normal = prepareEvaluationForSearch({ ...request, mode: "normal" });
     return createNativeGekisoSoloEvaluator(request.data, normal);
@@ -228,8 +238,14 @@ export function prepareEvaluationForSearch(request: EvaluationRequest): Prepared
   const input = prepareEvaluation({ ...request, objectives: ["base-score"] });
   input.objectives = [...request.objectives];
   input.evaluation.scope = "native-runtime";
-  input.evaluation.assumptions = ["normal-live-event-power-disabled"];
+  input.evaluation.assumptions = request.eventScene
+    ? ["native-explicit-single-held-event", `native-live-start:${request.eventScene.liveStartServerTime?.source}`]
+    : ["normal-live-event-power-disabled"];
   input.evaluation.gaps = input.evaluation.gaps.filter((gap) => gap.code !== "snapshot-full-slot-path-unresolved");
+  if (request.data.identity.server !== "intl" || !/^v\d+-c0b6a1541e45-/u.test(request.data.identity.sourceId ?? ""))
+    input.evaluation.gaps.push(
+      gap("native-normal-source-unverified", request.data.identity.sourceId ?? request.data.identity.server),
+    );
   if (request.data.identity.server === "intl") {
     // Native edit/save paths validate owned support IDs and duplicates; the
     // photo's character list does not restrict the member assigned to its slot.
@@ -239,7 +255,38 @@ export function prepareEvaluationForSearch(request: EvaluationRequest): Prepared
       snapshot.gaps = snapshot.gaps.filter((gap) => gap.code !== "native-snapshot-equip-restriction-unverified");
     }
   }
-  const native = createNativeNormalSlotResolver(request.data, request.inventory, input);
+  const scene = request.eventScene;
+  if (scene) input.evaluation.gaps.push(...validateNativeEventScene(request.data, scene));
+  if (scene?.kind === "challenge")
+    input.evaluation.gaps.push(
+      gap("native-challenge-score-boot-context-unresolved", "challenge chart/power/rank overrides"),
+    );
+  if (request.objectives.includes("event-points") && !scene)
+    input.evaluation.gaps.push(gap("native-event-scene-required", "recorded or identified live-start context"));
+  if (request.objectives.includes("event-items"))
+    input.evaluation.gaps.push(
+      gap("native-event-server-selection-law-unresolved", "complete joint server RewardId outcomes"),
+    );
+  const cp = nativeChallengePointTable(request.data);
+  const payouts = new Map<number, ReturnType<typeof createNativeEventPayoutResolver>>();
+  const payoutFor = (songId: number) => {
+    const cached = payouts.get(songId);
+    if (cached) return cached;
+    const result = createNativeEventPayoutResolver(request.data, request.inventory, {
+      eventId: scene!.eventId,
+      songId,
+      kind: scene!.kind,
+      consumption: scene!.consumedCount,
+      ...(cp.table ? { challengePointTable: cp.table } : {}),
+    });
+    if (payouts.size >= 32) payouts.delete(payouts.keys().next().value!);
+    payouts.set(songId, result);
+    return result;
+  };
+  const eventPower = scene && request.songs.length ? payoutFor(request.songs[0]!.songId) : undefined;
+  if (scene && !eventPower) input.evaluation.gaps.push(gap("native-event-chart-required", "selected canonical chart"));
+  if (eventPower) input.evaluation.gaps.push(...eventPower.powerGaps);
+  const native = createNativeNormalSlotResolver(request.data, request.inventory, input, eventPower);
   const score = createNativeNormalScoreResolver(request.data, input);
   input.evaluation.gaps.push(...native.gaps, ...score.gaps);
   const lifeRow = dataRows(request.data.liveTools.liveSettings)
@@ -280,8 +327,66 @@ export function prepareEvaluationForSearch(request: EvaluationRequest): Prepared
     input,
     evaluate: async (assignment: TeamAssignment, song: PreparedSong, controls: SearchEvaluationControls) => {
       const profiles = native.resolveSlots(assignment, song);
-      const metric = await score.score(assignment, song, profiles, controls);
-      return evaluate(assignment, song, metric);
+      let law: NativeNormalPlayScoreLaw | undefined;
+      const metric = await score.score(
+        assignment,
+        song,
+        profiles,
+        controls,
+        scene && request.objectives.includes("event-points")
+          ? (value) => {
+              law = value;
+            }
+          : undefined,
+      );
+      const candidate = evaluate(assignment, song, metric);
+      if (scene && request.objectives.includes("event-points")) {
+        let points: MetricValue = unavailableMetric("native-event-complete-play-law-unresolved", song.song.key);
+        if (law && metric.value !== null && !controls.cancelled() && !controls.expired()) {
+          const payout = payoutFor(song.song.songId);
+          const amounts = law.outcomes.map((outcome) => ({
+            ...outcome,
+            points: payout.resolve(assignment, { nativeLiveMode: 0, soloScore: outcome.score, roomPlayers: [] }, null)
+              .eventPoints,
+          }));
+          const gaps = amounts.flatMap((outcome) => outcome.points.gaps);
+          if (!gaps.length && amounts.every((outcome) => outcome.points.value !== null)) {
+            const value =
+              amounts.reduce((sum, outcome) => sum + outcome.points.value! * outcome.multiplicity, 0) /
+              law.nominalOrders;
+            points = {
+              value,
+              status: "conditional",
+              assumptions: [...metric.assumptions, "native-personal-solo-event-rank", "client-event-point-amount"],
+              gaps: [],
+              range: {
+                minimum: Math.min(...amounts.map((outcome) => outcome.points.value!)),
+                maximum: Math.max(...amounts.map((outcome) => outcome.points.value!)),
+              },
+              breakdown: [
+                {
+                  key: "complete-event-play-orders",
+                  value: law.nominalOrders,
+                  unit: "count",
+                  source: "complete native shuffle plays before rank/rounding",
+                },
+                { key: "event-consumed-count", value: scene.consumedCount, unit: "count", source: scene.kind },
+                { key: "event-points-per-play", value, unit: "count", source: "native client result saver" },
+              ],
+            };
+          } else points.gaps.push(...gaps);
+        }
+        const basis = request.basis;
+        if (
+          basis?.kind === "consumption" &&
+          (basis.amount !== scene.consumedCount ||
+            basis.resource !== (scene.kind === "normal" ? "live-boost" : "challenge-point"))
+        )
+          points = unavailableMetric("native-event-consumption-basis-mismatch", `${scene.kind}:${scene.consumedCount}`);
+        candidate.metrics["event-points"] = applyEvaluationBasis(points, "event-points", song.song.key, request.basis);
+        candidate.vector = input.objectives.map((objective) => candidate.metrics[objective].value ?? NaN);
+      }
+      return candidate;
     },
   };
 }

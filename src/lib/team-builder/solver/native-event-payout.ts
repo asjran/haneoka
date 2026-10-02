@@ -123,6 +123,7 @@ export function createNativeEventPayoutResolver(
     });
   }
   const pointTable = scenario.kind === "normal" ? "MasterLiveEventPoint" : "MasterChallengeLiveEventPoint";
+  const powerGaps = [...gaps];
   const rewardTable = scenario.kind === "normal" ? "MasterLiveEventReward" : "MasterChallengeLiveEventReward";
   const pointGroup = groups[scenario.kind === "normal" ? "liveEventPoint" : "challengeLiveEventPoint"];
   const rewardGroup = groups[scenario.kind === "normal" ? "liveEventReward" : "challengeLiveEventReward"];
@@ -332,11 +333,29 @@ export function createNativeEventPayoutResolver(
     };
   };
   return {
+    identity: { ...data.identity },
     gaps,
+    powerGaps,
     pointGaps,
     itemGaps,
     challengePointGaps: cpGaps,
     resolve,
+    /** Each card's power effect is applied at its own native slot, before the
+     * separately floored rank/photo/band/leader contributions.
+     */
+    resolvePower(assignment: TeamAssignment): NativeLeafResult<{ memberBP: number[]; snapshotBP: number[] }> {
+      const local = [...powerGaps, ...formationBonus(assignment).gaps];
+      if (local.length) return unavailable(local);
+      return {
+        value: {
+          memberBP: assignment.memberInstanceIds.map((id) => sumEventEffectBP(effects, [members.get(id)!], [], 2)),
+          snapshotBP: assignment.snapshotInstanceIds.map((id) =>
+            id === null ? 0 : sumEventEffectBP(effects, [], [snapshots.get(id)!], 2),
+          ),
+        },
+        gaps: [],
+      };
+    },
     resolveLaw(
       assignment: TeamAssignment,
       outcomes: readonly NativeEventPlayOutcome[],

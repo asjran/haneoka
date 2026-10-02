@@ -130,7 +130,7 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
     bySong: [],
     proof: { status: "unavailable", method: "exhaustive-selected-domain", scope: "selected-input-domain" },
   });
-  if (input.objectives.some((objective) => objective === "event-points" || objective === "event-items")) {
+  if (input.objectives.some((objective) => objective === "event-items")) {
     recordGap({ code: "event-reward-formula-unresolved", source: "native event result service + active event tables" });
     return unavailable();
   }

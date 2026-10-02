@@ -1,4 +1,11 @@
-import type { EvidenceGap, OptimizationInput, PowerStats, ResolvedSlotProfile, TeamAssignment } from "../contracts.ts";
+import type {
+  EvidenceGap,
+  OptimizationInput,
+  PowerStats,
+  ReleaseIdentity,
+  ResolvedSlotProfile,
+  TeamAssignment,
+} from "../contracts.ts";
 import { dataRows, nativeRow, type DataRow, type TeamBuilderData } from "../data.ts";
 import { nativeConditionSources } from "../data/condition-sources.ts";
 import type { InventoryV1 } from "../inventory.ts";
@@ -49,6 +56,13 @@ interface MemberProfile extends BonusProfile {
   leaderEffects: DataRow[];
 }
 type Match = boolean | null;
+export interface NativeEventPowerResolver {
+  identity: ReleaseIdentity & { sourceId?: string };
+  resolvePower(assignment: TeamAssignment): {
+    value: { memberBP: number[]; snapshotBP: number[] } | null;
+    gaps: EvidenceGap[];
+  };
+}
 /** LeaderSkillBonusCalculator.IsTargetMember: OR, distinct from event AND. */
 function memberMatches(member: MemberProfile, target: DataRow): Match {
   if (int(target.bandID) && target.bandID >= 1 && target.bandID === member.bandId) return true;
@@ -94,9 +108,17 @@ export function createNativeNormalSlotResolver(
   data: TeamBuilderData,
   inventory: InventoryV1,
   input: OptimizationInput,
+  eventPower?: NativeEventPowerResolver,
 ) {
   const sources = nativeConditionSources(data, inventory);
   const gaps: EvidenceGap[] = [];
+  if (
+    eventPower &&
+    (eventPower.identity.server !== data.identity.server ||
+      eventPower.identity.releaseId !== data.identity.releaseId ||
+      eventPower.identity.sourceId !== data.identity.sourceId)
+  )
+    gaps.push(gap("native-event-power-release-mismatch", eventPower.identity.releaseId));
   const tables = sources.runtimeRules?.tables;
   if (sources.runtimeRules?.status !== "ready")
     gaps.push(gap("native-runtime-rules-unverified", "same-release runtime rules"));
@@ -299,6 +321,17 @@ export function createNativeNormalSlotResolver(
         leader = members.get(assignment.leaderInstanceId);
       const song = songs.get(prepared.song.songId),
         local: EvidenceGap[] = [];
+      const eventBonuses = eventPower?.resolvePower(assignment);
+      if (eventBonuses) {
+        local.push(...eventBonuses.gaps);
+        if (
+          !eventBonuses.value ||
+          eventBonuses.value.memberBP.length !== selected.length ||
+          eventBonuses.value.snapshotBP.length !== selected.length ||
+          [...eventBonuses.value.memberBP, ...eventBonuses.value.snapshotBP].some((value) => !int(value))
+        )
+          local.push(gap("native-event-slot-bonus-unresolved", prepared.song.key));
+      }
       if (!leader || !song || song.musicType === null || song.bestMusicTagIds === null)
         local.push(gap("native-normal-formation-or-song-unresolved", prepared.song.key));
       const leaderBonuses = selected.map(zero);
@@ -342,10 +375,10 @@ export function createNativeNormalSlotResolver(
           characterRankBonusBP: member.characterRankBonusBP,
           characterTotalRankBonusBP: uniform(totalRankPoints * 10000),
           memoryBonusPoints: 0,
-          memberEventBonusBP: zero(),
+          memberEventBonusBP: uniform(eventBonuses?.value?.memberBP[slot] ?? 0),
           snapshotPresent,
           snapshotBonusBP: snapshot?.option.bonusBP ?? zero(),
-          snapshotEventBonusBP: zero(),
+          snapshotEventBonusBP: uniform(eventBonuses?.value?.snapshotBP[slot] ?? 0),
           bandItemBonusBP: member.value,
           leaderSkillBonusBP: leaderBonuses[slot]!,
           typeLinkBonusBP: uniform(typeLinkBP),

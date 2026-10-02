@@ -103,6 +103,15 @@ export function createNativeGekisoSoloEvaluator(data: TeamBuilderData, normal: N
           }
         }
       }
+      if (input.objectives.includes("event-points")) {
+        const metric = candidate.metrics["event-points"];
+        if (local.length)
+          candidate.metrics["event-points"] = {
+            ...unavailableMetric("native-gekiso-solo-event-runtime-unresolved", song.song.key),
+            gaps: [...metric.gaps, ...local],
+          };
+        else metric.assumptions.push("native-gekiso-personal-solo-perfect-timing");
+      }
       candidate.metrics.score = unavailableMetric(
         "native-gekiso-live-score-runtime-unresolved",
         "Live ledger needs Gekiso frame/skill/Luck/ranking state",
