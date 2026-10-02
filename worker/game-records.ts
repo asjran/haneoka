@@ -1,7 +1,7 @@
 const GAME_RECORDS_API_PREFIX = "/api/v1/game/records";
 const RANKING_ORIGIN = "https://api.bdon.moe";
 const PROFILE_ORIGIN = "https://bdon.moe";
-const JP_PROFILE_ORIGIN = "https://bdon-api.bdon.moe";
+const MOENOTES_PROFILE_ORIGIN = "https://bdon-api.bdon.moe";
 const REGIONS = ["jp", "tw", "en", "kr"] as const;
 const MAX_UPSTREAM_BODY_BYTES = 512 * 1024;
 const UPSTREAM_TIMEOUT_MS = 4_000;
@@ -185,7 +185,7 @@ const upstreamJson = async (
     return { value: await readJson(response), response };
   } catch (error) {
     if (headers.Authorization)
-      console.warn(JSON.stringify({ event: "jp-profile-provider", upstreamStatus, noToken: false }));
+      console.warn(JSON.stringify({ event: "moenotes-profile-provider", upstreamStatus, noToken: false }));
     if (deadline.aborted) throw new RequestFailure(504, "timeout");
     if (error instanceof RequestFailure) throw error;
     const name = error instanceof Error ? error.name : "";
@@ -505,6 +505,12 @@ const rankingUrl = (region: GameRecordsRegion, musicId: string): string =>
 const profileUrl = (region: GameRecordsRegion, profileId: string): string =>
   `${PROFILE_ORIGIN}/api/players/${region}/${profileId}`;
 
+const authenticatedProfile = (region: GameRecordsRegion, profileId: string, token: string) =>
+  upstreamJson(`${MOENOTES_PROFILE_ORIGIN}/v1/${region}/profile/${profileId}`, {
+    Authorization: `Bearer ${token}`,
+    "User-Agent": "Mozilla/5.0",
+  });
+
 export async function handleGameRecordsApi(
   ctx: ExecutionContext,
   request: Request,
@@ -569,16 +575,26 @@ export async function handleGameRecordsApi(
   return serveCached(request, ctx, async () => {
     const token = env.MOENOTES_PROFILE_API_TOKEN?.trim();
     if (region === "jp" && !token) {
-      console.warn(JSON.stringify({ event: "jp-profile-provider", upstreamStatus: null, noToken: true }));
+      console.warn(JSON.stringify({ event: "moenotes-profile-provider", upstreamStatus: null, noToken: true }));
       throw new RequestFailure(502, "upstream");
     }
-    const upstream =
-      region === "jp"
-        ? await upstreamJson(`${JP_PROFILE_ORIGIN}/v1/jp/profile/${profileId}`, {
-            Authorization: `Bearer ${token}`,
-            "User-Agent": "Mozilla/5.0",
-          })
-        : await upstreamJson(profileUrl(region, profileId));
+    let upstream: Awaited<ReturnType<typeof upstreamJson>>;
+    if (region === "jp") {
+      upstream = await authenticatedProfile(region, profileId, token!);
+    } else {
+      try {
+        upstream = await upstreamJson(profileUrl(region, profileId));
+      } catch (error) {
+        if (
+          !(error instanceof RequestFailure) ||
+          error.kind !== "not_found" ||
+          ![401, 403, 404].includes(error.status) ||
+          !token
+        )
+          throw error;
+        upstream = await authenticatedProfile(region, profileId, token);
+      }
+    }
     return { body: JSON.stringify(normalizeProfile(upstream.value, region, profileId, upstream.response)) };
   });
 }
