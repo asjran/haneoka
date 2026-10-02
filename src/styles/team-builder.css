@@ -230,25 +230,9 @@
     white-space: normal;
   }
   .team-builder__team-strip {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    --tile-min: 110px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--tile-min)), 1fr));
     gap: var(--md-sys-spacing-2);
-    align-items: start;
-  }
-  .team-builder__team-strip figure {
-    position: relative;
-    min-width: 0;
-    margin: 0;
-  }
-  .team-builder__team-strip .tile__media {
-    border-radius: var(--md-sys-shape-corner-small);
-  }
-  .team-builder__team-strip figcaption {
-    margin-top: var(--md-sys-spacing-1);
-    font: var(--md-sys-typescale-label-small-weight) var(--md-sys-typescale-label-small-size) /
-      var(--md-sys-typescale-label-small-line-height) var(--app-font);
-    text-align: center;
-    color: var(--md-sys-color-primary);
   }
   .team-builder .tile__mark {
     font-size: var(--md-sys-typescale-label-small-size);

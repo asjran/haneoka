@@ -63,7 +63,7 @@ import { songTile, liveMusicTypeMark } from "./shared/song-tile";
 import { cardTile } from "./shared/card-tile";
 import { fetchCatalogVisuals } from "../lib/catalog-visuals";
 import { uiText } from "./shared/catalog";
-import { tileMedia, type TileOptions } from "./ui/tile";
+import { tile, tileMedia, type TileOptions } from "./ui/tile";
 import { LazyImages } from "./ui/lazy-images";
 import { difficultyKey, difficultyPicker } from "./ui/difficulty-picker";
 import { loadingState } from "./ui/state";
@@ -1332,11 +1332,7 @@ export class TeamBuilder extends LitElement {
           ${iconButton({
             icon: "edit",
             label: this.t("editPractice", "Edit training") + ": " + accessibleName,
-            onClick: () => {
-              this.closePane();
-              this.kind = kind;
-              this.editingId = entry.instanceId;
-            },
+            onClick: () => this.openOwnedCard(entry.instanceId, kind),
           })}
         </div>
       </li>
@@ -1344,6 +1340,24 @@ export class TeamBuilder extends LitElement {
   }
   private batchKey(cardId: number, kind: Kind = this.kind): string {
     return `${kind}:${cardId}`;
+  }
+  private openOwnedCard(instanceId: string, kind: Kind) {
+    if (!this.canEdit || !this.inventory?.[kind].some((entry) => entry.instanceId === instanceId)) return;
+    this.closePane();
+    this.kind = kind;
+    this.editingId = instanceId;
+  }
+  private resultCard(entry: MemberEntry | SnapshotEntry | undefined, kind: Kind, leader = false) {
+    if (!entry) return nothing;
+    const card = this.catalogEntry(entry.cardId, kind);
+    if (!card) return nothing;
+    const options = this.cardOptions(card, kind);
+    return tile({
+      ...options,
+      label: `${this.t("editPractice", "Edit training")}: ${options.label}${leader ? " · " + this.t("leader", "Leader") : ""}`,
+      marks: [...(options.marks ?? []), ...(leader ? [{ at: "bottom-end" as const, text: this.t("leader", "Leader") }] : [])],
+      onOpen: () => this.openOwnedCard(entry.instanceId, kind),
+    });
   }
   private addPickedCards(): void {
     if (!this.inventory || !this.canEdit) return;
@@ -3230,25 +3244,14 @@ export class TeamBuilder extends LitElement {
                           `;
                         })}
                       </dl>
-                      <div class="team-builder__team-strip" role="group" aria-label=${this.t("members", "Members")}>
-                        ${candidate.assignment.memberInstanceIds.map((id) => {
-                          const member = this.inventory?.members.find((entry) => entry.instanceId === id);
-                          const card = this.catalogEntry(member?.cardId ?? 0, "members");
-                          return card
-                            ? html`
-                                <figure title=${this.cardOptions(card, "members").label}>
-                                  ${tileMedia({ ...this.cardOptions(card, "members"), marks: [] })}
-                                  ${
-                                    id === candidate.assignment.leaderInstanceId
-                                      ? html`
-                                          <figcaption>${this.t("leader", "Leader")}</figcaption>
-                                        `
-                                      : nothing
-                                  }
-                                </figure>
-                              `
-                            : nothing;
-                        })}
+                      <div class="collection collection--member team-builder__team-strip" role="group" aria-label=${this.t("members", "Members")}>
+                        ${candidate.assignment.memberInstanceIds.map((id) =>
+                          this.resultCard(
+                            this.inventory?.members.find((entry) => entry.instanceId === id),
+                            "members",
+                            id === candidate.assignment.leaderInstanceId,
+                          ),
+                        )}
                       </div>
                       <details>
                         <summary>${this.t("configuration", "Team configuration")}</summary>
@@ -3260,9 +3263,8 @@ export class TeamBuilder extends LitElement {
                             );
                             return html`
                               <div>
-                                <div class="team-builder__identity">
-                                  ${this.artwork(this.catalogEntry(member?.cardId ?? 0, "members"), "members")}
-                                  <span>${this.text(this.catalogEntry(member?.cardId ?? 0, "members")?.name)}</span>
+                                <div class="collection collection--member">
+                                  ${this.resultCard(member, "members", id === candidate.assignment.leaderInstanceId)}
                                 </div>
                                 <small>
                                   ${this.fieldName("level")}:
@@ -3289,8 +3291,10 @@ export class TeamBuilder extends LitElement {
                                 ${
                                   snapshot
                                     ? html`
+                                        <div class="collection collection--support">
+                                          ${this.resultCard(snapshot, "snapshots")}
+                                        </div>
                                         <small>
-                                          ${this.text(this.catalogEntry(snapshot.cardId, "snapshots")?.name)} ·
                                           ${this.fieldName("level")}:
                                           ${snapshot.level ?? this.t("unknown", "Unknown or not entered")} ·
                                           ${this.fieldName("awakening")}:
