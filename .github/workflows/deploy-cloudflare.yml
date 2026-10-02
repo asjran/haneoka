@@ -90,7 +90,22 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy to Cloudflare Workers
-        run: pnpm exec wrangler deploy
+        run: |
+          for deploy_attempt in 1 2 3; do
+            echo "Wrangler deployment attempt $deploy_attempt/3"
+            if pnpm exec wrangler deploy; then
+              exit 0
+            else
+              deploy_status=$?
+            fi
+            if [ "$deploy_attempt" -eq 3 ]; then
+              echo "Wrangler deployment failed after 3 attempts (exit $deploy_status)"
+              exit "$deploy_status"
+            fi
+            deploy_backoff=$((deploy_attempt * 5))
+            echo "Wrangler exited $deploy_status; retrying deployment in ${deploy_backoff}s using this run's built output/cache"
+            sleep "$deploy_backoff"
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
