@@ -58,6 +58,8 @@ export interface TileOptions {
   kind?: string;
   id?: string;
   marks?: ReadonlyArray<TileMark | null | undefined>;
+  /** A verified publisher/exclusive-server emblem; separate from status/date marks. */
+  serverMark?: { image: string; label: string };
   /**
    * Only for a tile that *is* a chooser — a band in the roster, a model in
    * the viewer. A tile that opens a detail must leave this undefined: the
@@ -114,7 +116,7 @@ export function tileMedia(options: TileOptions): TemplateResult {
   // silently left every tile unclickable in production builds.
   return html`
     <span
-      class=${`tile__media media-loading ${options.fit ? `tile__media--${options.fit}` : ""}`}
+      class=${`tile__media media-loading ${options.fit ? `tile__media--${options.fit}` : ""}${options.serverMark?.image ? " tile__media--server-mark" : ""}`}
       style=${mediaStyle || nothing}
     >
       ${
@@ -157,11 +159,17 @@ export function tileMedia(options: TileOptions): TemplateResult {
             `
           : nothing,
       )}
+      ${options.serverMark?.image
+        ? html`<span class="tile__server-mark" title=${options.serverMark.label}>
+            <img src=${options.serverMark.image} alt=${options.serverMark.label} width="18" height="18" decoding="async" />
+          </span>`
+        : nothing}
     </span>
   `;
 }
 
 export function tile(options: TileOptions): TemplateResult {
+  const label = [options.label, options.serverMark?.image ? options.serverMark.label : ""].filter(Boolean).join(" · ");
   const classes = [
     "tile",
     "tile--interactive",
@@ -197,7 +205,7 @@ export function tile(options: TileOptions): TemplateResult {
         aria-controls=${options.controls ?? nothing}
         tabindex=${options.tabIndex ?? nothing}
         aria-selected=${options.selected === undefined ? nothing : String(options.selected)}
-        aria-label=${options.label}
+        aria-label=${label}
         style=${options.style || nothing}
         @click=${options.onOpen ?? nothing}
       >
@@ -210,7 +218,7 @@ export function tile(options: TileOptions): TemplateResult {
       class=${classes}
       type="button"
       data-open-item=${options.itemId ?? nothing}
-      aria-label=${options.label}
+      aria-label=${label}
       role=${options.role ?? nothing}
       aria-controls=${options.controls ?? nothing}
       tabindex=${options.tabIndex ?? nothing}

@@ -187,6 +187,23 @@
   right: 8px;
   bottom: 8px;
 }
+.tile__media--server-mark .tile__mark--bottom-end {
+  right: 34px;
+}
+.tile__server-mark {
+  position: absolute;
+  z-index: 1;
+  right: 8px;
+  bottom: 8px;
+  width: 18px;
+  height: 18px;
+}
+.tile__server-mark > img {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
 .tile__mark--bottom-start {
   bottom: 8px;
   left: 8px;
