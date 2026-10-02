@@ -112,6 +112,11 @@ def stage_reference_inputs(
                     paths.add(f"{entities['prefix']}{shard}.json")
     paths.update(f"objects/master/{table}.json" for table in RUNTIME_TABLES.values())
     batch(paths)
+    # CP availability is independent of the eight normal-runtime tables.
+    # A declared-but-absent CP object stays missing; it is not a missing chart.
+    cp_path = "objects/master/MasterLiveChallengePoint.json"
+    if cp_path in entries and download(cp_path, missing_allowed=True):
+        downloaded.add(cp_path)
     songs = json.loads((root / catalog["resources"]["songs"]["index"]).read_text("utf8"))
     chart_paths: set[str] = set()
     asset_prefix = f"/assets/{identity['server']}/"
