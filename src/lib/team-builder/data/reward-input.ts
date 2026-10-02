@@ -10,6 +10,22 @@ import type {
 } from "../solver/event-rewards";
 import type { NativeScoreRankRow } from "../solver/score-ranks";
 
+/** Supply the existing payout scenario only with an observed same-pin global table.
+ * Empty is an observed table with no rank rows, and never a known zero payout.
+ */
+export function nativeChallengePointTable(data: TeamBuilderData): {
+  table?: { identity: { server: string; releaseId: string; sourceId: string }; rows: readonly DataRow[] };
+  gaps: EvidenceGap[];
+} {
+  const source = data.challengePointTable;
+  if (!source || source.status === "missing")
+    return { gaps: [{ code: "native-challenge-point-table-missing", source: "MasterLiveChallengePoint" }] };
+  if (source.identity.server !== data.identity.server || source.identity.releaseId !== data.identity.releaseId ||
+      source.identity.sourceId !== data.identity.sourceId)
+    return { gaps: [{ code: "native-challenge-point-table-release-mismatch", source: source.identity.releaseId }] };
+  return { table: { identity: { ...source.identity }, rows: source.rows }, gaps: [] };
+}
+
 const int32 = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= -0x80000000 && value <= 0x7fffffff;
 const integerFields = (row: DataRow, fields: readonly string[]) => fields.every((field) => int32(row[field]));
