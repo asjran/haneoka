@@ -128,11 +128,11 @@ jobs:
       secret_writer_gh_token: ${{ secrets.SECRET_WRITER_GH_TOKEN }}
       jp_version_subscription: ${{ secrets.JP_VERSION_SUBSCRIPTION }}
 
-  rebuild-static-catalog:
-    name: Rebuild static catalog pages
+  rebuild-site:
+    name: Rebuild site pages
     needs: [pipeline_intl, pipeline_jp]
     # Rebuild once after either production server promotes an immutable release.
-    if: ${{ always() && ((needs.pipeline_intl.result == 'success' && needs.pipeline_intl.outputs.release_promoted == 'true') || (needs.pipeline_jp.result == 'success' && needs.pipeline_jp.outputs.release_promoted == 'true')) }}
+    if: ${{ always() && (needs.pipeline_intl.outputs.release_promoted == 'true' || needs.pipeline_jp.outputs.release_promoted == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -142,7 +142,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-cloudflare.yml --repo "$GITHUB_REPOSITORY" --ref main
       - name: Rebuild Sonolus presentation from promoted Intl resources
-        if: ${{ needs.pipeline_intl.result == 'success' && needs.pipeline_intl.outputs.release_promoted == 'true' }}
+        if: ${{ vars.ENABLE_SONOLUS_PUBLICATION == 'true' && needs.pipeline_intl.outputs.release_promoted == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run sonolus.yml --repo "$GITHUB_REPOSITORY" --ref main
