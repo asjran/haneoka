@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "custom": [
+    {
+      "id": "pretendard-semibold",
+      "family": "Pretendard SemiBold",
+      "weight": 600,
+      "source": "https://raw.githubusercontent.com/orioncactus/pretendard/v1.3.9/packages/pretendard/dist/public/static/Pretendard-SemiBold.otf",
+      "bytes": 1583704,
+      "sha256": "c89bc43027dc7cde5726e96223376f8eec09302b2fc1f8147fd5b57cfc376118",
+      "file": "c89bc43027dc7cde5726e96223376f8eec09302b2fc1f8147fd5b57cfc376118.otf",
+      "sourceFile": "Pretendard-SemiBold.otf"
+    },
+    {
+      "id": "yuruka",
+      "family": "YurukaStd",
+      "weight": 900,
+      "source": "https://raw.githubusercontent.com/BedrockDigger/sekai-stickers/0dd52ee69f8838dd173ee252810325debe96731a/src/fonts/YurukaStd.woff2",
+      "bytes": 2129960,
+      "sha256": "604b78800e5bac3ef9dbb0fdb87bef7ecaafcd553330fda5c3d725e32569f4de",
+      "file": "604b78800e5bac3ef9dbb0fdb87bef7ecaafcd553330fda5c3d725e32569f4de.woff2",
+      "sourceFile": "YurukaStd.woff2"
+    },
+    {
+      "id": "fangtang",
+      "family": "SSFangTangTi",
+      "weight": 400,
+      "source": "https://raw.githubusercontent.com/BedrockDigger/sekai-stickers/0dd52ee69f8838dd173ee252810325debe96731a/src/fonts/ShangShouFangTangTi.woff2",
+      "bytes": 1443036,
+      "sha256": "077c89525d0a48b5775f8fadbf09a40344ff4845779202f1f9c39b7857ad4e2e",
+      "file": "077c89525d0a48b5775f8fadbf09a40344ff4845779202f1f9c39b7857ad4e2e.woff2",
+      "sourceFile": "ShangShouFangTangTi.woff2"
+    }
+  ],
+  "serif": [
+    {
+      "id": "noto-serif-sc",
+      "family": "Noto Serif SC Variable",
+      "version": "5.3.0",
+      "weightRange": [200, 900],
+      "stylesheet": "/stamp-maker-fonts/noto-serif-sc-v5.3.0/wght.css",
+      "directory": "noto-serif-sc-v5.3.0",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource-variable/noto-serif-sc@5.3.0/wght.css",
+      "cssSha256": "0b716572f1d2c0868e24462eeb2f9e2b41b2553594c647b1873cc0aeef41e866",
+      "archiveSource": "https://registry.npmjs.org/@fontsource-variable/noto-serif-sc/-/noto-serif-sc-5.3.0.tgz",
+      "archiveBytes": 6177172,
+      "archiveSha256": "5dff5f371d6eb2941d47b198a2fb1431c756287081530f21cc64d88bdfdd4f8f",
+      "archiveIntegrity": "sha512-7LcN2NEf4HDjoSkGWc79WqDDyMK8JvSPdA/gsHjJpZ8l9A9mcK/GQTazp3klmkBwJooy0eqeNvlmaZFXPupHrA==",
+      "sourceFile": "noto-serif-sc-5.3.0.tgz",
+      "fontFiles": 101,
+      "fontBytes": 6027992
+    },
+    {
+      "id": "noto-serif-tc",
+      "family": "Noto Serif TC Variable",
+      "version": "5.3.0",
+      "weightRange": [200, 900],
+      "stylesheet": "/stamp-maker-fonts/noto-serif-tc-v5.3.0/wght.css",
+      "directory": "noto-serif-tc-v5.3.0",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource-variable/noto-serif-tc@5.3.0/wght.css",
+      "cssSha256": "cf73e818651e607cc4e9a4b51ed694db4cf6596971cab10462acdcb88ef1b75f",
+      "archiveSource": "https://registry.npmjs.org/@fontsource-variable/noto-serif-tc/-/noto-serif-tc-5.3.0.tgz",
+      "archiveBytes": 5883712,
+      "archiveSha256": "41bcff2b3a286a7a3d60347eaee882c92d59cca5bd19688c8e49d7e96ec908dd",
+      "archiveIntegrity": "sha512-V2teMMI26OmWNJd1d2o7J1DdsnMkyo/wwBoEnME3Qk6FDJ9KuTqpMuaeI3a/Sj3h0iAtmp2gKcg8phRdm4CyAw==",
+      "sourceFile": "noto-serif-tc-5.3.0.tgz",
+      "fontFiles": 108,
+      "fontBytes": 5720492
+    },
+    {
+      "id": "noto-serif-jp",
+      "family": "Noto Serif JP Variable",
+      "version": "5.3.0",
+      "weightRange": [200, 900],
+      "stylesheet": "/stamp-maker-fonts/noto-serif-jp-v5.3.0/wght.css",
+      "directory": "noto-serif-jp-v5.3.0",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource-variable/noto-serif-jp@5.3.0/wght.css",
+      "cssSha256": "1e59063583b8cb2408c178bba47d0b6af3af053ed5dee540533493c011fca583",
+      "archiveSource": "https://registry.npmjs.org/@fontsource-variable/noto-serif-jp/-/noto-serif-jp-5.3.0.tgz",
+      "archiveBytes": 7216659,
+      "archiveSha256": "9541d7d841100ea8287309da82aa9d421018b04e7691ba0849b19ee5c18794b1",
+      "archiveIntegrity": "sha512-+kD6gj7RhZ8bjA8WxT5UxnwqWUCcFhCaM2t30zjKTS1sAXbDmJEdj+mrCEYIof1SjDy43VElQQCITouTvrGNuA==",
+      "sourceFile": "noto-serif-jp-5.3.0.tgz",
+      "fontFiles": 124,
+      "fontBytes": 7073756
+    },
+    {
+      "id": "noto-serif-kr",
+      "family": "Noto Serif KR Variable",
+      "version": "5.3.0",
+      "weightRange": [200, 900],
+      "stylesheet": "/stamp-maker-fonts/noto-serif-kr-v5.3.0/wght.css",
+      "directory": "noto-serif-kr-v5.3.0",
+      "source": "https://cdn.jsdelivr.net/npm/@fontsource-variable/noto-serif-kr@5.3.0/wght.css",
+      "cssSha256": "8c56b88ff1c130c757fff53762fd8225b7f573cca9bc3078d0d1ba1591427167",
+      "archiveSource": "https://registry.npmjs.org/@fontsource-variable/noto-serif-kr/-/noto-serif-kr-5.3.0.tgz",
+      "archiveBytes": 6370836,
+      "archiveSha256": "2bbb2f7cf0cbf9153c6bf33e908b3d10c6ae41bc79bdfaf5a97f7c6e81b3a70a",
+      "archiveIntegrity": "sha512-sy7jHCFyLRfo86KbolWCUDuWYroUvbUZqxQikjOv1F6+rOjS5PtGPS9MLB5MBCCB1gcKfBaZKzKCu3I0OqOqnw==",
+      "sourceFile": "noto-serif-kr-5.3.0.tgz",
+      "fontFiles": 124,
+      "fontBytes": 6249684
+    }
+  ],
+  "licenses": [
+    {
+      "id": "pretendard-ofl",
+      "source": "https://raw.githubusercontent.com/orioncactus/pretendard/v1.3.9/LICENSE",
+      "bytes": 4418,
+      "sha256": "d31ddd9f2bed32fd7e302a205cf2380ba0de6529152d239ef99cfb6f261bfc04",
+      "file": "licenses/Pretendard-OFL.txt",
+      "sourceFile": "Pretendard-OFL.txt"
+    }
+  ]
+}
