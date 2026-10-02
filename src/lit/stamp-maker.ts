@@ -1,4 +1,13 @@
 import {
+  resizeStampFrame,
+  rotateStampLayer,
+  type StampRotationStart,
+  stampResizeCursor,
+  clampFramePercent,
+  STAMP_FRAME_MIN,
+  type StampResizeStart,
+} from "../lib/stamp-maker/frame";
+import {
   readStampDraft,
   writeStampDraft,
   clearStampDraft,
@@ -31,6 +40,9 @@ import {
   defaultStampText,
   drawStamp,
   hitStampLayer,
+  hitStampTextHandle,
+  hitStampRotationHandle,
+  stampTextFrameGeometry,
   loadStampFont,
   isStampFontReady,
   STAMP_FONTS,
@@ -98,6 +110,7 @@ export class StampMaker extends LitElement {
     layers: { state: true },
     activeLayerId: { state: true },
     backgroundCharacter: { state: true },
+    textOverflow: { state: true },
     draftNotice: { state: true },
     hasDraft: { state: true },
     draftSourceMissing: { state: true },
@@ -159,6 +172,8 @@ export class StampMaker extends LitElement {
     y: number;
     startX: number;
     startY: number;
+    resize?: StampResizeStart;
+    rotate?: StampRotationStart;
   };
   private readonly localeReady = () => {
     this.locale = getI18nClient()?.committed || this.locale;
@@ -364,6 +379,25 @@ export class StampMaker extends LitElement {
     }
   }
 
+    declare textOverflow: boolean;
+  private get textFrameDimensions() {
+    if (this.settings.frame)
+      return {
+        width: (512 * this.settings.frame.width) / 100,
+        height: (512 * this.settings.frame.height) / 100,
+      };
+    const canvas = this.querySelector<HTMLCanvasElement>("canvas");
+    if (canvas) {
+      const geometry = stampTextFrameGeometry(
+        canvas,
+        this.settings,
+        this.fallbackFont,
+      );
+      return { width: geometry.width, height: geometry.height };
+    }
+    return { width: 204.8, height: 92.16 };
+  }
+
   constructor() {
     super();
     this.locale = "en";
@@ -390,6 +424,7 @@ export class StampMaker extends LitElement {
     this.characterError = false;
     this.colorCharacter = "custom";
     this.backgroundCharacter = "custom";
+    this.textOverflow = false;
     const layer = createStampLayer(this.settings);
     this.layers = [createStampImageLayer(), layer];
     this.activeLayerId = layer.id;
@@ -506,7 +541,8 @@ export class StampMaker extends LitElement {
     )
       this.defaultCharacterColor();
     this.applyPendingDraft();
-    this.schedulePaint();
+    if (!(changed.size === 1 && changed.has("textOverflow")))
+      this.schedulePaint();
     if (
       [
         "catalog",
@@ -853,7 +889,7 @@ export class StampMaker extends LitElement {
       canvas.getContext("2d")?.clearRect(0, 0, width, height);
       return;
     }
-    drawStamp(
+    const overflow = drawStamp(
       canvas,
       this.image,
       this.layers,
@@ -862,6 +898,7 @@ export class StampMaker extends LitElement {
       this.activeLayerId,
       this.effectiveSize,
     );
+    if (this.textOverflow !== overflow) this.textOverflow = overflow;
   }
 
   private pointerPoint(event: PointerEvent) {
@@ -883,6 +920,54 @@ export class StampMaker extends LitElement {
     )
       return;
     const { canvas, x, y } = this.pointerPoint(event);
+    const rotation = hitStampRotationHandle(
+      canvas,
+      this.image!,
+      this.settings,
+      this.fallbackFont,
+      x,
+      y,
+      this.imageTransform,
+      this.effectiveSize,
+    );
+    if (rotation) {
+      this.beginPointerDrag(event, canvas, {
+        pointer: event.pointerId,
+        x,
+        y,
+        startX: (this.imageTransform || this.settings).x,
+        startY: (this.imageTransform || this.settings).y,
+        rotate: { ...rotation, pointerX: x, pointerY: y },
+      });
+      canvas.style.cursor = "grabbing";
+      return;
+    }
+    if (!this.imageTransform) {
+      const handle = hitStampTextHandle(
+        canvas,
+        this.settings,
+        this.fallbackFont,
+        x,
+        y,
+      );
+      if (handle) {
+        const geometry = stampTextFrameGeometry(
+          canvas,
+          this.settings,
+          this.fallbackFont,
+        );
+        this.beginPointerDrag(event, canvas, {
+          pointer: event.pointerId,
+          x,
+          y,
+          startX: this.settings.x,
+          startY: this.settings.y,
+          resize: { ...geometry, pointerX: x, pointerY: y, handle },
+        });
+        canvas.style.cursor = stampResizeCursor(handle, this.settings.rotation);
+        return;
+      }
+    }
     const hit = hitStampLayer(
       canvas,
       this.layers,
@@ -904,8 +989,52 @@ export class StampMaker extends LitElement {
   }
 
   private pointerMove(event: PointerEvent) {
-    if (this.drag?.pointer !== event.pointerId) return;
     const { canvas, x, y } = this.pointerPoint(event);
+    if (!this.drag) {
+      const rotation =
+        this.interactive && this.image
+          ? hitStampRotationHandle(
+              canvas,
+              this.image,
+              this.settings,
+              this.fallbackFont,
+              x,
+              y,
+              this.imageTransform,
+              this.effectiveSize,
+            )
+          : undefined;
+      if (rotation) {
+        canvas.style.cursor = "grab";
+        return;
+      }
+      const handle =
+        this.interactive && !this.imageTransform
+          ? hitStampTextHandle(canvas, this.settings, this.fallbackFont, x, y)
+          : undefined;
+      canvas.style.cursor = handle
+        ? stampResizeCursor(handle, this.settings.rotation)
+        : "grab";
+      return;
+    }
+    if (this.drag.pointer !== event.pointerId) return;
+    if (this.drag.rotate) {
+      if (
+        Math.hypot(x - this.drag.rotate.centerX, y - this.drag.rotate.centerY) <
+        1
+      )
+        return;
+      this.changePosition({
+        rotation: rotateStampLayer(this.drag.rotate, x, y),
+      });
+      return;
+    }
+    if (this.drag.resize) {
+      this.change(
+        resizeStampFrame(this.drag.resize, x, y, canvas.width, canvas.height),
+      );
+      return;
+    }
     this.changePosition({
       x: clampPosition(
         this.drag.startX + ((x - this.drag.x) / canvas.width) * 100,
@@ -928,14 +1057,7 @@ export class StampMaker extends LitElement {
       ArrowDown: [0, 1],
     };
     const direction = directions[event.key];
-    if (
-      !direction ||
-      !this.interactive ||
-      (!this.imageTransform &&
-        !this.settings.text.trim() &&
-        !(this.settings.background && this.settings.background.alpha > 0))
-    )
-      return;
+    if (!direction || !this.interactive) return;
     event.preventDefault();
     const step = event.shiftKey ? 5 : 1;
     this.changePosition({
@@ -1268,6 +1390,7 @@ export class StampMaker extends LitElement {
       this.textless,
       STAMP_SOURCE_SERVER,
     ).length;
+    const frame=this.textFrameDimensions;
     return html`
       <section class="stamp-maker" lang=${this.locale}>
         <div class="stamp-maker__source field-stack">
@@ -1450,6 +1573,7 @@ export class StampMaker extends LitElement {
               </md-menu>
             </div>
           </div>
+          <p class="field-note">${this.t("rotateHelp")}</p>
           ${
             this.imageTransform
               ? html`
@@ -1468,6 +1592,9 @@ export class StampMaker extends LitElement {
                     .value=${live(this.settings.text)}
                     @input=${(event: Event) => this.change({ text: String((event.target as ValueControl).value).slice(0, 500) })}
                   ></md-outlined-text-field>
+                  <p class="field-note">${this.t("frameHint")}</p>
+                  ${this.settings.frame&&this.textOverflow?html`<p class="field-note" role="status">${this.t("frameOverflow")}</p>`:nothing}
+
                   ${segmented({
             label: this.t("writingMode"),
             value: this.settings.writingMode,
@@ -1643,6 +1770,38 @@ export class StampMaker extends LitElement {
                     <div class="field-stack">
                       ${this.positionSlider("x")}${this.positionSlider("y")}
                       ${iconButton({label:this.t("center"),icon:"center_focus_strong",onClick:()=>this.changePosition({x:50,y:50})})}
+                    </div>
+                    <div class="stamp-maker__row stamp-maker__position">
+                      ${(["width", "height"] as const).map(
+                        (axis) => html`
+                          <md-outlined-text-field
+                            type="number"
+                            inputmode="decimal"
+                            min=${(512 * STAMP_FRAME_MIN) / 100}
+                            max="512"
+                            step="1"
+                            label=${this.t(axis === "width" ? "frameWidth" : "frameHeight")}
+                            suffix-text="px"
+                            .value=${live(String(Math.round(frame[axis] * 10) / 10))}
+                            @input=${(event: Event) => {
+                              const value = String(
+                                (event.target as ValueControl).value,
+                              );
+                              if (value.trim())
+                                this.change({
+                                  frame: {
+                                    width: (frame.width * 100) / 512,
+                                    height: (frame.height * 100) / 512,
+                                    [axis]: clampFramePercent(
+                                      (Number(value) * 100) / 512,
+                                    ),
+                                  },
+                                });
+                            }}
+                          ></md-outlined-text-field>
+                        `,
+                      )}
+                      ${iconButton({ label: this.t("frameAuto"), icon: "fit_screen", onClick: () => this.change({ frame: undefined }) })}
                     </div>
                     ${this.slider("rotation", -180, 180)}
                     <div class="stamp-maker__row stamp-maker__colors">

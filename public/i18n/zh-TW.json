@@ -2462,7 +2462,13 @@
     "draftInvalid": "無法讀取已存草稿，可清除後重新製作。",
     "draftUnavailable": "此瀏覽器無法儲存草稿。",
     "draftSourceMissing": "已存的圖片目前不可用，可選擇其他圖片。",
-    "draftFontsMissing": "請重新匯入本地字型。"
+    "draftFontsMissing": "請重新匯入本地字型。",
+    "frameWidth": "文字框寬度",
+    "frameHeight": "文字框高度",
+    "frameAuto": "依內容自動調整文字框",
+    "frameHint": "拖曳邊緣或角點調整排版；背景貼近字形，字級可獨立調整。",
+    "frameOverflow": "部分文字超出文字框，請增大框或縮小字級。",
+    "rotateHelp": "拖曳圓形把手可旋轉圖層。"
   },
   "teamBuilder": {
     "title": "配隊工具",

@@ -2462,7 +2462,13 @@
     "draftInvalid": "保存した下書きを読み込めません。消去して作り直せます。",
     "draftUnavailable": "このブラウザでは下書きを保存できません。",
     "draftSourceMissing": "保存した画像が見つかりません。別の画像を選べます。",
-    "draftFontsMissing": "ローカルフォントを再インポートしてください。"
+    "draftFontsMissing": "ローカルフォントを再インポートしてください。",
+    "frameWidth": "文字枠の幅",
+    "frameHeight": "文字枠の高さ",
+    "frameAuto": "文字に合わせて枠を自動調整",
+    "frameHint": "枠の辺や角をドラッグして改行を調整。背景は文字に沿い、文字サイズは別に調整します。",
+    "frameOverflow": "文字が枠に収まりません。枠を広げるか文字サイズを小さくしてください。",
+    "rotateHelp": "円形のハンドルをドラッグしてレイヤーを回転します。"
   },
   "teamBuilder": {
     "title": "編成シミュレーター",

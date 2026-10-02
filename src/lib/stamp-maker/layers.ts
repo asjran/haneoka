@@ -18,6 +18,7 @@ export interface StampLayer {
 export function copyStampText(text: StampText): StampText {
   return {
     ...text,
+    frame: text.frame ? { ...text.frame } : undefined,
     background: text.background ? { ...text.background } : undefined,
   };
 }

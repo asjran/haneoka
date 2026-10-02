@@ -125,6 +125,13 @@ export function parseStampDraft(value: unknown): StampDraft | undefined {
       };
       imageCount++;
     } else textCount++;
+    let frame: StampText["frame"];
+    if (style.frame !== undefined) {
+      const box = object(style.frame);
+      if (!box || !number(box.width, 4, 100) || !number(box.height, 4, 100))
+        return;
+      frame = { width: box.width, height: box.height };
+    }
     let background: StampText["background"];
     if (style.background !== undefined) {
       const bg = object(style.background);
@@ -171,6 +178,7 @@ export function parseStampDraft(value: unknown): StampDraft | undefined {
         weight: missing ? 900 : style.weight,
         writingMode: style.writingMode as StampText["writingMode"],
         background,
+        frame,
       },
     });
   }
