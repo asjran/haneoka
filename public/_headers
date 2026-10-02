@@ -22,8 +22,10 @@
 # Basis transcoder come from locked dependencies behind stable paths, like the
 # fonts: a month of freshness, then serve stale while one request refreshes.
 /Core/*
+  Access-Control-Allow-Origin: *
   Cache-Control: public, max-age=2592000, stale-while-revalidate=604800
 /cubism-runtime/*
+  Access-Control-Allow-Origin: *
   Cache-Control: public, max-age=2592000, stale-while-revalidate=604800
 /basis/*
   Cache-Control: public, max-age=2592000, stale-while-revalidate=604800
