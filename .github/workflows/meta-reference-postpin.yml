@@ -1,0 +1,111 @@
+name: Publish one pinned native reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      server:
+        description: Compatible fixed-baseline server
+        type: choice
+        options: [intl]
+        required: true
+        default: intl
+      release_id:
+        description: Exact retained resource release id
+        type: string
+        required: true
+      source_id:
+        description: Exact c0b6 source id of that release
+        type: string
+        required: true
+      materializer_pin:
+        description: Reviewed full 40-character commit containing materializer and publisher
+        type: string
+        required: true
+      recipe_json:
+        description: Exact approved recipe JSON bytes including its final newline
+        type: string
+        required: true
+      calculated_at:
+        description: Fixed ISO timestamp with timezone for request idempotency
+        type: string
+        required: true
+      expected_request_sha256:
+        description: Optional exact request hash; otherwise materialize and record it
+        type: string
+        required: false
+      fallback_release_id:
+        description: Optional exact retained release if the primary descriptor is absent
+        type: string
+        required: false
+      fallback_source_id:
+        description: Exact c0b6 source for the optional fallback release
+        type: string
+        required: false
+      publish:
+        description: Publish after the validated dry-run; false only produces an artifact
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meta-reference-${{ inputs.server }}-${{ inputs.release_id }}
+  cancel-in-progress: false
+
+jobs:
+  reference:
+    name: Materialize and publish one immutable reference
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: resource-${{ inputs.server }}
+    env:
+      NODE_OPTIONS: --max-old-space-size=1024
+      AWS_EC2_METADATA_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.materializer_pin }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install the reference import closure
+        run: |
+          python scripts/publish/reference_postpin.py --bootstrap "$RUNNER_TEMP/reference-dependencies"
+          python -m pip install --disable-pip-version-check --require-hashes \
+            --requirement "$RUNNER_TEMP/reference-dependencies/requirements.txt"
+          corepack enable
+          pnpm --dir "$RUNNER_TEMP/reference-dependencies/node" install --ignore-scripts
+          ln -s "$RUNNER_TEMP/reference-dependencies/node/node_modules" node_modules
+          git submodule update --init --depth 1 -- \
+            .dependencies/cassiopeia .dependencies/cassiopeia-plugin-our-notes \
+            .dependencies/cassiopeia-plugin-sonolus
+      - name: Select exact retained pin, materialize, dry-run and optionally publish
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          REFERENCE_SERVER: ${{ inputs.server }}
+          REFERENCE_RELEASE: ${{ inputs.release_id }}
+          REFERENCE_SOURCE: ${{ inputs.source_id }}
+          MATERIALIZER_PIN: ${{ inputs.materializer_pin }}
+          REFERENCE_RECIPE_JSON: ${{ inputs.recipe_json }}
+          REFERENCE_CALCULATED_AT: ${{ inputs.calculated_at }}
+          EXPECTED_REQUEST_SHA256: ${{ inputs.expected_request_sha256 }}
+          FALLBACK_RELEASE: ${{ inputs.fallback_release_id }}
+          FALLBACK_SOURCE: ${{ inputs.fallback_source_id }}
+          REFERENCE_PUBLISH: ${{ inputs.publish }}
+        run: python scripts/publish/reference_postpin.py --output "$RUNNER_TEMP/reference-output"
+      - name: Keep the exact public inputs and receipts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: meta-reference-${{ inputs.server }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/reference-output/*.json
+          if-no-files-found: ignore
+          retention-days: 7
