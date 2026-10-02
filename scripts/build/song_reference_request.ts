@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildSync } from "esbuild";
-import type { openPinnedReleaseCatalog } from "../../src/server/release-catalog.ts";
+import type { openReleaseCatalog } from "../../src/server/release-catalog.ts";
 import type { teamBuilderDataResponse } from "../../src/lib/team-builder/data/response.ts";
 import type { readRuntimeRulesDocument } from "../../src/lib/team-builder/data/runtime-rules.ts";
 import type { materializeReferenceRequest, CanonicalReferenceChart, TeamReferenceRecipe } from "../../src/lib/team-builder/data/reference-request.ts";
@@ -36,7 +36,7 @@ const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const bundle = buildSync({
   stdin: {
     contents: [
-      'export { openPinnedReleaseCatalog } from "./src/server/release-catalog.ts";',
+      'export { openReleaseCatalog } from "./src/server/release-catalog.ts";',
       'export { teamBuilderDataResponse } from "./src/lib/team-builder/data/response.ts";',
       'export { readRuntimeRulesDocument } from "./src/lib/team-builder/data/runtime-rules.ts";',
       'export { materializeReferenceRequest } from "./src/lib/team-builder/data/reference-request.ts";',
@@ -46,7 +46,7 @@ const bundle = buildSync({
   bundle: true, platform: "node", format: "cjs", write: false, logLevel: "silent",
 });
 const compiled: { exports: {
-  openPinnedReleaseCatalog: typeof openPinnedReleaseCatalog;
+  openReleaseCatalog: typeof openReleaseCatalog;
   teamBuilderDataResponse: typeof teamBuilderDataResponse;
   readRuntimeRulesDocument: typeof readRuntimeRulesDocument;
   materializeReferenceRequest: typeof materializeReferenceRequest;
@@ -90,7 +90,7 @@ function readBytes(relative: string, missingAllowed = false): Buffer | null {
   return bytes;
 }
 readBytes("api/v1/catalog/manifest.json");
-const catalog = api.openPinnedReleaseCatalog(root);
+const catalog = api.openReleaseCatalog(identity.server, { releaseRoot: root });
 if (catalog.identity.server !== identity.server || catalog.identity.releaseId !== identity.releaseId || catalog.identity.sourceId !== identity.sourceId)
   throw new Error("Materializer release identity mismatch");
 const verifiedEntityResources = new Set<string>();
