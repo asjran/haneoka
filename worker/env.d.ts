@@ -1,4 +1,5 @@
 interface Env {
+  MOENOTES_PROFILE_API_TOKEN?: string;
   ADMIN_PACKAGE_MAX_BYTES?: string;
   BETTER_AUTH_SECRET?: string;
   BESTDORI_UPSTREAM_BASE?: string;
@@ -19,6 +20,7 @@ interface Env {
 
 declare namespace Cloudflare {
   interface Env {
+    MOENOTES_PROFILE_API_TOKEN?: string;
     ADMIN_PACKAGE_MAX_BYTES?: string;
     BETTER_AUTH_SECRET?: string;
     BESTDORI_UPSTREAM_BASE?: string;

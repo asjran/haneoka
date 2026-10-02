@@ -3226,7 +3226,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (gameClient) return gameClient;
   const sonolus = await handleSonolus(env, ctx, request, url.pathname);
   if (sonolus) return sonolus;
-  const gameRecords = await handleGameRecordsApi(ctx, request, url);
+  const gameRecords = await handleGameRecordsApi(ctx, request, url, env);
   if (gameRecords) return gameRecords;
   const bestdori = await handleGarupaBestdoriApi(ctx, request, url, env.BESTDORI_UPSTREAM_BASE);
   if (bestdori) return bestdori;

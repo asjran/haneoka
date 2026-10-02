@@ -259,6 +259,12 @@
   .song-ranking__profile {
     padding: 24px;
   }
+  .song-ranking__profile-pages {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+    gap: 16px;
+    margin-block-end: 24px;
+  }
   .song-ranking__profile-head {
     display: flex;
     align-items: center;
@@ -266,6 +272,11 @@
     margin-bottom: 24px;
   }
   .song-ranking__profile-head .song-ranking__initial {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+  }
+  .song-ranking__profile-head .song-ranking__avatar {
     width: 48px;
     height: 48px;
     flex-shrink: 0;

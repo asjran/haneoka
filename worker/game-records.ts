@@ -1,6 +1,7 @@
 const GAME_RECORDS_API_PREFIX = "/api/v1/game/records";
 const RANKING_ORIGIN = "https://api.bdon.moe";
 const PROFILE_ORIGIN = "https://bdon.moe";
+const JP_PROFILE_ORIGIN = "https://bdon-api.bdon.moe";
 const REGIONS = ["jp", "tw", "en", "kr"] as const;
 const MAX_UPSTREAM_BODY_BYTES = 512 * 1024;
 const UPSTREAM_TIMEOUT_MS = 4_000;
@@ -19,6 +20,9 @@ import type {
 
 type JsonObject = Record<string, unknown>;
 type CacheableJson = { body: string };
+export interface GameRecordsBindings {
+  MOENOTES_PROFILE_API_TOKEN?: string;
+}
 type FailureKind = "invalid_request" | "not_found" | "pending" | "timeout" | "upstream";
 
 const CORS: Readonly<Record<string, string>> = {
@@ -140,15 +144,23 @@ const readJson = async (response: Response): Promise<unknown> => {
   }
 };
 
-const upstreamJson = async (target: string): Promise<{ value: unknown; response: Response }> => {
+const upstreamJson = async (
+  target: string,
+  headers: Record<string, string> = {},
+): Promise<{ value: unknown; response: Response }> => {
   const deadline = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
   try {
     const response = await fetch(target, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", ...headers },
+      redirect: headers.Authorization ? "error" : "follow",
       signal: deadline,
     });
     if (!response.ok) {
+      if (headers.Authorization && (response.status === 401 || response.status === 403)) {
+        await response.body?.cancel();
+        throw new RequestFailure(502, "upstream");
+      }
       let kind: FailureKind =
         response.status === 401 || response.status === 403 || response.status === 404 ? "not_found" : "upstream";
       try {
@@ -175,15 +187,24 @@ const upstreamJson = async (target: string): Promise<{ value: unknown; response:
   }
 };
 
-const normalizeProfileCard = (value: unknown): GameProfileCardDto | null => {
+const normalizeProfileCard = (
+  value: unknown,
+  region: GameRecordsRegion,
+  profileId: string | null,
+): GameProfileCardDto | null => {
   const card = asObject(value);
   if (!Object.keys(card).length) return null;
   return {
     name: textOrNull(card.name),
     slot: safeInteger(card.slot),
-    thumbnailUrls: asArray(card.thumbnailUrl).flatMap((value) => {
+    thumbnailUrls: asArray(card.thumbnailUrl).flatMap((value, index) => {
       const url = httpUrlOrNull(value);
-      return url ? [url] : [];
+      if (!url) return [];
+      return [
+        region === "jp" && profileId && /^[1-9][0-9]{0,18}$/u.test(profileId)
+          ? `${RANKING_ORIGIN}/api/v1/jp/ranking/profile/${profileId}/card/${index + 1}`
+          : url,
+      ];
     }),
   };
 };
@@ -206,7 +227,7 @@ const normalizeCard = (value: unknown, index: number): SongRankingCardDto => {
 
 type RankedRow = SongRankingRowDto & { sourceIndex: number };
 
-const normalizeRankingRow = (value: unknown, sourceIndex: number): RankedRow => {
+const normalizeRankingRow = (value: unknown, sourceIndex: number, region: GameRecordsRegion): RankedRow => {
   const entry = asObject(value);
   const player = asObject(entry.playerData);
   const deck = asObject(entry.highScoreDeck);
@@ -227,7 +248,7 @@ const normalizeRankingRow = (value: unknown, sourceIndex: number): RankedRow => 
     deckId: safeInteger(deck.id),
     deckName: textOrNull(deck.name),
     totalPower: finiteNumber(deck.totalPower),
-    profileCard: normalizeProfileCard(player.profileCard),
+    profileCard: normalizeProfileCard(player.profileCard, region, textOrNull(player.profileId)),
     cards,
   };
 };
@@ -242,7 +263,7 @@ const normalizeRanking = (
   const root = asObject(value);
   if (!Array.isArray(root.players)) throw new RequestFailure(502, "upstream");
   const rows = root.players
-    .map((player, index) => normalizeRankingRow(player, index))
+    .map((player, index) => normalizeRankingRow(player, index, region))
     .sort((left, right) => {
       if (responseOrder) return left.sourceIndex - right.sourceIndex;
       if (left.score === null && right.score === null) return left.sourceIndex - right.sourceIndex;
@@ -373,8 +394,10 @@ const normalizeProfile = (
   response: Response,
 ): PlayerProfileDto => {
   const root = asObject(value);
-  if (!Object.keys(root).length || (!root.profile && !root.brief)) throw new RequestFailure(502, "upstream");
-  const profile = asObject(root.profile);
+  if (!Object.keys(root).length || (!root.playerProfile && !root.profile && !root.brief))
+    throw new RequestFailure(502, "upstream");
+  const profile = asObject(root.playerProfile ?? root.profile);
+  if (root.playerProfile && !Object.keys(profile).length) throw new RequestFailure(404, "not_found");
   const brief = asObject(root.brief);
   const favorites = asObject(root.favorites);
   const favoriteMemberCard = asObject(profile.favoriteMemberCard);
@@ -399,7 +422,7 @@ const normalizeProfile = (
       rankExp: finiteNumber(profile.rankExp),
       totalFavorite: finiteNumber(favorites.totalFavorite),
       favoriteMemberCard: favorite,
-      profileCard: normalizeProfileCard(profile.profileCard),
+      profileCard: normalizeProfileCard(profile.profileCard, region, profileId),
       lastUpdatedAtMs: epochMillis(profile.lastUpdatedAt, true),
     },
   };
@@ -429,6 +452,8 @@ const jsonResponse = (request: Request, body: string): Response =>
 const cacheRequest = (request: Request): Request => {
   const url = new URL(request.url);
   url.search = "";
+  if (url.pathname.startsWith(`${GAME_RECORDS_API_PREFIX}/jp/`))
+    url.searchParams.set("schema", "jp-profile-v2");
   url.hash = "";
   return new Request(url, { method: "GET" });
 };
@@ -440,7 +465,7 @@ const serveCached = async (
 ): Promise<Response> => {
   const key = cacheRequest(request);
   if (typeof caches !== "undefined") {
-    const hit = await caches.default.match(key);
+    const hit = await caches.default.match(key).catch(() => undefined);
     if (hit) {
       if (request.method === "HEAD") return new Response(null, { status: hit.status, headers: hit.headers });
       return hit;
@@ -477,6 +502,7 @@ export async function handleGameRecordsApi(
   ctx: ExecutionContext,
   request: Request,
   url: URL,
+  env: GameRecordsBindings = {},
 ): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") return null;
   const currentEvent = new RegExp(`^${GAME_RECORDS_API_PREFIX}/([^/]+)/events/current$`).exec(url.pathname);
@@ -534,7 +560,15 @@ export async function handleGameRecordsApi(
   const profileId = profile[2]!;
   if (!rankingProfileIdPattern(region).test(profileId)) return errorResponse(request, 400, "invalid_request");
   return serveCached(request, ctx, async () => {
-    const upstream = await upstreamJson(profileUrl(region, profileId));
+    const token = env.MOENOTES_PROFILE_API_TOKEN?.trim();
+    if (region === "jp" && !token) throw new RequestFailure(502, "upstream");
+    const upstream =
+      region === "jp"
+        ? await upstreamJson(`${JP_PROFILE_ORIGIN}/v1/jp/profile/${profileId}`, {
+            Authorization: `Bearer ${token}`,
+            "User-Agent": "Mozilla/5.0",
+          })
+        : await upstreamJson(profileUrl(region, profileId));
     return { body: JSON.stringify(normalizeProfile(upstream.value, region, profileId, upstream.response)) };
   });
 }

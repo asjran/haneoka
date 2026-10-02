@@ -81,7 +81,7 @@ export class SongRanking extends LitElement {
   declare rows: RankingEntry[];
   declare stale: boolean;
   declare expanded: boolean;
-  declare profilePhase: Phase | "private";
+  declare profilePhase: Phase | "unavailable";
   declare profile: PlayerProfile | null;
 
   private rankingRequests = new RequestScope();
@@ -90,6 +90,7 @@ export class SongRanking extends LitElement {
   private cardCatalogs: Partial<Record<"jp" | "intl", RankingCardCatalog>> = {};
   private cache = new Map<string, RankingCache>();
   private selectedEntry: RankingEntry | null = null;
+  private selectedProfileId = "";
   private rankingFailure: GameRecordsErrorDto["error"] | null = null;
   private retryAt = 0;
   private retryTimer = 0;
@@ -128,6 +129,9 @@ export class SongRanking extends LitElement {
         : defaultRegion(this.server, this.locale);
     this.phase = "loading";
     void this.loadRanking(this.region, true);
+    const profileId = navigationDocumentUrl().searchParams.get("profileId");
+    if (!this.embedded && profileId && /^[1-9][0-9]{0,18}$/u.test(profileId))
+      void this.openProfileById(profileId);
   }
 
   createRenderRoot() {
@@ -243,6 +247,7 @@ export class SongRanking extends LitElement {
     this.profileRequests.cancel();
     this.profile = null;
     this.selectedEntry = null;
+    this.selectedProfileId = "";
     this.profilePhase = "idle";
     this.expanded = false;
     this.rankingRequests.cancel();
@@ -261,14 +266,19 @@ export class SongRanking extends LitElement {
 
   private async openProfile(entry: RankingEntry) {
     if (!entry.profileId) return;
+    return this.openProfileById(entry.profileId, entry);
+  }
+
+  private async openProfileById(profileId: string, entry: RankingEntry | null = null) {
     this.rankingScrollTop = document.querySelector<HTMLElement>("#main-content")?.scrollTop || 0;
     const signal = this.profileRequests.begin();
     this.view = "profile";
     this.selectedEntry = entry;
+    this.selectedProfileId = profileId;
     this.profile = null;
     this.profilePhase = "loading";
     try {
-      const value = await fetchJson<PlayerProfileDto>(this.profileUrl(this.region, entry.profileId!), {
+      const value = await fetchJson<PlayerProfileDto>(this.profileUrl(this.region, profileId), {
         signal,
         cache: "no-store",
         credentials: "same-origin",
@@ -279,13 +289,10 @@ export class SongRanking extends LitElement {
       this.profilePhase = "ready";
     } catch (error) {
       if (!this.isConnected || this.view !== "profile" || !this.profileRequests.current(signal)) return;
-      const message = error instanceof Error ? error.message : String(error);
       this.profilePhase =
         error instanceof JsonResponseError && (error.status === 403 || error.status === 404)
-          ? "private"
-          : /\b(?:403|404)\b/u.test(message)
-            ? "private"
-            : "error";
+          ? "unavailable"
+          : "error";
     }
   }
 
@@ -294,6 +301,7 @@ export class SongRanking extends LitElement {
     this.view = "ranking";
     this.profile = null;
     this.selectedEntry = null;
+    this.selectedProfileId = "";
     this.profilePhase = "idle";
     void this.updateComplete.then(() => {
       requestAnimationFrame(() => {
@@ -693,25 +701,36 @@ export class SongRanking extends LitElement {
 
   private renderProfile() {
     if (this.profilePhase === "loading") return loadingState(this.label("loading", "Loading ranking"));
-    if (this.profilePhase === "private")
-      return emptyState({ title: this.label("profilePrivate", "This profile is private."), icon: "lock" });
+    if (this.profilePhase === "unavailable")
+      return emptyState({ title: this.label("profileUnavailable", "Profile unavailable"), icon: "person_off" });
     if (this.profilePhase === "error")
       return errorState(
         this.label("profileUnavailable", "Profile unavailable"),
         this.label("retry", "Retry"),
-        () => this.selectedEntry && void this.openProfile(this.selectedEntry),
+        () => this.selectedProfileId && void this.openProfileById(this.selectedProfileId, this.selectedEntry),
       );
     const profile = this.profile;
     if (!profile) return nothing;
     return html`
       <div class="song-ranking__profile">
         <div class="song-ranking__profile-head">
-          ${profile.profileCard?.thumbnailUrls.length ? nothing : this.profileMedia(profile.name || this.label("privatePlayer", "Unknown player"), "")}
+          <span class="song-ranking__avatar">
+            ${this.profileMedia(profile.name || this.label("privatePlayer", "Unknown player"), this.cardArtwork(profile.favoriteMemberCard?.cardId ?? null, false)?.avatar || "")}
+          </span>
           <div>
             <h2>${profile.name || this.label("privatePlayer", "Private player")}</h2>
             <p>${this.label("player", "Player")}</p>
           </div>
         </div>
+        ${profile.profileCard?.thumbnailUrls.length
+          ? html`<div class="song-ranking__profile-pages">
+              ${profile.profileCard.thumbnailUrls.map((image) => html`
+                <a class="song-ranking__namecard" href=${image} target="_blank" rel="noopener"
+                  aria-label=${profile.profileCard?.name || this.label("profileCard", "Profile card")}>
+                  ${this.profileMedia(profile.name || "", image)}
+                </a>`)}
+            </div>`
+          : nothing}
         ${
           this.selectedEntry?.deckName ||
           this.selectedEntry?.totalPower != null ||
