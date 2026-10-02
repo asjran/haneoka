@@ -1696,24 +1696,29 @@ def _live_meta_profiles(data: BuildData, model: dict[str, Any]) -> dict[str, dic
     effects = _live_skill_top_effects(data)
     if not effects or not data.rows("MasterMemberCard"):
         return None
+    skill_levels: dict[int, int] = {}
+    for effect in data.rows("MasterLiveSkillEffect"):
+        skill_id = int(effect.get("_liveSkillID") or 0)
+        skill_levels[skill_id] = max(skill_levels.get(skill_id, 0), int(effect.get("_level") or 0))
     band_of_character = {
         int(row.get("_id") or 0): int(row.get("_bandID") or 0)
         for row in data.rows("MasterCharacter")
     }
-    pools: dict[str, list[int]] = {"current": []}
+    pools: dict[str, list[dict[str, Any]]] = {"current": []}
     for card in data.rows("MasterMemberCard"):
         skill_id = int(card.get("_liveSkillID") or 0)
         if skill_id not in effects:
             continue
-        pools["current"].append(skill_id)
+        pools["current"].append(card)
         band = band_of_character.get(int(card.get("_characterID") or 0), 0)
         if band:
-            pools.setdefault(f"band:{band}", []).append(skill_id)
+            pools.setdefault(f"band:{band}", []).append(card)
     profiles: dict[str, dict[str, Any]] = {}
     for name, pool in pools.items():
         if len(pool) < 5:
             continue
-        deck = sorted(pool, key=lambda skill: effects[skill], reverse=True)[:5]
+        member_rows = sorted(pool, key=lambda card: effects[int(card["_liveSkillID"])], reverse=True)[:5]
+        deck = [int(card["_liveSkillID"]) for card in member_rows]
         multiplier = 1 + (sum(effects[skill] for skill in deck) / len(deck)) / 10000
         profiles[name] = {
             "scoreUpMultiplier": round(multiplier, 6),
@@ -1726,6 +1731,10 @@ def _live_meta_profiles(data: BuildData, model: dict[str, Any]) -> dict[str, dic
                 "member-card pool (all bands)" if name == "current"
                 else "member-card pool (band characters)"
             ),
+            "members": [{"cardId": int(card["_id"]), "characterId": int(card.get("_characterID") or 0),
+                "liveSkillId": int(card["_liveSkillID"]), "level": None, "training": None, "awakening": None}
+                | {"liveSkillLevel": skill_levels[int(card["_liveSkillID"])]}
+                for card in member_rows],
         }
     return profiles or None
 
@@ -1771,6 +1780,7 @@ def _gekisou_chart_metrics(
     luck_expectations: dict[tuple[int, int], float],
     rank_bonuses: dict[int, dict[int, float]] | None = None,
     mission_pattern: list[int] | None = None,
+    note_count: int | None = None,
 ) -> dict[str, Any] | None:
     """Per-segment gekisou metrics from the canonical chart's fever ranges.
 
@@ -1799,21 +1809,34 @@ def _gekisou_chart_metrics(
         note_score_percents[int(note.get("operateType") or 0)] for note in events
     )
     converted_note_count = math.ceil(score_percent_total / 100) or 1
-    # The relative proxy reuses the live score model's per-note shape with a
-    # Just-weighted judgement factor, so ranking across songs is meaningful
-    # while absolute points stay uncalibrated (per-JUST price is not in master).
+    # Legacy relative proxy; no native personal/event score is derived here.
     normalize = model["scoreAdjustment"] / converted_note_count
     segments = []
+    segment_notes_by_index: list[list[dict[str, Any]]] = [[] for _ in fever_ranges]
     combo_state = [0, 0.0]
-    segment_scores: list[float] = []
+    segment_scores: list[float] = [0.0] * len(fever_ranges)
+    outside_base = 0.0
+    outside_notes = 0
+    # Combo advances exactly once in the original canonical event order.
+    # Fever ranges classify an already-scored event, never reorder the playthrough.
+    for note in events:
+        contribution = _gekisou_note_sum(
+            [note], combo_state, note_score_percents, combo_bonuses,
+            normalize, model["justFactor"],
+        )
+        tick = float(note.get("tick") or 0)
+        segment = next((i for i, (start, end) in enumerate(fever_ranges) if start <= tick <= end), None)
+        if segment is None:
+            outside_base += contribution
+            outside_notes += 1
+        else:
+            segment_scores[segment] += contribution
+            segment_notes_by_index[segment].append(note)
     for index, (start, end) in enumerate(fever_ranges):
-        segment_notes = [
-            note for note in events
-            if start <= float(note.get("tick") or 0) <= end
-        ]
+        segment_notes = segment_notes_by_index[index]
         if not segment_notes:
-            segments.append({"notes": 0, "justable": 0, "justableRate": 0, "luckExpected": 0, "rushExpected": 0})
-            segment_scores.append(0.0)
+            segments.append({"notes": 0, "justable": 0, "justableRate": 0, "luckExpected": 0, "rushExpected": 0,
+                "luckPotentialCharge": 0, "rushThresholdProxy": 0, "rushCount": None, "status": "proxy"})
             continue
         justable = sum(
             1 for note in segment_notes
@@ -1828,12 +1851,6 @@ def _gekisou_chart_metrics(
         rush_expected = 0
         if luck >= gauge_max:
             rush_expected = 1 + int((luck - gauge_max) // gauge_rush)
-        segment_scores.append(
-            _gekisou_note_sum(
-                segment_notes, combo_state, note_score_percents, combo_bonuses,
-                normalize, model["justFactor"],
-            )
-        )
         segments.append(
             {
                 "notes": len(segment_notes),
@@ -1841,25 +1858,18 @@ def _gekisou_chart_metrics(
                 "justableRate": round(justable / len(segment_notes), 6),
                 "luckExpected": round(luck, 3),
                 "rushExpected": rush_expected,
+                "luckPotentialCharge": round(luck, 3),
+                "rushThresholdProxy": rush_expected,
+                "rushCount": None,
+                "status": "proxy",
             }
         )
     # Gekisou scores the whole chart; the fever segments additionally carry
     # the per-segment rank bonus, the notes outside them only the base value.
-    inside_ticks: list[tuple[float, float]] = fever_ranges
-    outside_notes_list = [
-        note for note in events
-        if not any(start <= float(note.get("tick") or 0) <= end for start, end in inside_ticks)
-    ]
-    outside_notes = len(outside_notes_list)
-    outside_base = _gekisou_note_sum(
-        outside_notes_list, combo_state, note_score_percents, combo_bonuses,
-        normalize, model["justFactor"],
-    )
     justable_total = sum(segment["justable"] for segment in segments)
     notes_total = sum(segment["notes"] for segment in segments)
-    # Rank bonuses: per-segment mission pattern, expected = rank 3 (median),
-    # top = rank 1. The rush bonus is applied as a standing multiplier: at an
-    # all-Just charge rate the gauge cycles faster than it drains.
+    # Explicit fixed-rank proxies, not a ranking distribution or native maximum.
+    # Standing rush remains only a disclosed legacy assumption.
     def _segment_total(rank: int) -> float:
         total = outside_base
         for seg_index, seg_base in enumerate(segment_scores):
@@ -1883,8 +1893,44 @@ def _gekisou_chart_metrics(
         "scoreTop": score_top,
         "metaStatus": "available",
         "scoreKind": "gekisou-relative",
+        "mode": "gekisou",
+        "status": "proxy",
+        "referenceId": "legacy-gekisou-fixed-rank3-chronological-v2",
+        "luckExpectedKind": "potential-linear-charge-not-run-reward",
+        "rushExpectedKind": "legacy-mean-charge-threshold-proxy",
+        "justableKind": "type-eligible-not-mission-achievable",
+        "scoreTopReferenceId": "legacy-gekisou-fixed-rank1-chronological-v2",
+        "nativeScore": None,
+        "eventPoints": None,
+        "eventItems": None,
+        "reference": {
+            "scoreAdjustment": model["scoreAdjustment"],
+            "convertedNoteCount": converted_note_count,
+            "justTypeMultiplier": model["justFactor"],
+            "judgementPolicy": "legacy-type-eligible-JUST-without-mission-gating",
+            "segmentRank": 3,
+            "scoreTopSegmentRank": 1,
+            "standingRushMultiplier": rush_multiplier,
+            "luckGaugeMax": gauge_max,
+            "luckGaugeMaxRush": gauge_rush,
+            "ordinarySkillsApplied": False,
+            "difficultyFactorApplied": False,
+            "members": None,
+            "snapshots": None,
+            "comboOrder": "canonical-events",
+            "downtimeSeconds": META_REFERENCE_DOWNTIME_SECONDS,
+            "settingDefaults": dict(model.get("settingDefaults", {})),
+        },
+        "quality": {
+            "canonicalNoteCount": len(events),
+            "declaredNoteCount": note_count,
+            "status": "warning" if note_count is not None and len(events) != note_count else "unchecked" if note_count is None else "available",
+            "warnings": ["canonical-full-combo-mismatch"] if note_count is not None and len(events) != note_count else [],
+        },
         "nativeRewardEstimate": False,
-        "approximationReasons": ["rush-state-machine-not-resolved", "standing-rush-score-proxy"],
+        "approximationReasons": ["rush-state-machine-not-resolved", "standing-rush-score-proxy",
+            "fixed-rank-is-not-an-expectation", "just-mission-gating-not-resolved", "difficulty-factor-not-applied",
+            "ordinary-and-gekisou-skill-state-not-resolved", "equipment-assignment-unresolved", "native-f32-floor-chain-not-applied"],
         "metricSources": {
             "segments": "canonical score.events sliced by score.passthrough.fever ranges",
             "justable": (
@@ -1898,8 +1944,8 @@ def _gekisou_chart_metrics(
                 "JUST/PERFECT share the PERFECT distribution"
             ),
             "rushExpected": (
-                "expected gauge cycles: first trigger at gekisou_luck_gauge_max, "
-                "then gekisou_luck_gauge_max_rush"
+                "legacy threshold proxy applied to mean potential charge; not an expected "
+                "rush count or resolved LUCK state"
             ),
         },
     }
@@ -2005,6 +2051,10 @@ def _score_metrics(
         "displayLevel": display_level,
         "sortLevel": display_level,
         "n": note_count,
+        "mode": "normal",
+        "scoreKind": "chart-relative-factor",
+        "status": "unavailable",
+        "referenceId": "legacy-normal-theory-relative-v1",
         "metricSources": {
             "r": "MasterLiveMusicScore._musicScoreDisplayLevel; missing value falls back to _musicScoreLevel",
             "n": "MasterLiveMusicScore._fullComboCount",
@@ -2117,6 +2167,7 @@ def _score_metrics(
         metaStatus="available",
         scoreKind="chart-relative-factor",
         absoluteScoreAvailable=False,
+        status="reference",
         reference={
             "fever": model["feverMultiplier"] > 1,
             "perfectRate": 1,
@@ -2124,6 +2175,17 @@ def _score_metrics(
             "skillDurationSeconds": model["skillDurationSeconds"],
             "downtimeSeconds": META_REFERENCE_DOWNTIME_SECONDS,
             "intervalEndInclusive": True,
+            "skillActivationSeconds": model["skillDurationSeconds"] - model["supportExtensionSeconds"],
+            "supportExtensionSeconds": model["supportExtensionSeconds"],
+            "members": None,
+            "snapshots": None,
+            "equipmentAssignmentVerified": False,
+            "deckLegalityVerified": False,
+            "playerInventoryApplied": False,
+            "skillTimesMs": list(skill_starts),
+            "skillModel": "pooled-top-level-effects-and-shared-duration-reference",
+            "settingDefaults": dict(model.get("settingDefaults", {})),
+            "durationBasis": "maximum-last-judged-note-time-across-song-difficulties",
         },
         _durationSeconds=float(chart.get("durationMs") or 0) / 1000,
     )
@@ -2140,21 +2202,33 @@ def _score_metrics(
                 "skillDurationSeconds": profile["skillDurationSeconds"],
                 "deck": profile["deck"],
                 "deckSource": profile["deckSource"],
+                "mode": "normal",
+                "scoreKind": "chart-relative-factor",
+                "status": "reference",
+                "referenceId": f"legacy-normal-{name.replace(':', '-')}-relative-v1",
+                "reference": {**metrics["reference"], "scoreUpMultiplier": profile["scoreUpMultiplier"],
+                    "members": profile.get("members"), "snapshots": None,
+                    "skillPoolSource": profile["deckSource"], "playerInventoryApplied": False},
+                "qualityWarnings": list(warnings),
             }
             for name, profile in meta_profiles.items()
         }
     if warnings:
         metrics["metaWarnings"] = warnings
+    metrics["quality"] = {"status": "warning" if warnings else "available", "warnings": list(warnings),
+        "declaredNoteCount": note_count, "canonicalNoteCount": canonical_note_count}
+    metrics["approximationReasons"] = ["continuous-relative-model-not-native-node-f32-floor",
+        "skill-window-union-single-multiplier", "equipment-assignment-unresolved", "legacy-inclusive-skill-window-boundary"]
     metrics["metricSources"].update({
         "score": (
             "canonical judged-note order + MasterLiveNoteParameter + MasterLiveComboScoreBonus + "
-            "MasterLiveSettings + level factor + CalcNoteScoreCore + ideal reference deck "
-            "(strongest SL5 live skill + matched live-skill-extension support card; "
-            "MasterLiveSkill/MasterLiveSkillEffect + MasterSupportSkillEffect type 15000)"
+            "MasterLiveSettings + level factor + continuous relative proxy + ideal reference parameters "
+            "(pooled highest top-level burst effect and pooled support-extension value; "
+            "specific equipment assignment remains unresolved)"
         ),
         "sr": (
-            "closed ideal-deck skill intervals (live-skill activation + support extension); "
-            "SkillEffectUpdater.UpdateExecuting"
+            "legacy closed reference skill intervals (live activation + pooled support extension); "
+            "not a resolved native factor-command timeline"
         ),
         "convertedNoteCount": (
             "ceil(sum(note score percent) / 100); LiveMusicScore.GetConvertedNoteCount"
@@ -2300,6 +2374,7 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                         luck_expectations,
                         gekisou_rank_bonuses,
                         mission_pattern,
+                        note_count,
                     )
                     if score_model
                     else None
@@ -2316,6 +2391,9 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                     time=round(song_seconds, 3),
                     nps=round(float(metrics.get("n") or 0) / song_seconds, 3),
                 )
+                if isinstance(metrics.get("reference"), dict):
+                    metrics["reference"].update(durationSeconds=song_seconds,
+                        efficiencyDenominatorSeconds=song_seconds + META_REFERENCE_DOWNTIME_SECONDS)
                 if metrics.get("score") is not None:
                     metrics["eff"] = round(
                         float(metrics["score"])
@@ -2324,6 +2402,9 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                         8,
                     )
                 for profile in (metrics.get("profiles") or {}).values():
+                    if isinstance(profile.get("reference"), dict):
+                        profile["reference"].update(durationSeconds=song_seconds,
+                            efficiencyDenominatorSeconds=song_seconds + META_REFERENCE_DOWNTIME_SECONDS)
                     if profile.get("score") is not None:
                         profile["eff"] = round(
                             float(profile["score"])
@@ -2334,6 +2415,9 @@ def _songs(data: BuildData) -> tuple[dict[str, Any], dict[str, Any]]:
                 for diff_entry in song_metadata.values():
                     gekisou_entry = diff_entry.get("gekisou") if isinstance(diff_entry, dict) else None
                     if isinstance(gekisou_entry, dict) and gekisou_entry.get("score") is not None:
+                        gekisou_entry["reference"].update(durationSeconds=song_seconds,
+                            durationBasis="maximum-last-judged-note-time-across-song-difficulties",
+                            efficiencyDenominatorSeconds=song_seconds + META_REFERENCE_DOWNTIME_SECONDS)
                         gekisou_entry["eff"] = round(
                             float(gekisou_entry["score"])
                             / (song_seconds + META_REFERENCE_DOWNTIME_SECONDS)
