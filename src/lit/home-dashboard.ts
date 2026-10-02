@@ -15,6 +15,7 @@ import { LitElement, html, nothing, type PropertyValues } from "lit";
 import {
   catalogUrl,
   fetchJson,
+  gameDateTime,
   localizedText,
   preferredLocale,
   recordValues,
@@ -910,7 +911,6 @@ export class HomeDashboard extends LitElement {
   }
   private renderCards() {
     const cards = [...this.cards]
-      .filter((card) => !timestamp(card.releasedAt) || timestamp(card.releasedAt) <= Date.now())
       .sort(
         (a, b) =>
           timestamp(b.releasedAt) - timestamp(a.releasedAt) ||
@@ -980,7 +980,8 @@ export class HomeDashboard extends LitElement {
                     ] || "";
                   const rarity = this.marks.get(`RarityIconCenter_${rarityName}.png`) || "";
                   const images = (card.images || {}) as JsonRecord;
-                  return tile({
+                  const releasedAt = timestamp(card.releasedAt);
+                  const cardTile = tile({
                     title,
                     subtitle: names,
                     label: title,
@@ -1013,6 +1014,24 @@ export class HomeDashboard extends LitElement {
                       },
                     ],
                   });
+                  return html`
+                    <div class="home-card-entry">
+                      ${cardTile}${
+                        releasedAt
+                          ? html`
+                              <time
+                                class="home-card-release"
+                                datetime=${new Date(releasedAt).toISOString()}
+                                title=${gameDateTime(this.locale, releasedAt)}
+                              >
+                                <span>${this.releaseLabel(releasedAt)}</span>
+                                <span>${gameDateTime(this.locale, releasedAt)}</span>
+                              </time>
+                            `
+                          : nothing
+                      }
+                    </div>
+                  `;
                 })
               : Array.from(
                   { length: 8 },

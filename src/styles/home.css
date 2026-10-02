@@ -305,6 +305,23 @@
     gap: 12px;
     padding: 4px 16px 12px;
   }
+  .home-card-entry {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: 6px;
+  }
+  .home-card-release {
+    display: grid;
+    gap: 2px;
+    padding-inline: 8px;
+    color: var(--md-sys-color-on-surface-variant);
+    font: var(--md-sys-typescale-label-small-weight) var(--md-sys-typescale-label-small-size) /
+      var(--md-sys-typescale-label-small-line-height) var(--app-font);
+  }
+  .home-card-release > span {
+    white-space: nowrap;
+  }
   .home-tile-placeholder {
     height: 230px;
     border-radius: var(--md-sys-shape-corner-large);
