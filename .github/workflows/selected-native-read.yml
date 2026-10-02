@@ -1,0 +1,52 @@
+name: Read selected current Intl native bytes
+
+on:
+  workflow_dispatch:
+    inputs:
+      reader_pin:
+        description: Full reviewed commit containing the readonly reader
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selected-native-e578
+  cancel-in-progress: false
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: resource-intl
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.reader_pin }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install the existing R2 client import closure
+        run: |
+          python scripts/publish/reference_postpin.py --bootstrap "$RUNNER_TEMP/native-dependencies"
+          python -m pip install --disable-pip-version-check --require-hashes \
+            --requirement "$RUNNER_TEMP/native-dependencies/requirements.txt"
+      - name: HEAD exact existing APK and stream selected native ZIP entries
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+          READER_PIN: ${{ inputs.reader_pin }}
+        run: python scripts/verify/selected_native.py --output "$RUNNER_TEMP/selected-native-output"
+      - name: Keep selected bytes and small receipts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: selected-native-e578-${{ github.run_id }}
+          path: ${{ runner.temp }}/selected-native-output
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
