@@ -489,10 +489,9 @@ def _event_support(
         if table == "MasterLiveEventPoint":
             return bool(live_point_group and _number(row, "_group") == live_point_group)
         if table == "MasterLiveEventReward":
+            # Reward _group identifies a lottery subgroup, not the point group.
             return bool(
-                live_point_group
-                and live_reward_group
-                and _number(row, "_group") == live_point_group
+                live_reward_group
                 and _number(row, "_eventGroup") == live_reward_group
             )
         if table == "MasterChallengeLiveEventPoint":
@@ -502,9 +501,7 @@ def _event_support(
             )
         if table == "MasterChallengeLiveEventReward":
             return bool(
-                challenge_point_group
-                and challenge_reward_group
-                and _number(row, "_group") == challenge_point_group
+                challenge_reward_group
                 and _number(row, "_eventGroup") == challenge_reward_group
             )
         return False
@@ -669,8 +666,7 @@ def _event_support(
             linked = [
                 reward
                 for reward in reward_rows
-                if _number(reward.get("raw", {}), "_group") == group
-                and _number(reward.get("raw", {}), "_scoreRank") == score_rank
+                if _number(reward.get("raw", {}), "_scoreRank") == score_rank
             ]
             rankings.append(
                 {
