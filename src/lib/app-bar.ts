@@ -99,7 +99,8 @@ function renderSearch(node: HTMLElement, options: AppBarSearchOptions, forceExpa
           ${icon("search", 24)}
         </button>
         <label class="top-app-bar__search-field" for=${inputId}>
-          <span class="visually-hidden">${options.label}</span>
+          ${icon("search", 20)}
+          <span class="sr-only">${options.label}</span>
           <input
             id=${inputId}
             type="search"

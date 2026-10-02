@@ -174,13 +174,23 @@
   display: none;
 }
 .top-app-bar__search-field {
+  position: relative;
   display: block;
   min-width: 0;
+}
+.top-app-bar__search-field > .material-icon {
+  position: absolute;
+  inset-inline-start: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--md-sys-color-on-surface-variant);
+  pointer-events: none;
 }
 .top-app-bar__search-field input {
   width: clamp(160px, 22vw, 320px);
   height: var(--control-height);
   padding-inline: 14px;
+  padding-inline-start: 44px;
   color: var(--md-sys-color-on-surface);
   border: 1px solid var(--md-sys-color-outline);
   border-radius: var(--md-sys-shape-corner-full);
