@@ -12,6 +12,7 @@ import {
   loadBestdoriSonolusChartText,
 } from "./bestdori";
 import { handleGameRecordsApi } from "./game-records";
+import { handleStampFontsRequest } from "./stamp-fonts";
 import { handleChartImageRequest } from "./chart-image";
 import { rasterizeChartSvg } from "./chart-image-rasterizer";
 import { eventArtworkIndex } from "../src/lib/event-artwork-index";
@@ -3109,6 +3110,7 @@ function negotiateLocale(request: Request): "ja" | "en" | "zh-TW" | "zh-CN" | "k
 }
 
 const WORKER_FIRST_PREFIXES = [
+  "/stamp-maker-fonts/",
   "/embed/",
   "/api/",
   "/artifacts/",
@@ -3123,6 +3125,8 @@ const WORKER_FIRST_PREFIXES = [
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const segments = url.pathname.split("/").filter(Boolean);
+  const stampFonts = await handleStampFontsRequest(request, env, ctx);
+  if (stampFonts) return stampFonts;
   if (isReleaseServer(segments[0]) && (request.method === "GET" || request.method === "HEAD")) {
     if (segments.length === 1) {
       url.pathname = `/${segments[0]}/${negotiateLocale(request)}/`;
