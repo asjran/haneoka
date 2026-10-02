@@ -186,6 +186,9 @@ export class SongRanking extends LitElement {
   }
 
   private async loadRanking(region: Region, force = false) {
+    this.rankingFailure = null;
+    this.retryAt = 0;
+    window.clearTimeout(this.retryTimer);
     const cached = this.cache.get(this.rankingUrl(region));
     if (!force && cached && Date.now() - cached.storedAt < CACHE_TTL) {
       this.rows = cached.rows;
@@ -195,9 +198,7 @@ export class SongRanking extends LitElement {
     }
     const endpoint = this.rankingUrl(region);
     const signal = this.rankingRequests.begin();
-    this.rankingFailure = null;
-    this.retryAt = 0;
-    window.clearTimeout(this.retryTimer);
+    this.rows = cached?.rows || [];
     this.phase = "loading";
     this.stale = Boolean(cached);
     try {
@@ -230,8 +231,11 @@ export class SongRanking extends LitElement {
         this.retryAt = Date.now() + retry * 1000;
         this.retryTimer = window.setTimeout(() => this.requestUpdate(), retry * 1000);
       }
-      this.phase = this.rankingFailure?.kind === "not_found" ? "ready" : "error";
-      this.stale = Boolean(cached);
+      const notFound = this.rankingFailure?.kind === "not_found";
+      if (notFound) this.cache.delete(endpoint);
+      this.rows = notFound ? [] : cached?.rows || [];
+      this.phase = notFound ? "ready" : "error";
+      this.stale = !notFound && Boolean(cached);
     }
   }
 
@@ -837,10 +841,11 @@ export class SongRanking extends LitElement {
       this.profileRequests.cancel();
       this.profile = null;
       this.selectedEntry = null;
+      this.selectedProfileId = "";
+      this.profilePhase = "idle";
       this.view = "ranking";
       this.expanded = false;
-      this.rows = [];
-      void this.loadRanking(this.region, true);
+      void this.loadRanking(this.region);
     }
     if (!this.embedded) this.syncPageChrome();
   }
