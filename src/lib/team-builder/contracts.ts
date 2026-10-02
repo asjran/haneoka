@@ -34,6 +34,8 @@ export interface TargetCapability {
   supported: boolean;
   bases: EvaluationBasisRequest["kind"][];
   gaps: EvidenceGap[];
+  /** Input conditions for a factory that supports a calibrated subset. */
+  conditions?: string[];
 }
 export interface TeamBuilderCapabilities extends ReleaseIdentity {
   targets: TargetCapability[];
@@ -46,6 +48,10 @@ export interface MetricValue {
   perPlayValue?: number | null;
   basis?: EvaluationBasis;
   breakdown?: MetricBreakdownEntry[];
+  /** Bounds over the nominal native member-shuffle orders, in this metric's units. */
+  range?: { minimum: number; maximum: number };
+  /** Members bound to original chart event indices for the highest-scoring order. */
+  bestSkillOrder?: string[];
   assumptions: string[];
   gaps: EvidenceGap[];
 }
@@ -155,6 +161,8 @@ export interface SearchResult {
  * power/skill/condition path is established for this player and selected mode. */
 export interface ResolvedSlotProfile {
   power: number;
+  /** Native total BP vector, retained for the deck-wide integer getter. */
+  bpPower?: PowerStats;
   windows: SkillWindow[];
   gaps: EvidenceGap[];
 }

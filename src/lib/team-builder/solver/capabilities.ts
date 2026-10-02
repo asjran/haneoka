@@ -10,7 +10,9 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity): TeamBuild
     ...identity,
     targets: modes.flatMap((mode) =>
       objectives.map((objective) => {
-        const supported = identity.server === "intl" && mode === "normal" && objective === "base-score";
+        const normalForecast = mode === "normal" && ["score", "ss-ratio", "ss-surplus"].includes(objective);
+        const supported =
+          identity.server === "intl" && mode === "normal" && (objective === "base-score" || normalForecast);
         const code =
           identity.server !== "intl"
             ? "native-server-rules-unverified"
@@ -28,6 +30,16 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity): TeamBuild
               ? ["single" as const]
               : ["single" as const, "time" as const, "consumption" as const],
           gaps: supported ? [] : [{ code, source: "same-release native runtime factory" }],
+          conditions:
+            supported && normalForecast
+              ? [
+                  "native-normal-five-members",
+                  "native-normal-snapshots-excluded",
+                  "native-normal-basic-live-skills",
+                  "native-normal-non-event",
+                  "native-normal-nominal-shuffle-mean",
+                ]
+              : undefined,
         };
       }),
     ),

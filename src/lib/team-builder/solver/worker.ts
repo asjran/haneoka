@@ -1,7 +1,7 @@
 import type { SolverRequest, SolverResponse } from "../contracts.ts";
 import { optimizeTeams } from "../optimizer.ts";
 import { getTeamBuilderCapabilities } from "./capabilities.ts";
-import { prepareEvaluation } from "./evaluation.ts";
+import { prepareEvaluationForSearch } from "./evaluation.ts";
 import { loadSongOptions } from "./song-loader.ts";
 const scope = globalThis as unknown as {
   onmessage: ((event: MessageEvent<SolverRequest>) => void) | null;
@@ -26,6 +26,7 @@ scope.onmessage = (event) => {
   active = run;
   const execute = async () => {
     let input;
+    let evaluate;
     if (message.type === "prepare") {
       scope.postMessage({
         type: "progress",
@@ -43,9 +44,10 @@ scope.onmessage = (event) => {
         active = null;
         return;
       }
-      input = prepareEvaluation({ ...message.request, songs });
+      ({ input, evaluate } = prepareEvaluationForSearch({ ...message.request, songs }));
     } else input = message.input;
     const result = await optimizeTeams(input, {
+      evaluate,
       cancelled: () => run.cancelled,
       progress: (progress) => {
         if (active === run) scope.postMessage({ type: "progress", runId: run.runId, progress });

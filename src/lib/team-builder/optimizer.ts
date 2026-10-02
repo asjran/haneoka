@@ -10,11 +10,23 @@ import { prepareSong, type PreparedSong } from "./song-metrics.ts";
 import { createAssignmentEvaluator } from "./solver/evaluate.ts";
 
 export interface SearchHooks {
+  /** Prepared in the worker for native formation conditions; reads selected slots only. */
+  evaluate?: (
+    assignment: TeamAssignment,
+    song: PreparedSong,
+    controls: SearchEvaluationControls,
+  ) => Candidate | Promise<Candidate>;
   cancelled?: () => boolean;
   progress?: (value: SearchProgress) => void;
   /** Yield to the worker event queue, so a cancel message can be delivered. */
   yield?: () => Promise<void>;
   now?: () => number;
+}
+export interface SearchEvaluationControls {
+  cancelled: () => boolean;
+  yield: () => Promise<void>;
+  expired: () => boolean;
+  progress: () => void;
 }
 const defaultYield = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 export function dominates(left: readonly number[], right: readonly number[]): boolean {
@@ -135,7 +147,12 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
       elapsedMs: elapsed(),
       gaps: [...gaps.values()],
     };
-  const evaluate = createAssignmentEvaluator(input);
+  const evaluate: NonNullable<SearchHooks["evaluate"]> =
+    hooks.evaluate ??
+    (() => {
+      const baseEvaluate = createAssignmentEvaluator(input);
+      return (assignment: TeamAssignment, song: PreparedSong) => baseEvaluate(assignment, song);
+    })();
   const songs: PreparedSong[] = input.songs
     .filter(
       (song) =>
@@ -149,6 +166,8 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
   let work = 0;
   let completeness: SearchResult["completeness"] = "exhaustive";
   let stopped = false;
+  let incompleteNativeInputs = false;
+  let lastNestedProgress = -Infinity;
   async function checkpoint(): Promise<boolean> {
     // Count DFS operations as well as evaluated leaves: impossible constraints
     // can otherwise consume the whole worker without producing progress.
@@ -168,7 +187,10 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
   }
   function offer(candidate: Candidate): void {
     for (const objective of input.objectives) candidate.metrics[objective].gaps.forEach(recordGap);
-    if (!candidate.vector.every(Number.isFinite)) return;
+    if (!candidate.vector.every(Number.isFinite)) {
+      if (input.evaluation.scope === "native-runtime") incompleteNativeInputs = true;
+      return;
+    }
     if (
       frontier.some(
         (previous) =>
@@ -203,9 +225,26 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
         };
         for (const song of songs) {
           if (!(await checkpoint())) return;
-          const candidate = evaluate(assignment, song);
+          const candidate = await evaluate(assignment, song, {
+            cancelled: hooks.cancelled ?? (() => false),
+            yield: hooks.yield ?? defaultYield,
+            expired: () => elapsed() >= input.budget.maxMilliseconds,
+            progress: () => {
+              const elapsedMs = elapsed();
+              if (elapsedMs - lastNestedProgress < 100) return;
+              lastNestedProgress = elapsedMs;
+              hooks.progress?.({ evaluated, elapsedMs, phase: "search" });
+            },
+          });
           evaluated++;
           offer(candidate);
+          if (hooks.cancelled?.()) {
+            completeness = "cancelled";
+            stopped = true;
+          } else if (elapsed() >= input.budget.maxMilliseconds) {
+            completeness = "budget-limited";
+            stopped = true;
+          }
           if (stopped) return;
         }
       }
@@ -260,7 +299,13 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
   }
   await choose(0);
   hooks.progress?.({ evaluated, elapsedMs: elapsed(), phase: "complete" });
-  return { candidates: frontier, completeness, evaluated, elapsedMs: elapsed(), gaps: [...gaps.values()] };
+  return {
+    candidates: frontier,
+    completeness: completeness === "exhaustive" && incompleteNativeInputs ? "unavailable" : completeness,
+    evaluated,
+    elapsedMs: elapsed(),
+    gaps: [...gaps.values()],
+  };
 }
 
 export function createTeamBuilderWorker(): Worker {

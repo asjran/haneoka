@@ -74,10 +74,12 @@ function prepareAssignmentLookup(input: OptimizationInput): AssignmentLookup {
 }
 export function createAssignmentEvaluator(
   input: OptimizationInput,
-): (assignment: TeamAssignment, prepared: PreparedSong) => Candidate {
+  resolveSlots?: (assignment: TeamAssignment, song: PreparedSong) => (ResolvedSlotProfile | undefined)[],
+): (assignment: TeamAssignment, prepared: PreparedSong, scoreOverride?: MetricValue) => Candidate {
   const cache = windowCache();
   const lookup = prepareAssignmentLookup(input);
-  return (assignment, prepared) => evaluateAssignment(input, assignment, prepared, cache, lookup);
+  return (assignment, prepared, scoreOverride?: MetricValue) =>
+    evaluateAssignment(input, assignment, prepared, cache, lookup, resolveSlots, scoreOverride);
 }
 
 /** Scores a fully resolved native scenario. Missing runtime state remains null. */
@@ -87,15 +89,19 @@ export function evaluateAssignment(
   prepared: PreparedSong,
   coverage?: ReturnType<typeof windowCache>,
   lookup: AssignmentLookup = prepareAssignmentLookup(input),
+  resolveSlots?: (assignment: TeamAssignment, song: PreparedSong) => (ResolvedSlotProfile | undefined)[],
+  scoreOverride?: MetricValue,
 ): Candidate {
   const model = input.evaluation;
   const context = model.songContexts[prepared.song.key];
-  const profiles = assignment.memberInstanceIds.map(
-    (member, slot) =>
-      model.slots[prepared.song.key]?.[assignment.leaderInstanceId]?.[member]?.[
-        assignment.snapshotInstanceIds[slot] ?? ""
-      ] ?? model.defaultSlots?.[prepared.song.key]?.[member]?.[assignment.snapshotInstanceIds[slot] ?? ""],
-  );
+  const profiles =
+    resolveSlots?.(assignment, prepared) ??
+    assignment.memberInstanceIds.map(
+      (member, slot) =>
+        model.slots[prepared.song.key]?.[assignment.leaderInstanceId]?.[member]?.[
+          assignment.snapshotInstanceIds[slot] ?? ""
+        ] ?? model.defaultSlots?.[prepared.song.key]?.[member]?.[assignment.snapshotInstanceIds[slot] ?? ""],
+    );
   const rewards = eventRewardMetrics();
   let score = unavailableMetric("unresolved-slot-or-song-context", "native power/skill/trigger/mission runtime state");
   const optionGaps = [
@@ -111,82 +117,85 @@ export function evaluateAssignment(
   ];
   if (context && profiles.every((profile) => profile !== undefined) && gaps.length === 0) {
     const resolved = profiles.map((profile) => profile!);
-    const basePower = resolved.reduce((sum, profile) => sum + profile.power, 0);
-    const intervals = coverage ? resolved.map((profile) => coverage(prepared, profile)) : null;
-    let total = context.fixedScore;
-    for (const [index, node] of prepared.nodes.entries()) {
-      // Effective windows are resolved by the native trigger/condition adapter.
-      const active = intervals
-        ? intervals.flatMap((rows) => rows[index]!)
-        : resolved.flatMap((profile) =>
-            profile.windows.filter(
-              (window) => window.startMs <= node.event.timeMs && node.event.timeMs <= window.endMs,
-            ),
-          );
-      const sum = (
-        key:
-          | "scoreBonus"
-          | "perfectBonus"
-          | "justBonus"
-          | "comboBonus"
-          | "gekisoComboBonus"
-          | "luckBonusPercent"
-          | "powerDelta",
-      ) => active.reduce((value, window) => Math.fround(value + window[key]), 0);
-      const common = {
-        bandPower: basePower + sum("powerDelta"),
-        adjustmentFactor: model.adjustmentFactor,
-        musicDifficultyFactor: nativeDifficultyFactor(prepared.song.playLevel),
-        convertedNoteCount: prepared.convertedNoteCount,
-        notePercent: model.noteScorePercents[node.event.operateType]!,
-        comboFactor: nativeComboFactor(node.comboBonus, sum("comboBonus"), sum("gekisoComboBonus")),
-        luckFactorPercent: nativeLuckFactorPercent(sum("luckBonusPercent")),
-        eventBonusFactor: context.eventBonusFactor,
-        life: context.life,
-        lifeOnusFactor: model.lifeOnusFactor,
-        assistModeFactor: context.assistModeFactor,
+    if (scoreOverride) score = scoreOverride;
+    else {
+      const basePower = resolved.reduce((sum, profile) => sum + profile.power, 0);
+      const intervals = coverage ? resolved.map((profile) => coverage(prepared, profile)) : null;
+      let total = context.fixedScore;
+      for (const [index, node] of prepared.nodes.entries()) {
+        // Effective windows are resolved by the native trigger/condition adapter.
+        const active = intervals
+          ? intervals.flatMap((rows) => rows[index]!)
+          : resolved.flatMap((profile) =>
+              profile.windows.filter(
+                (window) => window.startMs <= node.event.timeMs && node.event.timeMs <= window.endMs,
+              ),
+            );
+        const sum = (
+          key:
+            | "scoreBonus"
+            | "perfectBonus"
+            | "justBonus"
+            | "comboBonus"
+            | "gekisoComboBonus"
+            | "luckBonusPercent"
+            | "powerDelta",
+        ) => active.reduce((value, window) => Math.fround(value + window[key]), 0);
+        const common = {
+          bandPower: basePower + sum("powerDelta"),
+          adjustmentFactor: model.adjustmentFactor,
+          musicDifficultyFactor: nativeDifficultyFactor(prepared.song.playLevel),
+          convertedNoteCount: prepared.convertedNoteCount,
+          notePercent: model.noteScorePercents[node.event.operateType]!,
+          comboFactor: nativeComboFactor(node.comboBonus, sum("comboBonus"), sum("gekisoComboBonus")),
+          luckFactorPercent: nativeLuckFactorPercent(sum("luckBonusPercent")),
+          eventBonusFactor: context.eventBonusFactor,
+          life: context.life,
+          lifeOnusFactor: model.lifeOnusFactor,
+          assistModeFactor: context.assistModeFactor,
+        };
+        const perfect = calcNativeNoteScore({
+          ...common,
+          judgementPercent: model.perfectPercent,
+          scoreUpFactor: nativeScoreUpFactor(sum("scoreBonus"), sum("perfectBonus")),
+        });
+        const rate = model.mode === "gekiso" && node.justable ? input.constraints.justRate : 0;
+        const just =
+          rate > 0
+            ? calcNativeNoteScore({
+                ...common,
+                judgementPercent: model.justPercent,
+                scoreUpFactor: nativeScoreUpFactor(sum("scoreBonus"), sum("justBonus")),
+              })
+            : perfect;
+        total += (1 - rate) * perfect + rate * just;
+      }
+      score = {
+        value: total,
+        status: model.assumptions.length || input.constraints.justRate > 0 ? "conditional" : "verified",
+        assumptions: [...model.assumptions],
+        gaps: [],
+        breakdown: [
+          { key: "resolved-team-power", value: basePower, unit: "power", source: "resolved native slot power" },
+          { key: "canonical-judged-nodes", value: prepared.nodes.length, unit: "count", source: "canonical chart" },
+          {
+            key: "converted-note-count",
+            value: prepared.convertedNoteCount,
+            unit: "count",
+            source: "native note percentages",
+          },
+          {
+            key: "justable-nodes",
+            value: prepared.justableCount,
+            unit: "count",
+            source: "same-release judgement timing",
+          },
+          { key: "fixed-score", value: context.fixedScore, unit: "score", source: "native mode/mission context" },
+          { key: "per-play-score", value: total, unit: "score", source: "native score core + fixed score" },
+        ],
       };
-      const perfect = calcNativeNoteScore({
-        ...common,
-        judgementPercent: model.perfectPercent,
-        scoreUpFactor: nativeScoreUpFactor(sum("scoreBonus"), sum("perfectBonus")),
-      });
-      const rate = model.mode === "gekiso" && node.justable ? input.constraints.justRate : 0;
-      const just =
-        rate > 0
-          ? calcNativeNoteScore({
-              ...common,
-              judgementPercent: model.justPercent,
-              scoreUpFactor: nativeScoreUpFactor(sum("scoreBonus"), sum("justBonus")),
-            })
-          : perfect;
-      total += (1 - rate) * perfect + rate * just;
+      if (input.constraints.justRate > 0) score.assumptions.push("just-marginal-rate-fixed-runtime-state");
     }
-    score = {
-      value: total,
-      status: model.assumptions.length || input.constraints.justRate > 0 ? "conditional" : "verified",
-      assumptions: [...model.assumptions],
-      gaps: [],
-      breakdown: [
-        { key: "resolved-team-power", value: basePower, unit: "power", source: "resolved native slot power" },
-        { key: "canonical-judged-nodes", value: prepared.nodes.length, unit: "count", source: "canonical chart" },
-        {
-          key: "converted-note-count",
-          value: prepared.convertedNoteCount,
-          unit: "count",
-          source: "native note percentages",
-        },
-        {
-          key: "justable-nodes",
-          value: prepared.justableCount,
-          unit: "count",
-          source: "same-release judgement timing",
-        },
-        { key: "fixed-score", value: context.fixedScore, unit: "score", source: "native mode/mission context" },
-        { key: "per-play-score", value: total, unit: "score", source: "native score core + fixed score" },
-      ],
-    };
-    if (input.constraints.justRate > 0) score.assumptions.push("just-marginal-rate-fixed-runtime-state");
   } else score.gaps.push(...gaps);
   const computed = score;
   if (model.scope === "growth-only")
@@ -202,6 +211,10 @@ export function evaluateAssignment(
       ? {
           ...score,
           value: numerator - threshold,
+          range:
+            domain === "personal" && score.range
+              ? { minimum: score.range.minimum - threshold, maximum: score.range.maximum - threshold }
+              : undefined,
           status: domain === "room" ? "conditional" : score.status,
           assumptions: [...score.assumptions, ...(domain === "room" ? ["explicit-room-score-context"] : [])],
           gaps: [],
@@ -221,6 +234,11 @@ export function evaluateAssignment(
     score.value !== null && ratioValue !== null
       ? {
           value: ratioValue,
+          range:
+            domain === "personal" && score.range
+              ? { minimum: score.range.minimum / threshold!, maximum: score.range.maximum / threshold! }
+              : undefined,
+          bestSkillOrder: score.bestSkillOrder,
           status: domain === "room" ? "conditional" : score.status,
           assumptions: [...score.assumptions, ...(domain === "room" ? ["explicit-room-score-context"] : [])],
           gaps: [],

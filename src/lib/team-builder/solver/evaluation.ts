@@ -9,11 +9,17 @@ import type {
   SearchConstraints,
   ScoreEvaluationModel,
   SongOption,
+  TeamAssignment,
 } from "../contracts.ts";
 import { dataRows, nativeRow, type TeamBuilderData } from "../data.ts";
 import { inventoryOptions, type PowerResolver } from "../data/solver-input.ts";
 import type { InventoryV1 } from "../inventory.ts";
 import { addPower, calcMemberLevelOrRankPower, calcMemberTrainingPower, calcSnapshotBonusBP } from "./power.ts";
+import { createAssignmentEvaluator } from "./evaluate.ts";
+import { createNativeNormalSlotResolver } from "./native-normal.ts";
+import { createNativeNormalScoreResolver } from "./native-normal-score.ts";
+import type { PreparedSong } from "../song-metrics.ts";
+import type { SearchEvaluationControls } from "../optimizer.ts";
 const zero = (): PowerStats => ({ performance: 0, technique: 0, visual: 0 });
 const rates = (row: Record<string, unknown>): PowerStats => ({
   performance: Number(row.performanceRate),
@@ -183,5 +189,70 @@ export function prepareEvaluation(request: EvaluationRequest): OptimizationInput
     budget: request.budget,
     basis: request.basis,
     evaluation,
+  };
+}
+
+/** Worker-local formation evaluator. Its closures stay in the worker, so the
+ * main thread does not construct a song × leader × member × snapshot matrix.
+ */
+export function prepareEvaluationForSearch(request: EvaluationRequest) {
+  if (
+    request.nativeRuntime ||
+    request.mode !== "normal" ||
+    request.objectives.every((objective) => objective === "base-score")
+  ) {
+    const input = prepareEvaluation(request);
+    const evaluate = createAssignmentEvaluator(input);
+    return { input, evaluate: (assignment: TeamAssignment, song: PreparedSong) => evaluate(assignment, song) };
+  }
+  const input = prepareEvaluation({ ...request, objectives: ["base-score"] });
+  input.objectives = [...request.objectives];
+  input.evaluation.scope = "native-runtime";
+  input.evaluation.assumptions = ["normal-live-event-power-disabled"];
+  input.evaluation.gaps = input.evaluation.gaps.filter((gap) => gap.code !== "snapshot-full-slot-path-unresolved");
+  const native = createNativeNormalSlotResolver(request.data, request.inventory, input);
+  const score = createNativeNormalScoreResolver(request.data, input);
+  input.evaluation.gaps.push(...native.gaps, ...score.gaps);
+  const lifeRow = dataRows(request.data.liveTools.liveSettings)
+    .map(nativeRow)
+    .find((row) => row.key === "life_base");
+  const initialLife = Number(lifeRow?.value);
+  if (!Number.isSafeInteger(initialLife) || initialLife < 1 || initialLife > 0x7fffffff)
+    input.evaluation.gaps.push(gap("native-normal-life-base-unresolved", "MasterLiveSettings/life_base"));
+  const usable = new Set(input.members.map((member) => member.instanceId));
+  for (const state of request.inventory.members)
+    if (
+      !state.excluded &&
+      !request.constraints.excludedMemberIds.includes(state.instanceId) &&
+      !usable.has(state.instanceId)
+    )
+      input.evaluation.gaps.push(gap("native-normal-incomplete-member-search", state.instanceId));
+  if (
+    request.inventory.snapshots.some(
+      (state) => !state.excluded && !request.constraints.excludedSnapshotIds.includes(state.instanceId),
+    )
+  )
+    input.evaluation.gaps.push(
+      gap("native-normal-snapshot-search-unresolved", "exclude snapshots for this normal scope"),
+    );
+  const rankRows = dataRows(request.data.liveTools.scoreRanks).map(nativeRow);
+  const ssByGroup = new Map(
+    rankRows.filter((row) => row.liveScoreRank === 7).map((row) => [Number(row.group), Number(row.requiredScore)]),
+  );
+  for (const song of request.songs) {
+    const threshold = ssByGroup.get(Number(request.data.songs[String(song.songId)]?.liveScoreRankGroup));
+    input.evaluation.songContexts[song.key]!.personalSS =
+      threshold !== undefined && threshold > 0 && Number.isSafeInteger(threshold) ? threshold : null;
+    if (Number.isSafeInteger(initialLife) && initialLife > 0)
+      input.evaluation.songContexts[song.key]!.life = initialLife;
+  }
+  const evaluate = createAssignmentEvaluator(input, native.resolveSlots);
+  return {
+    input,
+    evaluate: async (assignment: TeamAssignment, song: PreparedSong, controls: SearchEvaluationControls) => {
+      const profiles = native.resolveSlots(assignment, song);
+      const metric = await score.score(assignment, song, profiles, controls);
+      return evaluate(assignment, song, metric);
+    },
   };
 }

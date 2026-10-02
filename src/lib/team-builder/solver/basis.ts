@@ -49,6 +49,7 @@ export function applyEvaluationBasis(
     ((objective === "ss-surplus" || objective === "ss-ratio") && basis.kind !== "single")
   ) {
     result.value = null;
+    result.range = undefined;
     result.status = "unavailable";
     result.gaps.push({
       code:
@@ -60,6 +61,11 @@ export function applyEvaluationBasis(
     return result;
   }
   result.value = metric.value / basis.denominator;
+  if (metric.range)
+    result.range = {
+      minimum: metric.range.minimum / basis.denominator,
+      maximum: metric.range.maximum / basis.denominator,
+    };
   if (basis.kind !== "single") {
     result.status = "conditional";
     result.assumptions.push("explicit-efficiency-denominator");
