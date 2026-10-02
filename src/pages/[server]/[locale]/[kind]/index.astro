@@ -35,7 +35,10 @@ const CATALOG_ROUTES: Readonly<Partial<Record<ResourceKind, string>>> = {
 
 export function getStaticPaths() {
   return RELEASE_SERVERS.flatMap((server) =>
-    LOCALES.flatMap((locale) => RESOURCE_KINDS.map((kind) => ({ params: { server, locale, kind } }))),
+    LOCALES.flatMap((locale) =>
+      RESOURCE_KINDS.filter((kind) => !CATALOG_ROUTES[kind] || findRoute(CATALOG_ROUTES[kind]!))
+        .map((kind) => ({ params: { server, locale, kind } })),
+    ),
   );
 }
 

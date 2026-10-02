@@ -37,8 +37,6 @@ const catalogs: Array<[string, string, string?]> = [
   ["login-campaigns", "loginCampaigns"],
   ["shop", "shop"],
   ["exchange", "exchange"],
-  ["circle", "circle"],
-  ["challenge", "challenge"],
   ["passes", "systemNavPasses"],
 ];
 const appPages: Array<[string, string]> = [
