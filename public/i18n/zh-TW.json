@@ -2452,7 +2452,17 @@
     "writingMode": "排版方向",
     "fontPretendard": "原作執行階段 UI · Pretendard SemiBold",
     "imageLayer": "貼圖圖片",
-    "imageScale": "圖片縮放"
+    "imageScale": "圖片縮放",
+    "draftActions": "草稿操作",
+    "restoreDraft": "恢復草稿",
+    "clearDraft": "清除已存草稿",
+    "draftSaved": "草稿已儲存在此瀏覽器。",
+    "draftRestored": "草稿已恢復。",
+    "draftCleared": "已清除草稿，再次編輯後會重新儲存。",
+    "draftInvalid": "無法讀取已存草稿，可清除後重新製作。",
+    "draftUnavailable": "此瀏覽器無法儲存草稿。",
+    "draftSourceMissing": "已存的圖片目前不可用，可選擇其他圖片。",
+    "draftFontsMissing": "請重新匯入本地字型。"
   },
   "teamBuilder": {
     "title": "配隊工具",

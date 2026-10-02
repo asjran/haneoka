@@ -1,3 +1,9 @@
+import {
+  readStampDraft,
+  writeStampDraft,
+  clearStampDraft,
+  type StampDraft,
+} from "../lib/stamp-maker/draft";
 import { LitElement, html, nothing } from "lit";
 import { live } from "lit/directives/live.js";
 import { guard } from "lit/directives/guard.js";
@@ -92,6 +98,11 @@ export class StampMaker extends LitElement {
     layers: { state: true },
     activeLayerId: { state: true },
     backgroundCharacter: { state: true },
+    draftNotice: { state: true },
+    hasDraft: { state: true },
+    draftSourceMissing: { state: true },
+    catalogSettled: { state: true },
+    manifestSettled: { state: true },
   };
   declare locale: string;
   declare server: string;
@@ -154,6 +165,142 @@ export class StampMaker extends LitElement {
     this.requestUpdate();
   };
 
+    declare draftNotice: string;
+  declare hasDraft: boolean;
+  declare draftSourceMissing: boolean;
+  declare catalogSettled: boolean;
+  declare manifestSettled: boolean;
+  private readonly draftMenuId = `stamp-draft-menu-${crypto.randomUUID()}`;
+  private didReadDraft = false;
+  private draftEnabled = false;
+  private preserveDraftColors = false;
+  private pendingDraft?: StampDraft;
+  private draftIdentity?: { selected: string; resourceName: string };
+  private draftTimer?: number;
+  private readonly pageHide = () => this.saveDraft();
+  private restoreDraft() {
+    clearTimeout(this.draftTimer);
+    const loaded = readStampDraft();
+    this.hasDraft = loaded.status === "ready" || loaded.status === "invalid";
+    if (loaded.status === "ready") {
+      this.pendingDraft = loaded.draft;
+      this.draftEnabled = false;
+      this.draftIdentity = {
+        selected: loaded.draft.selected,
+        resourceName: loaded.draft.resourceName,
+      };
+      if (this.server !== loaded.draft.server) {
+        this.catalogSettled = false;
+        this.manifestSettled = false;
+        this.server = loaded.draft.server;
+      }
+      this.applyPendingDraft();
+    } else {
+      this.draftEnabled = loaded.status === "empty";
+      this.draftNotice =
+        loaded.status === "invalid"
+          ? "draftInvalid"
+          : loaded.status === "unavailable"
+            ? "draftUnavailable"
+            : "";
+    }
+  }
+  private applyPendingDraft() {
+    if (!this.pendingDraft || !this.catalogSettled || !this.manifestSettled)
+      return;
+    const draft = this.pendingDraft;
+    this.pendingDraft = undefined;
+    this.preserveDraftColors = true;
+    this.manualImageLanguage = true;
+    this.imageLanguage = draft.imageLanguage;
+    this.mode = draft.imageLanguage === "textless" ? "textless" : "original";
+    const available = this.choices.find(
+      (stamp) =>
+        stamp.id === draft.selected &&
+        stamp.resourceName === draft.resourceName,
+    );
+    this.draftSourceMissing = !available;
+    this.selected = available?.id || this.choices[0]?.id || "";
+    this.layers = draft.layers.map((layer) => ({
+      ...layer,
+      image: layer.image ? { ...layer.image } : undefined,
+      settings: copyStampText(layer.settings),
+    }));
+    this.selectLayer(draft.activeLayerId);
+    this.draftEnabled = true;
+    this.draftNotice = "draftRestored";
+    void this.prepareRestoredFonts(this.layers);
+  }
+  private async prepareRestoredFonts(layers: readonly StampLayer[]) {
+    await this.updateComplete;
+    if (!this.isConnected) return;
+    const sequence = ++this.fontSequence;
+    this.preparedFont = "";
+    clearTimeout(this.glyphTimer);
+    this.fontLoading = true;
+    this.fontError = false;
+    try {
+      await Promise.all(
+        layers
+          .filter((layer) => !layer.image)
+          .map((layer) => loadStampFont(layer.settings, this.fallbackFont)),
+      );
+      if (sequence === this.fontSequence)
+        this.preparedFont = this.settings.font;
+    } catch {
+      if (sequence === this.fontSequence && this.isConnected)
+        this.fontError = true;
+    } finally {
+      if (sequence === this.fontSequence && this.isConnected) {
+        this.fontLoading = false;
+        this.prepareGlyphs();
+      }
+      this.schedulePaint();
+    }
+  }
+  private scheduleDraft() {
+    if (!this.isConnected || !this.draftEnabled || this.pendingDraft) return;
+    clearTimeout(this.draftTimer);
+    this.draftTimer = window.setTimeout(() => this.saveDraft(), 450);
+  }
+  private saveDraft() {
+    clearTimeout(this.draftTimer);
+    if (!this.draftEnabled || this.pendingDraft) return;
+    const source = this.choice
+      ? { selected: this.choice.id, resourceName: this.choice.resourceName }
+      : this.draftIdentity;
+    if (!source) return;
+    try {
+      writeStampDraft({
+        ...source,
+        server: this.server,
+        imageLanguage:
+          this.mode === "textless"
+            ? "textless"
+            : this.imageLanguage || this.originalVariant?.language || "",
+        activeLayerId: this.activeLayerId,
+        layers: this.layers,
+      });
+      this.draftIdentity = source;
+      this.hasDraft = true;
+      if (this.draftNotice !== "draftRestored") this.draftNotice = "draftSaved";
+    } catch {
+      this.draftNotice = "draftUnavailable";
+    }
+  }
+  private clearDraft() {
+    clearTimeout(this.draftTimer);
+    try {
+      clearStampDraft();
+      this.draftEnabled = false;
+      this.hasDraft = false;
+      this.draftNotice = "draftCleared";
+      this.draftSourceMissing = false;
+    } catch {
+      this.draftNotice = "draftUnavailable";
+    }
+  }
+
   constructor() {
     super();
     this.locale = "en";
@@ -183,6 +330,11 @@ export class StampMaker extends LitElement {
     const layer = createStampLayer(this.settings);
     this.layers = [createStampImageLayer(), layer];
     this.activeLayerId = layer.id;
+    this.draftNotice = "";
+    this.hasDraft = false;
+    this.draftSourceMissing = false;
+    this.catalogSettled = false;
+    this.manifestSettled = false;
   }
 
   createRenderRoot() {
@@ -194,6 +346,11 @@ export class StampMaker extends LitElement {
     this.classList.add("stamp-maker-host");
     window.addEventListener("haneoka:locale-ready", this.localeReady);
     if (!this.server) this.server = readReleaseServer();
+    if (!this.didReadDraft) {
+      this.didReadDraft = true;
+      this.restoreDraft();
+    }
+    window.addEventListener("pagehide", this.pageHide);
     if (this.hasUpdated) {
       void this.loadCatalog();
       void this.loadManifest();
@@ -203,6 +360,9 @@ export class StampMaker extends LitElement {
   }
 
   disconnectedCallback() {
+    this.saveDraft();
+    clearTimeout(this.draftTimer);
+    window.removeEventListener("pagehide", this.pageHide);
     this.catalogRequest?.abort();
     this.characterRequest?.abort();
     this.imageRequest?.abort();
@@ -281,6 +441,7 @@ export class StampMaker extends LitElement {
       changed.has("catalog")
     )
       this.defaultCharacterColor();
+    this.applyPendingDraft();
     this.schedulePaint();
     if (
       [
@@ -293,6 +454,12 @@ export class StampMaker extends LitElement {
       ].some((key) => changed.has(key))
     )
       this.thumbnails.observe(this);
+    if (
+      ["layers", "activeLayerId", "selected", "imageLanguage", "server"].some(
+        (key) => changed.has(key),
+      )
+    )
+      this.scheduleDraft();
   }
 
   private t(key: string) {
@@ -371,6 +538,7 @@ export class StampMaker extends LitElement {
     return `${this.layers.indexOf(layer) + 1} · ${layer.image ? this.t("imageLayer") : layer.settings.text.trim().slice(0, 24) || this.t("text")}`;
   }
   private changeImage(values: Partial<StampImageTransform>) {
+    if (!this.pendingDraft) this.draftEnabled = true;
     this.layers = this.layers.map((layer) =>
       layer.id === this.activeLayerId && layer.image
         ? { ...layer, image: { ...layer.image, ...values } }
@@ -398,6 +566,7 @@ export class StampMaker extends LitElement {
     const request = new AbortController();
     this.catalogRequest = request;
     this.catalogLoading = true;
+    this.catalogSettled = false;
     this.catalogError = false;
     this.catalog = {};
     const loading = beginLoading(this.t("choose"), { signal: request.signal });
@@ -419,7 +588,10 @@ export class StampMaker extends LitElement {
         loading.fail();
       }
     } finally {
-      if (this.catalogRequest === request) this.catalogLoading = false;
+      if (this.catalogRequest === request) {
+        this.catalogLoading = false;
+        this.catalogSettled = true;
+      }
     }
   }
 
@@ -447,14 +619,14 @@ export class StampMaker extends LitElement {
     }
   }
   private defaultCharacterColor() {
-    if (this.colorWasChosen) return;
+    if (this.colorWasChosen || this.preserveDraftColors) return;
     const stamp = this.originals.find((item) => item.id === this.selected);
     const character = this.characterColors.find((item) =>
       stamp?.characterIds.includes(item.id),
     );
     if (character && this.colorCharacter !== character.id) {
       this.colorCharacter = character.id;
-      this.change({ fill: character.color });
+      this.change({ fill: character.color }, false);
     }
   }
   private chooseCharacterColor(id: string) {
@@ -469,8 +641,12 @@ export class StampMaker extends LitElement {
     this.manifestReady = false;
     this.textless = undefined;
     this.manifestError = false;
+    this.manifestSettled = false;
     const source = this.textlessSrc || textlessManifestUrl();
-    if (!source) return;
+    if (!source) {
+      this.manifestSettled = true;
+      return;
+    }
     const request = new AbortController();
     this.manifestRequest = request;
     try {
@@ -479,7 +655,11 @@ export class StampMaker extends LitElement {
     } catch {
       if (!request.signal.aborted) this.manifestError = true;
     } finally {
-      if (this.manifestRequest === request) this.manifestReady = true;
+      if (this.manifestRequest === request) {
+        this.manifestReady = true;
+        this.manifestSettled = true;
+        this.requestUpdate();
+      }
     }
   }
 
@@ -522,8 +702,9 @@ export class StampMaker extends LitElement {
     }
   }
 
-  private change(values: Partial<StampText>) {
+  private change(values: Partial<StampText>, userEdit = true) {
     if (this.imageTransform) return;
+    if (userEdit && !this.pendingDraft) this.draftEnabled = true;
     if (values.font && values.weight === undefined)
       values = { ...values, weight: stampFont(values.font)?.weight || 900 };
     this.settings = copyStampText({ ...this.settings, ...values });
@@ -532,6 +713,7 @@ export class StampMaker extends LitElement {
         ? {
             ...layer,
             settings: copyStampText(this.settings),
+            localFontLabel: values.font ? undefined : layer.localFontLabel,
             colorCharacter: this.colorCharacter,
             backgroundCharacter: this.backgroundCharacter,
             colorWasChosen: this.colorWasChosen,
@@ -825,6 +1007,7 @@ export class StampMaker extends LitElement {
   }
   private async addLayer(duplicate = false) {
     if (this.textLayerCount >= 12 || (duplicate && this.imageTransform)) return;
+    this.draftEnabled = true;
     const layer = createStampLayer(
       duplicate
         ? this.settings
@@ -847,6 +1030,7 @@ export class StampMaker extends LitElement {
   }
   private deleteLayer() {
     if (this.imageTransform || this.textLayerCount <= 1) return;
+    this.draftEnabled = true;
     const index = this.layers.findIndex(
       (item) => item.id === this.activeLayerId,
     );
@@ -859,6 +1043,7 @@ export class StampMaker extends LitElement {
       ),
       next = index + direction;
     if (next < 0 || next >= this.layers.length) return;
+    this.draftEnabled = true;
     const layers = [...this.layers];
     [layers[index], layers[next]] = [layers[next], layers[index]];
     this.layers = layers;
@@ -938,6 +1123,9 @@ export class StampMaker extends LitElement {
     this.manualImageLanguage =
       !!language && language !== this.defaultImageLanguage;
     if (!language) language = this.defaultImageLanguage;
+    this.preserveDraftColors = false;
+    this.draftEnabled = true;
+    this.draftSourceMissing = false;
     this.imageLanguage = language;
     this.mode = language === "textless" ? "textless" : "original";
   }
@@ -949,6 +1137,9 @@ export class StampMaker extends LitElement {
   }
 
   private select(stamp: StampChoice) {
+    this.preserveDraftColors = false;
+    this.draftEnabled = true;
+    this.draftSourceMissing = false;
     this.selected = stamp.id;
     this.querySelector<HTMLDialogElement>("dialog")?.close();
   }
@@ -1026,6 +1217,42 @@ export class StampMaker extends LitElement {
               <span>${this.t("choose")}</span>
             </button>
             <span class="stamp-maker__chosen">${this.choice?.label || ""}</span>
+            <div class="stamp-maker__layer-menu">
+              <button
+                class="icon-button"
+                id=${this.draftMenuId}
+                type="button"
+                aria-label=${this.t("draftActions")}
+                title=${this.t("draftActions")}
+                aria-haspopup="menu"
+                @click=${() => {
+                  const menu = this.querySelector<
+                    HTMLElement & { open: boolean }
+                  >("md-menu[data-draft-menu]");
+                  if (menu) menu.open = !menu.open;
+                }}
+              >
+                ${icon("history", 24)}
+              </button>
+              <md-menu
+                data-draft-menu
+                anchor=${this.draftMenuId}
+                positioning="popover"
+              >
+                <md-menu-item
+                  ?disabled=${!this.hasDraft}
+                  @click=${this.restoreDraft}
+                >
+                  <div slot="headline">${this.t("restoreDraft")}</div>
+                </md-menu-item>
+                <md-menu-item
+                  ?disabled=${!this.hasDraft}
+                  @click=${this.clearDraft}
+                >
+                  <div slot="headline">${this.t("clearDraft")}</div>
+                </md-menu-item>
+              </md-menu>
+            </div>
           </div>
           ${
             this.manifestError
@@ -1503,6 +1730,19 @@ export class StampMaker extends LitElement {
           <p class="field-note" role="status" aria-live="polite">
             ${this.exportState ? this.t(this.exportState) : nothing}
           </p>
+          ${
+            this.draftNotice ||
+            this.draftSourceMissing ||
+            this.layers.some((layer) => layer.localFontLabel)
+              ? html`
+                  <p class="field-note" role="status" aria-live="polite">
+                    ${this.draftNotice ? this.t(this.draftNotice) : nothing}
+                    ${this.draftSourceMissing ? this.t("draftSourceMissing") : nothing}
+                    ${this.layers.some((layer) => layer.localFontLabel) ? this.t("draftFontsMissing") : nothing}
+                  </p>
+                `
+              : nothing
+          }
         </div>
         <dialog
           class="stamp-maker__chooser"

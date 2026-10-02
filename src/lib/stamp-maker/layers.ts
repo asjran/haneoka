@@ -13,6 +13,7 @@ export interface StampLayer {
   colorCharacter: string;
   backgroundCharacter: string;
   colorWasChosen: boolean;
+  localFontLabel?: string;
 }
 export function copyStampText(text: StampText): StampText {
   return {

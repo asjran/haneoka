@@ -2452,7 +2452,17 @@
     "writingMode": "Writing direction",
     "fontPretendard": "Original runtime UI · Pretendard SemiBold",
     "imageLayer": "Stamp image",
-    "imageScale": "Image scale"
+    "imageScale": "Image scale",
+    "draftActions": "Draft actions",
+    "restoreDraft": "Restore draft",
+    "clearDraft": "Clear saved draft",
+    "draftSaved": "Draft saved in this browser.",
+    "draftRestored": "Draft restored.",
+    "draftCleared": "Saved draft cleared. Editing again starts saving.",
+    "draftInvalid": "The saved draft could not be read. Clear it to start a new draft.",
+    "draftUnavailable": "This browser could not save the draft.",
+    "draftSourceMissing": "The saved image is unavailable. Choose another image.",
+    "draftFontsMissing": "Import the local fonts again."
   },
   "teamBuilder": {
     "title": "Team builder",

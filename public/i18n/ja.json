@@ -2452,7 +2452,17 @@
     "writingMode": "文字方向",
     "fontPretendard": "原作のランタイムUI · Pretendard SemiBold",
     "imageLayer": "スタンプ画像",
-    "imageScale": "画像の拡大率"
+    "imageScale": "画像の拡大率",
+    "draftActions": "下書き",
+    "restoreDraft": "下書きを復元",
+    "clearDraft": "保存した下書きを消去",
+    "draftSaved": "下書きをこのブラウザに保存しました。",
+    "draftRestored": "下書きを復元しました。",
+    "draftCleared": "保存した下書きを消去しました。次の編集から再び保存します。",
+    "draftInvalid": "保存した下書きを読み込めません。消去して作り直せます。",
+    "draftUnavailable": "このブラウザでは下書きを保存できません。",
+    "draftSourceMissing": "保存した画像が見つかりません。別の画像を選べます。",
+    "draftFontsMissing": "ローカルフォントを再インポートしてください。"
   },
   "teamBuilder": {
     "title": "編成シミュレーター",

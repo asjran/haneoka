@@ -2452,7 +2452,17 @@
     "writingMode": "排版方向",
     "fontPretendard": "原作运行时 UI · Pretendard SemiBold",
     "imageLayer": "表情图片",
-    "imageScale": "图片缩放"
+    "imageScale": "图片缩放",
+    "draftActions": "草稿操作",
+    "restoreDraft": "恢复草稿",
+    "clearDraft": "清除已存草稿",
+    "draftSaved": "草稿已保存在此浏览器。",
+    "draftRestored": "草稿已恢复。",
+    "draftCleared": "已清除草稿，再次编辑后会重新保存。",
+    "draftInvalid": "无法读取已存草稿，可清除后重新制作。",
+    "draftUnavailable": "此浏览器无法保存草稿。",
+    "draftSourceMissing": "已存的图片目前不可用，可选择其他图片。",
+    "draftFontsMissing": "请重新导入本地字体。"
   },
   "teamBuilder": {
     "title": "配队工具",
