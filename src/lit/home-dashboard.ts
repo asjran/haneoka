@@ -4,7 +4,7 @@ import { announcementPath } from "../lib/announcements";
 import { announcementText, announcementRow } from "./shared/announcement";
 import { fetchAnnouncements, type Announcement } from "../lib/announcements";
 import "../styles/announcements.css";
-import type { Locale } from "../i18n/locales";
+import { localePath, type Locale } from "../i18n/locales";
 import { clientText } from "../i18n/client";
 import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
 import { variants as githubVariants } from "@thesvg/icons/github";
@@ -79,16 +79,11 @@ const PROFILE_BAND_SEED: Record<string, string> = {
 /** Fixed in-repo avatars: the birthday list never depends on release assets. */
 const CHARACTER_AVATAR = (id: unknown) => `/images/avatars/characters/${String(id || "")}.png`;
 const CAST_AVATAR = (id: string) => `/images/avatars/cast/${id}.jpg?v=official-20261002`;
-/**
- * The bottom directory is the navigation drawer's own catalogue listing: the
- * same NAV_SECTIONS, restricted to the routes the catalogue serves, with
- * counts joined from CATALOG_HUB where the route exposes one. One source of
- * truth — the two listings cannot drift apart again.
- */
+/** The directory shares all drawer sections; catalog counts are optional. */
 const directoryGroups = (): ReadonlyArray<readonly [label: string, items: NavItem[]]> =>
   NAV_SECTIONS.map((section) => ({
     label: section.label,
-    items: section.items.filter((item) => item.route.startsWith("/catalog/")),
+    items: section.items,
   }))
     .filter((section) => section.items.length > 0)
     .map(({ label, items }) => [label, items] as const);
@@ -1141,7 +1136,7 @@ export class HomeDashboard extends LitElement {
     const ready = this.phase !== "loading";
     return html`
       <section class="home-directory" aria-labelledby="home-directory-title">
-        <h2 id="home-directory-title">${this.text("catalog", "Catalog")}</h2>
+        <h2 id="home-directory-title">${this.text("primaryNavigation", "Navigation")}</h2>
         ${directoryGroups().map(
           ([group, items]) => html`
             <div class="home-directory__group">
@@ -1152,7 +1147,7 @@ export class HomeDashboard extends LitElement {
                   const value = resource ? this.counts[resource] : undefined;
                   return html`
                     <li>
-                      <a class="hub-link state-layer" href=${item.route}>
+                      <a class="hub-link state-layer" href=${resourceCollectionHref(item.route, this.sourceServer(), this.locale as Locale) ?? (item.route === "/announcements" ? announcementPath(this.sourceServer(), this.locale as Locale) : localePath(item.route, this.locale as Locale))}>
                         <span class="hub-link__icon">${icon(item.icon, 22)}</span>
                         <span class="hub-link__label">${this.text(item.label, item.label)}</span>
                         <span class="hub-link__count tabular">
