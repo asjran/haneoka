@@ -2,7 +2,7 @@ import { mediaPresentations } from "./community-media";
 import { COMMUNITY_UPLOAD_LIMITS } from "../src/config/community";
 import { authConfiguration, getAuthSession, type AuthSession } from "./auth";
 import { communityAccessState } from "./access";
-import { COMMENT_LAST_EDITED_AT_SELECT } from "./community-revision";
+import { COMMENT_LAST_EDITED_AT_SELECT, POST_LAST_EDITED_AT_SELECT } from "./community-revision";
 import { handleCommunitySocialRequest } from "./community-social";
 import { ipDetailsJson, publicIpLocation, requestIpMetadata } from "./ip-address";
 import { communityPostModerationText, inspectCommunityText, scheduleEntityModeration } from "./moderation";
@@ -191,6 +191,8 @@ interface AttachmentCandidateRow {
 }
 
 interface PostOwnershipRow {
+  createdAt: number;
+  lastEditedAt: number;
   archivedAt: number | null;
   authorId: string;
   deletedAt: number | null;
@@ -325,7 +327,6 @@ const serializeComment = (comment: CommentRow, userId: string | null) => {
     previewPosition,
     ...content
   } = comment;
-  void rootId;
   void rootPagePosition;
   void rootReplyCount;
   void replyPagePosition;
@@ -334,6 +335,7 @@ const serializeComment = (comment: CommentRow, userId: string | null) => {
   void previewPosition;
   return {
     ...publicAuthoredContent(content),
+    ...(rootId ? { rootId } : {}),
     viewer: {
       liked: viewerLiked === 1,
       canDelete: canEdit,
@@ -766,12 +768,7 @@ const postSelect = `
     post.ip_region_name AS ipRegionName,
     post.browser_family AS browserFamily,
     post.os_family AS osFamily,
-    COALESCE((
-      SELECT current_revision.created_at
-      FROM community_post_revision AS current_revision
-      WHERE current_revision.post_id = post.id
-        AND current_revision.revision_number = post.moderation_revision
-    ), post.created_at) AS lastEditedAt,
+    ${POST_LAST_EDITED_AT_SELECT} AS lastEditedAt,
     (
       SELECT COUNT(*)
       FROM community_comment AS visible_comment
@@ -816,12 +813,7 @@ const postListSelect = `
     post.ip_region_name AS ipRegionName,
     post.browser_family AS browserFamily,
     post.os_family AS osFamily,
-    COALESCE((
-      SELECT current_revision.created_at
-      FROM community_post_revision AS current_revision
-      WHERE current_revision.post_id = post.id
-        AND current_revision.revision_number = post.moderation_revision
-    ), post.created_at) AS lastEditedAt,
+    ${POST_LAST_EDITED_AT_SELECT} AS lastEditedAt,
     (
       SELECT COUNT(*)
       FROM community_comment AS visible_comment
@@ -1089,18 +1081,18 @@ const attachPostMetadata = async <T extends PostDatabaseFields>(
 };
 
 /** The viewer's like/bookmark state for a page of posts, read as one batched
- * pair of queries instead of per-card subqueries in the feed select. */
+ * set of queries instead of per-card subqueries in the feed select. */
 const loadViewerPostFlags = async (
   env: Env,
   postIds: readonly string[],
   userId: string | null,
-): Promise<Map<string, { bookmarked: boolean; liked: boolean }>> => {
-  const flags = new Map<string, { bookmarked: boolean; liked: boolean }>(
-    postIds.map((id) => [id, { bookmarked: false, liked: false }]),
+): Promise<Map<string, { bookmarked: boolean; liked: boolean; following: boolean; followedTag: boolean }>> => {
+  const flags = new Map<string, { bookmarked: boolean; liked: boolean; following: boolean; followedTag: boolean }>(
+    postIds.map((id) => [id, { bookmarked: false, liked: false, following: false, followedTag: false }]),
   );
   if (!userId || !postIds.length) return flags;
   const placeholders = postIds.map(() => "?").join(", ");
-  const [reactionResult, bookmarkResult] = await Promise.all([
+  const [reactionResult, bookmarkResult, followingResult] = await Promise.all([
     env.DB.prepare(
       `SELECT post_id AS postId FROM community_reaction
        WHERE user_id = ? AND kind = 'like' AND post_id IN (${placeholders})`,
@@ -1112,6 +1104,21 @@ const loadViewerPostFlags = async (
     )
       .bind(userId, ...postIds)
       .all<{ postId: string }>(),
+    env.DB.prepare(
+      `SELECT post.id AS postId,
+         EXISTS (
+           SELECT 1 FROM community_user_follow AS follow
+           WHERE follow.follower_user_id = ? AND follow.followed_user_id = post.author_id
+         ) AS following,
+         EXISTS (
+           SELECT 1 FROM community_post_tag AS link
+           JOIN community_tag_preference AS preference ON preference.tag_id = link.tag_id
+           WHERE link.post_id = post.id AND preference.user_id = ? AND preference.kind = 'follow'
+         ) AS followedTag
+       FROM community_post AS post WHERE post.id IN (${placeholders})`,
+    )
+      .bind(userId, userId, ...postIds)
+      .all<{ postId: string; following: number; followedTag: number }>(),
   ]);
   for (const row of reactionResult.results) {
     const entry = flags.get(row.postId);
@@ -1120,6 +1127,13 @@ const loadViewerPostFlags = async (
   for (const row of bookmarkResult.results) {
     const entry = flags.get(row.postId);
     if (entry) entry.bookmarked = true;
+  }
+  for (const row of followingResult.results) {
+    const entry = flags.get(row.postId);
+    if (entry) {
+      entry.following = row.following === 1;
+      entry.followedTag = row.followedTag === 1;
+    }
   }
   return flags;
 };
@@ -1150,9 +1164,10 @@ const publicAccessiblePost = async (env: Env, id: string, userId: string): Promi
 const readPostOwnership = (env: Env, id: string): Promise<PostOwnershipRow | null> =>
   env.DB.prepare(
     `SELECT author_id AS authorId, version, deleted_at AS deletedAt,
+            created_at AS createdAt, ${POST_LAST_EDITED_AT_SELECT} AS lastEditedAt,
             archived_at AS archivedAt, pinned_at AS pinnedAt,
             moderation_revision AS moderationRevision
-     FROM community_post WHERE id = ? LIMIT 1`,
+     FROM community_post AS post WHERE id = ? LIMIT 1`,
   )
     .bind(id)
     .first<PostOwnershipRow>();
@@ -1471,6 +1486,8 @@ const listPosts = async (request: Request, env: Env, url: URL): Promise<Response
         canEdit: Boolean(userId && userId === post.authorId),
         liked: flags?.liked ?? false,
         bookmarked: flags?.bookmarked ?? false,
+        following: flags?.following ?? false,
+        followedTag: flags?.followedTag ?? false,
       },
     };
   });
@@ -1547,6 +1564,27 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
   if (!postRow) return error(request, 404, "post_not_found", "Post not found");
   const postWithTags = commentsOnly ? null : ((await attachPostMetadata(env, [postRow]))[0] ?? null);
   const post = postWithTags ?? postRow;
+  let liked = false;
+  let bookmarked = false;
+  let following = false;
+  if (userId && !commentsOnly) {
+    const flags = await env.DB.batch<ViewerFlagRow>([
+      env.DB.prepare(
+        "SELECT 1 AS active FROM community_reaction WHERE post_id = ? AND user_id = ? AND kind = 'like' LIMIT 1",
+      ).bind(id, userId),
+      env.DB.prepare("SELECT 1 AS active FROM community_bookmark WHERE post_id = ? AND user_id = ? LIMIT 1").bind(
+        id,
+        userId,
+      ),
+      env.DB.prepare(
+        "SELECT 1 AS active FROM community_user_follow WHERE follower_user_id = ? AND followed_user_id = ? LIMIT 1",
+      ).bind(userId, post.authorId),
+    ]);
+    liked = Boolean(flags[0]?.results[0]);
+    bookmarked = Boolean(flags[1]?.results[0]);
+    following = Boolean(flags[2]?.results[0]);
+  }
+
   if (includeCommentsValue === "false") {
     if (!postWithTags) return error(request, 500, "post_metadata_unavailable", "Post metadata is unavailable");
     return json(request, {
@@ -1555,8 +1593,9 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
       commentsNextCursor: null,
       commentsSort: "hot",
       viewer: {
-        liked: false,
-        bookmarked: false,
+        liked,
+        bookmarked,
+        following,
         canEdit: Boolean(userId && userId === post.authorId),
         canDelete: Boolean(userId && userId === post.authorId),
         canComment: Boolean(
@@ -1600,27 +1639,6 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
     ? "(comment.moderation_status = 'allow' OR comment.author_id = ?)"
     : "comment.moderation_status = 'allow'";
   const commentModerationValues: BindValue[] = userId ? [userId] : [];
-
-  let liked = false;
-  let bookmarked = false;
-  let following = false;
-  if (userId && !commentsOnly) {
-    const flags = await env.DB.batch<ViewerFlagRow>([
-      env.DB.prepare(
-        "SELECT 1 AS active FROM community_reaction WHERE post_id = ? AND user_id = ? AND kind = 'like' LIMIT 1",
-      ).bind(id, userId),
-      env.DB.prepare("SELECT 1 AS active FROM community_bookmark WHERE post_id = ? AND user_id = ? LIMIT 1").bind(
-        id,
-        userId,
-      ),
-      env.DB.prepare(
-        "SELECT 1 AS active FROM community_user_follow WHERE follower_user_id = ? AND followed_user_id = ? LIMIT 1",
-      ).bind(userId, post.authorId),
-    ]);
-    liked = Boolean(flags[0]?.results[0]);
-    bookmarked = Boolean(flags[1]?.results[0]);
-    following = Boolean(flags[2]?.results[0]);
-  }
 
   const viewerLikedSql = userId
     ? `CASE WHEN EXISTS (
@@ -1915,6 +1933,7 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
       commentsNextCursor: null,
       commentsSort,
       replyCount,
+      commentCount: post.commentCount,
       replyCursor:
         hasMoreReplies && lastReply ? encodeCursor({ createdAt: lastReply.createdAt, id: lastReply.id }) : null,
     });
@@ -1943,7 +1962,7 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
     if (comment.rootId !== comment.id) return value;
     const replyCount = Number(comment.rootReplyCount || 0);
     const previews = previewsByRoot.get(comment.id) || [];
-    const lastPreview = previews.at(-1);
+    const lastPreview = previews.filter((preview) => preview.previewPosition! <= COMMENT_REPLY_PREVIEW_SIZE).at(-1);
     return {
       ...value,
       replyCount,
@@ -1954,6 +1973,7 @@ const getPost = async (request: Request, env: Env, id: string, url: URL): Promis
     };
   });
   const commentResponse = {
+    commentCount: post.commentCount,
     comments: publicComments,
     commentsNextCursor:
       hasMoreComments && lastComment
@@ -2003,7 +2023,12 @@ const createPost = async (request: Request, env: Env): Promise<Response> => {
   }
   const attachmentIds = parseAttachmentIds(payload.value.attachmentIds);
   if (!attachmentIds) {
-    return error(request, 422, "invalid_attachment_ids", "attachmentIds must contain at most 10 unique IDs");
+    return error(
+      request,
+      422,
+      "invalid_attachment_ids",
+      `attachmentIds must contain at most ${POST_ATTACHMENT_LIMIT} unique IDs`,
+    );
   }
   if (attachmentIds.length) {
     const placeholders = attachmentIds.map(() => "?").join(", ");
@@ -2159,11 +2184,22 @@ const updatePost = async (request: Request, env: Env, id: string): Promise<Respo
   if (ownership.version !== version) {
     return error(request, 409, "version_conflict", "The post was changed in another session");
   }
+  const current = await findAccessiblePost(env, id, session.user.id);
+  if (
+    current &&
+    current.title === title &&
+    current.body === body &&
+    current.visibility === (visibility ?? current.visibility) &&
+    current.tags.length === tags.length &&
+    current.tags.every((tag, position) => tag === tags[position])
+  ) {
+    return error(request, 422, "post_unchanged", "The edited post has not changed");
+  }
   const inspection = inspectCommunityText(communityPostModerationText(title, body, tags));
   const initialModeration = inspection.verdict === "allow" ? "pending" : inspection.verdict;
   const nextVersion = version + 1;
   const nextRevision = ownership.moderationRevision + 1;
-  const now = Date.now();
+  const now = Math.max(Date.now(), ownership.createdAt + 1, ownership.lastEditedAt + 1);
   const ip = requestIpMetadata(request);
   const client = requestClientMetadata(request);
   const tagRecords = tags.map((tag) => ({ id: crypto.randomUUID(), name: tag }));
@@ -2519,12 +2555,15 @@ const createComment = async (request: Request, env: Env, postId: string): Promis
   const initialModeration = inspection.verdict === "allow" ? "pending" : inspection.verdict;
   const access = readablePostCondition(session.user.id);
   const state = commentablePostStateCondition;
+  // Append creation order atomically, including concurrent requests in the same millisecond.
   const insert = env.DB.prepare(
     `INSERT INTO community_comment
        (id, post_id, author_id, parent_id, body, moderation_status,
         ip_country_code, ip_region_code, ip_region_name, ip_address,
         user_agent, browser_family, os_family, created_at, updated_at)
-     SELECT ?, post.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+     SELECT ?, post.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            MAX(?, COALESCE((SELECT MAX(created_at) FROM community_comment WHERE post_id = post.id), 0) + 1),
+            MAX(?, COALESCE((SELECT MAX(created_at) FROM community_comment WHERE post_id = post.id), 0) + 1)
      FROM community_post AS post
      WHERE post.id = ? AND ${activePostWhere} AND post.moderation_status = 'allow'
        AND ${access.sql} AND ${state.sql}
@@ -2571,12 +2610,12 @@ const createComment = async (request: Request, env: Env, postId: string): Promis
     `INSERT INTO community_comment_revision
        (comment_id, revision_number, editor_user_id, body, edit_reason, source_kind,
         ip_country_code, ip_region_code, ip_region_name, ip_address,
-        user_agent, browser_family, os_family, created_at)
+        user_agent, browser_family, os_family, ip_details_json, created_at)
      SELECT id, 1, author_id, body, NULL, 'create',
             ip_country_code, ip_region_code, ip_region_name, ip_address,
-            user_agent, browser_family, os_family, ?
+            user_agent, browser_family, os_family, ?, created_at
      FROM community_comment WHERE id = ? AND author_id = ?`,
-  ).bind(now, id, session.user.id);
+  ).bind(ipDetailsJson(ip), id, session.user.id);
   const select = env.DB.prepare(
     `SELECT
        comment.id,

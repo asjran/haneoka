@@ -13,6 +13,23 @@
     align-content: start;
     gap: 12px;
   }
+  .community-mutation-progress {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: var(--md-sys-typescale-label-medium-size);
+  }
+  .community-mutation-progress md-circular-progress {
+    flex: 0 0 24px;
+    --md-circular-progress-size: 24px;
+  }
   .community-page > :is(.list, .community-stack, .community-list-actions, .state, .load-more) {
     width: min(100%, 860px);
     margin-inline: auto;
@@ -310,6 +327,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 12px;
     padding-bottom: 12px;
   }
@@ -322,14 +340,11 @@
     color: var(--md-sys-color-on-surface-variant);
     font-size: var(--md-sys-typescale-label-large-size);
   }
-  .community-comment-sort select {
+  .community-comment-sort .segmented {
+    min-width: 0;
+  }
+  .community-comment-sort .segmented button {
     min-height: 40px;
-    border: 1px solid var(--md-sys-color-outline);
-    border-radius: var(--md-sys-shape-corner-full);
-    padding-inline: 12px;
-    background: var(--md-sys-color-surface);
-    color: var(--md-sys-color-on-surface);
-    font: inherit;
   }
   .community-comments__empty {
     padding-block: 24px;
@@ -881,7 +896,9 @@
     overflow-wrap: anywhere;
   }
   .community-activity-row small {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
     color: var(--md-sys-color-on-surface-variant);
   }
   .community-activity-row footer,
@@ -1161,12 +1178,7 @@
     font-weight: var(--md-sys-typescale-body-medium-weight);
     color: var(--md-sys-color-on-surface-variant);
   }
-  .community-comment-sort select {
-    border: 0;
-    background: transparent;
-    min-height: 40px;
-    font-size: var(--md-sys-typescale-label-large-size);
-  }
+
   .community-comment-thread {
     padding-block: 8px;
   }

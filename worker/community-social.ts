@@ -116,6 +116,8 @@ interface ReportQuotaRow {
 }
 
 interface CommentOwnershipRow {
+  createdAt: number;
+  lastEditedAt: number;
   archivedAt: number | null;
   authorId: string;
   blocked: number;
@@ -1018,6 +1020,7 @@ const readCommentOwnership = async (
 ): Promise<CommentOwnershipRow | null> =>
   env.DB.prepare(
     `SELECT comment.author_id AS authorId, comment.body, comment.version,
+            comment.created_at AS createdAt, ${COMMENT_LAST_EDITED_AT_SELECT} AS lastEditedAt,
             comment.moderation_revision AS moderationRevision,
             comment.deleted_at AS deletedAt, comment.hidden_at AS hiddenAt,
             post.author_id AS postAuthorId, post.status AS postStatus,
@@ -1164,7 +1167,7 @@ const patchComment = async (request: Request, env: Env, commentId: string): Prom
   const inspection = inspectCommunityText(body);
   const moderationStatus = inspection.verdict === "allow" ? "pending" : "block";
   const nextRevision = current.moderationRevision + 1;
-  const now = Date.now();
+  const now = Math.max(Date.now(), current.createdAt + 1, current.lastEditedAt + 1);
   const ip = requestIpMetadata(request);
   const client = requestClientMetadata(request);
   const results = await env.DB.batch([

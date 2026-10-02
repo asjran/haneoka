@@ -42,7 +42,15 @@ type UploadEntry = {
 const COMMUNITY_BAR_OWNER = "community";
 const feedSnapshots = new Map<
   string,
-  { items: Value[]; cursor: string; scroll: number; createdAt: number; viewer: string }
+  {
+    items: Value[];
+    cursor: string;
+    seed: number | null;
+    endpoint: string;
+    scroll: number;
+    createdAt: number;
+    viewer: string;
+  }
 >();
 type FeedSnapshotRoute = {
   kind: "posts" | "other";
@@ -206,7 +214,13 @@ export class CommunityWorkspace extends LitElement {
   };
   private published = false;
   private routeUrl = "";
+  private feedSeed: number | null = null;
+  // query is the app-bar draft; submittedQuery is the requested search.
+  private submittedQuery = "";
+  // The loaded cursor and seed belong to this successful collection request.
+  private loadedCollectionEndpoint = "";
   private scrollHost?: HTMLElement;
+  private feedScroll = 0;
   constructor() {
     super();
     this.locale = "ja";
@@ -315,10 +329,15 @@ export class CommunityWorkspace extends LitElement {
   private saveFeedSnapshot = () => {
     if (this.scrollHost && !this.scrollHost.isConnected) return;
     if (this.routeKind === "collection" && this.phase === "ready" && this.routeUrl) {
+      // Removing this element can shrink a still-mounted scroll host to zero
+      // before disconnectedCallback runs. Retain its last live scroll value.
+      if (this.isConnected) this.feedScroll = this.scrollHost?.scrollTop || 0;
       feedSnapshots.set(this.routeUrl, {
         items: this.items,
         cursor: this.cursor,
-        scroll: this.scrollHost?.scrollTop || 0,
+        seed: this.feedSeed,
+        endpoint: this.loadedCollectionEndpoint,
+        scroll: this.feedScroll,
         createdAt: Date.now(),
         viewer: String((this.session?.user as Value | undefined)?.id || ""),
       });
@@ -364,6 +383,14 @@ export class CommunityWorkspace extends LitElement {
       }, 30_000);
     }
     this.scrollHost = this.closest<HTMLElement>(".app-shell__main") || undefined;
+    this.scrollHost?.addEventListener(
+      "scroll",
+      () => {
+        if (this.isConnected && this.routeKind === "collection" && this.phase === "ready")
+          this.feedScroll = this.scrollHost?.scrollTop || 0;
+      },
+      { signal: this.lifetime.signal, passive: true },
+    );
     document.addEventListener("astro:before-swap", this.saveFeedSnapshot, { signal: this.lifetime.signal });
     this.columnsObserver = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width || this.clientWidth;
@@ -414,6 +441,7 @@ export class CommunityWorkspace extends LitElement {
       if (this.routeKind === "post-new" || this.routeKind === "post-edit") void import("./community-editor");
       if (["post-detail", "post-new", "post-edit", "user-detail"].includes(this.routeKind)) this.installBack();
       this.query = query.get("q") || "";
+      this.submittedQuery = this.query.trim();
       const scope = query.get("scope");
       if (scope === "latest" || scope === "following" || scope === "recommended") this.feedScope = scope;
       this.tagFilter = query.get("tag") || "";
@@ -448,8 +476,15 @@ export class CommunityWorkspace extends LitElement {
     }
   }
   private endpoint(append: boolean, refresh = false) {
+    if (append && this.loadedCollectionEndpoint) {
+      const loaded = new URL(this.loadedCollectionEndpoint, location.origin);
+      if (this.cursor) loaded.searchParams.set("cursor", this.cursor);
+      if (loaded.searchParams.get("scope") === "recommended" && this.feedSeed !== null)
+        loaded.searchParams.set("seed", String(this.feedSeed));
+      return `${loaded.pathname}${loaded.search}`;
+    }
     const query = new URLSearchParams();
-    if (this.query) query.set("q", this.query);
+    if (this.submittedQuery) query.set("q", this.submittedQuery);
     if (append && this.cursor) query.set("cursor", this.cursor);
     query.set("limit", "20");
     if (refresh) query.set("refresh", "1");
@@ -461,6 +496,7 @@ export class CommunityWorkspace extends LitElement {
     if (this.mode === "activity") return `/api/v1/community/me/comments?${query}`;
     const scope = this.mode === "mine" ? "mine" : this.mode === "bookmarks" ? "bookmarked" : this.feedScope;
     query.set("scope", scope);
+    if (scope === "recommended" && append && this.feedSeed !== null) query.set("seed", String(this.feedSeed));
     // Archived posts are only legal with scope=mine; everywhere else the feed
     // is always the active one.
     query.set("state", this.mode === "mine" ? this.postState : "active");
@@ -492,15 +528,19 @@ export class CommunityWorkspace extends LitElement {
     if (
       this.routeKind === "collection" &&
       snapshot &&
-      Date.now() - snapshot.createdAt < 60000 &&
       snapshot.viewer === String((this.session?.user as Value | undefined)?.id || "")
     ) {
       this.items = snapshot.items;
       this.cursor = snapshot.cursor;
+      this.feedSeed = snapshot.seed ?? null;
+      this.loadedCollectionEndpoint = snapshot.endpoint || this.endpoint(false);
       this.phase = "ready";
       void this.updateComplete.then(() => {
         const main = document.querySelector<HTMLElement>(".app-shell__main");
-        if (main) main.scrollTop = snapshot.scroll;
+        if (main) {
+          main.scrollTop = snapshot.scroll;
+          this.feedScroll = snapshot.scroll;
+        }
       });
     } else await this.load(false);
   }
@@ -529,17 +569,17 @@ export class CommunityWorkspace extends LitElement {
         return;
       }
       if (this.routeKind === "post-detail" || this.routeKind === "post-edit") {
-        const response = await fetch(
-          `/api/v1/community/posts/${encodeURIComponent(this.entityId)}?commentsSort=${this.commentSort}`,
-          {
-            headers: { accept: "application/json" },
-            credentials: "same-origin",
-            // Community data is never cacheable; say so at the call site too,
-            // not only in the worker's response headers.
-            cache: "no-store",
-            signal,
-          },
-        );
+        const query = new URLSearchParams({ commentsSort: this.commentSort });
+        const focusedId = navigationDocumentUrl().hash.match(/^#comment-([0-9a-f-]{36})$/iu)?.[1];
+        if (focusedId) query.set("commentId", focusedId);
+        const response = await fetch(`/api/v1/community/posts/${encodeURIComponent(this.entityId)}?${query}`, {
+          headers: { accept: "application/json" },
+          credentials: "same-origin",
+          // Community data is never cacheable; say so at the call site too,
+          // not only in the worker's response headers.
+          cache: "no-store",
+          signal,
+        });
         if (!response.ok) {
           if (response.status === 403 || response.status === 404) {
             this.document = null;
@@ -553,6 +593,7 @@ export class CommunityWorkspace extends LitElement {
         const detail = (await response.json()) as Value;
         if (!this.requests.current(signal)) return;
         this.document = detail;
+        if (focusedId) this.revealComment(focusedId);
         const currentPost = ((this.document.post as Value | undefined) || this.document) as Value;
         this.setDocumentTitle(String(currentPost.title || this.label("community", "Community")));
         if (this.routeKind === "post-edit") {
@@ -633,6 +674,8 @@ export class CommunityWorkspace extends LitElement {
         if (this.routeKind === "playlist-detail") await this.openPlaylist(this.entityId, false);
         return;
       }
+      const collectionEndpoint = this.endpoint(false);
+      const collectionRoute = this.collectionUrl();
       const response = await fetch(this.endpoint(append, refresh), {
         headers: { accept: "application/json" },
         credentials: "same-origin",
@@ -660,9 +703,30 @@ export class CommunityWorkspace extends LitElement {
           ]
         : (next as Value[]);
       this.cursor = String(data.nextCursor || "");
+      this.feedSeed = typeof data.seed === "number" && Number.isSafeInteger(data.seed) ? data.seed : null;
+      if (!append) {
+        const changed = this.loadedCollectionEndpoint && this.loadedCollectionEndpoint !== collectionEndpoint;
+        this.loadedCollectionEndpoint = collectionEndpoint;
+        this.routeUrl = collectionRoute;
+        history.replaceState(history.state, "", collectionRoute);
+        if (changed) {
+          this.feedScroll = 0;
+          void this.updateComplete.then(() => {
+            if (this.requests.current(signal) && this.scrollHost) this.scrollHost.scrollTop = 0;
+          });
+        }
+      }
       this.phase = "ready";
     } catch (error) {
       if (!this.requests.current(signal)) return;
+      if (this.routeKind === "collection" && this.loadedCollectionEndpoint) {
+        const loaded = new URL(this.loadedCollectionEndpoint, location.origin).searchParams;
+        const scope = loaded.get("scope");
+        if (scope === "latest" || scope === "following" || scope === "recommended") this.feedScope = scope;
+        this.postState = loaded.get("state") === "archived" ? "archived" : "active";
+        this.tagFilter = loaded.get("tag") || "";
+        this.unreadOnly = loaded.get("unread") === "true";
+      }
       this.error = error instanceof Error ? error.message : String(error);
       if (!this.items.length && !this.document) this.phase = "error";
       progress.fail(error);
@@ -678,21 +742,20 @@ export class CommunityWorkspace extends LitElement {
       this.syncPlaylist();
       return;
     }
-    this.syncCollectionUrl();
+    this.submittedQuery = this.query.trim();
     void this.load(false);
   }
-  /** Mirror the collection's filters into the address bar so reloading or
-   * sharing the URL reproduces the same view. */
-  private syncCollectionUrl() {
+  /** Capture the requested route; load commits it only with its response. */
+  private collectionUrl() {
     const params = new URLSearchParams(location.search);
     const set = (key: string, value: string) => (value ? params.set(key, value) : params.delete(key));
-    set("q", this.query.trim());
+    set("q", this.submittedQuery);
     set("tag", this.tagFilter);
-    if (this.mode === "feeds") set("scope", this.feedScope === "recommended" ? "" : this.feedScope);
+    if (this.mode === "feeds")
+      set("scope", this.feedScope === feedSnapshotRoute(location.pathname).scope ? "" : this.feedScope);
     if (this.mode === "notifications") set("unread", this.unreadOnly ? "true" : "");
     if (this.mode === "mine") set("state", this.postState === "archived" ? "archived" : "");
-    this.routeUrl = `${location.pathname}${params.size ? `?${params}` : ""}`;
-    history.replaceState(history.state, "", this.routeUrl);
+    return `${location.pathname}${params.size ? `?${params}` : ""}`;
   }
   /** Ask the worker for a fresh page of recommendations (refresh=1 drops the
    * viewer's impressions server-side). */
@@ -702,7 +765,6 @@ export class CommunityWorkspace extends LitElement {
   }
   private clearTag() {
     this.tagFilter = "";
-    this.syncCollectionUrl();
     void this.load(false);
   }
   private time(value: unknown) {
@@ -740,6 +802,9 @@ export class CommunityWorkspace extends LitElement {
     const clean = route.replace(/^\/+|\/+$/g, "");
     return `/${this.locale}/${clean}/`;
   }
+  private detailHref(route: string) {
+    return `${this.path(route)}?return=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
+  }
   private label(path: string, fallback: string) {
     const value = path
       .split(".")
@@ -767,13 +832,26 @@ export class CommunityWorkspace extends LitElement {
     if (this.busy) return;
     this.busy = true;
     this.error = "";
+    const progress = beginLoading(this.label("loading", "Loading"), { signal: this.lifetime.signal });
     try {
       await work();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
+      progress.fail(error);
     } finally {
+      progress.finish();
       this.busy = false;
     }
+  }
+  private renderMutationProgress() {
+    return this.busy
+      ? html`
+          <div class="community-mutation-progress" role="status">
+            <md-circular-progress indeterminate aria-hidden="true"></md-circular-progress>
+            <span>${this.label("loading", "Loading")}</span>
+          </div>
+        `
+      : nothing;
   }
   private postEnvelope() {
     const root = this.document || {};
@@ -820,6 +898,23 @@ export class CommunityWorkspace extends LitElement {
         continue;
       }
       snapshot.items = this.patchPostItems(snapshot.items, postId, postPatch, viewerPatch, removeFromBookmarks, route);
+    }
+  }
+  private patchAuthorSnapshots(uid: string, viewerId: string, following: boolean) {
+    if (!viewerId) return;
+    for (const [routeUrl, snapshot] of feedSnapshots) {
+      if (snapshot.viewer !== viewerId) continue;
+      const route = feedSnapshotRoute(routeUrl);
+      if (route.kind !== "posts") continue;
+      if (route.scope === "following" && following) {
+        feedSnapshots.delete(routeUrl);
+        continue;
+      }
+      snapshot.items = snapshot.items.flatMap((item) => {
+        if (String(item.authorUid) !== uid) return [item];
+        if (route.scope === "following" && !following && !(item.viewer as Value | undefined)?.followedTag) return [];
+        return [{ ...item, viewer: { ...((item.viewer as Value | undefined) || {}), following } }];
+      });
     }
   }
   private invalidateFeedSnapshots(
@@ -986,7 +1081,10 @@ export class CommunityWorkspace extends LitElement {
       if (result.visibilityChanged) {
         this.patchComment(String(comment.id));
         await this.load(false);
-      } else this.patchComment(String(comment.id), (result.comment as Value) || comment);
+      } else {
+        this.patchComment(String(comment.id), { ...comment, ...((result.comment as Value) || {}) });
+        await this.refreshComments(false, String(comment.id));
+      }
       this.editingComment = "";
     });
   }
@@ -1002,11 +1100,21 @@ export class CommunityWorkspace extends LitElement {
         confirmLabel: this.label("delete", "Delete"),
         action: () =>
           void this.mutate(async () => {
-            await this.request(`/api/v1/community/comments/${encodeURIComponent(String(comment.id))}`, {
+            const result = await this.request(`/api/v1/community/comments/${encodeURIComponent(String(comment.id))}`, {
               method: "DELETE",
               body: JSON.stringify({ version: comment.version }),
             });
-            this.patchComment(String(comment.id));
+            if (this.routeKind === "collection" && this.mode === "activity") {
+              this.items = this.items.map((entry) =>
+                String(entry.id) === String(comment.id)
+                  ? { ...entry, ...(result.comment as Value), viewer: { canDelete: false, canEdit: false } }
+                  : entry,
+              );
+              this.invalidateFeedSnapshots(this.viewerId(), (route) => route.kind === "posts");
+            } else {
+              this.patchComment(String(comment.id));
+              await this.refreshComments();
+            }
           }),
       },
     };
@@ -1059,11 +1167,16 @@ export class CommunityWorkspace extends LitElement {
   }
   private relationship(action: "follow" | "mute" | "block", active: boolean) {
     if (!this.requireSession()) return;
+    const uid = this.entityId;
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      const result = await this.request(`/api/v1/community/users/${encodeURIComponent(this.entityId)}/${action}`, {
+      const result = await this.request(`/api/v1/community/users/${encodeURIComponent(uid)}/${action}`, {
         method: "PUT",
         body: JSON.stringify({ active }),
       });
+      if (action === "follow") this.patchAuthorSnapshots(uid, viewerId, Boolean((result.viewer as Value)?.following));
+      else this.invalidateFeedSnapshots(viewerId, (route) => route.kind === "posts");
+      if (!this.isConnected || this.entityId !== uid || this.viewerId() !== viewerId) return;
       const root = this.document || {};
       const stateKey = action === "follow" ? "following" : action === "mute" ? "muted" : "blocked";
       this.document = {
@@ -1072,7 +1185,10 @@ export class CommunityWorkspace extends LitElement {
         viewer: {
           ...((root.viewer as Value | undefined) || {}),
           ...(result.viewer as Value | undefined),
-          [stateKey]: active,
+          [stateKey]:
+            (result.viewer as Value | undefined)?.[
+              action === "mute" ? "muting" : action === "block" ? "blocking" : stateKey
+            ] ?? active,
         },
       };
       if (action === "block" && !active) await this.load(false);
@@ -1080,12 +1196,17 @@ export class CommunityWorkspace extends LitElement {
   }
   private tagPreference(tag: Value, preference: "follow" | "mute" | null) {
     if (!this.requireSession()) return;
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
       const name = String(tag.normalizedName || "");
       const result = await this.request(`/api/v1/community/tags/${encodeURIComponent(name)}/preference`, {
         method: "PUT",
         body: JSON.stringify({ preference }),
       });
+      this.invalidateFeedSnapshots(
+        viewerId,
+        (route) => route.kind === "posts" && ["all", "latest", "following", "recommended"].includes(route.scope),
+      );
       this.items = this.items.map((entry) =>
         entry === tag ? { ...entry, preference: result.preference ?? preference } : entry,
       );
@@ -1124,6 +1245,16 @@ export class CommunityWorkspace extends LitElement {
           }
         : entry,
     );
+    if (this.routeKind === "user-detail" && Array.isArray(this.document?.posts)) {
+      this.document = {
+        ...this.document,
+        posts: this.patchPostItems(this.document.posts as Value[], String(post.id), patch, viewerPatch || {}, false, {
+          kind: "posts",
+          scope: "all",
+          state: "active",
+        }),
+      };
+    }
   }
   private togglePinReaction(post: Value) {
     if (!this.requireSession()) return;
@@ -1138,8 +1269,8 @@ export class CommunityWorkspace extends LitElement {
       this.patchFeedSnapshots(postId, viewerId, { likeCount: result.likeCount }, { liked: result.active });
       if (
         this.isConnected &&
-        this.routeKind === "collection" &&
-        feedSnapshotRoute(this.routeUrl).kind === "posts" &&
+        (this.routeKind === "user-detail" ||
+          (this.routeKind === "collection" && feedSnapshotRoute(this.routeUrl).kind === "posts")) &&
         this.viewerId() === viewerId
       )
         this.patchPin(post, { likeCount: result.likeCount }, { liked: result.active });
@@ -1158,8 +1289,8 @@ export class CommunityWorkspace extends LitElement {
       this.patchFeedSnapshots(postId, viewerId, {}, { bookmarked: result.active }, !result.active);
       if (
         this.isConnected &&
-        this.routeKind === "collection" &&
-        feedSnapshotRoute(this.routeUrl).kind === "posts" &&
+        (this.routeKind === "user-detail" ||
+          (this.routeKind === "collection" && feedSnapshotRoute(this.routeUrl).kind === "posts")) &&
         this.viewerId() === viewerId
       ) {
         if (result.active || this.mode !== "bookmarks") this.patchPin(post, {}, { bookmarked: result.active });
@@ -1630,9 +1761,28 @@ export class CommunityWorkspace extends LitElement {
           comments: comments.some((entry) => entry.id === comment.id)
             ? comments
             : [...new Map([...comments, comment].map((entry) => [String(entry.id), entry])).values()],
-          post: { ...(root.post as Value), commentCount: Number((root.post as Value)?.commentCount || 0) + 1 },
         };
+        this.revealComment(String(comment.id));
       }
+    });
+  }
+  private syncCommentCount(value: unknown) {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) return;
+    const { post, viewer } = this.postEnvelope();
+    this.updatePost({ ...post, commentCount: value }, viewer, this.viewerId(), {
+      kind: "patch",
+      post: { commentCount: value },
+    });
+  }
+  private revealComment(id: string) {
+    const comments = Array.isArray(this.document?.comments) ? (this.document.comments as Value[]) : [];
+    const comment = comments.find((entry) => String(entry.id) === id);
+    if (!comment) return;
+    const expanded = new Set(this.expandedComments);
+    expanded.add(String(comment.rootId || comment.id));
+    this.expandedComments = expanded;
+    void this.updateComplete.then(() => {
+      if (this.isConnected) this.querySelector(`#comment-${CSS.escape(id)}`)?.scrollIntoView({ block: "nearest" });
     });
   }
   private cancelReplyRequests() {
@@ -1678,6 +1828,7 @@ export class CommunityWorkspace extends LitElement {
       nextRoot.replyCount = Number.isSafeInteger(replyCount) && replyCount >= 0 ? replyCount : root.replyCount;
       nextRoot.replyCursor = result.replyCursor ? String(result.replyCursor) : null;
       this.document = { ...this.document, comments };
+      this.syncCommentCount(result.commentCount);
       const expanded = new Set(this.expandedComments);
       expanded.add(rootId);
       this.expandedComments = expanded;
@@ -1696,6 +1847,7 @@ export class CommunityWorkspace extends LitElement {
     this.cancelReplyRequests();
     const signal = this.commentsRequest.begin();
     this.commentsLoading = true;
+    this.error = "";
     const progress = beginLoading(this.label("comments", "Comments"), { signal });
     try {
       const query = new URLSearchParams({ commentsOnly: "true", commentsSort: this.commentSort });
@@ -1722,9 +1874,14 @@ export class CommunityWorkspace extends LitElement {
         ...this.document,
         comments: [...merged.values()],
         commentsNextCursor: result.commentsNextCursor,
+        commentsSort: this.commentSort,
       };
+      this.syncCommentCount(result.commentCount);
+      if (focusedCommentId) this.revealComment(focusedCommentId);
     } catch (error) {
       if (this.commentsRequest.current(signal)) {
+        const loadedSort = this.document?.commentsSort;
+        if (loadedSort === "hot" || loadedSort === "latest") this.commentSort = loadedSort;
         this.error = error instanceof Error ? error.message : String(error);
         progress.fail(error);
       }
@@ -2062,6 +2219,7 @@ export class CommunityWorkspace extends LitElement {
     );
     return html`
       <section class="page community-post-page">
+        ${this.renderMutationProgress()}
         ${
           this.error
             ? html`
@@ -2098,7 +2256,7 @@ export class CommunityWorkspace extends LitElement {
           }
           <div class="community-post-discussion">
             <header class="community-post-author">
-              <a class="community-post-author__link" href=${this.path(`/community/users/${post.authorUid}`)}>
+              <a class="community-post-author__link" href=${this.detailHref(`/community/users/${post.authorUid}`)}>
                 ${this.avatar(post.authorImage, name, 40)}
                 <span>
                   <strong>${name}</strong>
@@ -2175,19 +2333,22 @@ export class CommunityWorkspace extends LitElement {
                   <h2>
                     ${this.label("commentCount", "{count} comments").replace("{count}", new Intl.NumberFormat(this.locale).format(Number(post.commentCount ?? comments.length)))}
                   </h2>
-                  <label class="community-comment-sort">
-                    <span class="sr-only">${this.label("sort", "Sort")}</span>
-                    <select
-                      .value=${this.commentSort}
-                      @change=${(event: Event) => {
-                        this.commentSort = (event.target as HTMLSelectElement).value as "hot" | "latest";
+                  <div class="community-comment-sort">
+                    ${segmented({
+                      label: this.label("sort", "Sort"),
+                      value: this.commentSort,
+                      options: [
+                        { value: "hot", label: this.label("commentSortPopular", "Hot") },
+                        { value: "latest", label: this.label("commentSortLatest", "Latest") },
+                      ],
+                      onSelect: (value) => {
+                        if (value === this.commentSort) return;
+                        this.commentSort = value;
+                        this.expandedComments = new Set();
                         void this.refreshComments();
-                      }}
-                    >
-                      <option value="hot">${this.label("commentSortPopular", "Hot")}</option>
-                      <option value="latest">${this.label("commentSortLatest", "Latest")}</option>
-                    </select>
-                  </label>
+                      },
+                    })}
+                  </div>
                 </header>
                 ${
                   !comments.length && !this.commentsLoading
@@ -2316,12 +2477,16 @@ export class CommunityWorkspace extends LitElement {
   private toggleAuthorFollow() {
     if (!this.requireSession()) return;
     const { post, viewer } = this.postEnvelope();
+    const uid = String(post.authorUid);
+    const viewerId = this.viewerId();
     void this.mutate(async () => {
-      await this.request(`/api/v1/community/users/${encodeURIComponent(String(post.authorUid))}/follow`, {
+      const result = await this.request(`/api/v1/community/users/${encodeURIComponent(uid)}/follow`, {
         method: "PUT",
         body: JSON.stringify({ active: !viewer.following }),
       });
-      this.updatePost(post, { ...viewer, following: !viewer.following });
+      const following = Boolean((result.viewer as Value | undefined)?.following);
+      this.patchAuthorSnapshots(uid, viewerId, following);
+      this.updatePost(post, { ...viewer, following }, viewerId);
     });
   }
   private openComment(id = "") {
@@ -2344,7 +2509,7 @@ export class CommunityWorkspace extends LitElement {
     const groups = new Map<string, Value[]>();
     const roots: Value[] = [];
     for (const comment of comments) {
-      let root = comment;
+      let root = byId.get(String(comment.rootId || "")) || comment;
       const visited = new Set([String(comment.id)]);
       while (root.parentId && byId.has(String(root.parentId)) && !visited.has(String(root.parentId))) {
         root = byId.get(String(root.parentId))!;
@@ -2487,12 +2652,14 @@ export class CommunityWorkspace extends LitElement {
     const location = this.ipLocation(comment.ipLocation);
     return html`
       <article class=${`community-comment${reply ? " is-reply" : ""}`} id=${`comment-${comment.id}`}>
-        <a href=${this.path(`/community/users/${comment.authorUid}`)} aria-label=${name}>
+        <a href=${this.detailHref(`/community/users/${comment.authorUid}`)} aria-label=${name}>
           ${this.avatar(comment.authorImage, name, reply ? 28 : 40)}
         </a>
         <div class="community-comment__main">
           <header>
-            <a class="community-comment__name" href=${this.path(`/community/users/${comment.authorUid}`)}>${name}</a>
+            <a class="community-comment__name" href=${this.detailHref(`/community/users/${comment.authorUid}`)}>
+              ${name}
+            </a>
             ${
               String(comment.authorUid) === String(this.postEnvelope().post.authorUid)
                 ? html`
@@ -2554,6 +2721,13 @@ export class CommunityWorkspace extends LitElement {
           }
           <div class="community-comment__context">
             ${this.time(comment.createdAt)}
+            ${
+              isEdited(comment)
+                ? html`
+                    <span>${this.label("lastEdited", "Last edited")} ${this.time(comment.lastEditedAt)}</span>
+                  `
+                : nothing
+            }
             ${
               location
                 ? html`
@@ -2834,6 +3008,14 @@ export class CommunityWorkspace extends LitElement {
     const stats = ((profile.stats as Value | undefined) || {}) as Value;
     return html`
       <section class="page page--compact community-user-page">
+        ${this.renderMutationProgress()}
+        ${
+          this.error
+            ? html`
+                <div class="inline-message error" role="alert">${this.error}</div>
+              `
+            : nothing
+        }
         <header class="surface surface--tonal community-user-hero">
           <div class="community-avatar">
             ${
@@ -2975,7 +3157,7 @@ export class CommunityWorkspace extends LitElement {
               `
             : nothing
         }
-        ${this.renderDialog()}
+        ${this.renderCardMenu()}${this.renderDialog()}
       </section>
     `;
   }
@@ -3322,7 +3504,7 @@ export class CommunityWorkspace extends LitElement {
         },
         onSubmit: (value) => {
           this.query = value;
-          this.syncCollectionUrl();
+          this.submittedQuery = value.trim();
           if (this.mode === "playlists") this.syncPlaylist();
           else void this.load(false);
         },
@@ -3348,8 +3530,12 @@ export class CommunityWorkspace extends LitElement {
   }
   /** How many non-default filters this collection currently carries. */
   private appliedFilterCount() {
+    const query =
+      this.mode === "playlists"
+        ? this.query.trim()
+        : new URL(this.loadedCollectionEndpoint || this.endpoint(false), location.origin).searchParams.get("q");
     return (
-      (this.query.trim() ? 1 : 0) +
+      (query ? 1 : 0) +
       (this.tagFilter && this.mode !== "tags" && this.mode !== "playlists" ? 1 : 0) +
       (this.mode === "notifications" && this.unreadOnly ? 1 : 0) +
       (this.mode === "mine" && this.postState === "archived" ? 1 : 0) +
@@ -3362,6 +3548,7 @@ export class CommunityWorkspace extends LitElement {
     setAppBarActions(COMMUNITY_BAR_OWNER, this.collectionBar());
     return html`
       <section class="community-page page">
+        ${this.renderMutationProgress()}
         ${
           this.toast
             ? html`
@@ -3479,7 +3666,7 @@ export class CommunityWorkspace extends LitElement {
                   class="menu-item"
                   type="button"
                   role="menuitem"
-                  @click=${run(() => void navigateDetailPage(this.path(`/community/users/${authorUid}`)))}
+                  @click=${run(() => void navigateDetailPage(this.detailHref(`/community/users/${authorUid}`)))}
                 >
                   ${icon("person", 20)}
                   <span>${this.label("viewAuthor", "View author")}</span>
@@ -3577,6 +3764,8 @@ export class CommunityWorkspace extends LitElement {
   private renderFilters() {
     const filterable = this.mode !== "activity";
     if (!filterable) return nothing;
+    const query =
+      new URL(this.loadedCollectionEndpoint || this.endpoint(false), location.origin).searchParams.get("q") || "";
     return html`
       <aside
         class=${`community-filters sheet sheet--side ${this.filtersOpen ? "is-open" : ""}`}
@@ -3607,10 +3796,10 @@ export class CommunityWorkspace extends LitElement {
                     <h3>${this.label("appliedFilters", "Applied filters")}</h3>
                     <div class="community-filters__applied">
                       ${
-                        this.query.trim()
-                          ? inputChip(this.query.trim(), this.label("clearSearch", "Clear search"), () => {
+                        query
+                          ? inputChip(query, this.label("clearSearch", "Clear search"), () => {
                               this.query = "";
-                              this.syncCollectionUrl();
+                              this.submittedQuery = "";
                               void this.load(false);
                             })
                           : nothing
@@ -3626,7 +3815,6 @@ export class CommunityWorkspace extends LitElement {
                         this.mode === "notifications" && this.unreadOnly
                           ? inputChip(this.label("unreadNotifications", "Unread"), this.label("clear", "Clear"), () => {
                               this.unreadOnly = false;
-                              this.syncCollectionUrl();
                               void this.load(false);
                             })
                           : nothing
@@ -3635,7 +3823,6 @@ export class CommunityWorkspace extends LitElement {
                         this.mode === "mine" && this.postState === "archived"
                           ? inputChip(this.label("stateArchived", "Archived"), this.label("clear", "Clear"), () => {
                               this.postState = "active";
-                              this.syncCollectionUrl();
                               void this.load(false);
                             })
                           : nothing
@@ -3688,7 +3875,6 @@ export class CommunityWorkspace extends LitElement {
                       ],
                       onSelect: (value) => {
                         this.postState = value;
-                        this.syncCollectionUrl();
                         void this.load(false);
                       },
                     })}
@@ -3713,7 +3899,6 @@ export class CommunityWorkspace extends LitElement {
                       ],
                       onSelect: (value) => {
                         this.unreadOnly = value === "unread";
-                        this.syncCollectionUrl();
                         void this.load(false);
                       },
                     })}
@@ -3796,13 +3981,31 @@ export class CommunityWorkspace extends LitElement {
               <article class="community-activity-row">
                 <span>
                   <strong>${String(comment.postTitle || this.label("activityPost", "Post"))}</strong>
-                  <small>${this.time(comment.createdAt)}</small>
+                  <small>
+                    ${this.time(comment.createdAt)}
+                    ${
+                      isEdited(comment)
+                        ? html`
+                            <span>${this.label("lastEdited", "Last edited")} ${this.time(comment.lastEditedAt)}</span>
+                          `
+                        : nothing
+                    }
+                    ${
+                      this.ipLocation(comment.ipLocation)
+                        ? html`
+                            <span>
+                              ${this.label("ipLocation", "IP location")}: ${this.ipLocation(comment.ipLocation)}
+                            </span>
+                          `
+                        : nothing
+                    }
+                  </small>
                   <p>${String(comment.body || "")}</p>
                 </span>
                 <footer>
                   <a
                     class="button button--text"
-                    href=${`${this.path(`/community/posts/${comment.postId}`)}#comment-${comment.id}`}
+                    href=${`${this.detailHref(`/community/posts/${comment.postId}`)}#comment-${comment.id}`}
                   >
                     ${this.label("activityPost", "Open post")}
                   </a>
@@ -3831,7 +4034,6 @@ export class CommunityWorkspace extends LitElement {
             `,
           )}
         </div>
-        ${this.renderDialog()}
       `;
     if (this.mode === "tags")
       // A tag is a name, a description and two toggles. That is a list item
@@ -3894,7 +4096,7 @@ export class CommunityWorkspace extends LitElement {
               <li>
                 <a
                   class=${`list-item list-item--two-line list-item--interactive${item.readAt ? " is-read" : " is-unread"}`}
-                  href=${item.postId ? this.path(`/community/posts/${item.postId}`) : "#"}
+                  href=${item.postId ? this.detailHref(`/community/posts/${item.postId}`) : "#"}
                   @click=${() => this.markNotification(item)}
                 >
                   <span class="list-item__avatar">
@@ -4030,7 +4232,7 @@ export class CommunityWorkspace extends LitElement {
           </span>
         </a>
         <div class="community-pin__meta">
-          <a class="community-pin__author" href=${this.path(`/community/users/${post.authorUid}`)}>
+          <a class="community-pin__author" href=${this.detailHref(`/community/users/${post.authorUid}`)}>
             <span class="community-pin__avatar">
               ${
                 post.authorImage
