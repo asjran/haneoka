@@ -16,7 +16,7 @@ export function selectionPane(options: {
   query: string;
   search: (value: string) => void;
   filters: unknown;
-  kind: "member" | "support" | "song";
+  kind: "member" | "support" | "song" | "system";
   items: ReadonlyArray<TileOptions & { value: string }>;
   selected: string;
   select: (value: string) => void;

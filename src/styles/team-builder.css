@@ -48,12 +48,61 @@
     border-top: 1px solid var(--md-sys-color-outline-variant);
   }
   .team-builder__maintenance {
-    width: min(560px, calc(100vw - 24px));
-    height: auto;
+    width: min(900px, calc(100vw - 24px));
   }
   .team-builder__maintenance .team-builder__section {
     padding: 0;
     background: transparent;
+  }
+  .team-builder__inventory-tabs {
+    flex-shrink: 0;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+  }
+  .team-builder__card-editor {
+    width: min(600px, calc(100vw - 24px));
+  }
+  .team-builder__maintenance .team-builder__owned-card {
+    display: grid;
+    min-width: 0;
+    align-content: start;
+    gap: var(--md-sys-spacing-2);
+  }
+  .team-builder__card-character {
+    display: flex;
+    align-items: center;
+    gap: var(--md-sys-spacing-2);
+  }
+  .team-builder__practice-values {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+  }
+  .team-builder__practice-values > span {
+    display: grid;
+    min-width: 0;
+  }
+  .team-builder__practice-values > span > span {
+    overflow-wrap: anywhere;
+  }
+  .team-builder__practice-values strong {
+    color: var(--md-sys-color-on-surface);
+    font-variant-numeric: tabular-nums;
+  }
+  .team-builder__practice-control {
+    display: grid;
+    min-width: 0;
+    gap: var(--md-sys-spacing-2);
+  }
+  .team-builder :is(.team-builder__card-grid, .selection-pane .collection--member, .selection-pane .collection--support) .tile__subtitle {
+    height: auto;
+    align-items: start;
+    white-space: normal;
+  }
+  .team-builder :is(.team-builder__card-grid, .selection-pane .collection--member, .selection-pane .collection--support) .tile__subtitle > span:last-child {
+    display: grid;
+    gap: var(--md-sys-spacing-2);
+    white-space: normal;
+    overflow: visible;
   }
   .team-builder {
     display: grid;
@@ -109,16 +158,6 @@
   }
   .team-builder__result-area {
     min-width: 0;
-  }
-  .team-builder__inventory-fold > .team-builder__section,
-  .team-builder__growth-fold > .team-builder__section {
-    padding-inline: 0;
-    background: transparent;
-  }
-  .team-builder__inventory-fold .team-builder__owned {
-    max-height: min(48dvh, 480px);
-    overflow: auto;
-    overscroll-behavior: contain;
   }
   .team-builder__results {
     padding: 0;
@@ -382,7 +421,7 @@
     .team-builder__modifier-fields {
       grid-template-columns: minmax(0, 1fr);
     }
-    .team-builder .selection-pane .collection {
+    .team-builder .selection-pane .collection:not(.collection--system) {
       --tile-min: 120px;
     }
   }

@@ -11,6 +11,7 @@ import { resolveLocalizedText } from "../lib/localized-text";
 import { readReleaseServer } from "../lib/release-server";
 import { observeSongDisplay, songTitle } from "../lib/song-display";
 import { fetchCurrentTeamBuilderIdentity, fetchTeamBuilderData } from "../lib/team-builder/data/fetch";
+import { validateNativeEventScene } from "../lib/team-builder/solver/native-event-scene";
 import { getTeamBuilderCapabilities } from "../lib/team-builder/solver/capabilities";
 import { clearAppBarActions, clearAppBarSearch, setAppBarActions } from "../lib/app-bar";
 import {
@@ -22,6 +23,7 @@ import {
 } from "../lib/team-builder/data";
 import type {
   Objective,
+  NativeEventScene,
   PlayMode,
   SearchConstraints,
   SearchResult,
@@ -54,7 +56,7 @@ import {
   type MemberEntry,
   type SnapshotEntry,
 } from "../lib/team-builder/inventory";
-import { renderPane, PaneFocus } from "./ui/pane";
+import { PaneFocus } from "./ui/pane";
 import { specList } from "./ui/spec";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
 import { filterChip, iconButton, segmented } from "./ui/controls";
@@ -63,10 +65,13 @@ import { songTile, liveMusicTypeMark } from "./shared/song-tile";
 import { cardTile } from "./shared/card-tile";
 import { SearchCheckpointStore } from "./shared/search-checkpoint-store";
 import { fetchCatalogVisuals } from "../lib/catalog-visuals";
-import { uiText } from "./shared/catalog";
+import { uiText, gameDateTimeRange } from "./shared/catalog";
+import { eventArtwork, eventBanner } from "./ui/event-artwork";
+import { createEventConditionPreview, type EventBonusAxis } from "./shared/event-condition-preview";
 import { tile, tileMedia, type TileOptions } from "./ui/tile";
 import { LazyImages } from "./ui/lazy-images";
 import { difficultyKey, difficultyPicker } from "./ui/difficulty-picker";
+import { renderLevelSwitch } from "./ui/level-switch";
 import { loadingState } from "./ui/state";
 import {
   InventoryStore,
@@ -122,6 +127,15 @@ export class TeamBuilder extends LitElement {
     consumptionAmount: { state: true },
     consumptionResource: { state: true },
     selectedEvent: { state: true },
+    selectingEvent: { state: true },
+    pickerEvent: { state: true },
+    pickerEventStatus: { state: true },
+    eventFlowKind: { state: true },
+    eventConsumption: { state: true },
+    eventBonusFilter: { state: true },
+    applyEventScene: { state: true },
+    eventStartText: { state: true },
+    eventSingleHeld: { state: true },
     error: { state: true },
     result: { state: true },
     resultView: { state: true },
@@ -138,6 +152,7 @@ export class TeamBuilder extends LitElement {
     bulkOnlyMissing: { state: true },
     bulkPreview: { state: true },
     maintenanceOpen: { state: true },
+    inventoryTab: { state: true },
     searchError: { state: true },
     saveState: { state: true },
     visibleLimit: { state: true },
@@ -187,6 +202,15 @@ export class TeamBuilder extends LitElement {
   declare consumptionAmount: number | null;
   declare consumptionResource: "live-boost" | "event-item";
   declare selectedEvent: string;
+  declare selectingEvent: boolean;
+  declare pickerEvent: string;
+  declare pickerEventStatus: string;
+  declare eventFlowKind: "normal" | "challenge" | "";
+  declare eventConsumption: number | null;
+  declare eventBonusFilter: EventBonusAxis | "";
+  declare applyEventScene: boolean;
+  declare eventStartText: string;
+  declare eventSingleHeld: boolean;
   declare error: string;
   declare result: SearchResult | null;
   declare resultView: "overall" | "by-chart";
@@ -203,6 +227,7 @@ export class TeamBuilder extends LitElement {
   declare bulkOnlyMissing: boolean;
   declare bulkPreview: BulkPreview | null;
   declare maintenanceOpen: boolean;
+  declare inventoryTab: "cards" | "growth" | "sync";
   declare searchError: string;
   declare saveState: string;
   declare visibleLimit: number;
@@ -237,10 +262,13 @@ export class TeamBuilder extends LitElement {
   private visualsController?: AbortController;
   private activeSelector?: HTMLDialogElement;
   private selectorOpener?: HTMLElement;
+  private editFromInventory = false;
+  private returnOwnedFocus = "";
   private images = new LazyImages();
   private paneFocus = new PaneFocus();
   private worker?: Worker;
   private checkpointCache: SearchCheckpointStore | null = null;
+  private eventPreview: { data: TeamBuilderData; inventory: InventoryV1; value: ReturnType<typeof createEventConditionPreview> | null } | null = null;
   private completedSearch: {
     request: SearchRunRequest;
     result: SearchResult;
@@ -403,6 +431,14 @@ export class TeamBuilder extends LitElement {
     this.searchError = "";
     this.pendingRebase = null;
     if (!sameServer) {
+      this.selectedEvent = "";
+      this.eventFlowKind = "";
+      this.eventConsumption = null;
+      this.eventBonusFilter = "";
+      this.applyEventScene = false;
+        this.eventStartText = "";
+      this.eventSingleHeld = false;
+      this.eventPreview = null;
       this.pendingUniqueness = null;
       this.uniquenessChoices = {};
       this.uniquenessOriginalText = "";
@@ -604,7 +640,7 @@ export class TeamBuilder extends LitElement {
                       if (!entry) return nothing;
                       const name =
                         this.text(this.catalogEntry(entry.cardId, kind)?.name) ||
-                        this.t("unavailable", "Required data or formula is unavailable");
+                        `${this.t(kind, kind)} · #${entry.cardId} · ${clientText(this.locale, "unavailable", "Unavailable")}`;
                       return html`
                         <li>
                           <button
@@ -829,7 +865,7 @@ export class TeamBuilder extends LitElement {
       <dialog
         class="selection-pane team-builder__maintenance"
         data-inventory-maintenance
-        aria-label=${this.t("inventoryActions", "Inventory and sync")}
+        aria-label=${this.t("teamSetup", "Team setup")}
         @cancel=${(event: Event) => {
           event.preventDefault();
           this.maintenanceOpen = false;
@@ -839,9 +875,20 @@ export class TeamBuilder extends LitElement {
         }}
       >
         <header class="sheet__header">
-          <strong>${this.t("inventoryActions", "Inventory and sync")}</strong>
+          <strong>${this.t("teamSetup", "Team setup")}</strong>
           ${iconButton({ icon: "close", label: clientText(this.locale, "close", "Close"), onClick: () => (this.maintenanceOpen = false) })}
         </header>
+        <div class="team-builder__inventory-tabs">
+          ${segmented({
+            label: this.t("teamSetup", "Team setup"), value: this.inventoryTab, grow: true,
+            options: [
+              { value: "cards", label: this.t("inventoryCardsTab", "Cards") },
+              { value: "growth", label: this.t("inventoryGrowthTab", "Growth") },
+              { value: "sync", label: this.t("inventorySyncTab", "Sync") },
+            ],
+            onSelect: (value) => (this.inventoryTab = value),
+          })}
+        </div>
         <div class="selection-pane__body">
           ${this.dataLoading || ["loading", "auth-loading"].includes(this.saveState) ? loadingState(clientText(this.locale, "loading", "Loading")) : nothing}
           ${
@@ -860,7 +907,12 @@ export class TeamBuilder extends LitElement {
                 `
               : nothing
           }
-          ${this.renderStorage()}${this.renderUniqueness()}${this.renderRebase()}
+          ${this.inventoryTab === "sync"
+            ? html`${this.renderStorage()}${this.renderUniqueness()}${this.renderRebase()}`
+            : this.data && this.inventory && !this.pendingUniqueness && !this.pendingRebase
+              ? html`<div ?inert=${!this.canEdit}>${this.inventoryTab === "cards" ? this.renderLibrary() : html`${this.renderPlayerModifiers()}${this.renderBands()}`}</div>`
+              : html`<button class="button button--outlined" @click=${() => (this.inventoryTab = "sync")}>${this.t("inventoryReadyAction", "Open inventory")}</button>`}
+
         </div>
       </dialog>
     `;
@@ -1046,6 +1098,15 @@ export class TeamBuilder extends LitElement {
     this.consumptionAmount = null;
     this.consumptionResource = "live-boost";
     this.selectedEvent = "";
+    this.selectingEvent = false;
+    this.pickerEvent = "";
+    this.pickerEventStatus = "";
+    this.eventFlowKind = "";
+    this.eventConsumption = null;
+    this.eventBonusFilter = "";
+    this.applyEventScene = false;
+    this.eventStartText = "";
+    this.eventSingleHeld = false;
     this.error = "";
     this.result = null;
     this.resultView = "overall";
@@ -1062,6 +1123,7 @@ export class TeamBuilder extends LitElement {
     this.bulkOnlyMissing = true;
     this.bulkPreview = null;
     this.maintenanceOpen = false;
+    this.inventoryTab = "cards";
     this.searchError = "";
     this.saveState = "auth-loading";
     this.visibleLimit = 30;
@@ -1134,7 +1196,7 @@ export class TeamBuilder extends LitElement {
     if (!this.isConnected) return;
     this.images.observe(this);
     const selector = this.querySelector<HTMLDialogElement>("dialog.selection-pane");
-    const modal = this.addingCards || this.selectingSong || this.maintenanceOpen || Boolean(this.editingId);
+    const modal = this.addingCards || this.selectingSong || this.selectingEvent || this.maintenanceOpen || Boolean(this.editingId);
     const content = this.querySelector<HTMLElement>(".team-builder__content");
     // Enable the opener before PaneFocus restores focus when the dialog closes.
     if (content && !modal) content.inert = false;
@@ -1159,16 +1221,24 @@ export class TeamBuilder extends LitElement {
       else if (!modal && maintenanceClosed)
         document.querySelector<HTMLElement>(`[data-app-bar-owner="${OWNER}"] button`)?.focus();
     }
+    if (this.returnOwnedFocus && this.maintenanceOpen && this.inventoryTab === "cards") {
+      const id = this.returnOwnedFocus; this.returnOwnedFocus = "";
+      requestAnimationFrame(() => {
+        const target = [...this.querySelectorAll<HTMLElement>("[data-open-item]")].find((node) => node.dataset.openItem === id);
+        (target ?? document.querySelector<HTMLElement>(`[data-app-bar-owner="${OWNER}"] button`))?.focus({ preventScroll: true });
+      });
+    }
     if (content && modal) content.inert = true;
 
     setAppBarActions(
       OWNER,
       iconButton({
         icon: "manage_accounts",
-        label: this.t("inventoryActions", "Inventory and sync"),
+        label: this.t("teamSetup", "Team setup"),
         badge: this.maintenanceNeedsAction ? 1 : undefined,
         onClick: () => {
           this.closePane();
+          this.inventoryTab = this.canEdit ? "cards" : "sync";
           this.maintenanceOpen = true;
         },
       }),
@@ -1192,6 +1262,26 @@ export class TeamBuilder extends LitElement {
       supportSkillLevel: "Support skill level",
     };
     return this.t(key.replace(/Level$/u, key === "level" ? "level" : ""), labels[key] ?? key);
+  }
+  private practiceSlider(label: string, levels: number[], value: number | null, update: (value: number | null) => void) {
+    const legal = [...new Set(levels)].filter(Number.isSafeInteger).sort((a, b) => a - b);
+    const disabled = !this.sourceReady || this.dataLoading || !legal.length;
+    return html`<div class="team-builder__practice-control">
+      ${this.check(label + " · " + this.t("notSet", "Not set"), value === null, (unknown) => update(unknown ? null : legal[0]), disabled)}
+      ${value === null
+        ? nothing
+        : !legal.includes(value)
+          ? html`<p role="status" class="team-builder__hint">${label}: ${value} · ${this.t("needsReview", "Needs review")}</p>`
+          : legal.length > 1
+            ? html`<div ?inert=${disabled}>${renderLevelSwitch(label, legal, value, update)}</div>`
+            : html`<strong>${label}: ${value}</strong>`}
+      ${!legal.length ? html`<span class="team-builder__hint">${this.t("modifierDomainUnavailable", "Rank rules unavailable")}</span>` : nothing}
+    </div>`;
+  }
+  private get bulkLevels() {
+    if (!this.data || !this.selectedEntries.length) return [];
+    const domains = this.selectedEntries.map(({ kind, entry }) => practiceRanges(this.data!, kind, entry.cardId, entry)[this.bulkField] ?? []);
+    return domains[0].filter((value) => domains.every((domain) => domain.includes(value)));
   }
   private numericField(
     label: string,
@@ -1222,9 +1312,11 @@ export class TeamBuilder extends LitElement {
     value: string,
     entries: { value: string; label: string; disabled?: boolean }[],
     change: (value: string) => void,
+    disabled = false,
   ) {
     return html`
       <md-outlined-select
+        ?disabled=${disabled}
         label=${label}
         .value=${value}
         .displayText=${entries.find((entry) => entry.value === value)?.label ?? ""}
@@ -1358,64 +1450,63 @@ export class TeamBuilder extends LitElement {
   private closePane(keepMaintenance = false) {
     if (!keepMaintenance) this.maintenanceOpen = false;
     this.selectingSong = false;
+    this.selectingEvent = false;
     this.addingCards = false;
     this.editingId = "";
   }
+  private inventoryCardOptions(card: MemberCatalog | SnapshotCatalog, kind: Kind): TileOptions {
+    const options = this.cardOptions(card, kind);
+    const entry = this.inventory?.[kind].find((row) => row.cardId === card.id);
+    if (!entry) return options;
+    const fields = kind === "members" ? ["level", "training", "awakening", "liveSkillLevel", "gekisoSkillLevel"] : ["level", "awakening"];
+    return {
+      ...options,
+      label: [options.label, this.t("alreadyOwned", "Owned"),
+        ...fields.map((field) => this.fieldName(field) + ": " + ((entry as unknown as Record<string, number | null>)[field] ?? this.t("notSet", "Not set"))),
+        ...(entry.locked ? [this.t("locked", "Locked")] : []),
+        ...(entry.excluded ? [this.t("excluded", "Excluded")] : []),
+      ].join(" · "),
+      adornment: nothing,
+      subtitle: html`<span class="team-builder__card-character">${options.adornment}${this.characterNames(card)}</span><span class="team-builder__practice-values" role="group" aria-label=${this.t("editPractice", "Edit training")}>
+        ${fields.map((field) => html`<span><span>${this.t("practiceShort_" + field, this.fieldName(field))}</span><strong>${(entry as unknown as Record<string, number | null>)[field] ?? this.t("notSet", "Not set")}</strong></span>`)}
+        ${entry.locked ? html`<span>${this.t("locked", "Locked")}</span>` : nothing}
+        ${entry.excluded ? html`<span>${this.t("excluded", "Excluded")}</span>` : nothing}
+      </span>${this.renderEventCardBonuses(kind, entry.instanceId)}`,
+      marks: [...(options.marks ?? []), { at: "bottom-start", text: this.t("alreadyOwned", "Owned") }],
+    };
+  }
   private renderEntry(entry: MemberEntry | SnapshotEntry, kind: Kind) {
     const card = this.catalogEntry(entry.cardId, kind);
-    const name = this.text(card?.name) || this.t("unavailable", "Required data or formula is unavailable");
-    const accessibleName = [this.t(kind, kind), name].filter(Boolean).join(" · ");
-    return html`
-      <li class="team-builder__owned-row">
-        <div class="team-builder__identity">
-          ${this.check(
-            this.t("selected", "Selected") + ": " + accessibleName,
-            this.selectedIds.has(entry.instanceId),
-            (selected) => {
-              const ids = new Set(this.selectedIds);
-              if (selected) ids.add(entry.instanceId);
-              else ids.delete(entry.instanceId);
-              this.selectedIds = ids;
-              this.bulkPreview = null;
-              if (!this.bulkFields.includes(this.bulkField)) this.bulkField = "level";
-            },
-          )}
-          ${this.artwork(card, kind)}
-          <span class="list-item__body">
-            <strong class="list-item__headline">${name}</strong>
-            <span class="list-item__supporting">
-              ${card ? this.cardOptions(card, kind).adornment : nothing} ${this.t(kind, kind)} ·
-              ${this.characterNames(card)}${
-                card
-                  ? html`
-                      · ${this.rarityMark(card)} · ${this.attributeName(card)}
-                    `
-                  : nothing
-              }
-            </span>
-            <small class="team-builder__hint">
-              ${this.fieldName("level")}: ${entry.level ?? this.t("notSet", "Not set")} ·
-              ${this.fieldName("awakening")}: ${entry.awakening ?? this.t("notSet", "Not set")}
-              ${entry.locked ? " · " + this.t("locked", "Locked") : entry.excluded ? " · " + this.t("excluded", "Excluded") : ""}
-            </small>
-          </span>
-          ${iconButton({
-            icon: "edit",
-            label: this.t("editPractice", "Edit training") + ": " + accessibleName,
-            onClick: () => this.openOwnedCard(entry.instanceId, kind),
-          })}
-        </div>
-      </li>
-    `;
+    if (!card) return nothing;
+    return html`<div class="team-builder__owned-card" role="group" aria-label=${this.text(card.name)}>
+      ${tile({ ...this.inventoryCardOptions(card, kind), itemId: entry.instanceId, onOpen: () => this.openOwnedCard(entry.instanceId, kind) })}
+      ${this.check(this.t("selected", "Selected"), this.selectedIds.has(entry.instanceId), (selected) => {
+        const ids = new Set(this.selectedIds); if (selected) ids.add(entry.instanceId); else ids.delete(entry.instanceId);
+        this.selectedIds = ids; this.bulkPreview = null; if (!this.bulkFields.includes(this.bulkField)) this.bulkField = "level";
+      })}
+    </div>`;
   }
   private batchKey(cardId: number, kind: Kind = this.kind): string {
     return `${kind}:${cardId}`;
   }
   private openOwnedCard(instanceId: string, kind: Kind) {
     if (!this.canEdit || !this.inventory?.[kind].some((entry) => entry.instanceId === instanceId)) return;
+    const fromInventory = this.maintenanceOpen;
     this.closePane();
+    this.editFromInventory = fromInventory;
     this.kind = kind;
     this.editingId = instanceId;
+  }
+  private closeOwnedEditor() {
+    const returnToInventory = this.editFromInventory;
+    const id = this.editingId;
+    this.closePane();
+    this.editFromInventory = false;
+    if (returnToInventory) {
+      this.inventoryTab = "cards";
+      this.maintenanceOpen = true;
+      this.returnOwnedFocus = id;
+    }
   }
   private resultCard(entry: MemberEntry | SnapshotEntry | undefined, kind: Kind, leader = false) {
     if (!entry) return nothing;
@@ -1473,6 +1564,7 @@ export class TeamBuilder extends LitElement {
         );
         if (!this.bulkFields.includes(this.bulkField)) this.bulkField = "level";
       }
+      if (requests.length > 1 && this.editFromInventory) this.closeOwnedEditor();
       if (requests.length === 1) {
         this.kind = requests[0].kind;
         this.editingId =
@@ -1497,16 +1589,19 @@ export class TeamBuilder extends LitElement {
       ? ["level", "awakening"]
       : ["level", "training", "awakening", "liveSkillLevel", "gekisoSkillLevel"];
   }
+  private get filteredOwnedEntries() {
+    return this.ownedEntries.filter(({ kind, entry }) => {
+      const card = this.catalogEntry(entry.cardId, kind);
+      const textMatches = [this.text(card?.name), this.characterNames(card), this.t(kind, kind)]
+        .join(" ").toLocaleLowerCase().includes(this.query.toLocaleLowerCase());
+      if (!textMatches) return false;
+      if (!this.selectedEvent || !this.eventBonusFilter) return true;
+      const bonus = this.eventCardBonuses(kind, entry.instanceId)?.[this.eventBonusFilter] ?? null;
+      return bonus === null || bonus > 0;
+    });
+  }
   private get visibleOwnedEntries() {
-    return this.ownedEntries
-      .filter(({ kind, entry }) => {
-        const card = this.catalogEntry(entry.cardId, kind);
-        return [this.text(card?.name), this.characterNames(card), this.t(kind, kind)]
-          .join(" ")
-          .toLocaleLowerCase()
-          .includes(this.query.toLocaleLowerCase());
-      })
-      .slice(0, this.visibleLimit);
+    return this.filteredOwnedEntries.slice(0, this.visibleLimit);
   }
   private selectVisibleOwned() {
     this.selectedIds = new Set([...this.selectedIds, ...this.visibleOwnedEntries.map(({ entry }) => entry.instanceId)]);
@@ -1671,7 +1766,7 @@ export class TeamBuilder extends LitElement {
         id: "team-card-picker",
         title: this.t("choose", "Choose card"),
         closeLabel: clientText(this.locale, "close", "Close"),
-        close: () => this.closePane(),
+        close: () => this.closeOwnedEditor(),
         searchLabel: clientText(this.locale, "search", "Search"),
         filterLabel: this.t("pickerFilters", "Filters"),
         filtersOpen: this.pickerFiltersOpen,
@@ -1764,14 +1859,7 @@ export class TeamBuilder extends LitElement {
           </div>
         `,
         items: matching.slice(0, this.pickerLimit).map((card) => ({
-          ...this.cardOptions(card),
-          value: String(card.id),
-          marks: [
-            ...(this.cardOptions(card).marks ?? []),
-            ...(this.inventory?.[this.kind].some((entry) => entry.cardId === card.id)
-              ? [{ at: "bottom-start" as const, text: this.t("alreadyOwned", "Owned") }]
-              : []),
-          ],
+          ...this.inventoryCardOptions(card, this.kind), value: String(card.id),
         })),
         preview: html`
           ${
@@ -1826,21 +1914,22 @@ export class TeamBuilder extends LitElement {
     const entry = this.inventory?.[this.kind].find((row) => row.instanceId === this.editingId);
     if (!entry) return nothing;
     const card = this.catalogEntry(entry.cardId);
+    const editorTitle = this.text(card?.name) || `${this.t(this.kind, this.kind)} · #${entry.cardId} · ${clientText(this.locale, "unavailable", "Unavailable")}`;
     const ranges = practiceRanges(this.data, this.kind, entry.cardId, entry);
     const fields =
       this.kind === "members"
         ? ["level", "training", "awakening", "liveSkillLevel", "gekisoSkillLevel"]
         : ["level", "awakening"];
-    return renderPane({
-      title: this.text(card?.name),
-      subtitle: this.characterNames(card),
-      open: true,
-      backLabel: clientText(this.locale, "back", "Back"),
-      onClose: () => this.closePane(),
-      id: "team-card-edit",
-      kind: "team-builder-edit",
-      leading: this.artwork(card),
-      body: html`
+    return html`
+      <dialog class="selection-pane team-builder__card-editor" aria-label=${editorTitle}
+        @cancel=${(event: Event) => { event.preventDefault(); this.closeOwnedEditor(); }}
+        @click=${(event: MouseEvent) => { if (event.target === event.currentTarget) this.closeOwnedEditor(); }}>
+        <header class="sheet__header"><strong>${editorTitle}</strong>
+          ${iconButton({ icon: "close", label: clientText(this.locale, "close", "Close"), onClick: () => this.closeOwnedEditor() })}
+        </header>
+        <div class="selection-pane__body">
+          <div class="team-builder__identity">${this.artwork(card)}<span>${card ? this.cardOptions(card, this.kind).adornment : nothing}${this.characterNames(card)}</span></div>
+
         <section class="detail-section">
           ${renderDetailSectionHeading(this.t("editPractice", "Edit training"), "stats", { level: 2 })}
           ${
@@ -1860,26 +1949,9 @@ export class TeamBuilder extends LitElement {
                 `
               : nothing
           }
-          <div class="team-builder__fields">
-            ${fields.map((field) => {
-              const value = (entry as unknown as Record<string, number | null>)[field];
-              return field === "level"
-                ? this.numericField(
-                    this.fieldName(field),
-                    value,
-                    (value) => this.patch([entry.instanceId], { [field]: value }),
-                    { min: ranges[field]?.at(0), max: ranges[field]?.at(-1) },
-                  )
-                : this.select(
-                    this.fieldName(field),
-                    value === null ? "" : String(value),
-                    [
-                      { value: "", label: this.t("notSet", "Not set") },
-                      ...(ranges[field] ?? []).map((value) => ({ value: String(value), label: String(value) })),
-                    ],
-                    (value) => this.patch([entry.instanceId], { [field]: value === "" ? null : Number(value) }),
-                  );
-            })}
+          <div class="card-detail-controls">
+            ${fields.map((field) => this.practiceSlider(this.fieldName(field), ranges[field] ?? [],
+              (entry as unknown as Record<string, number | null>)[field], (value) => this.patch([entry.instanceId], { [field]: value })))}
           </div>
           ${
             this.derivedSkillRows(entry, this.kind).length
@@ -1901,33 +1973,31 @@ export class TeamBuilder extends LitElement {
             ${this.check(this.t("excluded", "Excluded"), entry.excluded, (value) => this.patch([entry.instanceId], { excluded: value, ...(value ? { locked: false } : {}) }))}
           </div>
         </section>
-      `,
-      footer: html`
+
+        </div>
+        <footer class="selection-pane__footer">
+
         <div class="team-builder__actions">
-          <button class="button" @click=${() => this.closePane()}>${clientText(this.locale, "close", "Close")}</button>
+          <button class="button" @click=${() => this.closeOwnedEditor()}>${clientText(this.locale, "close", "Close")}</button>
           <button
             class="button button--text"
             @click=${() => {
               if (this.inventory)
                 this.replaceInventory(removeInventoryEntry(this.inventory, this.kind, entry.instanceId));
-              this.closePane();
+              this.closeOwnedEditor();
             }}
           >
             ${clientText(this.locale, "remove", "Remove")}
           </button>
         </div>
-      `,
-    });
+
+        </footer>
+      </dialog>
+    `;
   }
   private renderLibrary() {
     const entries = this.ownedEntries;
-    const visible = entries.filter(({ kind, entry }) => {
-      const card = this.catalogEntry(entry.cardId, kind);
-      return [this.text(card?.name), this.characterNames(card), this.t(kind, kind)]
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(this.query.toLocaleLowerCase());
-    });
+    const visible = this.filteredOwnedEntries;
     return html`
       <section class="team-builder__section" aria-label=${this.t("library", "Card library")}>
         <div class="team-builder__section-header">
@@ -1936,6 +2006,7 @@ export class TeamBuilder extends LitElement {
             class="button"
             ?disabled=${!this.canEdit}
             @click=${() => {
+              this.editFromInventory = this.maintenanceOpen;
               this.closePane();
               this.addingCards = true;
               this.picker = "";
@@ -1961,6 +2032,12 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
+        ${this.selectedEvent && entries.length
+          ? this.select(this.t("eventBonusFilter", "Show event bonus cards"), this.eventBonusFilter, [
+              { value: "", label: clientText(this.locale, "all", "All") },
+              ...(["points", "items", "power"] as const).map((value) => ({ value, label: this.eventBonusLabel(value) })),
+            ], (value) => { this.eventBonusFilter = value as EventBonusAxis | ""; this.visibleLimit = 30; this.bulkPreview = null; })
+          : nothing}
         ${
           entries.length
             ? html`
@@ -2001,9 +2078,8 @@ export class TeamBuilder extends LitElement {
                       this.bulkPreview = null;
                     },
                   )}
-                  ${this.numericField(this.fieldName(this.bulkField), this.bulkValue, (value) => {
-                    this.bulkValue = value;
-                    this.bulkPreview = null;
+                  ${this.practiceSlider(this.fieldName(this.bulkField), this.bulkLevels, this.bulkValue, (value) => {
+                    this.bulkValue = value; this.bulkPreview = null;
                   })}
                   <button
                     class="button button--tonal"
@@ -2024,9 +2100,9 @@ export class TeamBuilder extends LitElement {
         ${
           entries.length
             ? html`
-                <ul class="list team-builder__owned">
+                <div class="collection collection--member team-builder__owned team-builder__card-grid">
                   ${visible.slice(0, this.visibleLimit).map(({ entry, kind }) => this.renderEntry(entry, kind))}
-                </ul>
+                </div>
               `
             : html`
                 <p>${this.t("emptyLibrary", "Add owned cards or import inventory JSON.")}</p>
@@ -2281,7 +2357,9 @@ export class TeamBuilder extends LitElement {
         <summary>${this.t("applicableConditions", "Applicable conditions")}</summary>
         <p class="team-builder__hint">
           ${
-            this.gekisoSoloForecast
+            this.wantsEventScene
+              ? this.t("eventForecastScope", "Forecast for the specified single-event scenario")
+              : this.gekisoSoloForecast
               ? this.t(
                   "gekisoSoloForecastScope",
                   "Personal Solo SS forecast. Live score and event rewards are unavailable.",
@@ -2405,13 +2483,212 @@ export class TeamBuilder extends LitElement {
       </p>
     `;
   }
+  private get eventConditionPreview() {
+    if (!this.data || !this.inventory || !this.selectedEvent) return null;
+    if (this.eventPreview?.data !== this.data || this.eventPreview.inventory !== this.inventory) {
+      try {
+        this.eventPreview = { data: this.data, inventory: this.inventory, value: createEventConditionPreview(this.data, this.inventory) };
+      } catch {
+        this.eventPreview = { data: this.data, inventory: this.inventory, value: null };
+      }
+    }
+    return this.eventPreview.value;
+  }
+  private eventCardBonuses(kind: Kind, instanceId: string) {
+    return this.eventConditionPreview?.bonus(this.selectedEvent, kind, instanceId);
+  }
+  private eventBonusLabel(axis: EventBonusAxis) {
+    return this.t(axis === "power" ? "powerBonus" : axis === "points" ? "pointsBonus" : "itemsBonus", axis === "power" ? "Power bonus" : axis === "points" ? "Point bonus" : "Item bonus");
+  }
+  private renderEventCardBonuses(kind: Kind, instanceId: string) {
+    if (!this.selectedEvent || !this.data?.events[this.selectedEvent]) return nothing;
+    const bonus = this.eventCardBonuses(kind, instanceId);
+    if (!bonus || Object.values(bonus).every((value) => value === null))
+      return html`<small class="team-builder__hint">${this.t("eventBonusUnknown", "Event bonus unknown")}</small>`;
+    if (Object.values(bonus).every((value) => value === 0))
+      return html`<small class="team-builder__hint">${this.t("noEventBonus", "No event bonus")}</small>`;
+    return html`<small class="team-builder__hint">${(["points", "items", "power"] as const).map((axis, index) => html`
+      ${index ? " · " : ""}${this.eventBonusLabel(axis)}:
+      ${bonus?.[axis] === null || bonus?.[axis] === undefined ? this.t("unknown", "Unknown or not entered") : (bonus[axis]! / 100).toLocaleString(this.locale, { maximumFractionDigits: 2 }) + "%"}
+    `)}</small>`;
+  }
+  private eventTimestamp(value: unknown) {
+    const number = Number(Array.isArray(value) ? value.find((entry) => Number(entry) > 0) : value);
+    return Number.isFinite(number) && number > 0 ? number : 0;
+  }
+  private eventStatus(id: string) {
+    const event = this.data?.events[id];
+    const start = this.eventTimestamp(event?.startAt), end = this.eventTimestamp(event?.endAt);
+    if (!start || !end) return "unknown";
+    const now = Date.now();
+    return start > now ? "upcoming" : end <= now ? "ended" : "ongoing";
+  }
+  private eventOptions(id: string): TileOptions {
+    const event = this.data?.events[id];
+    const title = resolveLocalizedText(event?.title ?? event?.name, this.locale);
+    const image = String(event?.image ?? "");
+    const background = String(event?.backgroundImage ?? ""), logo = String(event?.logo ?? "");
+    const dates = gameDateTimeRange(this.locale, this.eventTimestamp(event?.startAt), this.eventTimestamp(event?.endAt));
+    return {
+      kind: "event", title: title.text, titleLanguage: title.locale, label: [title.text, dates].filter(Boolean).join(" · "),
+      subtitle: dates || this.t("unknown", "Unknown or not entered"), image, aspectRatio: "7 / 3", fit: "contain",
+      media: background && logo ? eventArtwork(background, logo, title.text) : image ? eventBanner(image, title.text) : undefined,
+    };
+  }
+  private renderEventPane() {
+    if (!this.selectingEvent || !this.data) return nothing;
+    const matching = Object.keys(this.data.events).filter((id) =>
+      /^[1-9]\d*$/.test(id) && (!this.pickerEventStatus || this.eventStatus(id) === this.pickerEventStatus) &&
+      this.text(this.data!.events[id].title ?? this.data!.events[id].name).toLocaleLowerCase().includes(this.pickerQuery.toLocaleLowerCase()),
+    );
+    const chosen = this.data.events[this.pickerEvent];
+    return selectionPane({
+      id: "team-event-picker", title: this.t("eventPreview", "Event conditions preview"),
+      closeLabel: clientText(this.locale, "close", "Close"), close: () => this.closePane(),
+      searchLabel: clientText(this.locale, "search", "Search"), filterLabel: this.t("pickerFilters", "Filters"),
+      filtersOpen: this.pickerFiltersOpen, toggleFilters: () => (this.pickerFiltersOpen = !this.pickerFiltersOpen),
+      query: this.pickerQuery, search: (value) => { this.pickerQuery = value; this.pickerLimit = 30; },
+      kind: "system", selected: this.pickerEvent, select: (value) => (this.pickerEvent = value),
+      countLabel: this.t("pickerCount", "{count} matching entries", { count: matching.length }),
+      emptyLabel: this.t("pickerEmpty", "No matches. Adjust the search or filters."),
+      moreLabel: clientText(this.locale, "more", "More"),
+      more: matching.length > this.pickerLimit ? () => (this.pickerLimit += 30) : undefined,
+      filters: this.select(this.t("eventStatus", "Event status"), this.pickerEventStatus, [
+        { value: "", label: clientText(this.locale, "all", "All") },
+        ...["ongoing", "upcoming", "ended", "unknown"].map((value) => ({ value, label: this.t("eventStatus_" + value, value) })),
+      ], (value) => { this.pickerEventStatus = value; this.pickerLimit = 30; }),
+      items: matching.slice(0, this.pickerLimit).map((value) => ({ ...this.eventOptions(value), value })),
+      preview: html`
+        ${chosen ? html`
+          <strong>${this.text(chosen.title ?? chosen.name)}</strong>
+          <span class="team-builder__hint">${gameDateTimeRange(this.locale, this.eventTimestamp(chosen.startAt), this.eventTimestamp(chosen.endAt))}</span>
+        ` : nothing}
+        <button class="button" ?disabled=${!chosen} @click=${() => {
+          this.selectedEvent = this.pickerEvent; this.eventFlowKind = ""; this.eventConsumption = null;
+          this.eventBonusFilter = ""; this.visibleLimit = 30; this.bulkPreview = null; this.resetEventScene(); this.closePane();
+        }}>${this.t("previewEvent", "View event conditions")}</button>
+      `,
+    });
+  }
+  private get wantsEventScene() {
+    return this.applyEventScene || this.objectives.includes("event-points");
+  }
+  private resetEventScene() {
+    this.applyEventScene = false;
+    this.eventStartText = "";
+    this.eventSingleHeld = false;
+    this.optimizationInput = null;
+    this.clearResult();
+  }
+  private eventSceneChanged() {
+    if (this.wantsEventScene) {
+      this.optimizationInput = null;
+      this.clearResult();
+    }
+  }
+  private get eventWindows() {
+    const timing = this.eventConditionPreview?.sources.events[this.selectedEvent]?.timing;
+    if (!timing) return [];
+    const start = timing.startAt, end = timing.endAt;
+    const slots = Array.isArray(start) || Array.isArray(end) ? [0, 1, 2, 3, 4] : [0];
+    return slots.flatMap((slot) => {
+      const from = Array.isArray(start) ? start[slot] : start;
+      const to = Array.isArray(end) ? end[slot] : end;
+      if (typeof from !== "number" || !Number.isSafeInteger(from) || from < 0 || (to !== null && (typeof to !== "number" || !Number.isSafeInteger(to) || to < from))) return [];
+      return [{ slot: slot as NativeEventScene["masterTimeSlot"], start: from, end: to }];
+    });
+  }
+  private get eventSceneCandidate(): NativeEventScene | null {
+    const row = this.eventBoostRows.find((entry) => entry.consumedCount === this.eventConsumption);
+    const epochMilliseconds = this.eventStartText ? new Date(this.eventStartText).getTime() : NaN;
+    const matching = this.eventWindows.filter((entry) => epochMilliseconds >= entry.start && (entry.end === null || epochMilliseconds < entry.end));
+    const slot = matching.length === 1 ? matching[0] : undefined;
+    if (!this.selectedEvent || this.eventFlowKind !== "normal" || !row || !slot || !this.eventSingleHeld || !Number.isSafeInteger(epochMilliseconds)) return null;
+    return {
+      eventId: Number(this.selectedEvent), kind: this.eventFlowKind, consumedCount: row.consumedCount,
+      heldEventIds: [Number(this.selectedEvent)], masterTimeSlot: slot.slot,
+      liveStartServerTime: { epochMilliseconds, source: "explicit-scenario", reference: `planner-scenario:${this.data!.identity.server}:${this.data!.identity.releaseId}:${this.selectedEvent}:${epochMilliseconds}:${slot.slot}:${this.eventFlowKind}:${row.consumedCount}` },
+    };
+  }
+  private get eventScene() {
+    const scene = this.eventSceneCandidate;
+    return scene && this.data && !validateNativeEventScene(this.data, scene).length ? scene : null;
+  }
+  private get eventSceneHint() {
+    if (this.eventFlowKind === "challenge") return this.t("eventStageUnavailable", "This stage is not supported for calculation");
+    if (this.eventStartText) {
+      const time = new Date(this.eventStartText).getTime();
+      const matching = this.eventWindows.filter((entry) => time >= entry.start && (entry.end === null || time < entry.end));
+      if (Number.isSafeInteger(time) && !matching.length) return this.t("eventStartOutside", "Start time is outside the known event window");
+      if (matching.length > 1) return this.t("eventWindowAmbiguous", "The event window cannot be uniquely identified");
+    }
+    const scene = this.eventSceneCandidate;
+    if (scene && this.data && validateNativeEventScene(this.data, scene).some((gap) => gap.code === "native-event-source-unverified"))
+      return this.t("eventSceneUnavailable", "This event scenario is not supported");
+    if (scene && this.data && validateNativeEventScene(this.data, scene).some((gap) => gap.code === "native-event-not-held-at-live-start"))
+      return this.t("eventStartOutside", "Start time is outside the selected event window");
+    return this.t("eventSceneRequired", "Complete the event scenario");
+  }
+  private sceneField(label: string, value: string, change: (value: string) => void, type = "text") {
+    return html`<md-outlined-text-field type=${type} label=${label} .value=${live(value)} step=${type === "datetime-local" ? "0.001" : nothing}
+      @input=${(event: Event) => { change((event.currentTarget as Control).value); this.eventSceneChanged(); }}></md-outlined-text-field>`;
+  }
+  private renderEventSceneFields() {
+    if (!this.wantsEventScene) return nothing;
+    return html`
+      <div class="team-builder__fields">
+        ${this.sceneField(this.t("eventStart", "Scenario start (local time)"), this.eventStartText, (value) => (this.eventStartText = value), "datetime-local")}
+      </div>
+      <span class="team-builder__hint">${gameDateTimeRange(this.locale, this.eventTimestamp(this.data?.events[this.selectedEvent]?.startAt), this.eventTimestamp(this.data?.events[this.selectedEvent]?.endAt))}</span>
+      ${this.check(this.t("eventSingleHeld", "Only this event is held in this scenario"), this.eventSingleHeld, (value) => { this.eventSingleHeld = value; this.eventSceneChanged(); })}
+      ${!this.eventScene ? html`<p class="team-builder__hint" role="status">${this.eventSceneHint}</p>` : nothing}
+    `;
+  }
+  private get eventBoostRows() {
+    const sources = this.eventConditionPreview?.sources;
+    return (this.eventFlowKind === "normal" ? sources?.normalBoostRows : this.eventFlowKind === "challenge" ? sources?.challengeBoostRows : [])
+      ?.filter((row) => row.consumedCount >= 0) ?? [];
+  }
+  private renderEventInputs() {
+    const rows = this.eventBoostRows;
+    const selected = rows.find((row) => row.consumedCount === this.eventConsumption);
+    const availability = this.eventFlowKind ? this.eventConditionPreview?.sources.boostTableAvailability[this.eventFlowKind]?.status : undefined;
+    return html`
+      <div class="stack">
+      ${!this.objectives.includes("event-points") ? this.check(this.t("applyEventScene", "Apply event scenario"), this.applyEventScene, (value) => {
+        this.applyEventScene = value; this.optimizationInput = null; this.clearResult();
+      }, !this.supportsObjective("event-points") || this.objectives.every((value) => value === "base-score")) : nothing}
+      <div class="team-builder__fields">
+        ${this.select(this.t("eventStage", "Event stage"), this.eventFlowKind, [
+          { value: "", label: this.t("notSet", "Not set") },
+          { value: "normal", label: this.t("eventNormal", "Ordinary play") },
+          { value: "challenge", label: this.t("eventChallenge", "Challenge play") },
+        ], (value) => { this.eventFlowKind = value as "normal" | "challenge" | ""; this.eventConsumption = null; this.eventSceneChanged(); })}
+        ${this.select(this.t("eventConsumption", "Actual cost"), selected ? String(selected.consumedCount) : "", [
+          { value: "", label: this.t("notSet", "Not set") },
+          ...[...new Set(rows.map((row) => row.consumedCount))].sort((a, b) => a - b).map((value) => ({ value: String(value), label: value.toLocaleString(this.locale) + " " + (this.eventFlowKind === "normal" ? this.t("live-boost", "Live boost") : this.t("challengePoints", "Challenge points")) })),
+        ], (value) => { this.eventConsumption = value === "" ? null : Number(value); this.eventSceneChanged(); }, !rows.length)}
+      </div>
+      ${this.renderEventSceneFields()}
+      ${this.eventFlowKind && !rows.length ? html`<span role="status" class="team-builder__hint">${availability === "empty" ? this.t("eventCostEmpty", "This data has no consumption options") : availability === "unverified" ? this.t("eventCostUnverified", "Consumption options are unverified") : this.t("eventConsumptionUnavailable", "No consumption options available")}</span>` : nothing}
+      ${selected ? specList([
+        { label: this.t("pointMultiplier", "Point multiplier"), value: String(selected.eventPointRate) + "×" },
+        { label: this.t("itemMultiplier", "Item multiplier"), value: String(selected.rewardRate) + "×" },
+      ]) : nothing}
+      </div>
+    `;
+  }
   private renderEventConditions() {
     const event = this.data?.events[this.selectedEvent];
     if (!event) return nothing;
     const rules = objectRow(event.bonusRules);
     return html`
-      <details>
-        <summary>${this.t("eventConditions", "Event bonus conditions")}</summary>
+      <details open>
+        <summary>${this.wantsEventScene ? this.t("eventSceneTitle", "Event scenario") : this.t("eventPreview", "Event conditions preview")} · ${this.text(event.title ?? event.name)}</summary>
+        ${this.renderEventInputs()}
+        <button class="button button--text" @click=${() => { this.selectedEvent = ""; this.eventBonusFilter = ""; this.eventFlowKind = ""; this.eventConsumption = null; this.resetEventScene(); }}>${this.t("clearEventPreview", "Clear preview")}</button>
+        <details>
+          <summary>${this.t("eventConditions", "Event bonus conditions")}</summary>
         <p class="team-builder__hint">
           ${this.t("eventConditionsScope", "Published bonus conditions are separate from computed event rewards.")}
         </p>
@@ -2469,13 +2746,11 @@ export class TeamBuilder extends LitElement {
             </section>
           `;
         })}
+        </details>
       </details>
     `;
   }
   private renderGoals() {
-    const events = Object.entries(this.data?.events ?? {})
-      .map(([id, row]) => ({ value: id, label: this.text(row.title ?? row.name) }))
-      .filter((row) => row.label);
     return html`
       <section class="team-builder__section">
         ${renderDetailSectionHeading(this.t("goals", "Goals"), "difficulty", { level: 2 })}
@@ -2506,23 +2781,12 @@ export class TeamBuilder extends LitElement {
           >
             ${this.selectedSong ? this.t("changeSong", "Change song") : this.t("chooseSong", "Choose song")}
           </button>
-          ${
-            events.length && this.mode === "gekiso"
-              ? html`
-                  ${this.select(
-                    this.t("event", "Event"),
-                    this.selectedEvent,
-                    [{ value: "", label: clientText(this.locale, "unavailable", "Unavailable") }, ...events],
-                    (value) => {
-                      this.cancelSearch();
-                      this.result = null;
-                      this.optimizationInput = null;
-                      this.selectedEvent = value;
-                    },
-                  )}
-                `
-              : nothing
-          }
+          ${Object.keys(this.data?.events ?? {}).some((id) => /^[1-9]\d*$/.test(id))
+            ? html`<button class="button button--outlined" @click=${() => {
+                this.closePane(); this.selectingEvent = true; this.pickerEvent = this.selectedEvent;
+                this.pickerEventStatus = ""; this.pickerQuery = ""; this.pickerLimit = 30;
+              }}>${this.t("chooseEvent", "Choose event")}</button>`
+            : nothing}
           ${this.numericField(
             this.t("budget", "Search budget (seconds)"),
             this.budgetSeconds,
@@ -2814,32 +3078,14 @@ export class TeamBuilder extends LitElement {
     const ranges = playerModifierRanges(this.data);
     const { minimum, maximum } = ranges.characterTotalRank;
     const nativeTotalRange = minimum !== null && maximum !== null;
-    const vipEntries: { value: string; label: string; disabled?: boolean }[] = [
-      { value: "", label: this.t("notSet", "Not set") },
-      ...ranges.vipRanks.map((rank) => ({ value: String(rank), label: String(rank) })),
-    ];
-    if (modifiers.vipRank !== null && !ranges.vipRanks.includes(modifiers.vipRank))
-      vipEntries.push({
-        value: String(modifiers.vipRank),
-        label: `${modifiers.vipRank} · ${this.t("needsReview", "Needs review")}`,
-        disabled: true,
-      });
     return html`
       <div class="team-builder__modifier-content">
         <div class="team-builder__fields team-builder__modifier-fields">
-          ${this.numericField(
-            this.t("characterTotalRank", "All-character total rank"),
-            modifiers.characterTotalRank,
-            (value) => this.patchPlayerModifiers({ characterTotalRank: value }),
-            {
-              min: minimum ?? 0,
-              max: maximum ?? ranges.memoryPoints.maximum,
-              hint: nativeTotalRange
-                ? this.t("nativeRankRange", "{min}–{max}", { min: minimum, max: maximum })
-                : this.t("modifierDomainUnavailable", "Rank rules unavailable"),
-            },
-          )}
-          ${this.select(this.t("vipRank", "Actual VIP rank"), modifiers.vipRank === null ? "" : String(modifiers.vipRank), vipEntries, (value) => this.patchPlayerModifiers({ vipRank: value === "" ? null : Number(value) }))}
+          ${this.practiceSlider(this.t("characterTotalRank", "All-character total rank"), nativeTotalRange && maximum! - minimum! <= 10000
+            ? Array.from({ length: maximum! - minimum! + 1 }, (_, index) => minimum! + index) : [], modifiers.characterTotalRank,
+            (value) => this.patchPlayerModifiers({ characterTotalRank: value }))}
+          ${this.practiceSlider(this.t("vipRank", "Actual VIP rank"), ranges.vipRanks, modifiers.vipRank,
+            (value) => this.patchPlayerModifiers({ vipRank: value }))}
         </div>
         <p class="team-builder__hint">
           ${this.t("totalRankHint", "Enter the all-character total rank shown in the game.")}
@@ -2878,7 +3124,7 @@ export class TeamBuilder extends LitElement {
             ${Object.entries(this.data.bands).map(([id, band]) => {
               const name = this.text(band.bandName ?? band.name);
               if (!name) return nothing;
-              return this.numericField(name, this.inventory!.bandRanks[id] ?? null, (value) => {
+              return this.practiceSlider(name, (this.data!.progression.bandRanks ?? []).map((row) => Number(row.rank)), this.inventory!.bandRanks[id] ?? null, (value) => {
                 if (this.inventory)
                   this.replaceInventory({ ...this.inventory, bandRanks: { ...this.inventory.bandRanks, [id]: value } });
               });
@@ -2890,7 +3136,7 @@ export class TeamBuilder extends LitElement {
               ${Object.entries(this.data.characters).map(([id, character]) => {
                 const name = this.text(character.characterName);
                 if (!name) return nothing;
-                return this.numericField(name, this.inventory!.characterRanks[id] ?? null, (value) => {
+                return this.practiceSlider(name, (this.data!.progression.characterRanks ?? []).map((row) => Number(row.rank)), this.inventory!.characterRanks[id] ?? null, (value) => {
                   if (this.inventory)
                     this.replaceInventory({
                       ...this.inventory,
@@ -2906,7 +3152,7 @@ export class TeamBuilder extends LitElement {
               ${Object.entries(this.data.bandItems).map(([id, item]) => {
                 const name = this.text(item.name ?? item.itemName);
                 if (!name) return nothing;
-                return this.numericField(name, this.inventory!.bandItems[id] ?? null, (value) => {
+                return this.practiceSlider(name, dataRows(item.levels).map((row) => Number(row.level)), this.inventory!.bandItems[id] ?? null, (value) => {
                   if (this.inventory)
                     this.replaceInventory({
                       ...this.inventory,
@@ -3000,6 +3246,7 @@ export class TeamBuilder extends LitElement {
       this.justRate > 1
     )
       return false;
+    if (this.wantsEventScene && !this.eventScene) return false;
     if (!this.objectives.every((objective) => this.supportsObjective(objective))) return false;
     if (this.gekisoSoloForecast && this.constraints.justRate !== 0) return false;
     if (this.optimizationInput)
@@ -3036,6 +3283,7 @@ export class TeamBuilder extends LitElement {
       }
       return this.t("targetUnavailable", "Calculation unavailable for this mode");
     }
+    if (this.wantsEventScene && !this.eventScene) return this.eventSceneHint;
     if (this.gekisoSoloForecast && this.constraints.justRate !== 0)
       return this.t("gekisoConditionsPending", "Conditions pending");
     if (!this.evaluationBasis) return this.t("basisIncomplete", "Complete these values to compare efficiency.");
@@ -3100,7 +3348,7 @@ export class TeamBuilder extends LitElement {
       this.cancelSearch();
     };
     try {
-      if (this.optimizationInput) {
+      if (this.optimizationInput && !this.wantsEventScene) {
         const input: OptimizationInput = {
           ...this.optimizationInput,
           objectives: [...this.objectives],
@@ -3122,6 +3370,7 @@ export class TeamBuilder extends LitElement {
           constraints: this.constraints,
           basis: this.evaluationBasis!,
           budget,
+          ...(this.wantsEventScene && this.eventScene ? { eventScene: this.eventScene } : {}),
         };
         runRequest = { type: "prepare", runId, request };
       }
@@ -3558,19 +3807,6 @@ export class TeamBuilder extends LitElement {
                               aria-label=${this.t("planningControls", "Team and resource conditions")}
                             >
                               ${this.renderGoals()}
-                              <details class="team-builder__section team-builder__inventory-fold" open>
-                                <summary class="team-builder__section-header">
-                                  <span>${this.t("inventoryAndGrowth", "Cards and training")}</span>
-                                  <span class="team-builder__hint">
-                                    ${this.t("selectedKinds", "{members} members · {snapshots} snapshots", { members: this.inventory.members.length, snapshots: this.inventory.snapshots.length })}
-                                  </span>
-                                </summary>
-                                ${this.renderLibrary()}
-                              </details>
-                              <details class="team-builder__section team-builder__growth-fold">
-                                <summary>${this.t("characterAndItems", "Characters and items")}</summary>
-                                ${this.renderPlayerModifiers()}${this.renderBands()}
-                              </details>
                             </aside>
                             <div class="team-builder__result-area">${this.renderResults()}</div>
                           </div>
@@ -3579,7 +3815,7 @@ export class TeamBuilder extends LitElement {
                         ? loadingState(this.t("cloudLoading", "Loading account inventory"))
                         : html`
                             <div class="team-builder__results-empty">
-                              <button class="button button--outlined" @click=${() => (this.maintenanceOpen = true)}>
+                              <button class="button button--outlined" @click=${() => { this.inventoryTab = "sync"; this.maintenanceOpen = true; }}>
                                 ${this.t("inventoryReadyAction", "Open inventory")}
                               </button>
                             </div>
@@ -3589,7 +3825,7 @@ export class TeamBuilder extends LitElement {
               : this.error
                 ? html`
                     <div class="team-builder__results-empty">
-                      <button class="button button--outlined" @click=${() => (this.maintenanceOpen = true)}>
+                      <button class="button button--outlined" @click=${() => { this.inventoryTab = "sync"; this.maintenanceOpen = true; }}>
                         ${this.t("inventoryReadyAction", "Open inventory")}
                       </button>
                     </div>
@@ -3597,7 +3833,7 @@ export class TeamBuilder extends LitElement {
                 : loadingState(clientText(this.locale, "loading", "Loading"))
           }
         </div>
-        ${this.renderCardPane()}${this.renderSongPane()}${this.renderMaintenance()}
+        ${this.renderCardPane()}${this.renderSongPane()}${this.renderEventPane()}${this.renderMaintenance()}
       </div>
     `;
   }

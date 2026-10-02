@@ -20,8 +20,8 @@ export function renderLevelSwitch(
       <button
         class="icon-button"
         ?disabled=${index === 0}
-        @click=${() => update(levels[index - 1] || value)}
-        aria-label=${`${label} ${levels[index - 1] || value}`}
+        @click=${() => update(levels[index - 1] ?? value)}
+        aria-label=${`${label} ${levels[index - 1] ?? value}`}
       >
         <svg class="material-icon" width="18" height="18"><use href="/icons.svg#remove"></use></svg>
       </button>
@@ -31,15 +31,15 @@ export function renderLevelSwitch(
         max=${levels.length - 1}
         step="1"
         .value=${String(index)}
-        @input=${(event: Event) => update(levels[Number((event.target as HTMLElement & { value?: number }).value)] || value)}
+        @input=${(event: Event) => update(levels[Number((event.target as HTMLElement & { value?: number }).value)] ?? value)}
         aria-label=${label}
         aria-valuetext=${displayValue(value)}
       ></md-slider>
       <button
         class="icon-button"
         ?disabled=${index === levels.length - 1}
-        @click=${() => update(levels[index + 1] || value)}
-        aria-label=${`${label} ${levels[index + 1] || value}`}
+        @click=${() => update(levels[index + 1] ?? value)}
+        aria-label=${`${label} ${levels[index + 1] ?? value}`}
       >
         <svg class="material-icon" width="18" height="18"><use href="/icons.svg#add"></use></svg>
       </button>
