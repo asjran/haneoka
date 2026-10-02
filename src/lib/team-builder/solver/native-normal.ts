@@ -165,7 +165,7 @@ export function createNativeNormalSlotResolver(
     new Map<number, BonusProfile>(),
     new Map<number, BonusProfile>(),
     new Map<number, BonusProfile>(),
-  ];
+  ] as const;
   for (const [id, upgrade] of Object.entries(sources.bandUpgrades)) {
     const available = dataRows(upgrade.item.effects).map(nativeRow);
     const chosen = upgrade.effects;
