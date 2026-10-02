@@ -11,6 +11,7 @@ import {
   type NormalSkillPlan,
 } from "./normal-skills.ts";
 import { addPower, floorPowerBP } from "./power.ts";
+import { createNativeNormalSupportResolver } from "./native-normal-support.ts";
 
 const f = Math.fround;
 interface PrefixEntry {
@@ -38,7 +39,7 @@ function lowerBound(song: PreparedSong, timeMs: number): number {
 /** Prepare immutable live effects and chart event identities once. Per-order
  * commands retain the chart's original index even when their times are unsorted.
  * The normal scope includes positive-duration unconditional type2000/2004, with
- * snapshots excluded; unsupported state machines retain an explicit gap.
+ * same-member duration supports; unsupported state machines retain an explicit gap.
  */
 export function createNativeNormalScoreResolver(data: TeamBuilderData, input: OptimizationInput) {
   const gaps: EvidenceGap[] = [];
@@ -47,8 +48,8 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
   if (phase.length !== 1 || phase[0]!.phase !== 2)
     gaps.push(gap("native-normal-effect-phase-unresolved", "same-release MasterSkillEffectSetting/2000"));
   if (input.constraints.teamSize !== 5) gaps.push(gap("native-normal-requires-five-members", "normal formation"));
-  if (input.snapshots.some((snapshot) => !input.constraints.excludedSnapshotIds.includes(snapshot.instanceId)))
-    gaps.push(gap("native-normal-snapshot-search-unresolved", "exclude snapshots for this normal scope"));
+  const supports = createNativeNormalSupportResolver(data, input);
+  const snapshotCards = new Map(input.snapshots.map((snapshot) => [snapshot.instanceId, snapshot.cardId]));
   const phaseByEffectType = Object.fromEntries(
     phaseRows.map((row) => [Number(row.skillEffectType), Number(row.phase)]),
   );
@@ -150,24 +151,31 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
       const times = charts.get(song.song.key);
       if (!times || times.length !== 5 || times.some((time) => !int(time)))
         local.push(gap("native-normal-chart-events-unresolved", song.song.key));
-      if (assignment.snapshotInstanceIds.some((id) => id !== null))
-        local.push(gap("native-normal-support-runtime-unresolved", "selected snapshots"));
       const nativeMembers = [...assignment.memberInstanceIds];
+      const nativeSnapshots = [...assignment.snapshotInstanceIds];
       const leaderSlot = nativeMembers.indexOf(assignment.leaderInstanceId);
       const selectedIdentities = nativeMembers.map((id) => identities.get(id));
+      const selectedSnapshots = nativeSnapshots.filter((id): id is string => id !== null);
       if (
         nativeMembers.length !== 5 ||
         assignment.snapshotInstanceIds.length !== 5 ||
         leaderSlot < 0 ||
         selectedIdentities.some((identity) => !identity) ||
         new Set(selectedIdentities.map((identity) => identity?.cardId)).size !== 5 ||
-        new Set(selectedIdentities.map((identity) => identity?.characterId)).size !== 5
+        new Set(selectedIdentities.map((identity) => identity?.characterId)).size !== 5 ||
+        selectedSnapshots.some((id) => !snapshotCards.has(id)) ||
+        new Set(selectedSnapshots.map((id) => snapshotCards.get(id))).size !== selectedSnapshots.length
       )
         local.push(gap("native-normal-formation-unresolved", "assignment"));
-      else [nativeMembers[2], nativeMembers[leaderSlot]] = [nativeMembers[leaderSlot]!, nativeMembers[2]!];
+      else {
+        [nativeMembers[2], nativeMembers[leaderSlot]] = [nativeMembers[leaderSlot]!, nativeMembers[2]!];
+        [nativeSnapshots[2], nativeSnapshots[leaderSlot]] = [nativeSnapshots[leaderSlot]!, nativeSnapshots[2]!];
+      }
       const plans = nativeMembers.map((id) => members.get(id));
+      const supportPlans = nativeMembers.map((id, slot) => supports.resolve(nativeSnapshots[slot] ?? null, id));
       for (const [slot, plan] of plans.entries())
         local.push(...(plan?.gaps ?? [gap("native-normal-member-unresolved", nativeMembers[slot]!)]));
+      for (const pair of supportPlans) for (const plan of pair) local.push(...(plan?.gaps ?? []));
       if (local.length) return { value: null, status: "unavailable", assumptions: [], gaps: local };
       // LiveDataCreator passes DeckPowerResult.TotalPower.get_Total to
       // MemberDataContainer.SelfDeckTotalPower, after the BP vectors are summed.
@@ -178,15 +186,20 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
         ? ((deck.performance + deck.technique + deck.visual) / 10000) | 0
         : profiles.reduce((sum, profile) => sum + profile!.power, 0);
       const lastNoteMs = song.nodes.at(-1)!.event.timeMs;
-      for (const plan of plans)
+      for (const [slot, plan] of plans.entries())
         for (const timeMs of times!)
           for (const effect of plan!.effects) {
-            const finish = (timeMs + Math.ceil(f(f(effect.seconds) * f(1000)))) | 0;
+            let extension = f(0);
+            for (const support of supportPlans[slot]!)
+              for (const duration of support?.effects ?? [])
+                if (duration.type === 15000 && duration.condition.activation === "member-event")
+                  extension = f(extension + f(duration.value));
+            const finish = (timeMs + Math.ceil(f(f(f(effect.seconds) * f(1000)) + extension))) | 0;
             if (finish < timeMs || finish > lastNoteMs)
               local.push(gap("native-music-length-required-for-skill-finish", song.song.key));
           }
       if (local.length) return { value: null, status: "unavailable", assumptions: [], gaps: local };
-      const formation = plans.map((live) => ({ live: live!, supports: [null, null] as const }));
+      const formation = plans.map((live, slot) => ({ live: live!, supports: supportPlans[slot]! }));
       let total = 0,
         minimum = Infinity,
         maximum = -Infinity;

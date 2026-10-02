@@ -210,6 +210,15 @@ export function prepareEvaluationForSearch(request: EvaluationRequest) {
   input.evaluation.scope = "native-runtime";
   input.evaluation.assumptions = ["normal-live-event-power-disabled"];
   input.evaluation.gaps = input.evaluation.gaps.filter((gap) => gap.code !== "snapshot-full-slot-path-unresolved");
+  if (request.data.identity.server === "intl") {
+    // Native edit/save paths validate owned support IDs and duplicates; the
+    // photo's character list does not restrict the member assigned to its slot.
+    const characters = [...new Set(input.members.map((member) => member.characterId))];
+    for (const snapshot of input.snapshots) {
+      snapshot.allowedCharacterIds = characters;
+      snapshot.gaps = snapshot.gaps.filter((gap) => gap.code !== "native-snapshot-equip-restriction-unverified");
+    }
+  }
   const native = createNativeNormalSlotResolver(request.data, request.inventory, input);
   const score = createNativeNormalScoreResolver(request.data, input);
   input.evaluation.gaps.push(...native.gaps, ...score.gaps);
@@ -227,14 +236,14 @@ export function prepareEvaluationForSearch(request: EvaluationRequest) {
       !usable.has(state.instanceId)
     )
       input.evaluation.gaps.push(gap("native-normal-incomplete-member-search", state.instanceId));
-  if (
-    request.inventory.snapshots.some(
-      (state) => !state.excluded && !request.constraints.excludedSnapshotIds.includes(state.instanceId),
+  const usableSnapshots = new Set(input.snapshots.map((snapshot) => snapshot.instanceId));
+  for (const state of request.inventory.snapshots)
+    if (
+      !state.excluded &&
+      !request.constraints.excludedSnapshotIds.includes(state.instanceId) &&
+      !usableSnapshots.has(state.instanceId)
     )
-  )
-    input.evaluation.gaps.push(
-      gap("native-normal-snapshot-search-unresolved", "exclude snapshots for this normal scope"),
-    );
+      input.evaluation.gaps.push(gap("native-normal-incomplete-snapshot-search", state.instanceId));
   const rankRows = dataRows(request.data.liveTools.scoreRanks).map(nativeRow);
   const ssByGroup = new Map(
     rankRows.filter((row) => row.liveScoreRank === 7).map((row) => [Number(row.group), Number(row.requiredScore)]),

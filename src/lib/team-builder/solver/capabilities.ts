@@ -34,7 +34,7 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity): TeamBuild
             supported && normalForecast
               ? [
                   "native-normal-five-members",
-                  "native-normal-snapshots-excluded",
+                  "native-normal-same-member-duration-supports",
                   "native-normal-basic-live-skills",
                   "native-normal-non-event",
                   "native-normal-nominal-shuffle-mean",
