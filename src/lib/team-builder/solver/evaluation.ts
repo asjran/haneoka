@@ -1,5 +1,6 @@
 import type {
   EvidenceGap,
+  EvaluationBasisRequest,
   Objective,
   OptimizationInput,
   PlayMode,
@@ -69,6 +70,7 @@ export interface EvaluationRequest {
   budget: SearchBudget;
   /** Native runtime plans are passed only after the full power/skill path is resolved. */
   nativeRuntime?: ScoreEvaluationModel;
+  basis?: EvaluationBasisRequest;
 }
 /** Real inventory → actual growth rows → canonical chart → native note core.
  * base-score is a named component; full-score/rewards remain unavailable until
@@ -93,6 +95,7 @@ export function prepareEvaluation(request: EvaluationRequest): OptimizationInput
       objectives: request.objectives,
       constraints: request.constraints,
       budget: request.budget,
+      basis: request.basis,
       evaluation: request.nativeRuntime,
     };
   }
@@ -178,6 +181,7 @@ export function prepareEvaluation(request: EvaluationRequest): OptimizationInput
     objectives: request.objectives,
     constraints: request.constraints,
     budget: request.budget,
+    basis: request.basis,
     evaluation,
   };
 }

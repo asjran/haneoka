@@ -66,6 +66,12 @@ function validate(input: OptimizationInput): void {
   if (new Set(input.songs.map((song) => song.key)).size !== input.songs.length) throw new RangeError("duplicate-song");
   const constraint = input.constraints;
   if (
+    constraint.lockedSongKey &&
+    (constraint.excludedSongKeys.includes(constraint.lockedSongKey) ||
+      !input.songs.some((song) => song.key === constraint.lockedSongKey))
+  )
+    throw new RangeError("invalid-locked-song");
+  if (
     new Set(constraint.lockedMemberIds).size !== constraint.lockedMemberIds.length ||
     new Set(constraint.lockedSnapshotIds).size !== constraint.lockedSnapshotIds.length ||
     constraint.lockedMemberIds.length > constraint.teamSize ||
@@ -133,6 +139,7 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
   const songs: PreparedSong[] = input.songs
     .filter(
       (song) =>
+        (!input.constraints.lockedSongKey || song.key === input.constraints.lockedSongKey) &&
         !input.constraints.excludedSongKeys.includes(song.key) &&
         (!input.constraints.excludeJustMissions || !song.segments.some((segment) => segment.mission === 3)),
     )

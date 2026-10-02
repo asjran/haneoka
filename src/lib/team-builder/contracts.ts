@@ -11,9 +11,41 @@ export interface EvidenceGap {
   code: string;
   source: string;
 }
+
+export type EvaluationBasisRequest =
+  | { kind: "single" }
+  | { kind: "time"; secondsBySong: Record<string, number>; downtimeSeconds: number; source: string }
+  | { kind: "consumption"; amount: number; resource: "live-boost" | "event-item"; source: string };
+export interface EvaluationBasis {
+  kind: EvaluationBasisRequest["kind"];
+  denominator: number | null;
+  unit: "play" | "second" | "live-boost" | "event-item";
+  source: string;
+}
+export interface MetricBreakdownEntry {
+  key: string;
+  value: number | null;
+  unit: "score" | "power" | "count";
+  source: string;
+}
+export interface TargetCapability {
+  mode: PlayMode;
+  objective: Objective;
+  supported: boolean;
+  bases: EvaluationBasisRequest["kind"][];
+  gaps: EvidenceGap[];
+}
+export interface TeamBuilderCapabilities extends ReleaseIdentity {
+  targets: TargetCapability[];
+}
+
 export interface MetricValue {
   value: number | null;
   status: "verified" | "conditional" | "unavailable";
+  /** Raw per-play amount, before an explicitly selected efficiency denominator. */
+  perPlayValue?: number | null;
+  basis?: EvaluationBasis;
+  breakdown?: MetricBreakdownEntry[];
   assumptions: string[];
   gaps: EvidenceGap[];
 }
@@ -93,6 +125,8 @@ export interface SearchConstraints {
   lockedSnapshotIds: string[];
   excludedSnapshotIds: string[];
   excludedSongKeys: string[];
+  /** A locked chart is the single permitted song/difficulty candidate. */
+  lockedSongKey?: string | null;
   excludeJustMissions: boolean;
   /** Fraction of eligible nodes receiving JUST, default 0; other nodes PERFECT. */
   justRate: number;
@@ -109,6 +143,7 @@ export interface SearchProgress {
   phase: "loading" | "search" | "complete";
 }
 export interface SearchResult {
+  capabilities?: TeamBuilderCapabilities;
   candidates: Candidate[];
   completeness: "exhaustive" | "budget-limited" | "cancelled" | "unavailable";
   evaluated: number;
@@ -172,11 +207,14 @@ export interface OptimizationInput extends ReleaseIdentity {
   budget: SearchBudget;
   evaluation: ScoreEvaluationModel;
   inputGaps?: EvidenceGap[];
+  basis?: EvaluationBasisRequest;
 }
 export interface WorkerPreparationInput {
   data: TeamBuilderData;
   inventory: InventoryV1;
+  /** Multiple charts compete under the same explicit objective and basis. */
   selections: { songId: number; difficulty: number }[];
+  basis?: EvaluationBasisRequest;
   mode: PlayMode;
   objectives: Objective[];
   constraints: SearchConstraints;

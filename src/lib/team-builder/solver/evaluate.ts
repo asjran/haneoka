@@ -7,6 +7,7 @@ import type {
   SkillWindow,
   TeamAssignment,
 } from "../contracts.ts";
+import { applyEvaluationBasis } from "./basis.ts";
 import { eventRewardMetrics } from "../rewards.ts";
 import {
   calcNativeNoteScore,
@@ -156,6 +157,24 @@ export function evaluateAssignment(
       status: model.assumptions.length || input.constraints.justRate > 0 ? "conditional" : "verified",
       assumptions: [...model.assumptions],
       gaps: [],
+      breakdown: [
+        { key: "resolved-team-power", value: basePower, unit: "power", source: "resolved native slot power" },
+        { key: "canonical-judged-nodes", value: prepared.nodes.length, unit: "count", source: "canonical chart" },
+        {
+          key: "converted-note-count",
+          value: prepared.convertedNoteCount,
+          unit: "count",
+          source: "native note percentages",
+        },
+        {
+          key: "justable-nodes",
+          value: prepared.justableCount,
+          unit: "count",
+          source: "same-release judgement timing",
+        },
+        { key: "fixed-score", value: context.fixedScore, unit: "score", source: "native mode/mission context" },
+        { key: "per-play-score", value: total, unit: "score", source: "native score core + fixed score" },
+      ],
     };
     if (input.constraints.justRate > 0) score.assumptions.push("just-marginal-rate-fixed-runtime-state");
   } else score.gaps.push(...gaps);
@@ -184,6 +203,8 @@ export function evaluateAssignment(
     "event-points": rewards.points,
     "event-items": rewards.items,
   };
+  for (const objective of Object.keys(metrics) as Objective[])
+    metrics[objective] = applyEvaluationBasis(metrics[objective], objective, prepared.song.key, input.basis);
   return {
     assignment,
     songKey: prepared.song.key,

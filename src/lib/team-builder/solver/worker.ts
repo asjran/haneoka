@@ -1,5 +1,6 @@
 import type { SolverRequest, SolverResponse } from "../contracts.ts";
 import { optimizeTeams } from "../optimizer.ts";
+import { getTeamBuilderCapabilities } from "./capabilities.ts";
 import { prepareEvaluation } from "./evaluation.ts";
 import { loadSongOptions } from "./song-loader.ts";
 const scope = globalThis as unknown as {
@@ -51,7 +52,11 @@ scope.onmessage = (event) => {
       },
     });
     if (active === run) {
-      scope.postMessage({ type: "result", runId: run.runId, result });
+      scope.postMessage({
+        type: "result",
+        runId: run.runId,
+        result: { ...result, capabilities: getTeamBuilderCapabilities(input) },
+      });
       active = null;
     }
   };
