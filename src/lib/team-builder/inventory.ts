@@ -35,6 +35,18 @@ export interface InventoryIssue {
 }
 export type InventoryKind = "members" | "snapshots";
 export const MAX_INVENTORY_ENTRIES = 5000;
+export const MAX_INVENTORY_BYTES = 1024 * 1024;
+export interface InventoryAddition {
+  cardId: number;
+  copies: number;
+}
+export interface InventoryRebasePreview {
+  candidate: InventoryV1;
+  changes: { path: string; from: unknown; to: unknown }[];
+  unknownCards: { kind: InventoryKind; instanceId: string; cardId: number }[];
+  issues: InventoryIssue[];
+  canApply: boolean;
+}
 const MEMBER_FIELDS = ["level", "training", "awakening", "liveSkillLevel", "gekisoSkillLevel"] as const;
 const SNAPSHOT_FIELDS = ["level", "awakening"] as const;
 const rangeCache = new WeakMap<TeamBuilderData, Map<string, Record<string, number[]>>>();
@@ -69,6 +81,125 @@ export function addInventoryEntry(
         ],
       }
     : { ...inventory, snapshots: [...inventory.snapshots, { ...flags, level: null, awakening: null }] };
+}
+/** One append allocation. Original entries remain unchanged and new practice stays unknown. */
+export function addInventoryEntries(
+  inventory: InventoryV1,
+  kind: InventoryKind,
+  requests: readonly InventoryAddition[],
+  data?: TeamBuilderData,
+): InventoryV1 {
+  if (requests.length > MAX_INVENTORY_ENTRIES) throw new RangeError("inventory-entry-limit");
+  let count = 0;
+  for (const request of requests) {
+    if (
+      !Number.isSafeInteger(request.cardId) ||
+      request.cardId <= 0 ||
+      request.cardId > 0x7fffffff ||
+      !Number.isSafeInteger(request.copies) ||
+      request.copies < 1
+    )
+      throw new RangeError("invalid-inventory-addition");
+    count += request.copies;
+    if (count + inventory[kind].length > MAX_INVENTORY_ENTRIES) throw new RangeError("inventory-entry-limit");
+    if (data && !(kind === "members" ? data.members : data.snapshots)[String(request.cardId)])
+      throw new RangeError("unknown-card");
+  }
+  const used = new Set([...inventory.members, ...inventory.snapshots].map((entry) => entry.instanceId));
+  const members: MemberEntry[] = [],
+    snapshots: SnapshotEntry[] = [];
+  for (const request of requests)
+    for (let copy = 0; copy < request.copies; copy++) {
+      let instanceId = "";
+      for (let attempt = 0; attempt < 16; attempt++) {
+        const id = crypto.randomUUID();
+        if (!used.has(id)) {
+          instanceId = id;
+          break;
+        }
+      }
+      if (!instanceId) throw new Error("inventory-instance-allocation-failed");
+      used.add(instanceId);
+      const flags = { instanceId, cardId: request.cardId, locked: false, excluded: false };
+      if (kind === "members")
+        members.push({
+          ...flags,
+          level: null,
+          training: null,
+          awakening: null,
+          liveSkillLevel: null,
+          gekisoSkillLevel: null,
+        });
+      else snapshots.push({ ...flags, level: null, awakening: null });
+    }
+  const next =
+    kind === "members"
+      ? { ...inventory, members: [...inventory.members, ...members] }
+      : { ...inventory, snapshots: [...inventory.snapshots, ...snapshots] };
+  // Reserve the largest safe CAS revision envelope, not just the inventory document.
+  if (
+    new TextEncoder().encode(JSON.stringify({ expectedRevision: Number.MAX_SAFE_INTEGER, inventory: next }))
+      .byteLength > MAX_INVENTORY_BYTES
+  )
+    throw new RangeError("inventory-byte-limit");
+  if (data) {
+    const result = validateInventory(next, data);
+    if (!result.valid) throw new Error(`invalid-inventory:${result.issues[0]?.path}`);
+  }
+  return next;
+}
+
+/** Dry-run only. Out-of-range practice and missing cards are retained for an explicit choice. */
+export function rebaseInventory(inventory: InventoryV1, nextData: TeamBuilderData): InventoryRebasePreview {
+  const candidate = structuredClone(inventory);
+  if (inventory.server !== nextData.identity.server)
+    return {
+      candidate,
+      changes: [],
+      unknownCards: [],
+      issues: [{ path: "server", code: "different-server" }],
+      canApply: false,
+    };
+  candidate.releaseId = nextData.identity.releaseId;
+  const changes =
+    inventory.releaseId === candidate.releaseId
+      ? []
+      : [{ path: "releaseId", from: inventory.releaseId, to: candidate.releaseId }];
+  const unknownCards: InventoryRebasePreview["unknownCards"] = [];
+  for (const kind of ["members", "snapshots"] as const)
+    for (const entry of candidate[kind])
+      if (!(kind === "members" ? nextData.members : nextData.snapshots)[String(entry.cardId)])
+        unknownCards.push({ kind, instanceId: entry.instanceId, cardId: entry.cardId });
+  const { issues } = validateInventory(candidate, nextData);
+  return { candidate, changes, unknownCards, issues, canApply: issues.length === 0 };
+}
+
+/** Each native skill slot has its own rank field; these levels are not independently editable. */
+export function snapshotSkillLevels(
+  data: TeamBuilderData,
+  cardId: number,
+  awakening: number | null,
+): {
+  support: { id: number; slot: number; level: number | null }[];
+  gekisoSupport: { id: number; slot: number; level: number | null }[];
+} {
+  const card = data.snapshots[String(cardId)];
+  if (!card) return { support: [], gekisoSupport: [] };
+  const rank =
+    awakening === null
+      ? undefined
+      : data.progression.supportCardRanks?.find(
+          (row) => Number(row.group) === card.awakeningGroup && Number(row.rank) === awakening,
+        );
+  const levels = (ids: number[], prefix: string) =>
+    ids.map((id, slot) => {
+      const value = rank?.[`${prefix}${String(slot + 1).padStart(2, "0")}Level`];
+      return { id, slot, level: typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null };
+    });
+  return {
+    support: levels(card.supportSkillIds, "supportSkill"),
+    gekisoSupport: levels(card.gekisoSupportSkillIds, "gekisouSupportSkill"),
+  };
 }
 export function updateInventoryEntries(
   inventory: InventoryV1,

@@ -1,4 +1,5 @@
 import { adaptTeamBuilderData, objectRow, type TeamBuilderData } from "../data";
+import { hydrateRuntimeDocuments } from "./complete";
 
 /** Public catalog projections only; every request uses the one observed release. */
 export async function fetchTeamBuilderData(
@@ -93,5 +94,22 @@ export async function fetchTeamBuilderData(
     for (const [id, detail] of details) entries[id] = detail;
   }
   documents.events = { ...events, entries };
-  return adaptTeamBuilderData({ server, releaseId, sourceId }, documents);
+  const complete = await hydrateRuntimeDocuments(
+    documents,
+    async (resource, id) => {
+      const response = await fetcher(
+        `${prefix}${resource}/${encodeURIComponent(id)}?release=${encodeURIComponent(releaseId)}`,
+        { signal, cache: "no-store" },
+      );
+      if (!response.ok) throw new Error(`Runtime entity unavailable:${resource}/${id}/${response.status}`);
+      if (
+        response.headers.get("x-haneoka-release-id") !== releaseId ||
+        response.headers.get("x-haneoka-source-id") !== sourceId
+      )
+        throw new Error("Runtime entity release mismatch");
+      return response.json();
+    },
+    signal,
+  );
+  return adaptTeamBuilderData({ server, releaseId, sourceId }, complete);
 }

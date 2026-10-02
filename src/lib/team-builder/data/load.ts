@@ -1,6 +1,7 @@
 import { fetchStaticCatalog, fetchStaticCatalogBatch, staticCatalogRelease } from "../../static-catalog-source";
 import type { ReleaseServer } from "../../release-server";
 import { adaptTeamBuilderData, objectRow, type TeamBuilderData } from "../data";
+import { hydrateRuntimeDocuments } from "./complete";
 
 /** Build-time only. Browser UI receives the compact page payload rather than Master. */
 export async function loadTeamBuilderData(server: ReleaseServer, signal?: AbortSignal): Promise<TeamBuilderData> {
@@ -46,5 +47,13 @@ export async function loadTeamBuilderData(server: ReleaseServer, signal?: AbortS
   }
   documents.events = events;
   signal?.throwIfAborted();
-  return adaptTeamBuilderData(identity, documents);
+  const complete = await hydrateRuntimeDocuments(
+    documents,
+    async (resource, id) => {
+      const batch = await fetchStaticCatalogBatch(resource, [id], server, identity);
+      return batch.get(id);
+    },
+    signal,
+  );
+  return adaptTeamBuilderData(identity, complete);
 }

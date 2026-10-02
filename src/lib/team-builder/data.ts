@@ -1,5 +1,6 @@
 import type { PowerStats, ReleaseIdentity } from "./contracts";
 import { projectEventDetail } from "./data/events";
+import { adaptRuntimeRules, type RuntimeRules } from "./data/runtime-rules";
 
 export type DataRow = Record<string, unknown>;
 export interface MemberCatalog {
@@ -54,6 +55,7 @@ export interface TeamBuilderData {
   skillReference: DataRow;
   liveTools: DataRow;
   gekisoRules: DataRow;
+  runtimeRules?: RuntimeRules;
   gaps: string[];
 }
 export const objectRow = (value: unknown): DataRow =>
@@ -163,6 +165,7 @@ export function adaptTeamBuilderData(
   const growthKeys = [
     "playerRanks",
     "characterRanks",
+    "characterTotalRanks",
     "bandRanks",
     "bandTypeRanks",
     "memberCardLevels",
@@ -230,6 +233,7 @@ export function adaptTeamBuilderData(
           "bandId",
           "bandIds",
           "musicType",
+          "bestMusicTagIds",
           "musicCategories",
           "vocalCharacterIds",
           "jacketThumbUrl",
@@ -312,6 +316,7 @@ export function adaptTeamBuilderData(
       ]),
     ) as DataRow,
     gekisoRules: compactNative(objectRow(documents.gekisou)) as DataRow,
+    runtimeRules: adaptRuntimeRules(identity, documents["runtime-rules"]),
     gaps: [
       "full-player-and-song-power-stacking-unresolved",
       "snapshot-character-list-is-not-an-established-equip-restriction",

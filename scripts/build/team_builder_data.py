@@ -4,11 +4,17 @@ from typing import Any
 
 TABLES = {
     "playerRanks": "MasterPlayerRank", "characterRanks": "MasterCharacterRank",
+    "characterTotalRanks": "MasterCharacterTotalRank",
     "bandRanks": "MasterBandRank", "bandTypeRanks": "MasterBandTypeRank",
     "memberCardLevels": "MasterMemberCardLevel", "supportCardLevels": "MasterSupportCardLevel",
     "memberCardRanks": "MasterMemberCardRank", "supportCardRanks": "MasterSupportCardRank",
     "memberCardAwake": "MasterMemberCardAwake", "memberCardLevelLimits": "MasterMemberCardLevelLimit",
     "memberCardAwakeResources": "MasterMemberCardAwakeResource", "skillLevelResources": "MasterSkillLevelResource",
+}
+RUNTIME_TABLES = {
+    "vipRanks": "MasterVip", "vipRankBonuses": "MasterVipRankBonus",
+    "memoryMemberLevels": "MasterMemoryMemberLevel", "memorySupportLevels": "MasterMemorySupportLevel",
+    "memoryMusic": "MasterMemoryMusic", "memoryMusicBonuses": "MasterMemoryMusicBonus", "memoryMusicGroups": "MasterMemoryMusicGroup",
 }
 
 
@@ -72,6 +78,7 @@ def build_team_builder_data(data: Any, source_id: str) -> dict[str, Any]:
                     "noteCount": score.get("_fullComboCount"),
                     "file": data.asset(f"Assets/AddressableResources/Live/MusicScore/{score.get('_musicScoreTextFileName')}.bytes")})
         songs[str(row["_id"])] = {"musicId": row["_id"], "musicTitle": data.text(row.get("_titleTextID")),
+            "bestMusicTagIds": row.get("_bestMusicTagIDs", []),
             "bandIds": row.get("_bandIDs", []), "musicType": row.get("_musicType"), "difficulty": difficulties,
             "gekisou": {"missionTypes": [row.get(f"_gekisouMission{index}", 0) for index in (1, 2, 3)]}}
     events = {str(row["_id"]): {"id": row["_id"], "name": data.text(row.get("_nameTextId") or row.get("_nameTextID")),
@@ -80,6 +87,9 @@ def build_team_builder_data(data: Any, source_id: str) -> dict[str, Any]:
     return {
         "schema": "haneoka-team-builder-source-v1", "server": data.server, "sourceId": source_id,
         "documents": {"cards": members, "support-cards": snapshots,
+            "runtime-rules": {"schema": "haneoka-team-runtime-rules-v1", "server": data.server, "sourceId": source_id,
+                "tables": {key: {"sourceTable": table, "status": "ready" if data.rows(table) else "empty" if table in data.tables else "missing", "rows": exact(table)}
+                    for key, table in RUNTIME_TABLES.items()}},
             "characters": characters, "bands": bands, "band-items": {"items": band_items}, "songs": songs,
             "events": {"entries": events, "rules": {table: exact(table) for table in event_tables}},
             "gekisou": {key: exact(table) for key, table in {"luckBasePoints":"MasterLiveGekisouLuckBasePoint",

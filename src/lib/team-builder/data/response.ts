@@ -1,9 +1,11 @@
 import { adaptTeamBuilderData, objectRow, type TeamBuilderData } from "../data";
+import { hydrateRuntimeDocuments } from "./complete";
 
 export interface TeamDataCatalog {
   identity: TeamBuilderData["identity"] & { sourceId: string };
   readCollection(resource: string): unknown | Promise<unknown>;
   readEntity?(resource: string, id: string): unknown | Promise<unknown>;
+  readRuntimeRules?(): unknown | Promise<unknown>;
 }
 /** The dispatcher supplies its already pinned catalog; no new R2/auth implementation. */
 export async function teamBuilderDataResponse(catalog: TeamDataCatalog): Promise<Response> {
@@ -52,7 +54,11 @@ export async function teamBuilderDataResponse(catalog: TeamDataCatalog): Promise
     );
   }
   documents.events = events;
-  const data = adaptTeamBuilderData(catalog.identity, documents);
+  if (catalog.readRuntimeRules) documents["runtime-rules"] = await catalog.readRuntimeRules();
+  const complete = catalog.readEntity
+    ? await hydrateRuntimeDocuments(documents, async (resource, id) => catalog.readEntity!(resource, id))
+    : documents;
+  const data = adaptTeamBuilderData(catalog.identity, complete);
   return Response.json(data, {
     headers: {
       "x-haneoka-release-id": catalog.identity.releaseId,
