@@ -466,6 +466,7 @@
   "support": "快照",
   "characters": "角色",
   "story": "故事",
+  "birthdayStory": "生日故事",
   "stories": "故事",
   "bandStories": "樂團故事",
   "afterlive": "演出後",
@@ -1739,7 +1740,8 @@
     "latestCards": "近期卡牌",
     "viewDetails": "查看詳情",
     "eventTracker": "活動追蹤",
-    "eventStory": "活動故事"
+    "eventStory": "活動故事",
+    "fanInfoEmpty": "目前沒有新的相關資訊。"
   },
   "liveMusicTypes": {
     "red": "緋紅屬性",

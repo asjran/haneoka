@@ -466,6 +466,7 @@
   "support": "Snapshot",
   "characters": "Characters",
   "story": "Story",
+  "birthdayStory": "Birthday story",
   "stories": "Stories",
   "bandStories": "Band Stories",
   "afterlive": "Afterlive",
@@ -1739,7 +1740,8 @@
     "latestCards": "Latest cards",
     "viewDetails": "View details",
     "eventTracker": "Event tracker",
-    "eventStory": "Event story"
+    "eventStory": "Event story",
+    "fanInfoEmpty": "No current updates."
   },
   "liveMusicTypes": {
     "red": "Ruby Type",

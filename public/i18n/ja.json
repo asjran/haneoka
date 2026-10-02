@@ -466,6 +466,7 @@
   "support": "スナップ",
   "characters": "キャラクター",
   "story": "ストーリー",
+  "birthdayStory": "誕生日ストーリー",
   "stories": "ストーリー",
   "bandStories": "バンドストーリー",
   "afterlive": "Afterlive",
@@ -1739,7 +1740,8 @@
     "latestCards": "最近のカード",
     "viewDetails": "詳細を見る",
     "eventTracker": "イベント追跡",
-    "eventStory": "イベントストーリー"
+    "eventStory": "イベントストーリー",
+    "fanInfoEmpty": "現在の更新情報はありません。"
   },
   "liveMusicTypes": {
     "red": "紅赤タイプ",

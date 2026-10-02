@@ -11,6 +11,10 @@ import { fetchOptionalStaticCatalog, staticCatalogRelease } from "../lib/static-
 import type { Locale } from "../i18n/locales";
 import type { ReleaseServer } from "../lib/release-server";
 import type { JsonRecord } from "../lit/shared/catalog";
+import fs from "node:fs/promises";
+import { prepareCalendarLives } from "./calendar-live-build";
+import { compactHomeGacha, homeFanInfo } from "./home-display-slices";
+import { loadStaticCrossServerHome } from "../lib/cross-server/home";
 
 const snapshots = new Map<string, Promise<HomeSeed>>();
 let publicPosts: Promise<JsonRecord | undefined> | undefined;
@@ -20,6 +24,7 @@ const pick = (entry: JsonRecord, keys: string[]) =>
 const rows = (value: unknown) => Object.values((value || {}) as Record<string, JsonRecord>);
 async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed> {
   const release = await staticCatalogRelease(server);
+  const homeUnion = server === "intl" || server === "jp" ? await loadStaticCrossServerHome(server, locale) : {};
   const keys = [
     "catalog/summary",
     "songs",
@@ -30,6 +35,8 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
     "ui-marks",
     "cards",
     "support-cards",
+    "gacha",
+    "real-lives",
   ];
   const results = await Promise.all(keys.map((key) => fetchOptionalStaticCatalog(key, server, release)));
   const documents = Object.fromEntries(
@@ -43,6 +50,8 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
         "musicTitle",
         "bandId",
         "bandName",
+        "bandIds",
+        "artistName",
         "jacketUrl",
         "jacketThumbUrl",
         "musicType",
@@ -53,7 +62,7 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
   documents.characters = Object.fromEntries(
     rows(documents.characters).map((entry) => [
       String(entry.characterId),
-      pick(entry, ["characterId", "characterName", "slug", "bandId", "colorCode"]),
+      pick(entry, ["characterId", "characterName", "englishName", "slug", "bandId", "colorCode", "faceImage", "thumbnailImage"]),
     ]),
   );
   documents.bands = Object.fromEntries(
@@ -77,11 +86,13 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
             "cardType",
             "releasedAt",
             "rarity",
+            "characterDetails",
           ]),
           images: { thumbnail: (entry.images as JsonRecord)?.thumbnail },
         },
       ]),
     );
+  documents.gacha = compactHomeGacha(documents.gacha, documents.cards);
   const entries = rows(documents.events.entries);
   documents.events = {
     ...documents.events,
@@ -132,14 +143,19 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
     .catch(() => undefined);
   const posts = await publicPosts;
   if (posts && Array.isArray(posts.posts)) documents.posts = { posts: posts.posts.slice(0, 5) };
+  const calendarFile = await prepareCalendarLives(server, release, documents["real-lives"]);
+  const fanInfo = homeFanInfo(calendarFile ? JSON.parse(await fs.readFile(calendarFile, "utf8")) : undefined);
+  delete documents["real-lives"];
   return {
     server,
     releaseId: release.releaseId,
     documents,
     announcements,
+    fanInfo,
+    ...homeUnion,
     profiles: {
       characters: characterProfiles.map((profile) =>
-        pick(profile as unknown as JsonRecord, ["id", "slug", "band", "name", "birthday"]),
+        pick(profile as unknown as JsonRecord, ["id", "slug", "band", "bandName", "name", "birthday"]),
       ),
       cast: castProfiles.map((person) => ({
         id: person.id,

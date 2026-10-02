@@ -19,20 +19,35 @@ const home = await renderHome(server, locale);
     const home = document.currentScript?.previousElementSibling;
     const board = home?.querySelector(".home-board");
     if (!board) return;
+    const ids = ["birthdays", "news", "community", "fanInfo", "cards", "songs"];
+    const storageKey = "haneoka:home-layout:v5";
+    let order = [...ids];
+    let hidden = {};
     try {
-      const state = JSON.parse(localStorage.getItem("haneoka:home-layout:v4") || "null");
-      const ids = ["birthdays", "community", "news", "cards", "songs"];
-      if (Array.isArray(state?.order) && state.order.length === ids.length && ids.every(id => state.order.includes(id))) {
-        for (const id of state.order) {
-          const slot = board.querySelector(`.home-board__slot--${id}`);
-          if (slot) board.append(slot);
-        }
+      const state = JSON.parse(localStorage.getItem(storageKey) || localStorage.getItem("haneoka:home-layout:v4") || "null");
+      if (
+        Array.isArray(state?.order) &&
+        new Set(state.order).size === state.order.length &&
+        state.order.every(id => ids.includes(id)) &&
+        ids.filter(id => id !== "fanInfo").every(id => state.order.includes(id))
+      ) {
+        order = [...state.order, ...ids.filter(id => !state.order.includes(id))];
       }
-      for (const id of ids) {
-        const slot = board.querySelector(`.home-board__slot--${id}`);
-        if (slot) slot.hidden = Boolean(state?.hidden?.[id]);
-      }
-    } catch {}
+      if (state?.hidden && typeof state.hidden === "object") hidden = state.hidden;
+      const rest = order.filter(id => id !== "news" && id !== "community" && id !== "fanInfo");
+      const position = Math.min(order.indexOf("news"), order.indexOf("community"));
+      rest.splice(Math.max(0, position), 0, "news", "community", "fanInfo");
+      order = rest;
+    } catch {
+    }
+    for (const id of order) {
+      const slot = board.querySelector(`.home-board__slot--${id}`);
+      if (slot) board.append(slot);
+    }
+    for (const id of ids) {
+      const slot = board.querySelector(`.home-board__slot--${id}`);
+      if (slot) slot.hidden = Boolean(hidden[id]);
+    }
   })();
 </script>
 <script>

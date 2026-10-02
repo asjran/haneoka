@@ -466,6 +466,7 @@
   "support": "스냅",
   "characters": "캐릭터",
   "story": "스토리",
+  "birthdayStory": "생일 스토리",
   "stories": "스토리",
   "bandStories": "밴드 스토리",
   "afterlive": "Afterlive",
@@ -1739,7 +1740,8 @@
     "latestCards": "최근 카드",
     "viewDetails": "자세히 보기",
     "eventTracker": "이벤트 추적",
-    "eventStory": "이벤트 스토리"
+    "eventStory": "이벤트 스토리",
+    "fanInfoEmpty": "현재 새 소식이 없습니다."
   },
   "liveMusicTypes": {
     "red": "레드 타입",

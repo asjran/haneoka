@@ -466,6 +466,7 @@
   "support": "留影",
   "characters": "角色",
   "story": "故事",
+  "birthdayStory": "生日故事",
   "stories": "故事",
   "bandStories": "乐队故事",
   "afterlive": "演出后",
@@ -1739,7 +1740,8 @@
     "latestCards": "近期卡牌",
     "viewDetails": "查看详情",
     "eventTracker": "活动追踪",
-    "eventStory": "活动故事"
+    "eventStory": "活动故事",
+    "fanInfoEmpty": "目前没有新的相关资讯。"
   },
   "liveMusicTypes": {
     "red": "绯红属性",
