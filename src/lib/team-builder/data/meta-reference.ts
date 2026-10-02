@@ -10,6 +10,7 @@ import type { TeamBuilderData } from "../data";
 import { validateAssignment, validateInventory, type Inventory } from "../inventory";
 import { prepareSong } from "../song-metrics";
 import { prepareEvaluationForSearch } from "../solver/evaluation";
+import { unavailableMetric } from "../score";
 
 export interface MetaReferenceIdentity {
   server: string;
@@ -90,7 +91,7 @@ export async function evaluateMetaReference(
       declared = difficulty.noteCount;
     if (typeof declared !== "number" || !Number.isSafeInteger(declared) || declared < 1)
       gaps.push({ code: "canonical-count-reference-missing", source: song.key });
-    else if (declared !== song.events.length && !gaps.some((gap) => gap.code === "canonical-full-combo-mismatch"))
+    else if (song.events.length > 0 && declared !== song.events.length && !gaps.some((gap) => gap.code === "canonical-full-combo-mismatch"))
       gaps.push({ code: "canonical-full-combo-mismatch", source: song.key });
     songs.push({ ...song, gaps });
   }
@@ -133,13 +134,36 @@ export async function evaluateMetaReference(
     songId: number;
     scoreId: number;
     difficulty: number;
-    facts: { nodes: number; convertedNoteCount: number; typeEligibleJust: number; skillTimesMs: number[] };
+    facts: { nodes: number | null; convertedNoteCount: number | null; typeEligibleJust: number | null; skillTimesMs: number[] | null };
     candidate: Omit<Candidate, "vector">;
     quality: { status: "available" | "warning"; gaps: EvidenceGap[] };
   }[] = [];
   for (const chart of songs) {
     options.signal?.throwIfAborted();
-    const song = prepareSong(chart, prepared.input.evaluation);
+    let song;
+    try {
+      song = prepareSong(chart, prepared.input.evaluation);
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      const gaps = [...chart.gaps, { code: "canonical-chart-unavailable", source: `${chart.key}/${error.message}` }];
+      const metric = () => ({ ...unavailableMetric("canonical-chart-unavailable", chart.key), gaps: [...gaps] });
+      results.push({
+        songId: chart.songId,
+        scoreId: chart.scoreId,
+        difficulty: chart.difficulty,
+        facts: { nodes: null, convertedNoteCount: null, typeEligibleJust: null, skillTimesMs: null },
+        candidate: {
+          assignment: structuredClone(profile.assignment),
+          songKey: chart.key,
+          metrics: {
+            score: metric(), "ss-ratio": metric(), "ss-surplus": metric(),
+            "base-score": metric(), "event-points": metric(), "event-items": metric(),
+          },
+        },
+        quality: { status: "warning", gaps },
+      });
+      continue;
+    }
     const candidate = await prepared.evaluate(profile.assignment, song, controls);
     const gaps = [...song.gaps, ...objectives.flatMap((objective) => candidate.metrics[objective].gaps)];
     const { vector: _vector, ...referenceCandidate } = candidate;
