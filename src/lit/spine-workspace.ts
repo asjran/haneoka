@@ -983,20 +983,6 @@ export class SpineWorkspace extends LitElement {
                   `
                 : nothing
             }
-            <dl class="spec-list">
-              <div>
-                <dt>${uiText(this.locale, "family")}</dt>
-                <dd>${this.familyName(detail?.family)}</dd>
-              </div>
-              <div>
-                <dt>${uiText(this.locale, "version")}</dt>
-                <dd>${String(detail?.spineVersion || "—")}</dd>
-              </div>
-              <div>
-                <dt>${uiText(this.locale, "animations")}</dt>
-                <dd>${Number(detail?.animationCount || animations.length)}</dd>
-              </div>
-            </dl>
             <section class="viewer-behavior-controls">
               <h3>${uiText(this.locale, "settings")}</h3>
               <label>

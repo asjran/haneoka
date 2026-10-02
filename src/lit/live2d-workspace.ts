@@ -1531,7 +1531,6 @@ export class Live2DWorkspace extends LitElement {
     const detail = this.detail;
     const page = Boolean(this.entityId);
     const character = detail ? this.character(Number(detail.characterId || 0)) : undefined;
-    const band = detail ? this.band(Number(detail.bandId || 0)) : undefined;
     const motions = Array.isArray(detail?.motions) ? (detail.motions as Value[]) : [];
     const expressions = Array.isArray(detail?.expressions) ? (detail.expressions as Value[]) : [];
     const previewSrc = this.previewSource(detail);
@@ -1740,24 +1739,6 @@ export class Live2DWorkspace extends LitElement {
                   `
                 : nothing
             }
-            <dl class="spec-list">
-              <div>
-                <dt>${uiText(this.locale, "motion")}</dt>
-                <dd>${motions.length}</dd>
-              </div>
-              <div>
-                <dt>${uiText(this.locale, "expression")}</dt>
-                <dd>${expressions.length}</dd>
-              </div>
-              <div>
-                <dt>${uiText(this.locale, "type")}</dt>
-                <dd>${detail ? this.modelType(detail) : "—"}</dd>
-              </div>
-              <div>
-                <dt>${uiText(this.locale, "band")}</dt>
-                <dd>${this.text(band?.bandName) || "—"}</dd>
-              </div>
-            </dl>
             <section class="viewer-behavior-controls">
               <h3>${uiText(this.locale, "settings")}</h3>
               ${(
