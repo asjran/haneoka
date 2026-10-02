@@ -8,10 +8,9 @@ import "@material/web/checkbox/checkbox.js";
 import "@material/web/progress/linear-progress.js";
 import { clientText } from "../i18n/client";
 import { resolveLocalizedText } from "../lib/localized-text";
-import { readPageData } from "../lib/page-data";
 import { readReleaseServer } from "../lib/release-server";
 import { observeSongDisplay, songTitle } from "../lib/song-display";
-import { fetchTeamBuilderData } from "../lib/team-builder/data/fetch";
+import { fetchCurrentTeamBuilderIdentity, fetchTeamBuilderData } from "../lib/team-builder/data/fetch";
 import { getTeamBuilderCapabilities } from "../lib/team-builder/solver/capabilities";
 import { clearAppBarActions, clearAppBarSearch, setAppBarActions } from "../lib/app-bar";
 import {
@@ -149,6 +148,7 @@ export class TeamBuilder extends LitElement {
     pickerBand: { state: true },
     pickerRarity: { state: true },
     dataLoading: { state: true },
+    sourceReady: { state: true },
     pendingRebase: { state: true },
     selectedCards: { state: true },
     memorySong: { state: true },
@@ -216,6 +216,7 @@ export class TeamBuilder extends LitElement {
   declare memorySong: string;
   declare memoryCharacter: string;
   declare dataLoading: boolean;
+  declare sourceReady: boolean;
   declare pendingRebase: RebaseDraft | null;
   declare selectingSong: boolean;
   declare pickerSong: string;
@@ -253,17 +254,59 @@ export class TeamBuilder extends LitElement {
   private authGeneration = 0;
   private currentOwner: string | null | undefined;
   private dataController?: AbortController;
-  private initialSourceCheck = false;
+  private identityController?: AbortController;
+  private verifiedData: TeamBuilderData | null = null;
   private stopSongDisplay?: () => void;
   private readonly refreshAccount = () => {
-    const server = readReleaseServer();
-    if (server !== this.server) void this.loadSource(server);
-    else void this.checkAccount();
+    void this.refreshCurrentSource();
   };
   private readonly settingsStorageChanged = (event: StorageEvent) => {
     if (event.key === "haneoka.release-server" || event.key === null) this.refreshAccount();
   };
   private readonly localeReady = () => this.requestUpdate();
+
+  private async refreshCurrentSource(): Promise<void> {
+    const server = readReleaseServer();
+    if (this.dataLoading && server === this.server) return;
+    if (server !== this.server || !this.data) {
+      await this.loadSource(server);
+      return;
+    }
+    this.identityController?.abort();
+    const controller = (this.identityController = new AbortController());
+    const data = this.data;
+    this.sourceReady = false;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 12000);
+    try {
+      const identity = await fetchCurrentTeamBuilderIdentity(server, controller.signal);
+      if (this.identityController !== controller || this.data !== data || !this.isConnected || readReleaseServer() !== server) return;
+      clearTimeout(timer);
+      if (
+        !this.store ||
+        this.verifiedData !== data ||
+        identity.releaseId !== data.identity.releaseId ||
+        identity.sourceId !== data.identity.sourceId
+      ) {
+        await this.loadSource(server);
+      } else {
+        this.sourceReady = true;
+        if (this.error === this.t("dataError", "Could not load card data.")) this.error = "";
+        await this.checkAccount();
+      }
+    } catch {
+      if (this.identityController === controller && this.data === data && this.isConnected && (!controller.signal.aborted || timedOut)) {
+        this.sourceReady = false;
+        this.cancelSearch();
+        this.error = this.t("dataError", "Could not load card data.");
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   private async loadVisuals() {
     this.visualsController?.abort();
@@ -340,15 +383,19 @@ export class TeamBuilder extends LitElement {
     const previousInventory = sameServer ? this.inventory : null;
     const previousOwner = this.currentOwner;
     const previousRevision = this.storeState?.revision ?? 0;
+    const previousState = sameServer ? this.storeState : null;
+    const previousRebase = sameServer ? this.pendingRebase : null;
     this.cancelSearch();
     this.closePane(server === this.server && this.maintenanceOpen);
     this.visualsController?.abort();
     this.visuals = undefined;
     this.authController?.abort();
+    this.identityController?.abort();
     ++this.authGeneration;
     this.store?.dispose();
     this.store = undefined;
     this.storeState = null;
+    this.sourceReady = false;
     this.result = null;
     this.optimizationInput = null;
     this.selectedIds = new Set();
@@ -363,6 +410,7 @@ export class TeamBuilder extends LitElement {
       this.uniquenessOwner = undefined;
       this.inventory = null;
       this.data = null;
+      this.verifiedData = null;
       this.currentOwner = undefined;
       this.memorySong = "";
       this.memoryCharacter = "";
@@ -383,6 +431,8 @@ export class TeamBuilder extends LitElement {
       const data = await fetchTeamBuilderData(server, controller.signal);
       if (this.dataController !== controller || !this.isConnected) return;
       this.data = data;
+      this.verifiedData = data;
+      this.sourceReady = true;
       void this.loadVisuals();
       if (previousInventory && previousInventory.releaseId !== data.identity.releaseId) {
         this.pendingRebase = {
@@ -399,26 +449,21 @@ export class TeamBuilder extends LitElement {
     } catch {
       if (this.dataController === controller && this.isConnected) {
         this.dataLoading = false;
+        this.sourceReady = false;
         this.data = previousData ?? null;
         void this.loadVisuals();
-        this.inventory = previousInventory;
+        this.inventory = this.inventory ?? previousInventory;
+        this.storeState = previousState;
+        this.pendingRebase = previousRebase;
         this.error = this.t("dataError", "Could not load card data.");
         this.saveState = "error";
-        if (this.data) {
-          const restored = this.bindStore();
-          if (previousOwner === null) {
-            void restored?.setAccount(null);
-            this.currentOwner = null;
-            this.syncCheckpointCache();
-          }
-        }
       }
     } finally {
       clearTimeout(timeout);
     }
   }
   private async checkAccount(force = false): Promise<void> {
-    if (!this.store || !this.data || readReleaseServer() !== this.data.identity.server) return;
+    if (!this.sourceReady || !this.store || !this.data || readReleaseServer() !== this.data.identity.server) return;
     this.authController?.abort();
     const controller = (this.authController = new AbortController());
     const generation = ++this.authGeneration;
@@ -456,10 +501,6 @@ export class TeamBuilder extends LitElement {
         this.currentOwner = owner;
         this.syncCheckpointCache();
         this.requestUpdate();
-        if (!this.initialSourceCheck) {
-          this.initialSourceCheck = true;
-          void this.loadSource(this.server);
-        }
       }
     } catch {
       if ((!controller.signal.aborted || timedOut) && generation === this.authGeneration) {
@@ -471,6 +512,10 @@ export class TeamBuilder extends LitElement {
     }
   }
   private async retryInventory(): Promise<void> {
+    if (!this.sourceReady) {
+      await this.loadSource(readReleaseServer());
+      return;
+    }
     const store = this.store;
     const state = store?.state;
     if (
@@ -495,6 +540,7 @@ export class TeamBuilder extends LitElement {
   private get canEdit(): boolean {
     return Boolean(
       !this.dataLoading &&
+      this.sourceReady &&
       !this.pendingRebase &&
       !this.pendingUniqueness &&
       this.storeState?.inventory &&
@@ -502,7 +548,7 @@ export class TeamBuilder extends LitElement {
     );
   }
   private applyRebase(): void {
-    if (!this.pendingRebase || !this.data || !this.store || this.currentOwner === undefined) return;
+    if (!this.sourceReady || !this.pendingRebase || !this.data || !this.store || this.currentOwner === undefined) return;
     const pending = this.pendingRebase,
       state = this.store.state;
     const preview = rebaseInventory(pending.draft, this.data);
@@ -806,7 +852,7 @@ export class TeamBuilder extends LitElement {
               : nothing
           }
           ${
-            !this.data
+            !this.data || !this.sourceReady
               ? html`
                   <button class="button button--outlined" @click=${() => this.loadSource(readReleaseServer())}>
                     ${clientText(this.locale, "retry", "Retry")}
@@ -1029,6 +1075,7 @@ export class TeamBuilder extends LitElement {
     this.memorySong = "";
     this.memoryCharacter = "";
     this.dataLoading = false;
+    this.sourceReady = false;
     this.pendingRebase = null;
     this.selectingSong = false;
     this.pickerSong = "";
@@ -1048,18 +1095,13 @@ export class TeamBuilder extends LitElement {
   }
   connectedCallback() {
     super.connectedCallback();
-    this.data ??= readPageData<TeamBuilderData>(this) ?? null;
     const url = new URL(location.href);
     if (url.searchParams.has("server")) {
       url.searchParams.delete("server");
       history.replaceState(history.state, "", url);
     }
     const requested = readReleaseServer();
-    if (this.data && requested === this.data.identity.server) {
-      this.server = this.data.identity.server;
-      this.bindStore();
-      void this.loadVisuals();
-    } else void this.loadSource(requested);
+    void this.loadSource(requested);
     document.addEventListener("haneoka:locale-ready", this.localeReady);
     window.addEventListener("focus", this.refreshAccount);
     window.addEventListener("storage", this.settingsStorageChanged);
@@ -1072,6 +1114,7 @@ export class TeamBuilder extends LitElement {
     this.checkpointCache = null;
     ++this.authGeneration;
     this.authController?.abort();
+    this.identityController?.abort();
     this.dataController?.abort();
     this.visualsController?.abort();
     this.store?.dispose();
