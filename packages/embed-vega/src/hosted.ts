@@ -279,8 +279,12 @@ export function mountHaneokaStory(container: HTMLElement, options: HaneokaStoryO
         signal: controller.signal,
         onEvent(event: StoryEmbedEvent) {
           if (event.type === "load" && event.event.type === "ready" && event.event.key === "$data") change("resources");
-          if (event.type === "error") phase = "error";
-          emit(event);
+          if (phase !== "disposed" && phase !== "cancelled") {
+            if (event.type === "error" || (event.type === "state" && event.snapshot.phase === "error"))
+              phase = "error";
+          }
+          // Child readiness precedes this bootstrap's ready transition.
+          emit(event.type === "state" ? { ...event, snapshot: { ...event.snapshot, phase } } : event);
         },
       }) as StoryEmbedHandle;
       await child.ready;

@@ -84,6 +84,11 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
     });
   let lastSnapshot = "";
   const publish = () => {
+    // Native shell controls and background tasks report through player state.
+    if (phase === "ready" && player?.player.state.error) {
+      fail(new Error(player.player.state.error));
+      return;
+    }
     const value = snapshot();
     const signature = JSON.stringify(value);
     if (signature !== lastSnapshot) {
@@ -297,6 +302,7 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
       player.shell?.setSetting("language", loader.locale);
       player.shell?.setSetting("uiLanguage", loader.locale);
       player.player.setLocale(loader.locale, { refresh: true });
+      if (player.player.state.error) throw new Error(player.player.state.error);
       phase = "ready";
       timer = setInterval(publish, 100);
       publish();
