@@ -1,8 +1,9 @@
 import type { SolverRequest, SolverResponse } from "../contracts.ts";
-import { optimizeTeams } from "../optimizer.ts";
+import { optimizeTeams, validateOptimizationInput } from "../optimizer.ts";
 import { getTeamBuilderCapabilities } from "./capabilities.ts";
 import { prepareEvaluationForSearch } from "./evaluation.ts";
 import { loadSongOptions } from "./song-loader.ts";
+import { createSearchCheckpoint, restoreSearchCheckpoint, searchFingerprint } from "./search-checkpoint.ts";
 const scope = globalThis as unknown as {
   onmessage: ((event: MessageEvent<SolverRequest>) => void) | null;
   postMessage(message: SolverResponse): void;
@@ -27,6 +28,7 @@ scope.onmessage = (event) => {
   const execute = async () => {
     let input;
     let evaluate;
+    let fingerprint;
     if (message.type === "prepare") {
       scope.postMessage({
         type: "progress",
@@ -44,8 +46,40 @@ scope.onmessage = (event) => {
         active = null;
         return;
       }
+      const { budget: _budget, ...semanticRequest } = message.request;
+      fingerprint = await searchFingerprint({ kind: "prepare", request: semanticRequest, songs });
       ({ input, evaluate } = prepareEvaluationForSearch({ ...message.request, songs }));
-    } else input = message.input;
+    } else {
+      input = message.input;
+      const { budget: _budget, ...semanticInput } = input;
+      fingerprint = await searchFingerprint({ kind: "start", input: semanticInput });
+    }
+    if (active !== run) return;
+    validateOptimizationInput(input);
+    const restored = await restoreSearchCheckpoint(message.checkpoint, fingerprint);
+    if (active !== run) return;
+    if (restored && !run.cancelled) {
+      scope.postMessage({
+        type: "progress",
+        runId: run.runId,
+        progress: {
+          phase: "complete",
+          evaluated: restored.evaluated,
+          elapsedMs: 0,
+          candidateCount: restored.candidates.length,
+          proofStatus: "proven",
+        },
+      });
+      scope.postMessage({
+        type: "result",
+        runId: run.runId,
+        result: restored,
+        checkpoint: { ...message.checkpoint!, result: restored },
+        reusedCheckpoint: true,
+      });
+      active = null;
+      return;
+    }
     const result = await optimizeTeams(input, {
       evaluate,
       cancelled: () => run.cancelled,
@@ -53,11 +87,14 @@ scope.onmessage = (event) => {
         if (active === run) scope.postMessage({ type: "progress", runId: run.runId, progress });
       },
     });
+    const completed = { ...result, capabilities: getTeamBuilderCapabilities(input) };
+    const checkpoint = await createSearchCheckpoint(fingerprint, completed);
     if (active === run) {
       scope.postMessage({
         type: "result",
         runId: run.runId,
-        result: { ...result, capabilities: getTeamBuilderCapabilities(input) },
+        result: checkpoint?.result ?? completed,
+        ...(checkpoint ? { checkpoint } : {}),
       });
       active = null;
     }

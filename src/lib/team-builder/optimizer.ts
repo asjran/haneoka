@@ -8,6 +8,7 @@ import type {
 } from "./contracts.ts";
 import { prepareSong, type PreparedSong } from "./song-metrics.ts";
 import { createAssignmentEvaluator } from "./solver/evaluate.ts";
+import { createSongRankingCollector } from "./solver/search-rankings.ts";
 
 export interface SearchHooks {
   /** Prepared in the worker for native formation conditions; reads selected slots only. */
@@ -36,7 +37,7 @@ export function dominates(left: readonly number[], right: readonly number[]): bo
     left.some((value, index) => value > right[index]!)
   );
 }
-function validate(input: OptimizationInput): void {
+export function validateOptimizationInput(input: OptimizationInput): void {
   if (input.server !== input.evaluation.server || input.releaseId !== input.evaluation.releaseId)
     throw new RangeError("different-evaluation-release");
   if (
@@ -112,7 +113,7 @@ function validate(input: OptimizationInput): void {
  * comparable objective vectors enter the Pareto frontier; null is never zero.
  */
 export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks = {}): Promise<SearchResult> {
-  validate(input);
+  validateOptimizationInput(input);
   const now = hooks.now ?? (() => performance.now());
   const started = now();
   const elapsed = () => Math.max(0, now() - started);
@@ -120,24 +121,20 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
   const recordGap = (gap: EvidenceGap) => gaps.set(`${gap.code}:${gap.source}`, gap);
   input.evaluation.gaps.forEach(recordGap);
   input.inputGaps?.forEach(recordGap);
+  const unavailable = (): SearchResult => ({
+    candidates: [],
+    completeness: "unavailable",
+    evaluated: 0,
+    elapsedMs: elapsed(),
+    gaps: [...gaps.values()],
+    bySong: [],
+    proof: { status: "unavailable", method: "exhaustive-selected-domain", scope: "selected-input-domain" },
+  });
   if (input.objectives.some((objective) => objective === "event-points" || objective === "event-items")) {
     recordGap({ code: "event-reward-formula-unresolved", source: "native event result service + active event tables" });
-    return {
-      candidates: [],
-      completeness: "unavailable",
-      evaluated: 0,
-      elapsedMs: elapsed(),
-      gaps: [...gaps.values()],
-    };
+    return unavailable();
   }
-  if (input.evaluation.gaps.length)
-    return {
-      candidates: [],
-      completeness: "unavailable",
-      evaluated: 0,
-      elapsedMs: elapsed(),
-      gaps: [...gaps.values()],
-    };
+  if (input.evaluation.gaps.length) return unavailable();
   const members = input.members.filter((member) => !input.constraints.excludedMemberIds.includes(member.instanceId));
   const snapshots = input.snapshots.filter((snapshot) => {
     if (input.constraints.excludedSnapshotIds.includes(snapshot.instanceId)) return false;
@@ -146,13 +143,8 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
     return false;
   });
   if (input.constraints.lockedSnapshotIds.some((id) => !snapshots.some((snapshot) => snapshot.instanceId === id)))
-    return {
-      candidates: [],
-      completeness: "unavailable",
-      evaluated: 0,
-      elapsedMs: elapsed(),
-      gaps: [...gaps.values()],
-    };
+    return unavailable();
+  const incompleteDomain = gaps.size > 0;
   const evaluate: NonNullable<SearchHooks["evaluate"]> =
     hooks.evaluate ??
     (() => {
@@ -168,18 +160,31 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
     )
     .map((song) => prepareSong(song, input.evaluation));
   const frontier: Candidate[] = [];
+  const ranking = createSongRankingCollector(input);
   let evaluated = 0;
   let work = 0;
   let completeness: SearchResult["completeness"] = "exhaustive";
   let stopped = false;
   let incompleteNativeInputs = false;
   let lastNestedProgress = -Infinity;
+  const reportProgress = () => {
+    const elapsedMs = elapsed();
+    if (elapsedMs - lastNestedProgress < 100) return;
+    lastNestedProgress = elapsedMs;
+    hooks.progress?.({
+      evaluated,
+      elapsedMs,
+      phase: "search",
+      candidateCount: frontier.length,
+      proofStatus: "candidate",
+    });
+  };
   async function checkpoint(): Promise<boolean> {
     // Count DFS operations as well as evaluated leaves: impossible constraints
     // can otherwise consume the whole worker without producing progress.
     work++;
     if (work % 64 === 0) {
-      hooks.progress?.({ evaluated, elapsedMs: elapsed(), phase: "search" });
+      reportProgress();
       await (hooks.yield ?? defaultYield)();
     }
     if (hooks.cancelled?.()) {
@@ -192,9 +197,21 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
     return !stopped;
   }
   function offer(candidate: Candidate): void {
+    ranking.offer(candidate);
     for (const objective of input.objectives) candidate.metrics[objective].gaps.forEach(recordGap);
-    if (!candidate.vector.every(Number.isFinite)) {
-      if (input.evaluation.scope === "native-runtime") incompleteNativeInputs = true;
+    if (
+      !candidate.vector.every(Number.isFinite) ||
+      input.objectives.some((objective) => {
+        const metric = candidate.metrics[objective];
+        return (
+          metric.value === null ||
+          !Number.isFinite(metric.value) ||
+          metric.status === "unavailable" ||
+          metric.gaps.length > 0
+        );
+      })
+    ) {
+      incompleteNativeInputs = true;
       return;
     }
     if (
@@ -235,12 +252,7 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
             cancelled: hooks.cancelled ?? (() => false),
             yield: hooks.yield ?? defaultYield,
             expired: () => elapsed() >= input.budget.maxMilliseconds,
-            progress: () => {
-              const elapsedMs = elapsed();
-              if (elapsedMs - lastNestedProgress < 100) return;
-              lastNestedProgress = elapsedMs;
-              hooks.progress?.({ evaluated, elapsedMs, phase: "search" });
-            },
+            progress: reportProgress,
           });
           evaluated++;
           offer(candidate);
@@ -304,13 +316,36 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
     }
   }
   await choose(0);
-  hooks.progress?.({ evaluated, elapsedMs: elapsed(), phase: "complete" });
+  const finalCompleteness =
+    completeness === "exhaustive" && (incompleteDomain || incompleteNativeInputs) ? "unavailable" : completeness;
+  const proof = {
+    status:
+      finalCompleteness === "exhaustive"
+        ? ("proven" as const)
+        : finalCompleteness === "unavailable"
+          ? ("unavailable" as const)
+          : ("candidate" as const),
+    method: "exhaustive-selected-domain" as const,
+    scope: "selected-input-domain" as const,
+  };
+  hooks.progress?.({
+    evaluated,
+    elapsedMs: elapsed(),
+    phase: "complete",
+    candidateCount: frontier.length,
+    proofStatus: proof.status,
+  });
   return {
     candidates: frontier,
-    completeness: completeness === "exhaustive" && incompleteNativeInputs ? "unavailable" : completeness,
+    completeness: finalCompleteness,
     evaluated,
     elapsedMs: elapsed(),
     gaps: [...gaps.values()],
+    proof,
+    bySong: ranking.finish(
+      completeness === "exhaustive" && !incompleteDomain,
+      new Set(songs.map((song) => song.song.key)),
+    ),
   };
 }
 

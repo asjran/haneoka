@@ -147,6 +147,22 @@ export interface SearchProgress {
   evaluated: number;
   elapsedMs: number;
   phase: "loading" | "search" | "complete";
+  candidateCount?: number;
+  proofStatus?: "candidate" | "proven" | "unavailable";
+}
+export interface SongSearchRanking {
+  songKey: string;
+  songId: number;
+  difficulty: number;
+  /** Independent Top3 per objective, collected before global Pareto filtering. */
+  top3: Partial<Record<Objective, Candidate[]>>;
+  evaluated: number;
+  proven: boolean;
+}
+export interface SearchProof {
+  status: "candidate" | "proven" | "unavailable";
+  method: "exhaustive-selected-domain";
+  scope: "selected-input-domain";
 }
 export interface SearchResult {
   capabilities?: TeamBuilderCapabilities;
@@ -155,6 +171,17 @@ export interface SearchResult {
   evaluated: number;
   elapsedMs: number;
   gaps: EvidenceGap[];
+  proof?: SearchProof;
+  bySong?: SongSearchRanking[];
+}
+
+/** A completed selected-domain result. Budget-limited DFS state is not persisted. */
+export interface SearchCheckpoint {
+  schema: "haneoka-search-checkpoint-v1";
+  engineRevision: string;
+  fingerprint: string;
+  resultDigest: string;
+  result: SearchResult;
 }
 
 /** Fully resolved native slot state. The adapter preserves gaps until the full
@@ -231,10 +258,10 @@ export interface WorkerPreparationInput {
   budget: SearchBudget;
 }
 export type SolverRequest =
-  | { type: "prepare"; runId: string; request: WorkerPreparationInput }
-  | { type: "start"; runId: string; input: OptimizationInput }
+  | { type: "prepare"; runId: string; request: WorkerPreparationInput; checkpoint?: SearchCheckpoint }
+  | { type: "start"; runId: string; input: OptimizationInput; checkpoint?: SearchCheckpoint }
   | { type: "cancel"; runId: string };
 export type SolverResponse =
   | { type: "progress"; runId: string; progress: SearchProgress }
-  | { type: "result"; runId: string; result: SearchResult }
+  | { type: "result"; runId: string; result: SearchResult; checkpoint?: SearchCheckpoint; reusedCheckpoint?: boolean }
   | { type: "error"; runId: string; code: string };
