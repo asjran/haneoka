@@ -2702,7 +2702,12 @@
     "rankBy": "순위 기준",
     "chartProven": "선택 범위 탐색 완료",
     "chartCandidate": "잠정 후보",
-    "candidateCount": "후보 {count}개 발견"
+    "candidateCount": "후보 {count}개 발견",
+    "checkpointSaving": "완료된 결과 저장 중",
+    "checkpointSaved": "완료된 결과 저장됨",
+    "checkpointSaveFailed": "완료된 결과를 저장하지 못했습니다",
+    "checkpointReused": "완료된 결과를 재사용했습니다",
+    "noRankedCandidates": "아직 표시할 후보가 없습니다"
   },
   "characterRankRewards": "캐릭터 랭크 보상",
   "characterRank": "캐릭터 랭크",

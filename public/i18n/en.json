@@ -2702,7 +2702,12 @@
     "rankBy": "Rank by",
     "chartProven": "Selected chart search complete",
     "chartCandidate": "Provisional candidates",
-    "candidateCount": "{count} candidates found"
+    "candidateCount": "{count} candidates found",
+    "checkpointSaving": "Saving complete result",
+    "checkpointSaved": "Complete result saved",
+    "checkpointSaveFailed": "Complete result could not be saved",
+    "checkpointReused": "Reused a complete result",
+    "noRankedCandidates": "No candidates available yet"
   },
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",

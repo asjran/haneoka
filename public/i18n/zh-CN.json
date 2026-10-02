@@ -2702,7 +2702,12 @@
     "rankBy": "排序目标",
     "chartProven": "所选范围已遍历",
     "chartCandidate": "暂定候选",
-    "candidateCount": "已找到 {count} 个候选"
+    "candidateCount": "已找到 {count} 个候选",
+    "checkpointSaving": "正在保存完整结果",
+    "checkpointSaved": "完整结果已保存",
+    "checkpointSaveFailed": "无法保存完整结果",
+    "checkpointReused": "已复用完整结果",
+    "noRankedCandidates": "暂时没有可展示的候选"
   },
   "characterRankRewards": "角色等级奖励",
   "characterRank": "角色等级",

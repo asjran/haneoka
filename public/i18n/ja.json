@@ -2702,7 +2702,12 @@
     "rankBy": "順位の基準",
     "chartProven": "選択範囲の探索完了",
     "chartCandidate": "暫定候補",
-    "candidateCount": "候補 {count} 件"
+    "candidateCount": "候補 {count} 件",
+    "checkpointSaving": "完了した結果を保存中",
+    "checkpointSaved": "完了した結果を保存しました",
+    "checkpointSaveFailed": "完了した結果を保存できませんでした",
+    "checkpointReused": "完了した結果を再利用しました",
+    "noRankedCandidates": "表示できる候補はまだありません"
   },
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",

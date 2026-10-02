@@ -62,6 +62,7 @@ import { filterChip, iconButton, segmented } from "./ui/controls";
 import { selectionPane } from "./ui/selection-pane";
 import { songTile, liveMusicTypeMark } from "./shared/song-tile";
 import { cardTile } from "./shared/card-tile";
+import { SearchCheckpointStore } from "./shared/search-checkpoint-store";
 import { fetchCatalogVisuals } from "../lib/catalog-visuals";
 import { uiText } from "./shared/catalog";
 import { tile, tileMedia, type TileOptions } from "./ui/tile";
@@ -238,10 +239,12 @@ export class TeamBuilder extends LitElement {
   private images = new LazyImages();
   private paneFocus = new PaneFocus();
   private worker?: Worker;
+  private checkpointCache: SearchCheckpointStore | null = null;
   private completedSearch: {
     request: SearchRunRequest;
     result: SearchResult;
     completedAt: string;
+    reusedCheckpoint: boolean;
   } | null = null;
   private requestId = 0;
   private store?: InventoryStore;
@@ -372,6 +375,7 @@ export class TeamBuilder extends LitElement {
     this.dataController?.abort();
     const controller = (this.dataController = new AbortController());
     this.server = server;
+    this.syncCheckpointCache();
     this.dataLoading = true;
     this.error = "";
     const timeout = setTimeout(() => controller.abort(), 20000);
@@ -405,6 +409,7 @@ export class TeamBuilder extends LitElement {
           if (previousOwner === null) {
             void restored?.setAccount(null);
             this.currentOwner = null;
+            this.syncCheckpointCache();
           }
         }
       }
@@ -449,6 +454,7 @@ export class TeamBuilder extends LitElement {
         await this.store.setAccount(owner);
         if (generation !== this.authGeneration || !this.isConnected) return;
         this.currentOwner = owner;
+        this.syncCheckpointCache();
         this.requestUpdate();
         if (!this.initialSourceCheck) {
           this.initialSourceCheck = true;
@@ -477,6 +483,14 @@ export class TeamBuilder extends LitElement {
     )
       await store.saveNow();
     else await this.checkAccount(true);
+  }
+  private syncCheckpointCache() {
+    const key = this.data && this.currentOwner !== undefined
+      ? JSON.stringify([this.data.identity.server, this.currentOwner])
+      : null;
+    if (this.checkpointCache?.key === key) return;
+    this.checkpointCache?.dispose();
+    this.checkpointCache = key === null ? null : new SearchCheckpointStore(key, undefined, () => this.requestUpdate());
   }
   private get canEdit(): boolean {
     return Boolean(
@@ -891,6 +905,7 @@ export class TeamBuilder extends LitElement {
                     @click=${async () => {
                       await this.store?.setAccount(null);
                       this.currentOwner = null;
+                      this.syncCheckpointCache();
                       this.error = "";
                     }}
                   >
@@ -1053,6 +1068,8 @@ export class TeamBuilder extends LitElement {
   }
   disconnectedCallback() {
     this.cancelSearch();
+    this.checkpointCache?.dispose();
+    this.checkpointCache = null;
     ++this.authGeneration;
     this.authController?.abort();
     this.dataController?.abort();
@@ -2884,6 +2901,7 @@ export class TeamBuilder extends LitElement {
     this.progress = null;
     this.searchStatus = "";
     this.completedSearch = null;
+    void this.checkpointCache?.flush();
   }
   private resultExport() {
     const completed = this.completedSearch;
@@ -2983,11 +3001,13 @@ export class TeamBuilder extends LitElement {
   startOptimization(): void {
     if (!this.canOptimize || !this.data || !this.inventory) return;
     this.cancelSearch();
+    this.syncCheckpointCache();
     this.searchError = "";
     this.result = null;
     this.progress = null;
     this.searchStatus = "";
     const generation = this.requestId;
+    const checkpointCache = this.checkpointCache;
     this.rankingLimit = 5;
     const runId = crypto.randomUUID();
     let runRequest: SearchRunRequest;
@@ -3016,8 +3036,16 @@ export class TeamBuilder extends LitElement {
       else {
         if (message.type === "result") {
           this.result = message.result;
-          this.completedSearch = { request: runRequest, result: message.result, completedAt: new Date().toISOString() };
+          this.completedSearch = {
+            request: runRequest,
+            result: message.result,
+            completedAt: new Date().toISOString(),
+            reusedCheckpoint: message.reusedCheckpoint === true,
+          };
+          if (message.checkpoint) void checkpointCache?.save(message.checkpoint);
+          if (message.reusedCheckpoint) this.searchStatus = this.t("checkpointReused", "Reused a complete result");
         } else this.searchError = this.t("unavailable", "Required data or formula is unavailable");
+        void checkpointCache?.flush();
         this.running = false;
         worker.terminate();
         if (this.worker === worker) this.worker = undefined;
@@ -3041,7 +3069,6 @@ export class TeamBuilder extends LitElement {
           budget,
         };
         runRequest = { type: "start", runId, input: structuredClone(input) };
-        worker.postMessage(runRequest);
       } else {
         const request: WorkerPreparationInput = {
           data: this.data,
@@ -3054,8 +3081,21 @@ export class TeamBuilder extends LitElement {
           budget,
         };
         runRequest = { type: "prepare", runId, request };
-        worker.postMessage(runRequest);
       }
+      const dispatch = () => {
+        if (generation !== this.requestId || !this.isConnected || this.checkpointCache !== checkpointCache) return;
+        worker.postMessage({
+          ...runRequest,
+          ...(checkpointCache?.lastComplete ? { checkpoint: checkpointCache.lastComplete } : {}),
+        });
+      };
+      if (checkpointCache && !checkpointCache.loaded) void checkpointCache.ready.then(dispatch).catch(() => {
+        if (generation === this.requestId) {
+          this.cancelSearch();
+          this.searchError = this.t("unavailable", "Required data or formula is unavailable");
+        }
+      });
+      else dispatch();
     } catch {
       this.cancelSearch();
       this.searchError = this.t("unavailable", "Required data or formula is unavailable");
@@ -3283,9 +3323,7 @@ export class TeamBuilder extends LitElement {
     if (!this.result) return nothing;
     const rankings = this.result.bySong ?? [];
     if (!rankings.length) return this.result.candidates.map((candidate) => this.renderCandidate(candidate));
-    const objective = this.objectives.includes(this.rankingObjective)
-      ? this.rankingObjective
-      : this.objectives[0] ?? "base-score";
+    const objective = this.activeRankingObjective;
     return html`
       ${segmented({
         label: this.t("results", "Candidates"),
@@ -3315,7 +3353,7 @@ export class TeamBuilder extends LitElement {
                   </summary>
                   ${(ranking.top3[objective] ?? []).map((candidate) => this.renderCandidate(candidate, false))}
                   ${!(ranking.top3[objective]?.length)
-                    ? html`<p>${this.t("noCandidates", "No candidates match these constraints.")}</p>`
+                    ? html`<p>${ranking.proven ? this.t("noCandidates", "No candidates match these constraints.") : this.t("noRankedCandidates", "No candidates available yet")}</p>`
                     : nothing}
                 </details>
               `)}
@@ -3324,6 +3362,36 @@ export class TeamBuilder extends LitElement {
                 : nothing}
             `
       }
+    `;
+  }
+  private get activeRankingObjective(): Objective {
+    return this.objectives.includes(this.rankingObjective)
+      ? this.rankingObjective
+      : this.objectives[0] ?? "base-score";
+  }
+  private get hasResultCandidates(): boolean {
+    if (!this.result) return false;
+    if (this.resultView === "by-chart" && this.result.bySong?.length)
+      return this.result.bySong.some((ranking) => Boolean(ranking.top3[this.activeRankingObjective]?.length));
+    return this.result.candidates.length > 0;
+  }
+  private renderCheckpointStatus() {
+    const cache = this.checkpointCache;
+    if (!cache?.lastComplete || this.result !== cache.lastComplete.result) return nothing;
+    const labels = {
+      saving: ["checkpointSaving", "Saving complete result"],
+      saved: ["checkpointSaved", "Complete result saved"],
+      error: ["checkpointSaveFailed", "Complete result could not be saved"],
+    } as const;
+    if (cache.status === "idle") return nothing;
+    const [key, fallback] = labels[cache.status];
+    return html`
+      <div class="team-builder__actions">
+        <span role="status">${this.t(key, fallback)}</span>
+        ${cache.status === "error"
+          ? html`<button class="button button--outlined" @click=${() => void cache.save(cache.lastComplete!)}>${clientText(this.locale, "retry", "Retry")}</button>`
+          : nothing}
+      </div>
     `;
   }
   private renderResults() {
@@ -3380,11 +3448,12 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
+        ${this.renderCheckpointStatus()}
         ${
           this.result
             ? html`
                 <p role="status">
-                  ${this.result.completeness === "unavailable" && this.result.candidates.length ? this.t("partialCandidates", "Some teams could be calculated. Other cards need their training or supported rules checked.") : this.t(this.result.completeness, this.result.completeness)}
+                  ${this.result.completeness === "unavailable" && this.hasResultCandidates ? this.t("partialCandidates", "Some teams could be calculated. Other cards need their training or supported rules checked.") : this.t(this.result.completeness, this.result.completeness)}
                 </p>
                 ${
                   this.result.gaps.some((gap) => gap.code === "native-normal-incomplete-snapshot-search")
@@ -3406,7 +3475,7 @@ export class TeamBuilder extends LitElement {
                 }
                 ${this.renderResultCandidates()}
                 ${
-                  this.result.candidates.length
+                  this.hasResultCandidates
                     ? nothing
                     : html`
                         <p>
