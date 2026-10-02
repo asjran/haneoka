@@ -102,7 +102,6 @@ const COLUMNS: Record<string, Column[]> = {
     column("n", "numeric", "n"),
     column("nps", "numeric", "nps"),
     column("sr", "numeric", "sr"),
-    column("metaQuality", "text"),
     column("category", "text", "category"),
     column("composer", "text", "composer"),
     column("lyricist", "text", "lyrics"),
@@ -127,7 +126,6 @@ const COLUMNS: Record<string, Column[]> = {
     column("n", "numeric", "n"),
     column("nps", "numeric", "nps"),
     column("sr", "numeric", "sr"),
-    column("metaQuality", "text"),
     column("category", "text", "category"),
     column("release", "text", "release"),
   ],
@@ -147,7 +145,6 @@ const COLUMNS: Record<string, Column[]> = {
     column("justableRate", "numeric", "justableRate"),
     column("justable", "numeric", "justable"),
     column("luck", "numeric", "luck"),
-    column("metaQuality", "text"),
     column("bpm", "numeric", "bpm"),
     column("n", "numeric", "n"),
     column("nps", "numeric", "nps"),
@@ -220,12 +217,7 @@ export class CatalogTable extends LitElement {
             : "song-meta"
           : c.profile.presentation
       ] || COLUMNS.item;
-    const label = (key: string) =>
-      key === "metaQuality"
-        ? c.label("metaQuality", "Score-node quality")
-        : this.meta?.mode === "gekisou" && (key === "score" || key === "eff")
-          ? `${c.detailLabel(key)} · ${c.label("metaEstimate", "Estimate")}`
-          : c.detailLabel(key);
+    const label = (key: string) => c.detailLabel(key);
     return html`
       <div class="table-scroll" role="region" tabindex="0" aria-label=${c.label("table", "Table")} data-scroll-region>
         <table class="data-table">
@@ -555,18 +547,6 @@ export class CatalogTable extends LitElement {
       return wrap(value ? c.label(value, value) : "—");
     }
     if (key === "status") return wrap(c.systemStatusLabel(item) || "—");
-    if (key === "metaQuality") {
-      const warning = c.songMetaQuality(item);
-      return wrap(
-        warning
-          ? html`
-              <span title=${warning}>
-                ${icon("warning", 18)} ${c.label("metaCountMismatchShort", "Count mismatch")}
-              </span>
-            `
-          : "—",
-      );
-    }
     if (["time", "score", "eff", "bpm", "n", "nps", "sr", "justableRate", "justable", "luck"].includes(key))
       return wrap(c.songListMeta(item, key));
     if (key === "release") return wrap(c.release(item.releasedAt || item.publishedAt || item.publicStartAt) || "—");

@@ -1641,97 +1641,6 @@ export class CatalogScreen extends LitElement {
     }
     return chart[key] === null || chart[key] === undefined ? Number.NaN : Number(chart[key]);
   }
-  private songRowChartMeta(item?: Item): Item {
-    if (!item) return {};
-    const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
-    const rows = asItems(item.difficulty);
-    const index = this.profile.perDifficulty
-      ? Math.max(0, Number(item.__difficultyIndex ?? 0))
-      : rows.findIndex((row, index) => difficultyKey(row, index) === this.selectedSongDifficulty);
-    return ((song?.[String(index)] as Item | undefined)?.chart as Item | undefined) || {};
-  }
-  songMetaQuality(item: Item): string {
-    return this.metaQualityWarning(this.songRowChartMeta(item));
-  }
-  private metaQualityWarning(chart: Item): string {
-    return Array.isArray(chart.metaWarnings) && chart.metaWarnings.includes("canonical-full-combo-mismatch")
-      ? this.label("metaCountMismatch", "Score-node and FULL COMBO counts differ; treat this ranking as approximate.")
-      : "";
-  }
-  private renderMetaReference(chart: Item, showQuality = true) {
-    const warning = showQuality ? this.metaQualityWarning(chart) : "";
-    if (this.metaMode === "gekisou")
-      return html`
-        <p>
-          ${this.label("metaGekisouEstimate", "Gekisou relative estimate; player scores and event rewards are unavailable.")}
-        </p>
-        ${
-          warning
-            ? html`
-                <p role="status">${warning}</p>
-              `
-            : nothing
-        }
-      `;
-    const profile =
-      this.metaTier === "theory"
-        ? chart
-        : (chart.profiles as Record<string, Item> | undefined)?.[
-            this.metaTier === "band" ? `band:${this.metaBand}` : "current"
-          ];
-    const base = (chart.reference as Item | undefined) || {};
-    const reference = profile ? { ...base, ...profile } : {};
-    const number = (value: unknown, percent = false) =>
-      value !== null && value !== undefined && Number.isFinite(Number(value))
-        ? `${(Number(value) * (percent ? 100 : 1)).toLocaleString(this.settings.locale, { maximumFractionDigits: 2 })}${percent ? "%" : ""}`
-        : "—";
-    const multiplier =
-      reference.scoreUpMultiplier === null || reference.scoreUpMultiplier === undefined
-        ? Number.NaN
-        : Number(reference.scoreUpMultiplier);
-    const title =
-      this.metaTier === "theory"
-        ? this.label("metaReferenceBaseline", "Baseline reference")
-        : `${this.label("metaReferenceTeam", "Reference team")}${this.metaTier === "band" ? ` · ${this.bandName(this.metaBand)}` : ""}`;
-    return html`
-      <p>
-        <strong>${title}</strong>
-        ·
-        ${profile ? this.label("metaReferencePool", "Published card-skill pool and support extension") : this.label("unavailable", "Unavailable")}
-      </p>
-      <dl class="spec-list spec-list--split">
-        <div>
-          <dt>${this.label("metaSkillMultiplier", "Skill multiplier")}</dt>
-          <dd>${Number.isFinite(multiplier) ? `×${number(multiplier)} (+${number(multiplier - 1, true)})` : "—"}</dd>
-        </div>
-        <div>
-          <dt>${this.label("metaSkillDuration", "Skill duration (s)")}</dt>
-          <dd>${number(reference.skillDurationSeconds)}</dd>
-        </div>
-        <div>
-          <dt>PERFECT</dt>
-          <dd>${number(reference.perfectRate, true)}</dd>
-        </div>
-        <div>
-          <dt>${this.label("metaDowntime", "Between-play overhead (s)")}</dt>
-          <dd>${number(reference.downtimeSeconds)}</dd>
-        </div>
-        <div>
-          <dt>${this.label("source", "Source")}</dt>
-          <dd>
-            ${this.label("metaTimeSource", "Time: latest judged note across song difficulties; efficiency includes the overhead above.")}
-          </dd>
-        </div>
-      </dl>
-      ${
-        warning
-          ? html`
-              <p role="status">${warning}</p>
-            `
-          : nothing
-      }
-    `;
-  }
   songListMeta(item: Item, key: string) {
     const value = this.songMetaValue(item, key);
     if (!Number.isFinite(value))
@@ -2849,12 +2758,12 @@ export class CatalogScreen extends LitElement {
     }> = [
       {
         key: "theory",
-        label: this.label("metaReferenceBaseline", "Baseline reference"),
+        label: this.label("all", "All"),
         image: "",
         tier: "theory",
         band: 0,
       },
-      { key: "current", label: this.label("metaReferenceTeam", "Reference team"), image: "", tier: "current", band: 0 },
+      { key: "current", label: this.label("current", "Current"), image: "", tier: "current", band: 0 },
       ...bands.map((band) => ({
         key: `band:${Number(band.bandId)}`,
         label: this.bandName(Number(band.bandId)) || String(band.bandId),
@@ -3223,16 +3132,6 @@ export class CatalogScreen extends LitElement {
     const collection =
       this.view === "table"
         ? html`
-            ${this.settings.resource === "song-meta" ? this.renderMetaReference(this.songRowChartMeta(items[0]), false) : nothing}
-            ${
-              this.settings.resource === "song-meta" && items.some((item) => this.songMetaQuality(item))
-                ? html`
-                    <p role="status">
-                      ${this.label("metaCountMismatch", "Score-node and FULL COMBO counts differ; treat this ranking as approximate.")}
-                    </p>
-                  `
-                : nothing
-            }
             ${this.renderMetaTierBands()}${this.renderStructuredList(items)}
           `
         : this.view === "list"
@@ -4293,7 +4192,6 @@ export class CatalogScreen extends LitElement {
                     meta: songMeta,
                     gekisou: songGekisou,
                     metaView: this.metaView,
-                    referenceSummary: this.renderMetaReference(songMeta),
                     difficulty,
                     selectedDifficulty: this.detailDifficulty,
                     locale: this.settings.locale,

@@ -25,7 +25,6 @@ export interface SongSummaryRenderOptions {
    * per-difficulty segment metrics from the song-meta entry. */
   gekisou: Item;
   metaView?: { mode: string; tier: string; band: number };
-  referenceSummary?: unknown;
   label(key: string, fallback: string): string;
   detailLabel(key: string): string;
   fieldValue(item: Item, key: string): string;
@@ -64,7 +63,6 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     fieldValue,
     selectDifficulty,
     metaView,
-    referenceSummary,
   } = options;
   const percentage = (value: unknown) =>
     value !== null && value !== undefined && Number.isFinite(Number(value))
@@ -167,13 +165,12 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     <section class="detail-section song-detail-section song-detail-summary">
       ${renderDetailSectionHeading(label("details", "Details"), "details")}
       ${difficulty.length ? difficultyPicker({ rows: difficulty, selected: difficultyKey(difficulty[selectedDifficulty] || {}, selectedDifficulty), locale, onSelect: (_key, index) => selectDifficulty(index) }) : nothing}
-      ${referenceSummary ?? nothing}
       <dl class="song-data-grid song-meta-strip">
         ${metrics.map(
           ([key, fallback, value]) => html`
             <div>
               <dt title=${label(key, fallback)}>
-                ${label(key, fallback)}${estimated && (key === "metaScore" || key === "metaEff") ? ` · ${label("metaEstimate", "Estimate")}` : ""}
+                ${label(key, fallback)}
               </dt>
               <dd lang=${resolveLocalizedText(item[key], locale).locale}>
                 ${
