@@ -1573,7 +1573,6 @@ export class StampMaker extends LitElement {
               </md-menu>
             </div>
           </div>
-          <p class="field-note">${this.t("rotateHelp")}</p>
           ${
             this.imageTransform
               ? html`
@@ -1592,7 +1591,6 @@ export class StampMaker extends LitElement {
                     .value=${live(this.settings.text)}
                     @input=${(event: Event) => this.change({ text: String((event.target as ValueControl).value).slice(0, 500) })}
                   ></md-outlined-text-field>
-                  <p class="field-note">${this.t("frameHint")}</p>
                   ${this.settings.frame&&this.textOverflow?html`<p class="field-note" role="status">${this.t("frameOverflow")}</p>`:nothing}
 
                   ${segmented({

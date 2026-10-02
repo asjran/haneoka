@@ -2399,10 +2399,8 @@
     "source": "スタンプ画像",
     "original": "オリジナル",
     "textless": "文字なし",
-    "preview": "スタンププレビュー。矢印キーで選択中のレイヤーを移動",
+    "preview": "スタンププレビュー",
     "loadFailed": "スタンプを読み込めませんでした。",
-    "dragHelp": "画像や文字をドラッグして移動。矢印キーで1%、Shiftキー併用で5%移動します。",
-    "textlessPending": "確認済みの文字なしスタンプが追加されると、ここに表示されます。",
     "textlessFailed": "文字なしスタンプを読み込めませんでした。",
     "text": "文字",
     "font": "フォント",
@@ -2424,7 +2422,6 @@
     "importImage": "画像を読み込む",
     "customImage": "自分の画像",
     "importFont": "ローカルフォントを読み込む",
-    "fontHelp": "SekaiツールはYurukaStdとSSFangTangTiを使用します。手元のフォントファイルを読み込んで使用できます。",
     "fontFailed": "フォントを読み込めませんでした。再試行するか別のフォントを選んでください。",
     "fontSans": "源ノ角ゴシック / Noto Sans",
     "fontSerif": "源ノ明朝 / Noto Serif",
@@ -2467,9 +2464,7 @@
     "frameWidth": "文字枠の幅",
     "frameHeight": "文字枠の高さ",
     "frameAuto": "文字に合わせて枠を自動調整",
-    "frameHint": "枠の辺や角をドラッグして改行を調整。背景は文字に沿い、文字サイズは別に調整します。",
-    "frameOverflow": "文字が枠に収まりません。枠を広げるか文字サイズを小さくしてください。",
-    "rotateHelp": "円形のハンドルをドラッグしてレイヤーを回転します。"
+    "frameOverflow": "文字が枠からはみ出しています。"
   },
   "teamBuilder": {
     "title": "編成シミュレーター",

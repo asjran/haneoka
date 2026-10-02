@@ -2399,10 +2399,8 @@
     "source": "表情图片",
     "original": "原图",
     "textless": "无字",
-    "preview": "表情预览；使用方向键移动所选图层",
+    "preview": "表情预览",
     "loadFailed": "无法加载表情。",
-    "dragHelp": "拖动图片或文字可移动位置。方向键移动1%；搭配Shift移动5%。",
-    "textlessPending": "经过质量确认的无字表情上架后，会显示于此。",
     "textlessFailed": "无法加载无字表情。",
     "text": "文字",
     "font": "字体",
@@ -2424,7 +2422,6 @@
     "importImage": "导入图片",
     "customImage": "我的图片",
     "importFont": "导入本地字体",
-    "fontHelp": "Sekai 工具使用 YurukaStd 和 SSFangTangTi（上首方糖体），可导入你的本地字体文件。",
     "fontFailed": "字体加载失败，请重试或选择其他字体。",
     "fontSans": "思源黑体",
     "fontSerif": "思源宋体",
@@ -2467,9 +2464,7 @@
     "frameWidth": "文本框宽度",
     "frameHeight": "文本框高度",
     "frameAuto": "按内容自动调整文本框",
-    "frameHint": "拖动边缘或角点调整排版；背景贴近字形，字号可独立调整。",
-    "frameOverflow": "部分文字超出文本框，请增大框或缩小字号。",
-    "rotateHelp": "拖动圆形把手可旋转图层。"
+    "frameOverflow": "文字超出文本框。"
   },
   "teamBuilder": {
     "title": "配队工具",

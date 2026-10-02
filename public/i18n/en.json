@@ -2399,10 +2399,8 @@
     "source": "Stamp image",
     "original": "Original",
     "textless": "Textless",
-    "preview": "Stamp preview; move the selected layer with arrow keys",
+    "preview": "Stamp preview",
     "loadFailed": "Could not load the stamp.",
-    "dragHelp": "Drag an image or text to move it. Arrow keys move by 1%; Shift moves by 5%.",
-    "textlessPending": "Textless stamps will appear here as reviewed images become available.",
     "textlessFailed": "Could not load textless stamps.",
     "text": "Text",
     "font": "Font",
@@ -2424,7 +2422,6 @@
     "importImage": "Import image",
     "customImage": "My image",
     "importFont": "Import local font",
-    "fontHelp": "Sekai uses YurukaStd and SSFangTangTi. Import your local font files to use those faces.",
     "fontFailed": "Could not load the font. Retry or choose another font.",
     "fontSans": "Source Han Sans / Noto Sans",
     "fontSerif": "Source Han Serif / Noto Serif",
@@ -2467,9 +2464,7 @@
     "frameWidth": "Text frame width",
     "frameHeight": "Text frame height",
     "frameAuto": "Fit frame to text",
-    "frameHint": "Drag an edge or corner to reflow text. The background follows the lettering; font size is adjusted separately.",
-    "frameOverflow": "Some text is outside the frame. Enlarge the frame or reduce the font size.",
-    "rotateHelp": "Drag the circular handle to rotate the layer."
+    "frameOverflow": "Text exceeds the frame."
   },
   "teamBuilder": {
     "title": "Team builder",
