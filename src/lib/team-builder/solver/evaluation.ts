@@ -1,4 +1,5 @@
 import type {
+  Candidate,
   EvidenceGap,
   EvaluationBasisRequest,
   Objective,
@@ -18,6 +19,7 @@ import { addPower, calcMemberLevelOrRankPower, calcMemberTrainingPower, calcSnap
 import { createAssignmentEvaluator } from "./evaluate.ts";
 import { createNativeNormalSlotResolver } from "./native-normal.ts";
 import { createNativeNormalScoreResolver } from "./native-normal-score.ts";
+import { createNativeGekisoSoloEvaluator } from "./native-gekiso-solo.ts";
 import type { PreparedSong } from "../song-metrics.ts";
 import type { SearchEvaluationControls } from "../optimizer.ts";
 const zero = (): PowerStats => ({ performance: 0, technique: 0, visual: 0 });
@@ -195,7 +197,25 @@ export function prepareEvaluation(request: EvaluationRequest): OptimizationInput
 /** Worker-local formation evaluator. Its closures stay in the worker, so the
  * main thread does not construct a song × leader × member × snapshot matrix.
  */
-export function prepareEvaluationForSearch(request: EvaluationRequest) {
+export interface PreparedSearchEvaluation {
+  input: OptimizationInput;
+  evaluate: (
+    assignment: TeamAssignment,
+    song: PreparedSong,
+    controls: SearchEvaluationControls,
+  ) => Candidate | Promise<Candidate>;
+}
+export function prepareEvaluationForSearch(request: EvaluationRequest): PreparedSearchEvaluation {
+  if (
+    !request.nativeRuntime &&
+    request.mode === "gekiso" &&
+    request.constraints.justRate === 0 &&
+    request.objectives.length > 0 &&
+    request.objectives.every((objective) => objective === "ss-ratio" || objective === "ss-surplus")
+  ) {
+    const normal = prepareEvaluationForSearch({ ...request, mode: "normal" });
+    return createNativeGekisoSoloEvaluator(request.data, normal);
+  }
   if (
     request.nativeRuntime ||
     request.mode !== "normal" ||

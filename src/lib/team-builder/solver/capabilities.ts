@@ -11,8 +11,10 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity): TeamBuild
     targets: modes.flatMap((mode) =>
       objectives.map((objective) => {
         const normalForecast = mode === "normal" && ["score", "ss-ratio", "ss-surplus"].includes(objective);
+        const gekisoSolo = mode === "gekiso" && ["ss-ratio", "ss-surplus"].includes(objective);
         const supported =
-          identity.server === "intl" && mode === "normal" && (objective === "base-score" || normalForecast);
+          identity.server === "intl" &&
+          ((mode === "normal" && (objective === "base-score" || normalForecast)) || gekisoSolo);
         const code =
           identity.server !== "intl"
             ? "native-server-rules-unverified"
@@ -31,13 +33,14 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity): TeamBuild
               : ["single" as const, "time" as const, "consumption" as const],
           gaps: supported ? [] : [{ code, source: "same-release native runtime factory" }],
           conditions:
-            supported && normalForecast
+            supported && (normalForecast || gekisoSolo)
               ? [
                   "native-normal-five-members",
                   "native-normal-same-member-duration-supports",
                   "native-normal-basic-live-skills",
                   "native-normal-non-event",
                   "native-normal-nominal-shuffle-mean",
+                  ...(gekisoSolo ? ["native-gekiso-personal-solo-perfect-timing"] : []),
                 ]
               : undefined,
         };

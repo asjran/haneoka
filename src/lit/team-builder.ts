@@ -1884,33 +1884,48 @@ export class TeamBuilder extends LitElement {
         target.bases.includes(this.metricBasis),
     );
   }
-  private get normalForecast(): boolean {
-    return (
-      this.mode === "normal" &&
-      this.objectives.some(
-        (objective) => ["score", "ss-ratio", "ss-surplus"].includes(objective) && this.supportsObjective(objective),
-      )
-    );
-  }
-  private renderNormalForecastScope() {
-    if (!this.normalForecast || !this.data) return nothing;
-    const conditions = [
+  private get forecastConditions(): string[] {
+    if (!this.data) return [];
+    return [
       ...new Set(
         getTeamBuilderCapabilities(this.data.identity)
           .targets.filter(
-            (target) => target.mode === this.mode && target.supported && this.objectives.includes(target.objective),
+            (target) =>
+              target.mode === this.mode &&
+              target.supported &&
+              this.objectives.includes(target.objective) &&
+              target.bases.includes(this.metricBasis),
           )
           .flatMap((target) => target.conditions ?? []),
       ),
     ];
+  }
+  private get gekisoSoloForecast(): boolean {
+    return this.mode === "gekiso" && this.forecastConditions.includes("native-gekiso-personal-solo-perfect-timing");
+  }
+  private renderForecastScope() {
+    const conditions = this.forecastConditions;
+    if (!conditions.length) return nothing;
     return html`
       <p class="team-builder__hint">
-        ${this.t("normalForecastScope", "Normal solo forecast supports resolved member and snapshot effects. The score averages 120 skill orders; actual play can vary.")}
+        ${
+          this.gekisoSoloForecast
+            ? this.t(
+                "gekisoSoloForecastScope",
+                "Personal Solo SS forecast. Live score and event rewards are unavailable.",
+              )
+            : this.t(
+                "normalForecastScope",
+                "Normal solo forecast supports resolved member and snapshot effects. The score averages 120 skill orders; actual play can vary.",
+              )
+        }
       </p>
       <ul class="team-builder__hint">
         ${conditions.map(
           (condition) => html`
-            <li>${this.t(condition, this.t("conditional", "Conditional estimate"))}</li>
+            <li>
+              ${this.t(this.gekisoSoloForecast && condition === "native-normal-non-event" ? "gekisoNonEvent" : condition, this.t("gekisoConditionsPending", "Conditions pending"))}
+            </li>
           `,
         )}
       </ul>
@@ -2262,7 +2277,7 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
-        ${this.renderEventConditions()} ${this.renderNormalForecastScope()}
+        ${this.renderEventConditions()} ${this.renderForecastScope()}
         <p class="team-builder__hint">${this.t("perfect", "Other judgments: 100% PERFECT")}</p>
         ${
           this.objectives.includes("base-score")
@@ -2598,6 +2613,7 @@ export class TeamBuilder extends LitElement {
     )
       return false;
     if (!this.objectives.every((objective) => this.supportsObjective(objective))) return false;
+    if (this.gekisoSoloForecast && this.constraints.justRate !== 0) return false;
     if (this.optimizationInput)
       return (
         this.optimizationInput.server === this.server &&
@@ -2619,8 +2635,21 @@ export class TeamBuilder extends LitElement {
     if (this.chartSelections.length > 1000)
       return this.t("narrowCharts", "Narrow the selection to at most 1,000 charts.");
     if (!this.objectives.length) return this.t("chooseObjective", "Choose an objective to compare.");
-    if (!this.objectives.every((objective) => this.supportsObjective(objective)))
+    if (!this.objectives.every((objective) => this.supportsObjective(objective))) {
+      if (this.mode === "gekiso" && this.data) {
+        const targets = getTeamBuilderCapabilities(this.data.identity).targets;
+        const goalUnavailable = this.objectives.some(
+          (objective) =>
+            !targets.some((target) => target.mode === this.mode && target.objective === objective && target.supported),
+        );
+        return goalUnavailable
+          ? this.t("gekisoGoalPending", "Goal unavailable")
+          : this.t("gekisoConditionsPending", "Conditions pending");
+      }
       return this.t("targetUnavailable", "Calculation unavailable for this mode");
+    }
+    if (this.gekisoSoloForecast && this.constraints.justRate !== 0)
+      return this.t("gekisoConditionsPending", "Conditions pending");
     if (!this.evaluationBasis) return this.t("basisIncomplete", "Complete these values to compare efficiency.");
     return this.t("checkConditions", "Check the entered conditions.");
   }
@@ -2705,6 +2734,10 @@ export class TeamBuilder extends LitElement {
       : "";
   }
   private metricLabel(objective: Objective, metric?: MetricValue): string {
+    if (this.gekisoSoloForecast && objective === "ss-ratio")
+      return this.t("personalSoloSSRatio", "Personal Solo SS attainment");
+    if (this.gekisoSoloForecast && objective === "ss-surplus")
+      return this.t("personalSoloSSSurplus", "Personal Solo SS margin");
     if (objective === "score" && metric?.range) return this.t("expectedScore", "Expected score");
     if (objective === "ss-ratio") {
       const domain = metric?.breakdown?.find((row) => row.key === "ss-ratio-numerator")?.source;
@@ -2736,7 +2769,14 @@ export class TeamBuilder extends LitElement {
               ]
             : []),
           ...(metric.breakdown ?? []).map((row) => ({
-            label: this.t(row.key, row.key.replaceAll("-", " ")),
+            label: this.t(
+              this.gekisoSoloForecast && row.key.endsWith("numerator")
+                ? "personalSoloScore"
+                : this.gekisoSoloForecast && row.key.endsWith("threshold")
+                  ? "personalSoloSSThreshold"
+                  : row.key,
+              row.key.replaceAll("-", " "),
+            ),
             value:
               row.value?.toLocaleString(this.locale) ??
               this.t("unavailable", "Required data or formula is unavailable"),
@@ -2810,6 +2850,15 @@ export class TeamBuilder extends LitElement {
                     ? html`
                         <p role="status" class="team-builder__hint">
                           ${this.t("native-normal-incomplete-snapshot-search", "Some snapshots need training values or include effects not yet supported. These results cover the calculated candidates.")}
+                        </p>
+                      `
+                    : nothing
+                }
+                ${
+                  this.mode === "gekiso" && this.result.gaps.some((gap) => gap.code.startsWith("native-gekiso-solo"))
+                    ? html`
+                        <p role="status" class="team-builder__hint">
+                          ${this.t("gekisoConditionsPending", "Conditions pending")}
                         </p>
                       `
                     : nothing
@@ -2899,7 +2948,7 @@ export class TeamBuilder extends LitElement {
                           return html`
                             <dt>${this.metricLabel(objective, metric)}</dt>
                             <dd>
-                              ${metric.value === null ? this.t("unavailable", "Required data or formula is unavailable") : metric.value.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
+                              ${metric.value === null ? (this.mode === "gekiso" ? this.t("gekisoConditionsPending", "Conditions pending") : this.t("unavailable", "Required data or formula is unavailable")) : metric.value.toLocaleString(this.locale, objective === "ss-ratio" ? { style: "percent", maximumFractionDigits: 2 } : { maximumFractionDigits: 2 })}
                               ${
                                 metric.value !== null
                                   ? html`

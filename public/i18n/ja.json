@@ -2669,7 +2669,16 @@
     "native-normal-basic-live-skills": "対応済みの基本LIVEスキル。",
     "native-normal-non-event": "イベント加成なしの通常演奏。",
     "native-normal-nominal-shuffle-mean": "スキル順120通りの平均予測。",
-    "native-normal-incomplete-snapshot-search": "一部のスナップは育成値の入力や未対応効果の確認が必要です。計算できた候補を表示しています。"
+    "native-normal-incomplete-snapshot-search": "一部のスナップは育成値の入力や未対応効果の確認が必要です。計算できた候補を表示しています。",
+    "gekisoSoloForecastScope": "個人Solo SS予測。Liveスコア・イベント報酬は未対応です。",
+    "native-gekiso-personal-solo-perfect-timing": "個人Solo判定・PERFECT時序。",
+    "gekisoNonEvent": "イベント加成なし。",
+    "gekisoConditionsPending": "条件未確認",
+    "gekisoGoalPending": "目標未対応",
+    "personalSoloSSRatio": "個人Solo SS達成率",
+    "personalSoloSSSurplus": "個人Solo SS余裕",
+    "personalSoloScore": "Soloスコア",
+    "personalSoloSSThreshold": "Solo SS基準"
   },
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",

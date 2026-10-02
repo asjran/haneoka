@@ -2669,7 +2669,16 @@
     "native-normal-basic-live-skills": "已實現的基本 LIVE 技能。",
     "native-normal-non-event": "不含活動加成的普通演出。",
     "native-normal-nominal-shuffle-mean": "120 種技能順序的平均預測。",
-    "native-normal-incomplete-snapshot-search": "部分留影仍需填寫養成值，或包含尚未支援的效果；目前顯示可計算的候選隊伍。"
+    "native-normal-incomplete-snapshot-search": "部分留影仍需填寫養成值，或包含尚未支援的效果；目前顯示可計算的候選隊伍。",
+    "gekisoSoloForecastScope": "個人 Solo SS 預測；Live 分數與活動收益尚未開放。",
+    "native-gekiso-personal-solo-perfect-timing": "個人 Solo 判定・PERFECT 時序。",
+    "gekisoNonEvent": "不含活動加成。",
+    "gekisoConditionsPending": "條件未就緒",
+    "gekisoGoalPending": "目標未開放",
+    "personalSoloSSRatio": "個人 Solo SS 達成率",
+    "personalSoloSSSurplus": "個人 Solo SS 餘量",
+    "personalSoloScore": "Solo 分數",
+    "personalSoloSSThreshold": "Solo SS 門檻"
   },
   "characterRankRewards": "角色等級獎勵",
   "characterRank": "角色等級",

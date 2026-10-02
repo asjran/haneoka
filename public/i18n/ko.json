@@ -2669,7 +2669,16 @@
     "native-normal-basic-live-skills": "지원되는 기본 LIVE 스킬.",
     "native-normal-non-event": "이벤트 보너스 없는 일반 연주.",
     "native-normal-nominal-shuffle-mean": "120가지 스킬 순서의 평균 예측.",
-    "native-normal-incomplete-snapshot-search": "일부 스냅은 육성 값 입력이 필요하거나 아직 지원되지 않는 효과를 포함합니다. 계산 가능한 후보를 표시합니다."
+    "native-normal-incomplete-snapshot-search": "일부 스냅은 육성 값 입력이 필요하거나 아직 지원되지 않는 효과를 포함합니다. 계산 가능한 후보를 표시합니다.",
+    "gekisoSoloForecastScope": "개인 Solo SS 예측. Live 점수와 이벤트 보상은 아직 지원되지 않습니다.",
+    "native-gekiso-personal-solo-perfect-timing": "개인 Solo 판정 · PERFECT 타이밍.",
+    "gekisoNonEvent": "이벤트 보너스 제외.",
+    "gekisoConditionsPending": "조건 확인 필요",
+    "gekisoGoalPending": "목표 미지원",
+    "personalSoloSSRatio": "개인 Solo SS 달성률",
+    "personalSoloSSSurplus": "개인 Solo SS 여유",
+    "personalSoloScore": "Solo 점수",
+    "personalSoloSSThreshold": "Solo SS 기준"
   },
   "characterRankRewards": "캐릭터 랭크 보상",
   "characterRank": "캐릭터 랭크",

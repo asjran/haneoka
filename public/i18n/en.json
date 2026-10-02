@@ -2669,7 +2669,16 @@
     "native-normal-basic-live-skills": "Resolved basic LIVE skills.",
     "native-normal-non-event": "Normal play without event bonuses.",
     "native-normal-nominal-shuffle-mean": "Average forecast over 120 skill orders.",
-    "native-normal-incomplete-snapshot-search": "Some snapshots need training values or include effects not yet supported. These results cover the calculated candidates."
+    "native-normal-incomplete-snapshot-search": "Some snapshots need training values or include effects not yet supported. These results cover the calculated candidates.",
+    "gekisoSoloForecastScope": "Personal Solo SS forecast. Live score and event rewards are unavailable.",
+    "native-gekiso-personal-solo-perfect-timing": "Personal Solo judgement; PERFECT timing.",
+    "gekisoNonEvent": "No event bonuses.",
+    "gekisoConditionsPending": "Conditions pending",
+    "gekisoGoalPending": "Goal unavailable",
+    "personalSoloSSRatio": "Personal Solo SS attainment",
+    "personalSoloSSSurplus": "Personal Solo SS margin",
+    "personalSoloScore": "Solo score",
+    "personalSoloSSThreshold": "Solo SS threshold"
   },
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",
