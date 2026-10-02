@@ -8,11 +8,14 @@ import {
 } from "../config/navigation";
 import { LABEL_ENTRIES } from "../config/catalog-labels";
 import { catalogLookupKeys } from "./message-paths";
+import { localeFromPath } from "./locales";
+import { releaseServerFromPath } from "../lib/resource-route";
 
 /** Logical views over the one flat, authoritative public/i18n catalog. */
 export const COMMON_I18N_NAMESPACE = "common" as const;
 export const CATALOG_I18N_NAMESPACE = "catalog" as const;
 export const HOME_I18N_NAMESPACE = "home" as const;
+export const CALENDAR_I18N_NAMESPACE = "calendar" as const;
 export const STORY_I18N_NAMESPACE = "story" as const;
 export const VOICE_I18N_NAMESPACE = "voice" as const;
 export const ACCOUNT_I18N_NAMESPACE = "account" as const;
@@ -31,6 +34,7 @@ export const I18N_NAMESPACES = [
   COMMON_I18N_NAMESPACE,
   CATALOG_I18N_NAMESPACE,
   HOME_I18N_NAMESPACE,
+  CALENDAR_I18N_NAMESPACE,
   STORY_I18N_NAMESPACE,
   VOICE_I18N_NAMESPACE,
   ACCOUNT_I18N_NAMESPACE,
@@ -55,6 +59,7 @@ const COMMON_FLAT_KEYS = [
   "invalidModelPackage",
   "emptyModelResource",
   "seo.siteTitle",
+  "calendar.title",
   "refresh",
   "settings",
   "search",
@@ -190,6 +195,7 @@ const namespaceRootKeys: Readonly<Record<MainI18nNamespace, readonly string[]>> 
   common: COMMON_FLAT_KEYS,
   catalog: CATALOG_ROOT_KEYS,
   home: HOME_ROOT_KEYS,
+  calendar: ["calendar"],
   story: STORY_ROOT_KEYS,
   voice: VOICE_ROOT_KEYS,
   account: ACCOUNT_ROOT_KEYS,
@@ -294,6 +300,15 @@ const commonPaths = (): readonly string[] =>
 export const featureNamespaceForRoute = (route = "/"): MainI18nNamespace => {
   const pathname = route.split(/[?#]/u, 1)[0] || "/";
   if (pathname === "/" || pathname === "") return HOME_I18N_NAMESPACE;
+  const calendarLocale = localeFromPath(pathname);
+  const calendarPath = calendarLocale
+    ? `/${pathname
+        .split("/")
+        .filter(Boolean)
+        .slice(releaseServerFromPath(pathname) ? 2 : 1)
+        .join("/")}`
+    : pathname;
+  if (calendarPath === "/calendar" || calendarPath.startsWith("/calendar/")) return CALENDAR_I18N_NAMESPACE;
   if (pathname === "/about" || pathname === "/terms" || pathname === "/privacy" || pathname === "/license") {
     return LEGAL_I18N_NAMESPACE;
   }
