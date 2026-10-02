@@ -36,7 +36,7 @@ const CATALOG_ROUTES: Readonly<Partial<Record<ResourceKind, string>>> = {
 export function getStaticPaths() {
   return RELEASE_SERVERS.flatMap((server) =>
     LOCALES.flatMap((locale) =>
-      RESOURCE_KINDS.filter((kind) => !CATALOG_ROUTES[kind] || findRoute(CATALOG_ROUTES[kind]!))
+      RESOURCE_KINDS.filter((kind) => kind !== "circle" && kind !== "challenge")
         .map((kind) => ({ params: { server, locale, kind } })),
     ),
   );
