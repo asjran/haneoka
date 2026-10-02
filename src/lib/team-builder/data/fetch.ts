@@ -1,35 +1,64 @@
 import { adaptTeamBuilderData, objectRow, type TeamBuilderData } from "../data";
 import { hydrateRuntimeDocuments } from "./complete";
 
+export interface CurrentTeamBuilderIdentity {
+  server: string;
+  releaseId: string;
+  sourceId: string;
+}
+const validServer = (server: string) => {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(server)) throw new TypeError("Invalid resource server");
+};
+function responseIdentity(response: Response, server: string): CurrentTeamBuilderIdentity {
+  const releaseId = response.headers.get("x-haneoka-release-id") || "";
+  const sourceId = response.headers.get("x-haneoka-source-id") || "";
+  if (!/^r-[a-f0-9]{20}$/u.test(releaseId) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(sourceId))
+    throw new Error("Invalid team data release identity");
+  return { server, releaseId, sourceId };
+}
+
+/** Observe current on each check; this never pins a build-time seed or a retained reference. */
+export async function fetchCurrentTeamBuilderIdentity(
+  server: string,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<CurrentTeamBuilderIdentity> {
+  validServer(server);
+  signal?.throwIfAborted();
+  const response = await fetcher(`/api/v1/servers/${encodeURIComponent(server)}/release?projection=identity`, {
+    method: "HEAD", cache: "no-store", signal,
+  });
+  if (!response.ok) throw new Error(`Team data release unavailable: ${response.status}`);
+  const identity = responseIdentity(response, server);
+  signal?.throwIfAborted();
+  return identity;
+}
+
 /** Public catalog projections only; every request uses the one observed release. */
 export async function fetchTeamBuilderData(
   server: string,
   signal?: AbortSignal,
   fetcher: typeof fetch = fetch,
 ): Promise<TeamBuilderData> {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(server)) throw new TypeError("Invalid resource server");
+  validServer(server);
   const prefix = `/api/v1/servers/${encodeURIComponent(server)}/`;
   signal?.throwIfAborted();
   const compact = await fetcher(`/api/v1/team-builder/${encodeURIComponent(server)}`, { cache: "no-store", signal });
   if (compact.ok) {
+    const identity = responseIdentity(compact, server);
     const data = (await compact.json()) as TeamBuilderData;
     if (
       data.schema !== "haneoka-team-builder-data-v1" ||
       data.identity?.server !== server ||
-      data.identity.releaseId !== compact.headers.get("x-haneoka-release-id") ||
-      data.identity.sourceId !== compact.headers.get("x-haneoka-source-id")
+      data.identity.releaseId !== identity.releaseId ||
+      data.identity.sourceId !== identity.sourceId
     )
       throw new Error("Team data DTO identity mismatch");
     signal?.throwIfAborted();
     return data;
   }
   if (compact.status !== 404) throw new Error(`Team data DTO unavailable: ${compact.status}`);
-  const pin = await fetcher(`${prefix}release?projection=identity`, { method: "HEAD", cache: "no-store", signal });
-  if (!pin.ok) throw new Error(`Team data release unavailable: ${pin.status}`);
-  const releaseId = pin.headers.get("x-haneoka-release-id") || "";
-  const sourceId = pin.headers.get("x-haneoka-source-id") || "";
-  if (!/^r-[a-f0-9]{20}$/u.test(releaseId) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(sourceId))
-    throw new Error("Invalid team data release identity");
+  const { releaseId, sourceId } = await fetchCurrentTeamBuilderIdentity(server, signal, fetcher);
   const resources = [
     "cards",
     "support-cards",
