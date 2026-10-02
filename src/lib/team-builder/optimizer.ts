@@ -75,6 +75,12 @@ function validate(input: OptimizationInput): void {
     ...input.snapshots.map((option) => option.instanceId),
   ];
   if (new Set(ids).size !== ids.length || ids.some((id) => !id)) throw new RangeError("duplicate-instance");
+  // Native ownership has one record per card within each kind. An alternate
+  // instance ID cannot make a second owned copy or a second search option.
+  if (new Set(input.members.map((member) => member.cardId)).size !== input.members.length)
+    throw new RangeError("duplicate-member-card");
+  if (new Set(input.snapshots.map((snapshot) => snapshot.cardId)).size !== input.snapshots.length)
+    throw new RangeError("duplicate-snapshot-card");
   if (new Set(input.songs.map((song) => song.key)).size !== input.songs.length) throw new RangeError("duplicate-song");
   const constraint = input.constraints;
   if (
@@ -288,8 +294,8 @@ export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks
       return;
     for (let i = start; i <= members.length - remaining; i++) {
       const member = members[i]!;
-      // The search enforces one selected card per character; duplicate copies
-      // stay in inventory as alternatives.
+      // Different cards of one character remain alternatives; a formation
+      // selects at most one of them.
       if (team.some((selected) => selected.characterId === member.characterId)) continue;
       team.push(member);
       await choose(i + 1);
