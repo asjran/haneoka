@@ -538,6 +538,8 @@
   "metaR": "난이도 레이팅",
   "metaTime": "곡 길이",
   "metaScore": "상대 점수 계수",
+  "metaNativeScore": "점수",
+  "metaScoreFactor": "배율",
   "metaEff": "효율",
   "metaBpm": "분당 박자 수",
   "metaN": "노트 수",

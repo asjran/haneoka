@@ -72,6 +72,8 @@ export const LABEL_ENTRIES: ReadonlyArray<readonly [string, string]> = [
     "metaR",
     "metaTime",
     "metaScore",
+    "metaNativeScore",
+    "metaScoreFactor",
     "metaEff",
     "metaBpm",
     "metaN",
@@ -268,6 +270,7 @@ export interface CatalogConfigOptions {
   chartPage?: boolean;
   aspectRatio?: string;
   origin?: "release" | "bestdori";
+  nativeMetaReference?: unknown;
 }
 
 /** Serialises a catalogue screen's configuration. */
@@ -283,5 +286,6 @@ export function catalogConfig(options: CatalogConfigOptions): string {
     labelAliases: LABEL_ALIASES,
     aspectRatio: options.aspectRatio ?? "1",
     ...(options.origin ? { origin: options.origin } : {}),
+    ...(options.nativeMetaReference ? { nativeMetaReference: options.nativeMetaReference } : {}),
   });
 }

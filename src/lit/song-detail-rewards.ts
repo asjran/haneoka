@@ -18,6 +18,7 @@ export interface SongRewardRenderOptions {
 export interface SongSummaryRenderOptions {
   item: Item;
   meta: Item;
+  nativeScore?: number | null;
   difficulty: Item[];
   selectedDifficulty: number;
   locale: string;
@@ -54,6 +55,7 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
   const {
     item,
     meta,
+    nativeScore,
     difficulty,
     selectedDifficulty,
     locale,
@@ -102,7 +104,10 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
         : "—",
     ],
     ["metaTime", "Song Duration", duration(meta.time)],
-    ["metaScore", "Relative Score Factor", percentage(selected.score)],
+    ...(nativeScore === undefined
+      ? []
+      : ([["metaNativeScore", "Score", decimal(nativeScore, 2)]] as Array<[string, string, string]>)),
+    ["metaScoreFactor", label("metaScore", "Factor"), percentage(selected.score)],
     ["metaEff", "Score Efficiency per Minute", percentage(selected.eff)],
     ["metaBpm", "Beats per Minute", bpm],
     ["metaN", "Note Count", decimal(meta.n)],

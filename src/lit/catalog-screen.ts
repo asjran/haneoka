@@ -1,4 +1,11 @@
 import { cardRarityName, rarityIcon } from "./shared/rarity-icon";
+import {
+  fetchNativeMetaSidecar,
+  nativeMetaIdentity,
+  nativeMetaPublication,
+  sameNativeMetaIdentity,
+  type NativeMetaIdentity,
+} from "./runtime/native-meta-sidecar";
 import {gekisouMissionIcons} from "../lib/gekisou";
 import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { readPageData } from "../lib/page-data";
@@ -140,10 +147,15 @@ interface Config {
    * second hand-rolled list that drifts out of sync.
    */
   origin?: "release" | "bestdori";
+  /** T29's published immutable sidecar receipt, supplied by the page build. */
+  nativeMetaReference?: unknown;
 }
 /** The document lib/entity-graph.ts emits for one entity. */
 interface EntityPayload {
   schema: string;
+  server?: string;
+  releaseId?: string;
+  sourceId?: string;
   id: string;
   item: Item;
   characters?: Item[];
@@ -561,6 +573,185 @@ export class CatalogScreen extends LitElement {
   private gameMarks = new Map<string, string>();
   private gameItems: Item[] = [];
   private songMeta: Item = {};
+  private songMetaPin?: { server: string; releaseId: string; sourceId?: string };
+  private songMetaCompatible(): boolean {
+    const expected = this.nativeCatalogPin || this.nativeReference?.pin;
+    return (
+      !expected ||
+      Boolean(
+        this.songMetaPin &&
+        this.songMetaPin.server === expected.server &&
+        this.songMetaPin.releaseId === expected.releaseId &&
+        (!this.songMetaPin.sourceId || this.songMetaPin.sourceId === expected.sourceId),
+      )
+    );
+  }
+  private songMetaUrl(): string {
+    const source = this.sourceUrl("song-meta");
+    const releaseId = this.nativeCatalogPin?.releaseId || this.payload?.releaseId;
+    if (this.settings.origin === "bestdori" || !releaseId) return source;
+    const url = new URL(source, "https://route.invalid");
+    url.searchParams.set("release", releaseId);
+    return url.pathname + url.search;
+  }
+  private async readSongMeta(response: Response): Promise<void> {
+    this.songMeta = response.ok ? ((await response.json()) as Item) : {};
+    this.songMetaPin =
+      this.settings.origin === "bestdori"
+        ? undefined
+        : nativeMetaIdentity({
+            server: this.dataServer(),
+            releaseId: response.headers.get("x-haneoka-release-id"),
+            sourceId: response.headers.get("x-haneoka-source-id"),
+          });
+  }
+  private nativeReference?: {
+    pin: NativeMetaIdentity;
+    scores: Map<string, number | null>;
+  };
+  private nativeCatalogPin?: NativeMetaIdentity;
+  private nativeReferenceRequests = new RequestScope();
+  private clearNativeMetaReference() {
+    this.nativeReference = undefined;
+    this.resultCache = undefined;
+    this.requestUpdate();
+  }
+  async loadNativeMetaReference(publication: unknown): Promise<boolean> {
+    const signal = this.nativeReferenceRequests.begin();
+    this.clearNativeMetaReference();
+    const receipt = nativeMetaPublication(publication);
+    const server = this.dataServer();
+    if (
+      !receipt ||
+      receipt.server !== server ||
+      this.settings.origin === "bestdori" ||
+      this.profile.presentation !== "song" ||
+      (this.payload &&
+        (this.payload.server !== receipt.server ||
+          this.payload.releaseId !== receipt.releaseId ||
+          (this.payload.sourceId && this.payload.sourceId !== receipt.sourceId)))
+    )
+      return false;
+    try {
+      let expected = this.nativeCatalogPin;
+      if (!expected && this.payload?.server === server && this.payload.releaseId) {
+        const url = new URL(catalogUrl("release", "", server), "https://route.invalid");
+        url.searchParams.set("release", this.payload.releaseId);
+        url.searchParams.set("projection", "identity");
+        const response = await fetch(url.pathname + url.search, { method: "HEAD", signal });
+        if (!response.ok || response.headers.get("x-haneoka-release-id") !== this.payload.releaseId) return false;
+        expected = nativeMetaIdentity({
+          server,
+          releaseId: response.headers.get("x-haneoka-release-id"),
+          sourceId: response.headers.get("x-haneoka-source-id"),
+        });
+      }
+      if (!expected || expected.server !== server || !sameNativeMetaIdentity(receipt, expected)) return false;
+      const document = await fetchNativeMetaSidecar(receipt, expected, signal);
+      if (!this.nativeReferenceRequests.current(signal) || this.dataServer() !== server) return false;
+      return this.setNativeMetaReference(document, expected);
+    } catch {
+      if (this.nativeReferenceRequests.current(signal)) this.clearNativeMetaReference();
+      return false;
+    }
+  }
+  setNativeMetaReference(
+    document: unknown,
+    expected: { server: string; releaseId: string; sourceId: string },
+    profileId = "normal-baseline-explicit-v1",
+  ): boolean {
+    this.clearNativeMetaReference();
+    const value = document && typeof document === "object" ? (document as Item) : {};
+    const identity = value.identity as Item | undefined;
+    const calculation = value.calculation as Item | undefined;
+    const reference = value.reference as Item | undefined;
+    const referencePin = reference?.identity as Item | undefined;
+    const samePin = (pin: Item | undefined) =>
+      pin?.server === expected.server && pin?.releaseId === expected.releaseId && pin?.sourceId === expected.sourceId;
+    const payloadPinMatches =
+      !this.payload ||
+      (this.payload.server === expected.server &&
+        this.payload.releaseId === expected.releaseId &&
+        (!this.payload.sourceId || this.payload.sourceId === expected.sourceId));
+    if (
+      value.schema !== "haneoka-meta-reference-v1" ||
+      !nativeMetaIdentity(expected) ||
+      expected.server !== this.dataServer() ||
+      !payloadPinMatches ||
+      (this.nativeCatalogPin && !sameNativeMetaIdentity(expected, this.nativeCatalogPin)) ||
+      !samePin(identity) ||
+      !samePin(referencePin) ||
+      calculation?.mode !== "normal" ||
+      calculation.model !== "native-normal-nominal-120-order-v1" ||
+      calculation.entrypoint !== "prepareEvaluationForSearch" ||
+      calculation.scoreKind !== "native-personal-score" ||
+      calculation.judgement !== "PERFECT" ||
+      reference?.mode !== "normal" ||
+      reference.eventId !== null ||
+      reference.judgement !== "PERFECT" ||
+      calculation.profileVersion !== reference.profileVersion ||
+      reference.profileVersion !== 1 ||
+      calculation.profileId !== profileId ||
+      reference?.profileId !== profileId ||
+      (calculation.basis as Item | undefined)?.kind !== "single" ||
+      (reference.basis as Item | undefined)?.kind !== "single" ||
+      !Array.isArray(value.charts) ||
+      !value.charts.length
+    ) {
+      this.resultCache = undefined;
+      this.requestUpdate();
+      return false;
+    }
+    const scores = new Map<string, number | null>();
+    const charts = asItems(value.charts);
+    if (charts.length !== value.charts.length) return false;
+    for (const chart of charts) {
+      if (
+        !Number.isSafeInteger(chart.songId) ||
+        Number(chart.songId) < 1 ||
+        !Number.isSafeInteger(chart.difficulty) ||
+        Number(chart.difficulty) < 0 ||
+        Number(chart.difficulty) > 4
+      )
+        return false;
+      const metric = ((chart.candidate as Item | undefined)?.metrics as Item | undefined)?.score as Item | undefined;
+      const known =
+        metric &&
+        ["verified", "conditional"].includes(String(metric.status)) &&
+        typeof metric.value === "number" &&
+        Number.isFinite(metric.value) &&
+        metric.value >= 0;
+      if (scores.has(`${chart.songId}:${chart.difficulty}`)) {
+        this.resultCache = undefined;
+        this.requestUpdate();
+        return false;
+      }
+      scores.set(`${chart.songId}:${chart.difficulty}`, known ? (metric.value as number) : null);
+    }
+    this.nativeReference = { pin: { ...expected }, scores };
+    this.resultCache = undefined;
+    this.requestUpdate();
+    return true;
+  }
+  hasNativeMetaReference(): boolean {
+    return Boolean(
+      this.nativeReference &&
+      this.metaMode === "live" &&
+      this.metaTier === "theory" &&
+      this.nativeReference.pin.server === this.dataServer() &&
+      (!this.nativeCatalogPin || sameNativeMetaIdentity(this.nativeReference.pin, this.nativeCatalogPin)) &&
+      (!this.payload || this.payload.releaseId === this.nativeReference.pin.releaseId),
+    );
+  }
+  nativeSongScore(item: Item): number | null | undefined {
+    if (!this.hasNativeMetaReference()) return undefined;
+    const rows = asItems(item.difficulty);
+    const index = this.profile.perDifficulty
+      ? Number(item.__difficultyIndex ?? 0)
+      : rows.findIndex((row, index) => difficultyKey(row, index) === this.selectedSongDifficulty);
+    const difficulty = this.profile.perDifficulty ? (rows[0]?.difficulty ?? index) : (rows[index]?.difficulty ?? index);
+    return this.nativeReference!.scores.get(`${item.musicId}:${difficulty}`) ?? null;
+  }
   private songMetaProvision?: Promise<void>;
   private chartPlayerProvision?: Promise<void>;
   private lazyImages = new LazyImages({
@@ -807,6 +998,8 @@ export class CatalogScreen extends LitElement {
   }
   disconnectedCallback() {
     this.catalogRequests.cancel();
+    this.nativeReferenceRequests.cancel();
+    this.nativeReference = undefined;
     this.disposeSongDisplay?.();
     this.removeEventListener("click", this.onScreenClick);
     removeEventListener("haneoka:locale-ready", this.onLocale);
@@ -1161,17 +1354,24 @@ export class CatalogScreen extends LitElement {
     return this.image(item);
   }
   async prepareEntity(payload: EntityPayload, config: string = this.config, signal?: AbortSignal): Promise<void> {
+    this.nativeReferenceRequests.cancel();
+    this.nativeReference = undefined;
     this.settings = JSON.parse(config || "{}") as Config;
 
     this.profile = profiles[this.settings.resource] ?? fallbackProfile;
     this.selectedId = String(payload.id);
     this.payload = payload;
+    this.nativeCatalogPin = nativeMetaIdentity(payload);
     this.catalogDocument = payload.document || {};
     this.items = [payload.item];
     this.characters = payload.characters || [];
     this.bands = payload.bands || [];
     this.gameItems = payload.gameItems || [];
     this.songMeta = payload.songMeta || {};
+    this.songMetaPin =
+      payload.server && payload.releaseId
+        ? { server: payload.server, releaseId: payload.releaseId, sourceId: payload.sourceId }
+        : undefined;
     this.songMetaProvision = Promise.resolve();
     this.detailAux = { ...(payload.aux || {}) };
     this.gameMarks.clear();
@@ -1204,6 +1404,8 @@ export class CatalogScreen extends LitElement {
     if (signal) this.restoreDetailQuery();
     this.phase = "ready";
     this.detailReady = true;
+    if (typeof window !== "undefined" && this.isConnected && this.settings.nativeMetaReference)
+      void this.loadNativeMetaReference(this.settings.nativeMetaReference);
   }
   get contentLocale() {
     return this.settings.locale;
@@ -1224,6 +1426,9 @@ export class CatalogScreen extends LitElement {
     });
   }
   private async load() {
+    this.nativeReferenceRequests.cancel();
+    this.nativeReference = undefined;
+    this.nativeCatalogPin = undefined;
     const signal = this.catalogRequests.begin();
     this.phase = "loading";
     this.setEntityReady(false);
@@ -1298,6 +1503,14 @@ export class CatalogScreen extends LitElement {
         );
       }
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
+      this.nativeCatalogPin =
+        this.settings.origin === "bestdori"
+          ? undefined
+          : nativeMetaIdentity({
+              server: this.dataServer(),
+              releaseId: response.headers.get("x-haneoka-release-id"),
+              sourceId: response.headers.get("x-haneoka-source-id"),
+            });
       this.catalogDocument = collectionDocument;
       this.items = asItems(collectionDocument, this.profile.document);
       this.characters = asItems(characterData);
@@ -1321,6 +1534,7 @@ export class CatalogScreen extends LitElement {
       }
       this.phase = "ready";
       this.restoreLocationState();
+      if (this.settings.nativeMetaReference) void this.loadNativeMetaReference(this.settings.nativeMetaReference);
     } catch {
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
       this.phase = "error";
@@ -1523,7 +1737,7 @@ export class CatalogScreen extends LitElement {
       const rightNumber = Array.isArray(right) ? Number(right[0]) : Number(right);
       if (
         this.profile.presentation === "song" &&
-        ["time", "score", "eff", "bpm", "n", "nps", "sr", "justable", "justableRate", "luck"].includes(this.sort)
+        ["time", "nativeScore", "score", "eff", "bpm", "n", "nps", "sr", "justable", "justableRate", "luck"].includes(this.sort)
       ) {
         const leftValid = Number.isFinite(leftNumber),
           rightValid = Number.isFinite(rightNumber);
@@ -1616,6 +1830,7 @@ export class CatalogScreen extends LitElement {
     return this.localized(skill?.skillName) || this.displayValue(skill?.id) || "";
   }
   private songMetaValue(item: Item, key: string) {
+    if (!this.songMetaCompatible()) return Number.NaN;
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
     const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
     const index = this.profile.perDifficulty
@@ -1651,6 +1866,13 @@ export class CatalogScreen extends LitElement {
     return chart[key] === null || chart[key] === undefined ? Number.NaN : Number(chart[key]);
   }
   songListMeta(item: Item, key: string) {
+    if (key === "nativeScore") {
+      const native = this.nativeSongScore(item);
+      return native === null || native === undefined
+        ? "—"
+        : native.toLocaleString(this.settings.locale, { maximumFractionDigits: 2 });
+    }
+
     const value = this.songMetaValue(item, key);
     if (!Number.isFinite(value))
       return this.metaTier !== "theory" && ["score", "eff", "sr"].includes(key)
@@ -1668,6 +1890,7 @@ export class CatalogScreen extends LitElement {
     return Math.round(value).toLocaleString();
   }
   private sortValue(item: Item): unknown {
+    if (this.sort === "nativeScore") return this.nativeSongScore(item) ?? Number.NaN;
     if (this.sort === "id") return this.itemId(item);
     if (this.sort === "title") return this.itemTitle(item);
     if (this.sort === "character") return Number(item.characterId || this.itemCharacterIds(item)[0] || 0);
@@ -1721,9 +1944,9 @@ export class CatalogScreen extends LitElement {
       !["time", "score", "eff", "bpm", "n", "nps", "sr"].includes(this.sort)
     )
       return;
-    this.songMetaProvision ??= fetch(this.sourceUrl("song-meta"), { headers: { accept: "application/json" } }).then(
+    this.songMetaProvision ??= fetch(this.songMetaUrl(), { headers: { accept: "application/json" } }).then(
       async (response) => {
-        this.songMeta = response.ok ? ((await response.json()) as Item) : {};
+        await this.readSongMeta(response);
         this.resultCache = undefined;
         this.requestUpdate();
       },
@@ -2398,9 +2621,9 @@ export class CatalogScreen extends LitElement {
         : import("./song-detail-rewards").then((module) => {
             this.songDetailRewards = module;
           });
-      this.songMetaProvision ??= fetch(this.sourceUrl("song-meta"), { headers: { accept: "application/json" } }).then(
+      this.songMetaProvision ??= fetch(this.songMetaUrl(), { headers: { accept: "application/json" } }).then(
         async (response) => {
-          this.songMeta = response.ok ? ((await response.json()) as Item) : {};
+          await this.readSongMeta(response);
           this.resultCache = undefined;
         },
         () => {
@@ -3080,7 +3303,7 @@ export class CatalogScreen extends LitElement {
         ["band", "band", "Band"],
         ["level", "level", "Level"],
         ["time", "time", "Time"],
-        ["score", "score", "Score"],
+        ["score", "metaScoreFactor", this.label("metaScore", "Factor")],
         ["eff", "eff", "Efficiency"],
         ["bpm", "bpm", "BPM"],
         ["n", "n", "Notes"],
@@ -3113,7 +3336,10 @@ export class CatalogScreen extends LitElement {
         ["release", "release", "Release"],
       ],
     };
-    return options[this.profile.presentation].map(([value, key, fallback]) => ({
+    const rows = [...options[this.profile.presentation]];
+    if (this.profile.presentation === "song" && this.hasNativeMetaReference())
+      rows.splice(rows.findIndex(([value]) => value === "score"), 0, ["nativeScore", "metaNativeScore", "Score"]);
+    return rows.map(([value, key, fallback]) => ({
       value,
       label: this.label(key, fallback),
     }));
@@ -3485,6 +3711,7 @@ export class CatalogScreen extends LitElement {
     return rows[this.detailDifficulty] || rows.find((row) => row.file) || {};
   }
   private songChartMeta(item: Item) {
+    if (!this.songMetaCompatible()) return {};
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
     const difficulty = song?.[String(this.detailDifficulty)] as Item | undefined;
     return (difficulty?.chart as Item | undefined) || {};
@@ -3492,6 +3719,7 @@ export class CatalogScreen extends LitElement {
   /** Song-level gekisou mission pattern merged with the selected difficulty's
    * per-segment metrics (both live in the song-meta entry). */
   private songGekisouMeta(item: Item) {
+    if (!this.songMetaCompatible()) return {};
     const song = this.songMeta[String(item.musicId || "")] as Item | undefined;
     const difficulty = song?.[String(this.detailDifficulty)] as Item | undefined;
     return {icons:this.missionIcons,...((song?.gekisou as Item | undefined) || {}), ...((difficulty?.gekisou as Item | undefined) || {})};
@@ -4201,6 +4429,11 @@ export class CatalogScreen extends LitElement {
                 ? (this.songDetailRewards?.renderSongSummary({
                     item,
                     meta: songMeta,
+                    nativeScore: this.hasNativeMetaReference()
+                      ? (this.nativeReference!.scores.get(
+                          `${item.musicId}:${difficulty[this.detailDifficulty]?.difficulty ?? this.detailDifficulty}`,
+                        ) ?? null)
+                      : undefined,
                     gekisou: songGekisou,
                     metaView: this.metaView,
                     difficulty,

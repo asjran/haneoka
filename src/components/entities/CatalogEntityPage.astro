@@ -1,6 +1,8 @@
 ---
 import Base from "../../layouts/Base.astro";
 import AppShell from "../AppShell.astro";
+import { nativeMetaPublicationFor } from "../../server/native-meta-publication";
+import { staticCatalogRelease } from "../../lib/static-catalog-source";
 import { catalogConfig } from "../../config/catalog-labels";
 import { findRoute, titleOf } from "../../config/routes";
 import { LOCALES, type Locale } from "../../i18n/locales";
@@ -51,8 +53,12 @@ const seoTitleValues = Object.fromEntries(
 const payload = await catalogEntityData(server,page.resource,page.id) as EntityPayload | undefined;
 if(!payload)throw new Error(`Missing page data: ${server}/${page.resource}/${page.id}`);
 const pageDataId=`catalog-page-${page.resource}-${page.id}`;
+const nativeMetaReference = process.env.NATIVE_META_REFERENCE_RECEIPTS_JSON && page.resource === "songs"
+  ? nativeMetaPublicationFor(await staticCatalogRelease(server))
+  : undefined;
 const screenConfig = catalogConfig({
   resource: page.resource,
+  ...(nativeMetaReference ? { nativeMetaReference } : {}),
   locale,
   server,
   entityKind: kind,

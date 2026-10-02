@@ -538,6 +538,8 @@
   "metaR": "難易度レーティング",
   "metaTime": "楽曲時間",
   "metaScore": "相対スコア係数",
+  "metaNativeScore": "スコア",
+  "metaScoreFactor": "倍率",
   "metaEff": "効率",
   "metaBpm": "1分あたりの拍数",
   "metaN": "ノーツ数",

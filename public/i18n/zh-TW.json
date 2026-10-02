@@ -538,6 +538,8 @@
   "metaR": "難度評級",
   "metaTime": "樂曲時長",
   "metaScore": "相對得分係數",
+  "metaNativeScore": "得分",
+  "metaScoreFactor": "倍率",
   "metaEff": "效率",
   "metaBpm": "每分鐘節拍數",
   "metaN": "音符數",

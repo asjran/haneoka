@@ -538,6 +538,8 @@
   "metaR": "Difficulty Rating",
   "metaTime": "Song Duration",
   "metaScore": "Relative Score Factor",
+  "metaNativeScore": "Score",
+  "metaScoreFactor": "Factor",
   "metaEff": "Efficiency",
   "metaBpm": "Beats per Minute",
   "metaN": "Note Count",

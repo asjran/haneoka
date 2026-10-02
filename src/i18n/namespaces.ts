@@ -107,6 +107,8 @@ const COMMON_FLAT_KEYS = [
   "server",
   "releaseServer",
   "songTitles",
+  "metaNativeScore",
+  "metaScoreFactor",
   "forceJapaneseTitles",
   "grid",
   "list",

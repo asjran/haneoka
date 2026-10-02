@@ -96,6 +96,7 @@ const COLUMNS: Record<string, Column[]> = {
     column("band", "entity", "band"),
     column("difficulty", "numeric", "level"),
     column("time", "numeric", "time"),
+    column("nativeScore", "numeric", "nativeScore"),
     column("score", "numeric", "score"),
     column("eff", "numeric", "eff"),
     column("bpm", "numeric", "bpm"),
@@ -120,6 +121,7 @@ const COLUMNS: Record<string, Column[]> = {
     column("band", "entity", "band"),
     column("difficulty", "numeric", "level"),
     column("time", "numeric", "time"),
+    column("nativeScore", "numeric", "nativeScore"),
     column("score", "numeric", "score"),
     column("eff", "numeric", "eff"),
     column("bpm", "numeric", "bpm"),
@@ -217,12 +219,13 @@ export class CatalogTable extends LitElement {
             : "song-meta"
           : c.profile.presentation
       ] || COLUMNS.item;
-    const label = (key: string) => c.detailLabel(key);
+    const visibleColumns = columns.filter((entry) => entry.key !== "nativeScore" || c.hasNativeMetaReference());
+    const label = (key: string) => key === "nativeScore" ? c.label("metaNativeScore", "Score") : key === "score" ? c.label("metaScoreFactor", c.label("metaScore", "Factor")) : c.detailLabel(key);
     return html`
       <div class="table-scroll" role="region" tabindex="0" aria-label=${c.label("table", "Table")} data-scroll-region>
         <table class="data-table">
           <thead>
-            <tr>${columns.map((entry) => this.header(entry, label(entry.key)))}</tr>
+            <tr>${visibleColumns.map((entry) => this.header(entry, label(entry.key)))}</tr>
           </thead>
           <tbody>
             ${(this.items || []).map(
@@ -231,7 +234,7 @@ export class CatalogTable extends LitElement {
                   class=${c.itemId(item) === c.itemId(c.selected || {}) ? "is-selected" : nothing}
                   @click=${() => c.open(item)}
                 >
-                  ${columns.map((entry) => this.cell(item, entry))}
+                  ${visibleColumns.map((entry) => this.cell(item, entry))}
                 </tr>
               `,
             )}
@@ -541,7 +544,7 @@ export class CatalogTable extends LitElement {
       return wrap(value ? c.label(value, value) : "—");
     }
     if (key === "status") return wrap(c.systemStatusLabel(item) || "—");
-    if (["time", "score", "eff", "bpm", "n", "nps", "sr", "justableRate", "justable", "luck"].includes(key))
+    if (["time", "nativeScore", "score", "eff", "bpm", "n", "nps", "sr", "justableRate", "justable", "luck"].includes(key))
       return wrap(c.songListMeta(item, key));
     if (key === "release") return wrap(c.release(item.releasedAt || item.publishedAt || item.publicStartAt) || "—");
     if (key === "subtitle") return wrap(c.localized(item.subTitle) || "—");

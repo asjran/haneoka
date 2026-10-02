@@ -6,6 +6,8 @@ import AboutPage from "./pages/AboutPage.astro";
 import LegalPage from "./pages/LegalPage.astro";
 import NoticePage from "./pages/NoticePage.astro";
 import EventTrackerPage from "./pages/EventTrackerPage.astro";
+import { nativeMetaPublicationFor } from "../server/native-meta-publication";
+import { staticCatalogRelease } from "../lib/static-catalog-source";
 import { catalogConfig } from "../config/catalog-labels";
 import type { RouteDefinition } from "../config/routes";
 import { LOCALES, type Locale } from "../i18n/locales";
@@ -34,10 +36,14 @@ const documentDescriptionValues =
         t(target, `${entry.page}.description`, t(target, `${entry.page}.summary`, title)),
       ]))
     : undefined;
+const nativeMetaReference = process.env.NATIVE_META_REFERENCE_RECEIPTS_JSON && entry.kind === "catalog" && ["songs", "song-meta"].includes(entry.resource || "")
+  ? nativeMetaPublicationFor(await staticCatalogRelease(server || "intl"))
+  : undefined;
 const screenConfig =
   entry.kind === "catalog" && entry.resource
     ? catalogConfig({
         resource: entry.resource,
+        ...(nativeMetaReference ? { nativeMetaReference } : {}),
         locale,
         ...(server ? { server } : {}),
         aspectRatio: entry.resource === "cards" ? "224 / 294" : "1",
