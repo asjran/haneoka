@@ -44,11 +44,17 @@ export function applyEvaluationBasis(
     gaps: [...metric.gaps],
   };
   if (metric.value === null) return result;
-  if (basis.denominator === null || (objective === "ss-surplus" && basis.kind !== "single")) {
+  if (
+    basis.denominator === null ||
+    ((objective === "ss-surplus" || objective === "ss-ratio") && basis.kind !== "single")
+  ) {
     result.value = null;
     result.status = "unavailable";
     result.gaps.push({
-      code: objective === "ss-surplus" ? "ss-surplus-requires-per-play-basis" : "evaluation-denominator-unresolved",
+      code:
+        objective === "ss-surplus" || objective === "ss-ratio"
+          ? "ss-surplus-requires-per-play-basis"
+          : "evaluation-denominator-unresolved",
       source: basis.source,
     });
     return result;

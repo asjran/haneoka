@@ -7,6 +7,7 @@ import type {
   SkillWindow,
   TeamAssignment,
 } from "../contracts.ts";
+import { calculateSSRatio } from "./score-ranks.ts";
 import { applyEvaluationBasis } from "./basis.ts";
 import { eventRewardMetrics } from "../rewards.ts";
 import {
@@ -184,21 +185,57 @@ export function evaluateAssignment(
       "full-power-and-skill-context-unresolved",
       "native song/player/leader/snapshot/trigger bonuses",
     );
+  const threshold = context?.ssContext ? context.ssContext.threshold : (context?.personalSS ?? null);
+  const domain = context?.ssContext?.domain ?? "personal";
+  const numerator = domain === "personal" ? score.value : (context?.ssContext?.numerator ?? null);
   const surplus: MetricValue =
-    score.value !== null && context?.personalSS !== null && context?.personalSS !== undefined
+    score.value !== null && numerator !== null && threshold !== null && threshold > 0
       ? {
           ...score,
-          value: score.value - context.personalSS,
-          assumptions: [...score.assumptions],
-          gaps: [...score.gaps],
+          value: numerator - threshold,
+          status: domain === "room" ? "conditional" : score.status,
+          assumptions: [...score.assumptions, ...(domain === "room" ? ["explicit-room-score-context"] : [])],
+          gaps: [],
+          breakdown: [
+            { key: "ss-surplus-numerator", value: numerator, unit: "score", source: domain },
+            {
+              key: "ss-surplus-threshold",
+              value: threshold,
+              unit: "score",
+              source: context?.ssContext?.source ?? "explicit personal threshold",
+            },
+          ],
         }
-      : unavailableMetric("personal-ss-threshold-or-score-unresolved", "mode-specific native score-rank context");
+      : unavailableMetric("ss-surplus-context-unresolved", "matching native score domain and positive threshold");
+  const ratioValue = calculateSSRatio(numerator, threshold, domain, domain);
+  const ratio: MetricValue =
+    score.value !== null && ratioValue !== null
+      ? {
+          value: ratioValue,
+          status: domain === "room" ? "conditional" : score.status,
+          assumptions: [...score.assumptions, ...(domain === "room" ? ["explicit-room-score-context"] : [])],
+          gaps: [],
+          breakdown: [
+            { key: "ss-ratio-numerator", value: numerator, unit: "score", source: domain },
+            {
+              key: "ss-ratio-threshold",
+              value: threshold,
+              unit: "score",
+              source: context?.ssContext?.source ?? "explicit personal threshold",
+            },
+          ],
+        }
+      : unavailableMetric(
+          "ss-ratio-context-unresolved",
+          "matching native personal/room numerator and positive threshold",
+        );
   const metrics: Record<Objective, MetricValue> = {
     score,
     "base-score":
       model.scope === "growth-only"
         ? computed
         : unavailableMetric("base-score-scenario-not-requested", "evaluation scope"),
+    "ss-ratio": ratio,
     "ss-surplus": surplus,
     "event-points": rewards.points,
     "event-items": rewards.items,

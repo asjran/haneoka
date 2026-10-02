@@ -5,7 +5,7 @@ export interface ReleaseIdentity {
   server: string;
   releaseId: string;
 }
-export type Objective = "score" | "ss-surplus" | "event-points" | "event-items" | "base-score";
+export type Objective = "score" | "ss-ratio" | "ss-surplus" | "event-points" | "event-items" | "base-score";
 export type PlayMode = "normal" | "gekiso" | "multi" | "battle";
 export interface EvidenceGap {
   code: string;
@@ -177,6 +177,8 @@ export interface SongScoreContext {
   fixedScore: number;
   /** Personal threshold only; a room-total threshold must stay separate. */
   personalSS: number | null;
+  /** A room threshold never divides a personal score; its numerator is explicit. */
+  ssContext?: { domain: "personal" | "room"; threshold: number | null; numerator: number | null; source: string };
   gaps: EvidenceGap[];
 }
 export interface ScoreEvaluationModel extends ReleaseIdentity {

@@ -5,7 +5,7 @@ import type { Objective, PlayMode, ReleaseIdentity, TeamBuilderCapabilities } fr
  */
 export function getTeamBuilderCapabilities(identity: ReleaseIdentity): TeamBuilderCapabilities {
   const modes: PlayMode[] = ["normal", "gekiso", "multi", "battle"];
-  const objectives: Objective[] = ["score", "ss-surplus", "event-points", "event-items", "base-score"];
+  const objectives: Objective[] = ["score", "ss-ratio", "ss-surplus", "event-points", "event-items", "base-score"];
   return {
     ...identity,
     targets: modes.flatMap((mode) =>
@@ -16,7 +16,7 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity): TeamBuild
             ? "native-server-rules-unverified"
             : objective.startsWith("event-")
               ? "event-reward-runtime-factory-unresolved"
-              : objective === "ss-surplus"
+              : objective === "ss-surplus" || objective === "ss-ratio"
                 ? "personal-ss-runtime-context-unresolved"
                 : "full-power-and-skill-runtime-factory-unresolved";
         return {
@@ -24,7 +24,7 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity): TeamBuild
           objective,
           supported,
           bases:
-            objective === "ss-surplus"
+            objective === "ss-surplus" || objective === "ss-ratio"
               ? ["single" as const]
               : ["single" as const, "time" as const, "consumption" as const],
           gaps: supported ? [] : [{ code, source: "same-release native runtime factory" }],

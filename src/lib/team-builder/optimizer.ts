@@ -41,7 +41,7 @@ function validate(input: OptimizationInput): void {
     !input.objectives.length ||
     new Set(input.objectives).size !== input.objectives.length ||
     input.objectives.some(
-      (value) => !["score", "ss-surplus", "event-points", "event-items", "base-score"].includes(value),
+      (value) => !["score", "ss-ratio", "ss-surplus", "event-points", "event-items", "base-score"].includes(value),
     )
   )
     throw new RangeError("objectives");
