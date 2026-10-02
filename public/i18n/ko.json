@@ -2681,5 +2681,8 @@
   "metaCountMismatchShort": "노드 수 불일치",
   "metaQuality": "점수 노드 품질",
   "metaEstimate": "추정",
-  "metaOfficialLevel": "공식 난이도"
+  "metaOfficialLevel": "공식 난이도",
+  "difficultyEstimatedConstant": "추정 상수",
+  "difficultyEstimateLowConfidence": "낮은 신뢰도",
+  "difficultyEstimateScope": "FC 조작 부담 추정. 점수·SS·이벤트 보상은 별도 지표입니다."
 }

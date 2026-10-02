@@ -32,6 +32,29 @@ export interface SongSummaryRenderOptions {
   selectDifficulty(index: number): void;
 }
 
+function estimatedDifficulty(row: Item | undefined, locale: string, label: SongSummaryRenderOptions["label"]) {
+  const estimate = row?.difficultyEstimate as Item | undefined;
+  const quality = estimate?.quality as Item | undefined;
+  const value = estimate?.estimatedConstant;
+  if (
+    estimate?.target !== "fc-operation-load" ||
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value <= 0 ||
+    !["estimated", "low-confidence"].includes(String(quality?.status))
+  )
+    return undefined;
+  const low = quality?.status === "low-confidence" || quality?.confidence === "low";
+  return html`
+    <small
+      title=${label("difficultyEstimateScope", "FC operation load estimate; score, SS and event rewards are separate metrics.")}
+    >
+      ${label("difficultyEstimatedConstant", "Estimated constant")}
+      ${value.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${low ? ` · ${label("difficultyEstimateLowConfidence", "Low confidence")}` : ""}
+    </small>
+  `;
+}
+
 export function renderSongSummary(options: SongSummaryRenderOptions) {
   const {
     item,
@@ -75,6 +98,7 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     difficulty[selectedDifficulty]?.displayLevel ??
     difficulty[selectedDifficulty]?.playLevel ??
     meta.r;
+  const estimateCaption = estimatedDifficulty(difficulty[selectedDifficulty], locale, label);
   const metrics: Array<[string, string, string]> = [
     [
       "metaOfficialLevel",
@@ -155,7 +179,18 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
               <dt title=${label(key, fallback)}>
                 ${label(key, fallback)}${estimated && (key === "metaScore" || key === "metaEff") ? ` · ${label("metaEstimate", "Estimate")}` : ""}
               </dt>
-              <dd lang=${resolveLocalizedText(item[key], locale).locale}>${value}</dd>
+              <dd lang=${resolveLocalizedText(item[key], locale).locale}>
+                ${
+                  key === "metaOfficialLevel" && estimateCaption
+                    ? html`
+                        <span class="stack stack--tight">
+                          <span>${value}</span>
+                          ${estimateCaption}
+                        </span>
+                      `
+                    : value
+                }
+              </dd>
             </div>
           `,
         )}

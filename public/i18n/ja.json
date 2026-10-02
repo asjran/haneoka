@@ -2681,5 +2681,8 @@
   "metaCountMismatchShort": "ノーツ数不一致",
   "metaQuality": "採点ノーツの品質",
   "metaEstimate": "推定",
-  "metaOfficialLevel": "公式難易度"
+  "metaOfficialLevel": "公式難易度",
+  "difficultyEstimatedConstant": "推定定数",
+  "difficultyEstimateLowConfidence": "低信頼度",
+  "difficultyEstimateScope": "FC操作負担の推定。スコア・SS・イベント報酬とは別の指標です。"
 }

@@ -2681,5 +2681,8 @@
   "metaCountMismatchShort": "Count mismatch",
   "metaQuality": "Score-node quality",
   "metaEstimate": "Estimate",
-  "metaOfficialLevel": "Official level"
+  "metaOfficialLevel": "Official level",
+  "difficultyEstimatedConstant": "Estimated constant",
+  "difficultyEstimateLowConfidence": "Low confidence",
+  "difficultyEstimateScope": "FC operation load estimate; score, SS and event rewards are separate metrics."
 }

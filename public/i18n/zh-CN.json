@@ -2681,5 +2681,8 @@
   "metaCountMismatchShort": "节点数不一致",
   "metaQuality": "计分节点质量",
   "metaEstimate": "估算",
-  "metaOfficialLevel": "官方难度"
+  "metaOfficialLevel": "官方难度",
+  "difficultyEstimatedConstant": "估算定数",
+  "difficultyEstimateLowConfidence": "低可信度",
+  "difficultyEstimateScope": "FC 操作负担估算；得分、SS 与活动收益为其他指标。"
 }

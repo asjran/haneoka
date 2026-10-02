@@ -249,6 +249,30 @@ export class CatalogTable extends LitElement {
     `;
   }
 
+  private estimatedDifficulty(row: Item) {
+    const estimate = row.difficultyEstimate as Item | undefined;
+    const quality = estimate?.quality as Item | undefined;
+    const value = estimate?.estimatedConstant;
+    if (
+      estimate?.target !== "fc-operation-load" ||
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      value <= 0 ||
+      !["estimated", "low-confidence"].includes(String(quality?.status))
+    )
+      return undefined;
+    const c = this.controller;
+    const low = quality?.status === "low-confidence" || quality?.confidence === "low";
+    return html`
+      <small
+        title=${c.label("difficultyEstimateScope", "FC operation load estimate; score, SS and event rewards are separate metrics.")}
+      >
+        ${c.label("difficultyEstimatedConstant", "Estimated constant")}
+        ${value.toLocaleString(this.locale || c.settings.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${low ? ` · ${c.label("difficultyEstimateLowConfidence", "Low confidence")}` : ""}
+      </small>
+    `;
+  }
+
   /** Sortable column headers carry aria-sort; the rest are plain. */
   private header(entry: Column, label: string) {
     const c = this.controller;
@@ -492,6 +516,7 @@ export class CatalogTable extends LitElement {
             <span>
               <small>${name.toUpperCase()}</small>
               <b>${level}</b>
+              ${this.estimatedDifficulty(row) ?? nothing}
             </span>
           </span>
         `);
