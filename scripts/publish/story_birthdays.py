@@ -31,6 +31,19 @@ EPISODE_FIELDS = {"birthday", "storyCategory", "publishedAt"}
 CHAPTER_FIELDS = {"isSpecialStory", "storyCategory"}
 
 
+def public_json_fingerprint(value):
+    # Worker JSON.stringify emits 0.0 as 0, including nested command/asset values.
+    def normalize(child):
+        if isinstance(child, float) and child.is_integer():
+            return int(child)
+        if isinstance(child, list):
+            return [normalize(item) for item in child]
+        if isinstance(child, dict):
+            return {key: normalize(item) for key, item in child.items()}
+        return child
+    return hashlib.sha256(stable_json(normalize(value)).encode()).hexdigest()
+
+
 def timestamp(value):
     # Same native civil-time interpretation as build.api._timestamp.
     text = str(value or "").strip().replace("/", "-")
@@ -134,7 +147,9 @@ def prepare(store, config, projection, staging):
         if updated["episodes"][key].get("birthday", {}).get("characterId") not in original.get("characterIds", []):
             raise ValueError("birthday character lacks an existing story relation")
         shard[key] = patch_episode(original, updated["episodes"][key])
-        preservation.append({"storyKey": key, "commandsAssetsSHA256": hashlib.sha256(stable_json({field: original.get(field) for field in ("commands", "assets")}).encode()).hexdigest(), "unchanged": True})
+        preserved = {field: original.get(field) for field in ("commands", "assets")}
+        preservation.append({"storyKey": key, "commandsAssetsSHA256": hashlib.sha256(stable_json(preserved).encode()).hexdigest(),
+                             "commandsAssetsPublicSHA256": public_json_fingerprint(preserved), "unchanged": True})
         for character in sorted({str(i) for i in original.get("characterIds", [])}):
             relation_shard = select(partition_path(relation, character))
             if relation_shard[character][key] != index["episodes"][key]:
@@ -196,9 +211,9 @@ def verify_public(receipt, expected, output):
                     if episode.get("birthday") != row["birthday"] or episode.get("storyCategory") != "birthday":
                         raise ValueError("public birthday entity or relation differs")
                     if not relation:
-                        digest = hashlib.sha256(stable_json({field: episode.get(field) for field in ("commands", "assets")}).encode()).hexdigest()
+                        digest = public_json_fingerprint({field: episode.get(field) for field in ("commands", "assets")})
                         proof = next(item for item in receipt["commandsAssetsPreserved"] if item["storyKey"] == row["storyKey"])
-                        if digest != proof["commandsAssetsSHA256"]:
+                        if digest != proof["commandsAssetsPublicSHA256"]:
                             raise ValueError("public story commands or assets differ from preserved parent")
             proofs.append({"path": key, "HTTP": response.status, "bytes": len(body), "sha256": hashlib.sha256(body).hexdigest()})
     write_json(output / "public-readback.json", proofs)
