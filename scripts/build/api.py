@@ -33,6 +33,7 @@ from core.unity_objects import iter_unity_object_archive
 from build.anon_tokyo import build_anon_tokyo_catalog
 from build.collectibles import build_backgrounds, build_stickers
 from build.story_unlocks import enrich_story_unlocks
+from build.story_birthdays import enrich_story_birthdays
 from build.runtime_texture_projection import RuntimeTextureProjection
 from build.game_systems import build_game_systems
 from build.tgw_card import build_tgw_card
@@ -5163,6 +5164,7 @@ def _stories(data: BuildData, live2d: dict[str, dict[str, Any]]) -> dict[str, An
             bandId=int(row.get("_bandId") or 0),
             mainCharacterIds=[int(value) for value in row.get("_mainCharacterIds", [])],
             musicId=int(row.get("_musicId") or 0),
+            isSpecialStory=row.get("_isSpecialStory") is True,
             startAt=_timestamp(row.get("_startAt")),
             endAt=_timestamp(row.get("_endAt")),
             banner=data.asset(f"Assets/AddressableResources/Story/Banner/Chapter/{row.get('_banner')}.png"),
@@ -5367,11 +5369,13 @@ def _stories(data: BuildData, live2d: dict[str, dict[str, Any]]) -> dict[str, An
         story_events.append(event)
     story_events.sort(key=lambda item: int((item["startAt"] or [0])[0] or 0))
     enrich_story_unlocks(data, chapters, episodes)
+    birthday_stories = enrich_story_birthdays(data, chapters, episodes, _timestamp)
     return {
         "chapters": chapters,
         "episodes": episodes,
         "homeSpots": spots,
         "storyEvents": story_events,
+        "birthdayStories": birthday_stories,
     }
 
 
