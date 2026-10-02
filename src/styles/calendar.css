@@ -393,11 +393,3 @@ calendar-page {
 .calendar-content--month .calendar-date-strip {
   display: none;
 }
-@media (max-width: 640px) {
-  calendar-page[data-calendar-auto] .calendar-content--month .calendar-grid {
-    display: none;
-  }
-  calendar-page[data-calendar-auto] .calendar-content--month .calendar-date-strip {
-    display: grid;
-  }
-}

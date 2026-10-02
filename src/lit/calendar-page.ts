@@ -102,14 +102,9 @@ export class CalendarPage extends LitElement {
   private zone = "UTC";
   private owner = `calendar-${++sequence}`;
   private clock?: number;
-  private media?: MediaQueryList;
-  private userView = false;
   private readonly localeReady = () => {
     this.locale = getI18nClient()?.committed || this.locale;
     this.labels = {};
-  };
-  private readonly compact = () => {
-    if (!this.userView) this.view = this.media?.matches ? "agenda" : "month";
   };
   constructor() {
     super();
@@ -138,14 +133,8 @@ export class CalendarPage extends LitElement {
     const requested = query.get("date") || "";
     if (parseCalendarDate(requested)) this.selected = requested as CalendarDate;
     const view = query.get("view");
-    if (view === "month" || view === "agenda") {
-      this.view = view;
-      this.userView = true;
-      this.removeAttribute("data-calendar-auto");
-    }
-    this.media = matchMedia("(max-width: 640px)");
-    this.media.addEventListener("change", this.compact);
-    this.compact();
+    this.view = view === "agenda" ? "agenda" : "month";
+    this.removeAttribute("data-calendar-auto");
     window.addEventListener("haneoka:locale-ready", this.localeReady);
     this.clock = window.setInterval(() => {
       this.today = calendarDayAt(Date.now(), this.zone);
@@ -153,7 +142,6 @@ export class CalendarPage extends LitElement {
   }
   disconnectedCallback() {
     clearInterval(this.clock);
-    this.media?.removeEventListener("change", this.compact);
     window.removeEventListener("haneoka:locale-ready", this.localeReady);
     this.paneFocus.detach();
     clearAppBarActions(this.owner);
@@ -182,7 +170,6 @@ export class CalendarPage extends LitElement {
           { value: "agenda", label: this.t("agenda"), icon: "view_list" },
         ],
         onSelect: (view) => {
-          this.userView = true;
           this.removeAttribute("data-calendar-auto");
           this.view = view;
           this.sync();
@@ -340,7 +327,7 @@ export class CalendarPage extends LitElement {
         const actorHref = item.kind === "cast" && item.voices?.length === 1 ? item.voices[0].href : undefined;
         const primaryHref = item.kind === "cast" ? actorHref : item.href;
         const actorLabel = actorHref
-          ? `${title.text} · ${this.t("voiceRoles").replace("{roles}", resolveLocalizedText(item.voices![0].name, this.locale).text)} · Bestdori`
+          ? `${title.text} · ${this.t("voiceRoles").replace("{roles}", resolveLocalizedText(item.voices![0].name, this.locale).text)}${actorHref.startsWith("https://bestdori.com/") ? " · Bestdori" : ""}`
           : undefined;
         return html`
           ${index ? html`<md-divider></md-divider>` : nothing}

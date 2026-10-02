@@ -216,8 +216,13 @@ export function calendarOccurrences(
       facets: activity.facets ?? [activity.kind === "live" ? "external-live" : activity.kind],
     });
   }
+  const kindPriority = (kind: CalendarKind) => (kind === "character" ? 0 : kind === "cast" ? 1 : 2);
   return result.sort(
-    (x, y) => x.start.localeCompare(y.start) || y.end.localeCompare(x.end) || x.id.localeCompare(y.id),
+    (x, y) =>
+      x.start.localeCompare(y.start) ||
+      kindPriority(x.kind) - kindPriority(y.kind) ||
+      y.end.localeCompare(x.end) ||
+      x.id.localeCompare(y.id),
   );
 }
 export function calendarOnDay(items: readonly CalendarOccurrence[], date: CalendarDate): CalendarOccurrence[] {

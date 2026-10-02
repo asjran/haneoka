@@ -24,7 +24,7 @@ const dataId = `calendar-data-${server}`;
   titleKey="calendar.title"
 >
   <AppShell locale={locale} server={server} route="/calendar" title={title} titleKey="calendar.title">
-    <calendar-page class="page" locale={locale} data-page-data={dataId} data-prerendered data-calendar-auto>
+    <calendar-page class="page" locale={locale} data-page-data={dataId} data-prerendered>
       <Fragment set:html={body} />
     </calendar-page>
     <script is:inline type="application/json" id={dataId} set:html={serializePageData({ calendar, labels })}></script>

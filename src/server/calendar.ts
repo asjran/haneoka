@@ -154,15 +154,12 @@ export function calendarProfileBirthdays(
   const roleIndex = new Map<string, CalendarVoiceRole>();
   for (const profile of characterProfiles) {
     const target = find(profile.slug, profile.name);
-    const shared = calendarGarupaProfileLinks.find((link) => link.characterProfileId === profile.id);
     roleIndex.set(profile.id, {
       id: profile.id,
       name: profile.name,
-      href:
-        bestdoriHref(shared) ??
-        (target?.characterId
-          ? resourcePath({ server, locale, kind: "characters", id: String(target.characterId) })
-          : undefined),
+      href: target?.characterId
+        ? resourcePath({ server, locale, kind: "characters", id: String(target.characterId) })
+        : undefined,
     });
   }
   for (const character of calendarGarupaCharacters)
@@ -173,7 +170,7 @@ export function calendarProfileBirthdays(
       roleIndex.set(link.garupaCharacterId, {
         id: own.id,
         name: own.name,
-        href: bestdoriHref(link) ?? roleIndex.get(own.id)?.href,
+        href: roleIndex.get(own.id)?.href,
       });
   }
   const rolesFor = (id: string, ownRoles: readonly string[] = []): CalendarVoiceRole[] => {
@@ -189,8 +186,7 @@ export function calendarProfileBirthdays(
     const birthday = p.birthday[0]?.match(/^(\d{1,2})月(\d{1,2})日$/u);
     if (!birthday) return [];
     const c = find(p.slug, p.name),
-      id = c?.characterId,
-      shared = calendarGarupaProfileLinks.find((link) => link.characterProfileId === p.id);
+      id = c?.characterId;
     return [
       {
         id: `our-notes:character:${p.id}`,
@@ -204,9 +200,7 @@ export function calendarProfileBirthdays(
         day: Number(birthday[2]),
         image: id ? `/images/avatars/characters/${id}.png` : undefined,
         characterIds: id ? [String(id)] : [],
-        href:
-          bestdoriHref(shared) ??
-          (id ? resourcePath({ server, locale, kind: "characters", id: String(id) }) : undefined),
+        href: id ? resourcePath({ server, locale, kind: "characters", id: String(id) }) : undefined,
         sourceUrls: [p.sources.ja, p.sources.global],
       },
     ];
