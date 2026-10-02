@@ -2255,6 +2255,91 @@ async function handleCatalogApi(
 }
 
 
+async function handleMetaReferenceApi(env: Env, request: Request): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (url.pathname !== "/api/v1/meta-reference" && !url.pathname.startsWith("/api/v1/meta-reference/")) return null;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const response = errorResponse(request, 405, "method_not_allowed", "Method not allowed");
+    const headers = new Headers(response.headers);
+    headers.set("Allow", "GET, HEAD");
+    return new Response(response.body, { status: response.status, headers });
+  }
+  const match = /^\/api\/v1\/meta-reference\/([^/]+)\/([^/]+)\/([^/]+)\/([^/]+)$/u.exec(url.pathname);
+  const serverSlug = match?.[1] ? decodePathPart(match[1]) : null;
+  const releaseId = match?.[2] ? decodePathPart(match[2]) : null;
+  const recipeSha = match?.[3] ? decodePathPart(match[3]) : null;
+  const requestSha = match?.[4] ? decodePathPart(match[4]) : null;
+  const shaPattern = /^[a-f0-9]{64}$/u;
+  if (
+    url.search ||
+    !serverSlug ||
+    !RESOURCE_SERVER_SLUG_PATTERN.test(serverSlug) ||
+    !releaseId ||
+    !RELEASE_ID_PATTERN.test(releaseId) ||
+    !recipeSha ||
+    !shaPattern.test(recipeSha) ||
+    !requestSha ||
+    !shaPattern.test(requestSha)
+  ) {
+    return errorResponse(request, 404, "meta_reference_not_found", "Meta reference not found");
+  }
+  const server = await activeResourceServer(env, serverSlug);
+  if (!server) return errorResponse(request, 404, "server_not_found", "Server not found");
+  if (server.resourcePrefix !== `servers/${serverSlug}`) {
+    return errorResponse(request, 502, "meta_reference_prefix_invalid", "Meta reference server prefix is invalid");
+  }
+  // This post-pin object requires the exact descriptor, not the current-pointer migration fallback.
+  const identityKey = `${server.resourcePrefix}/releases/${releaseId}/${RELEASE_IDENTITY_FILENAME}`;
+  if (!(await env.ASSET_BUCKET.head(identityKey))) {
+    return errorResponse(request, 404, "release_identity_missing", "Requested release identity is missing");
+  }
+  let release: Release | null;
+  try {
+    release = await requestedRelease(env, server, releaseId);
+  } catch (error) {
+    if (error instanceof ReleaseIdentityError) return errorResponse(request, error.status, error.code, error.message);
+    return errorResponse(request, 502, "release_identity_invalid", "Requested release identity is invalid");
+  }
+  if (!release) return errorResponse(request, 404, "release_not_found", "Requested release not found");
+  const key = `${server.resourcePrefix}/meta-reference/${releaseId}/${recipeSha}/${requestSha}/reference.json`;
+  const metadata = await env.ASSET_BUCKET.head(key);
+  if (!metadata) return errorResponse(request, 404, "meta_reference_not_found", "Meta reference not found");
+  const contentSha = metadata.customMetadata?.sha256;
+  if (
+    !Number.isSafeInteger(metadata.size) ||
+    metadata.size < 1 ||
+    metadata.size > 67_108_864 ||
+    !contentSha ||
+    !shaPattern.test(contentSha)
+  ) {
+    return errorResponse(request, 502, "meta_reference_metadata_invalid", "Meta reference metadata is invalid");
+  }
+  let response: Response | null;
+  try {
+    response = await serveR2Object(env, request, key, "application/json; charset=utf-8", {
+      attachment: false,
+      expectedBytes: metadata.size,
+      cacheControl: "public, max-age=31536000, immutable",
+    });
+  } catch {
+    return errorResponse(request, 502, "meta_reference_metadata_invalid", "Meta reference metadata is invalid");
+  }
+  if (!response) return errorResponse(request, 404, "meta_reference_not_found", "Meta reference not found");
+  const headers = new Headers(response.headers);
+  headers.set("X-Haneoka-Recipe-Sha256", recipeSha);
+  headers.set("X-Haneoka-Request-Sha256", requestSha);
+  headers.set("X-Haneoka-Content-Sha256", contentSha);
+  headers.set(
+    "Access-Control-Expose-Headers",
+    `${CORS["Access-Control-Expose-Headers"]}, X-Haneoka-Recipe-Sha256, X-Haneoka-Request-Sha256, X-Haneoka-Content-Sha256`,
+  );
+  if (response.status >= 400) headers.set("Cache-Control", "no-store");
+  return releaseResponseHeaders(
+    new Response(response.body, { status: response.status, statusText: response.statusText, headers }),
+    release,
+  );
+}
+
 const TEAM_BUILDER_RUNTIME_MASTER_TABLES: ReadonlySet<string> = new Set([
   "MasterParameter",
   "MasterVip",
@@ -3234,6 +3319,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (garupaPlaylists) return garupaPlaylists;
   const releaseRegistry = await handleReleaseRegistryApi(env, ctx, request, url.pathname);
   if (releaseRegistry) return releaseRegistry;
+  const metaReference = await handleMetaReferenceApi(env, request);
+  if (metaReference) return metaReference;
   const teamBuilderData = await handleTeamBuilderDataApi(env, ctx, request);
   if (teamBuilderData) return teamBuilderData;
   const chartImage = await handleChartImageApi(env, request);
