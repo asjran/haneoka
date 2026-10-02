@@ -2625,5 +2625,9 @@
     "savedSong": "保存済み楽曲 {id}",
     "savedCharacter": "保存済みキャラクター {id}",
     "totalRankHint": "ゲームに表示される全キャラクター合計ランクを入力してください。"
-  }
+  },
+  "characterRankRewards": "キャラクターランク報酬",
+  "characterRank": "キャラクターランク",
+  "artworkCard": "イラストのカード",
+  "unlockConditions": "解放条件"
 }

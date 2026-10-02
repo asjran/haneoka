@@ -2625,5 +2625,9 @@
     "savedSong": "已存歌曲 {id}",
     "savedCharacter": "已存角色 {id}",
     "totalRankHint": "請填寫遊戲中顯示的全角色總評級。"
-  }
+  },
+  "characterRankRewards": "角色等級獎勵",
+  "characterRank": "角色等級",
+  "artworkCard": "圖片來源卡牌",
+  "unlockConditions": "解鎖條件"
 }

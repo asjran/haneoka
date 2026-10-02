@@ -82,7 +82,7 @@ import {
   type ResourceKind,
 } from "../lib/resource-route";
 import type { ReleaseServer } from "../lib/release-server";
-import type { Locale } from "../i18n/locales";
+import { LOCALES, type Locale } from "../i18n/locales";
 
 const EXTRA_FILTERS = [
   "difficulty",
@@ -3851,7 +3851,43 @@ export class CatalogScreen extends LitElement {
   private renderCardRelations(item: Item) {
     return this.cardDetail?.renderCardRelations(this, item) ?? nothing;
   }
+  private renderAssociatedCost(kind: string, label: string, to: number) {
+    const associations = this.detailAux.associations as Item | undefined;
+    if (!Array.isArray(associations?.upgrades)) return undefined;
+    const step = (associations.upgrades as Item[]).find((row) => row.kind === kind && Number(row.to) === to);
+    if (!step) return nothing;
+    return fold(
+      label,
+      upgradeCost({
+        label,
+        from: Number(step.from),
+        to: Number(step.to),
+        locale: this.settings.locale,
+        items: asItems(step.costs).map((cost) => {
+          const reference = cost.reference as Item | undefined;
+          const item = this.gameItems.find((row) => Number(row.itemId) === Number(cost.itemId));
+          const resource = resourceKindForCollection(String(reference?.resource || ""));
+          return {
+            name: this.localized(reference?.name || item?.name) || this.label("required", "Required"),
+            image: String(reference?.image || item?.image || ""),
+            count: Number(cost.count || 0),
+            ...(resource && reference?.id ? { href: this.relatedEntityHref(resource, String(reference.id)) } : {}),
+          };
+        }),
+      }),
+    );
+  }
   renderCardCosts(item: Item, data: ReturnType<CatalogScreen["cardControlData"]>) {
+    if (Array.isArray((this.detailAux.associations as Item | undefined)?.upgrades)) {
+      return data.support
+        ? this.renderAssociatedCost("rank", this.label("rank", "Rank"), this.detailRank)
+        : html`
+            <div class="card-costs">
+              ${this.renderAssociatedCost("training", this.label("training", "Training"), this.detailTraining)}
+              ${this.renderAssociatedCost("awakening", this.label("awakening", "Awakening"), this.detailAwakening)}
+            </div>
+          `;
+    }
     const piece = this.gameItems.find((entry) => Number(entry.itemId) === Number(item.rankUpItemId));
     if (data.support) {
       const rows = data.supportRankRows.filter(
@@ -3907,7 +3943,11 @@ export class CatalogScreen extends LitElement {
       }),
     );
   }
-  private skillDescription(skill: Item, requestedLevel?: number) {
+  private skillDescription(skill: Item, requestedLevel?: number, group?: string, slot = 0) {
+    const skills = asItems((this.detailAux.associations as Item | undefined)?.skills);
+    const display = skills.find((entry) => entry.group === group && Number(entry.slot) === slot);
+    const level = asItems(display?.levels).find((entry) => Number(entry.level) === requestedLevel);
+    if (level) return this.localized(level.description);
     const raw = localizedText(skill.description, this.settings.locale);
     if (!raw || !this.skillText) return "";
     const effects = Array.isArray(skill.effects) ? (skill.effects as Item[]) : [];
@@ -3917,7 +3957,17 @@ export class CatalogScreen extends LitElement {
       this.skillText.resolveSkillDescription(raw, selected, (value) => this.localized(value)),
     );
   }
-  private skillLevel(group: string, item: Item) {
+  private skillDescriptionLanguage(skill: Item, level: number, group: string, slot: number) {
+    const display = asItems((this.detailAux.associations as Item | undefined)?.skills).find(
+      (entry) => entry.group === group && Number(entry.slot) === slot,
+    );
+    const selected = asItems(display?.levels).find((entry) => Number(entry.level) === level);
+    const source = Array.isArray(selected?.descriptionLocales)
+      ? selected.descriptionLocales[LOCALES.indexOf(this.settings.locale as Locale)]
+      : undefined;
+    return typeof source === "string" ? source : this.localizedLanguage(skill.description);
+  }
+  private skillLevel(group: string, item: Item, slot = 0) {
     const data = this.cardControlData(item);
     if (group === "live") return this.detailLiveLevel;
     if (group === "gekisou") return this.detailGekisouLevel;
@@ -3928,11 +3978,19 @@ export class CatalogScreen extends LitElement {
     const rank = data.supportRankRows.find((row: Item) => Number(row._rank) === this.detailRank) || {};
     return Number(
       group === "gekisouSupport"
-        ? rank._gekisouSupportSkillLevel || this.detailRank
-        : rank._supportSkillLevel || this.detailRank,
+        ? rank[`_gekisouSupportSkill${String(slot + 1).padStart(2, "0")}Level`] ||
+            rank._gekisouSupportSkillLevel ||
+            this.detailRank
+        : rank[`_supportSkill${String(slot + 1).padStart(2, "0")}Level`] || rank._supportSkillLevel || this.detailRank,
     );
   }
   private renderSkillCost(group: string, item: Item) {
+    const associated = this.renderAssociatedCost(
+      group,
+      this.label("required", "Required"),
+      this.skillLevel(group, item),
+    );
+    if (associated !== undefined) return associated;
     const resourceGroup = Number(
       group === "live"
         ? item.liveSkillLevelResourceGroup
@@ -3958,6 +4016,11 @@ export class CatalogScreen extends LitElement {
         .item=${item}
         .fields=${fields}
         .section=${this.characterSection}
+        .selectedRank=${this.detailRank}
+        @rank-change=${(event: CustomEvent<number>) => {
+          this.detailRank = event.detail;
+          this.setDetailQuery("rank", event.detail);
+        }}
         @section-change=${(event: CustomEvent<string>) => this.setCharacterSection(event.detail)}
       ></character-detail-archive>
     `;
@@ -4127,7 +4190,7 @@ export class CatalogScreen extends LitElement {
                       ${renderDetailSectionHeading(this.label("skills", "Skills"), "skills")}
                       ${skills.flatMap(([group, value]) =>
                         (Array.isArray(value) ? value : [value]).filter(Boolean).map(
-                          (skill) => html`
+                          (skill, slot) => html`
                             <div class="skill-row">
                               ${
                                 (skill as Item).icon
@@ -4142,10 +4205,12 @@ export class CatalogScreen extends LitElement {
                                   ${this.localized((skill as Item).skillName) || group}
                                 </strong>
                                 ${
-                                  this.skillDescription(skill as Item, this.skillLevel(group, item))
+                                  this.skillDescription(skill as Item, this.skillLevel(group, item, slot), group, slot)
                                     ? html`
-                                        <p lang=${this.localizedLanguage((skill as Item).description)}>
-                                          ${this.skillDescription(skill as Item, this.skillLevel(group, item))}
+                                        <p
+                                          lang=${this.skillDescriptionLanguage(skill as Item, this.skillLevel(group, item, slot), group, slot)}
+                                        >
+                                          ${this.skillDescription(skill as Item, this.skillLevel(group, item, slot), group, slot)}
                                         </p>
                                       `
                                     : nothing
@@ -4363,6 +4428,66 @@ export class CatalogScreen extends LitElement {
   }
   private renderExtendedDetail(item: Item) {
     if (this.profile.presentation === "band-item") return nothing;
+    if (this.settings.resource === "stickers") {
+      const associations = this.detailAux.associations as Item | undefined;
+      const card = associations?.artworkCard as Item | undefined;
+      const unlocks = asItems(associations?.unlocks);
+      return html`
+        ${
+          unlocks.length
+            ? html`
+                <section class="detail-section">
+                  ${renderDetailSectionHeading(this.label("unlockConditions", "Unlock conditions"), "details")}
+                  <div class="reference-list">
+                    ${unlocks.map((unlock) => {
+                      const character = unlock.character as Item | undefined;
+                      return html`
+                        <div>
+                          ${icon("lock_open", 22)}
+                          <span>
+                            ${
+                              character?.id
+                                ? html`
+                                    <a href=${this.relatedEntityHref("characters", String(character.id))}>
+                                      ${this.localized(character.name)}
+                                    </a>
+                                  `
+                                : nothing
+                            }
+                            <small>
+                              ${this.label(unlock.kind === "friendshipRank" ? "friendship" : "characterRank", unlock.kind === "friendshipRank" ? "Friendship" : "Character rank")}
+                              ${unlock.rank}
+                            </small>
+                          </span>
+                        </div>
+                      `;
+                    })}
+                  </div>
+                </section>
+              `
+            : nothing
+        }
+        ${
+          card?.id
+            ? html`
+                <section class="detail-section">
+                  ${renderDetailSectionHeading(this.label("artworkCard", "Artwork card"), "memberCards")}
+                  <div class="collection collection--member">
+                    ${tile({
+                      kind: "member",
+                      title: this.localized(card.name),
+                      label: this.localized(card.name),
+                      image: String(card.image || ""),
+                      fit: "contain",
+                      href: this.relatedEntityHref("member-cards", String(card.id)),
+                    })}
+                  </div>
+                </section>
+              `
+            : nothing
+        }
+      `;
+    }
     if (this.profile.presentation === "item") {
       const rewards = Object.entries((this.catalogDocument.rewards as Item | undefined) || {}).flatMap(
         ([source, value]) =>

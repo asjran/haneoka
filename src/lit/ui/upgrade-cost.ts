@@ -4,7 +4,7 @@ export function upgradeCost(options: {
   label: string;
   from: number;
   to: number;
-  items: ReadonlyArray<{ name: string; count: number; image?: string }>;
+  items: ReadonlyArray<{ name: string; count: number; image?: string; href?: string }>;
   locale?: string;
 }) {
   return html`
@@ -28,7 +28,15 @@ export function upgradeCost(options: {
                     `
                   : nothing
               }
-              <span>${item.name}</span>
+              ${
+                item.href
+                  ? html`
+                      <a href=${item.href}>${item.name}</a>
+                    `
+                  : html`
+                      <span>${item.name}</span>
+                    `
+              }
               <strong>×${item.count.toLocaleString(options.locale)}</strong>
             </li>
           `,

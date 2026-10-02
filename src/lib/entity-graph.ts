@@ -1,4 +1,12 @@
 import {gekisouMissionIcons} from "./gekisou";
+import {
+  associatedReward,
+  characterRankAssociations,
+  entityReference,
+  skillDisplay,
+  upgradeSteps,
+  type ReferenceResolver,
+} from "./entity-associations";
 /** Build-time, release-pinned data closures consumed by static and interactive entity views. */
 import {
   asRecord,
@@ -175,6 +183,14 @@ const STORY_TILE_FIELDS = [
   "banner",
   "image",
   "unlockCharacterFriendshipLevel",
+  "playerRank",
+  "bandRank",
+  "characterRank",
+  "perspectiveCharacterId",
+  "unlockEpisodeNumber",
+  "unlockEpisodeStoryId",
+  "unlockEpisodeStatus",
+  "unlockConditions",
 ] as const;
 const CHAPTER_FIELDS = ["chapterId", "chapterName", "bandId", "banner", "image", "episodes"] as const;
 
@@ -218,6 +234,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     cards,
     supportCards,
     stamps,
+    stickers,
     songs,
     missionAtlas,
     stories,
@@ -239,6 +256,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     required("cards"),
     required("support-cards"),
     required("stamps"),
+    required("stickers"),
     required("songs?projection=4"),
     fetchOptionalStaticCatalog("sources/Assets/AddressableResources/Live/Images/Atlas/LiveAtlas.spriteatlasv2",server,release),
     required("stories?projection=4"),
@@ -270,6 +288,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
       ["cards", entries(cards)],
       ["support-cards", entries(supportCards)],
       ["stamps", entries(stamps)],
+      ["stickers", entries(stickers, "entries")],
       ["songs", entries(songs)],
     ]),
     stories: asRecord(stories) || {},
@@ -364,6 +383,15 @@ function compactBands(graph: Graph, ids: Iterable<number>): Rows {
 const allCharacterIds = (graph: Graph) => [...graph.characters.keys()];
 const allBandIds = (graph: Graph) => [...graph.bands.keys()];
 
+function referenceResolver(graph: Graph): ReferenceResolver {
+  return (resource, id) => {
+    const row = resource === "items" ? graph.items.get(Number(id))
+      : resource === "characters" ? graph.characters.get(Number(id))
+      : graph.collections.get(resource)?.find(([key]) => key === id)?.[1];
+    return row ? entityReference(resource, id, row) : undefined;
+  };
+}
+
 function progressionSubset(graph: Graph, key: string, keep: (row: RecordValue) => boolean): Rows {
   return rows(graph.progression[key]).filter((row) => keep(rawOf(row)));
 }
@@ -452,6 +480,24 @@ function cardAux(graph: Graph, item: RecordValue, support: boolean): RecordValue
       ),
     };
   }
+  const resolve = referenceResolver(graph);
+  const progression = asRecord(aux.progression) || {};
+  aux.associations = {
+    skills: skillDisplay(item, asRecord(aux["skill-reference"]) || {}),
+    upgrades: [
+      ...upgradeSteps("live", rows(aux["skill-level-resources"]).filter(
+        (row) => Number(row.group) === Number(item.liveSkillLevelResourceGroup)), "level", resolve),
+      ...upgradeSteps("gekisou", rows(aux["skill-level-resources"]).filter(
+        (row) => Number(row.group) === Number(item.gekisouSkillLevelResourceGroup)), "level", resolve),
+      ...upgradeSteps("link", rows(aux["skill-level-resources"]).filter(
+        (row) => Number(row.group) === Number(item.linkSkillLevelResourceGroup)), "level", resolve),
+      ...upgradeSteps("training", rows(aux["member-card-awake-resources"]), "awakeCount", resolve),
+      ...upgradeSteps(support ? "rank" : "awakening",
+        rows(progression[support ? "supportCardRanks" : "memberCardRanks"]), "rank", resolve,
+        support ? { resource: "support-cards", id: String(item.supportCardId) }
+          : { resource: "items", id: String(item.rankUpItemId) }),
+    ],
+  };
   return aux;
 }
 
@@ -503,6 +549,7 @@ function characterAux(graph: Graph, item: RecordValue): { aux: RecordValue; band
       homeSpots,
     },
     friendships: { friendships },
+    associations: characterRankAssociations(id, graph.progression, referenceResolver(graph)),
   };
   const bandIds = [
     ...allBandIds(graph),
@@ -531,8 +578,7 @@ async function friendshipRewards(graph: Graph, aux: RecordValue): Promise<void> 
         return {
           rank: row.rank,
           reward: {
-            resourceCount: reward.resourceCount,
-            resourceTypeName: reward.resourceTypeName,
+            ...associatedReward(reward, referenceResolver(graph)),
             resolved: pick(resolved, ["image", "name"]),
           },
         };
@@ -625,6 +671,9 @@ export async function buildEntityPayloads(
           (row) => Number(row.group) === group,
         ),
       };
+      aux.associations = {
+        upgrades: upgradeSteps("level", rows(aux["skill-level-resources"]), "level", referenceResolver(graph)),
+      };
     } else if (resource === "items") {
       gameItemIds.add(Number(item.itemId || id));
       document = {
@@ -671,6 +720,44 @@ export async function buildEntityPayloads(
           url: `/api/v1/servers/${encodeURIComponent(server)}/character-missions?release=${graph.release.releaseId}`,
           count: graph.missionCount,
         },
+      };
+    }
+
+    // Every cost/reward item is a compact same-release record, including currencies.
+    const collectItemIds = (value: unknown): void => {
+      if (Array.isArray(value)) { value.forEach(collectItemIds); return; }
+      const row = asRecord(value);
+      if (!row) return;
+      if (Number(row.itemId) > 0) gameItemIds.add(Number(row.itemId));
+      if ((Number(row.resourceType) === 1 || row.resourceTypeName === "Item") && Number(row.resourceId) > 0)
+        gameItemIds.add(Number(row.resourceId));
+      if (row.resource === "items" && Number(row.id) > 0) gameItemIds.add(Number(row.id));
+      Object.entries(row).forEach(([key, child]) => { if (key !== "raw") collectItemIds(child); });
+    };
+    collectItemIds(aux);
+    collectItemIds(document);
+    const resolve = referenceResolver(graph);
+    if (resource === "stickers") {
+      // Older catalog releases already carry the rank-reward evidence in progression.
+      const unlocks: Rows = Array.isArray(item.unlocks) ? rows(item.unlocks) : [
+        ...rows(graph.progression.characterRankRewards).filter((row) => {
+          const reward = asRecord(row.reward) || {};
+          return Number(reward.resourceType) === 17 && Number(reward.resourceId) === Number(id);
+        }).map((row) => ({ kind: "characterRank", characterId: row.characterId, rank: row.rank })),
+        ...rows(graph.progression.friendshipRankRewards).filter((row) => {
+          const reward = asRecord(row.reward) || {};
+          return Number(reward.resourceType) === 17 && Number(reward.resourceId) === Number(id);
+        }).map((row) => ({ kind: "friendshipRank", friendshipId: row.friendshipId, rank: row.rank })),
+      ];
+      const artworkCardId = Number(item.sourceCardId) || Number(
+        typeof item.image === "string" ? item.image.match(/\/MemberCard\/(\d+)\/member_character\.png(?:$|\?)/)?.[1] : 0,
+      );
+      aux.associations = {
+        ...(artworkCardId > 0 ? { artworkCard: resolve("cards", String(artworkCardId)) } : {}),
+        unlocks: unlocks.map((unlock) => ({
+          ...unlock,
+          ...(Number(unlock.characterId) > 0 ? { character: resolve("characters", String(unlock.characterId)) } : {}),
+        })),
       };
     }
 

@@ -211,6 +211,12 @@
 .detail-object__copy > .tile__subtitle {
   display: flex;
 }
+.detail-object__copy > .tile__title {
+  min-block-size: 0;
+}
+.detail-object__copy > .tile__subtitle:has(> span:only-child:empty) {
+  display: none;
+}
 a.detail-object {
   border-radius: 12px;
   padding: 4px 8px;
@@ -420,6 +426,21 @@ a.detail-object:hover {
 
 .detail-fold__body {
   padding: 0 16px 12px;
+}
+.detail-fold__body > .upgrade-cost {
+  margin-top: 0;
+  padding: var(--md-sys-spacing-2) 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.upgrade-cost li > a {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.upgrade-cost li > a:hover {
+  text-decoration: underline;
 }
 
 /* ---------- Cost figures ----------

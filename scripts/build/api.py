@@ -32,6 +32,7 @@ from core.paths import build_layout
 from core.unity_objects import iter_unity_object_archive
 from build.anon_tokyo import build_anon_tokyo_catalog
 from build.collectibles import build_backgrounds, build_stickers
+from build.story_unlocks import enrich_story_unlocks
 from build.runtime_texture_projection import RuntimeTextureProjection
 from build.game_systems import build_game_systems
 from build.tgw_card import build_tgw_card
@@ -5279,6 +5280,7 @@ def _stories(data: BuildData, live2d: dict[str, dict[str, Any]]) -> dict[str, An
         chapter["eventId"] = event["eventId"]
         story_events.append(event)
     story_events.sort(key=lambda item: int((item["startAt"] or [0])[0] or 0))
+    enrich_story_unlocks(data, chapters, episodes)
     return {
         "chapters": chapters,
         "episodes": episodes,

@@ -2625,5 +2625,9 @@
     "savedSong": "Saved song {id}",
     "savedCharacter": "Saved character {id}",
     "totalRankHint": "Enter the all-character total rank shown in the game."
-  }
+  },
+  "characterRankRewards": "Character rank rewards",
+  "characterRank": "Character rank",
+  "artworkCard": "Artwork card",
+  "unlockConditions": "Unlock conditions"
 }

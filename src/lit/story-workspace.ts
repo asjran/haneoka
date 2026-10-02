@@ -1847,6 +1847,58 @@ export class StoryWorkspace extends LitElement {
     setAppBarActions(this.appBarOwner, this.renderDetailModes(), this);
     this.appBarRegistered = true;
   }
+  private storyUnlockRows(episode: JsonRecord) {
+    const conditions = Array.isArray(episode.unlockConditions) ? (episode.unlockConditions as JsonRecord[]) : [];
+    return conditions.flatMap((condition) => {
+      const kind = String(condition.kind || "");
+      const reference = condition.reference as JsonRecord | undefined;
+      const rank = Number(condition.rank || 0);
+      const number = Number(condition.episodeNumber || 0);
+      const label =
+        kind === "episode"
+          ? `${uiText(this.locale, "required")} · ${uiText(this.locale, "episode")}`
+          : `${uiText(this.locale, kind === "playerRank" ? "player" : kind === "bandRank" ? "band" : "character")} · ${uiText(this.locale, "rank")}`;
+      if (kind !== "episode" && (!["playerRank", "bandRank", "characterRank"].includes(kind) || rank <= 0)) return [];
+      if (kind === "episode" && number <= 0) return [];
+      const band = condition.band as JsonRecord | undefined;
+      const name = reference?.name || band?.name;
+      const canLink =
+        reference?.id &&
+        ((kind === "characterRank" && reference.resource === "characters") ||
+          (kind === "episode" && condition.status === "resolved" && reference.resource === "stories"));
+      const identity = html`
+        ${name ? localizedContent(name, this.locale) : nothing}${name ? " · " : ""}${kind === "episode" ? `${uiText(this.locale, "episode")} ${number}` : `${uiText(this.locale, "rank")} ${rank}`}
+      `;
+      const returnTo = this.entityId
+        ? entityHref({
+            server: this.dataServer() as ReturnType<typeof readReleaseServer>,
+            locale: this.locale as Locale,
+            kind: "stories",
+            id: this.entityId,
+          })
+        : undefined;
+      return [
+        {
+          label,
+          value: canLink
+            ? html`
+                <a
+                  href=${entityHref({
+                    server: this.dataServer() as ReturnType<typeof readReleaseServer>,
+                    locale: this.locale as Locale,
+                    kind: reference.resource as "stories" | "characters",
+                    id: String(reference.id),
+                    returnTo,
+                  })}
+                >
+                  ${identity}
+                </a>
+              `
+            : identity,
+        },
+      ];
+    });
+  }
   private renderDetail(episode: JsonRecord) {
     const ids = this.characterIds(episode);
     const commands = this.transcript(episode);
@@ -1943,6 +1995,7 @@ export class StoryWorkspace extends LitElement {
                             wide: true,
                           }
                         : null,
+                      ...this.storyUnlockRows(episode),
                     ])}
                   </details>
                   ${this.detailError ? errorState(uiText(this.locale, "unavailable"), uiText(this.locale, "retry"), () => void this.openScenario(this.episodeId(episode), episode), this.detailError) : nothing}

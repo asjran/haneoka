@@ -3,6 +3,8 @@ import { modelTile } from "./ui/model-tile";
 import { resolveLocalizedText } from "../lib/localized-text";
 import { songTitle } from "../lib/song-display";
 import { LitElement, html, nothing } from "lit";
+import { renderLevelSwitch } from "./ui/level-switch";
+import { resourceKindForCollection } from "../lib/resource-route";
 import { characterProfile } from "./shared/character-profile";
 import { characterPair } from "./ui/character-pair";
 import { renderDetailSectionHeading, type DetailSectionKind } from "./shared/detail-section-heading";
@@ -85,6 +87,7 @@ export class CharacterDetailArchive extends LitElement {
     section: { type: String },
     selectedPartner: { state: true },
     selectedMissionType: { state: true },
+    selectedRank: { state: true },
   };
   declare controller: Controller;
   declare item: Item;
@@ -92,6 +95,7 @@ export class CharacterDetailArchive extends LitElement {
   declare section: string;
   declare selectedPartner: number;
   declare selectedMissionType: number;
+  declare selectedRank: number;
   constructor() {
     super();
     this.controller = {} as Controller;
@@ -100,6 +104,7 @@ export class CharacterDetailArchive extends LitElement {
     this.section = "profile";
     this.selectedPartner = 0;
     this.selectedMissionType = 0;
+    this.selectedRank = 1;
   }
   createRenderRoot() {
     return this;
@@ -400,25 +405,27 @@ export class CharacterDetailArchive extends LitElement {
     }
     const panel = (() => {
       if (active === "profile")
-        return characterProfile({
-          item,
-          locale: this.controller.contentLocale,
-          name: c.itemTitle(item),
-          part: String(item.bandPart || ""),
-          description: c.localized(item.description),
-          catchCopy: c.localized(item.catchCopy),
-          voiceActor: c.localized(item.voiceActor),
-          alternateName: c.localized(item.englishName),
-          bandLogo: String(c.band(Number(item.bandId || 0))?.logo || ""),
-          gallery: c.renderDetailMedia(item),
-          fields: this.fields
-            .filter((field) => !["voiceActor", "bandPart", "englishName"].includes(field.key))
-            .map((field) => ({
-              label: c.detailLabel(field.key),
-              value: field.value,
-              language: resolveLocalizedText(item[field.key], this.controller.contentLocale).locale,
-            })),
-        });
+        return html`
+          ${characterProfile({
+            item,
+            locale: this.controller.contentLocale,
+            name: c.itemTitle(item),
+            part: String(item.bandPart || ""),
+            description: c.localized(item.description),
+            catchCopy: c.localized(item.catchCopy),
+            voiceActor: c.localized(item.voiceActor),
+            alternateName: c.localized(item.englishName),
+            bandLogo: String(c.band(Number(item.bandId || 0))?.logo || ""),
+            gallery: c.renderDetailMedia(item),
+            fields: this.fields
+              .filter((field) => !["voiceActor", "bandPart", "englishName"].includes(field.key))
+              .map((field) => ({
+                label: c.detailLabel(field.key),
+                value: field.value,
+                language: resolveLocalizedText(item[field.key], this.controller.contentLocale).locale,
+              })),
+          })}${this.renderRankRewards()}
+        `;
       if (active === "cards")
         return html`
           <section class="detail-section character-detail-deferred-section">
@@ -513,6 +520,10 @@ export class CharacterDetailArchive extends LitElement {
                           ${rewards.map((row) => {
                             const reward = (row.reward as Item | undefined) || row;
                             const resolved = (reward.resolved as Item | undefined) || {};
+                            const reference = reward.reference as Item | undefined;
+                            const kind = resourceKindForCollection(String(reference?.resource || ""));
+                            const name =
+                              c.localized(reference?.name || resolved.name) || c.localized(reward.resourceTypeName);
                             return html`
                               <div>
                                 ${
@@ -527,7 +538,15 @@ export class CharacterDetailArchive extends LitElement {
                                       `
                                 }
                                 <span>
-                                  <strong>${c.localized(resolved.name) || c.localized(reward.resourceTypeName)}</strong>
+                                  ${
+                                    kind && reference?.id
+                                      ? html`
+                                          <a href=${c.relatedEntityHref(kind, String(reference.id))}>${name}</a>
+                                        `
+                                      : html`
+                                          <strong>${name}</strong>
+                                        `
+                                  }
                                   <small>${c.label("friendship", "Friendship")} ${String(row.rank || "")}</small>
                                 </span>
                                 <b>×${Number(reward.resourceCount || 0).toLocaleString()}</b>
@@ -633,6 +652,75 @@ export class CharacterDetailArchive extends LitElement {
     return html`
       ${this.renderTabs(tabs, active)}
       <section class="character-detail-panel" role="tabpanel">${panel}</section>
+    `;
+  }
+  private renderRankRewards() {
+    const c = this.controller;
+    const associations = c.detailAux.associations as Item | undefined;
+    const ranks = values(associations?.ranks).sort((a, b) => Number(a.rank) - Number(b.rank));
+    if (!ranks.length) return nothing;
+    const selected = ranks.find((row) => Number(row.rank) === this.selectedRank) || ranks[0];
+    const rank = Number(selected.rank);
+    const rewards = values(associations?.rewards).filter((row) => Number(row.rank) === rank);
+    return html`
+      <section class="detail-section">
+        ${this.sectionHeading(c.label("characterRankRewards", "Character rank rewards"), "rewards")}
+        ${renderLevelSwitch(
+          c.label("rank", "Rank"),
+          ranks.map((row) => Number(row.rank)),
+          rank,
+          (value) => {
+            this.selectedRank = value;
+            this.dispatchEvent(new CustomEvent("rank-change", { detail: value, bubbles: true, composed: true }));
+          },
+        )}
+        <dl class="spec-list spec-list--split">
+          <div>
+            <dt>${c.label("exp", "EXP")}</dt>
+            <dd>${Number(selected.exp || 0).toLocaleString(c.contentLocale)}</dd>
+          </div>
+          <div>
+            <dt>${c.label("bonus", "Bonus")}</dt>
+            <dd>${Number(selected.bonus || 0).toLocaleString(c.contentLocale)}</dd>
+          </div>
+        </dl>
+        <div class="reference-list">
+          ${rewards.map((row) => {
+            const reward = row.reward as Item;
+            const reference = reward.reference as Item | undefined;
+            const resolved = reward.resolved as Item | undefined;
+            const kind = resourceKindForCollection(String(reference?.resource || ""));
+            const name =
+              c.localized(reference?.name || resolved?.name) ||
+              c.localized(reward.resourceTypeName) ||
+              c.label("rewards", "Rewards");
+            const image = String(reference?.image || resolved?.image || "");
+            return html`
+              <div>
+                ${
+                  image
+                    ? html`
+                        <img src=${c.imageForLocale(image)} alt="" loading="lazy" />
+                      `
+                    : nothing
+                }
+                <span>
+                  ${
+                    kind && reference?.id
+                      ? html`
+                          <a href=${c.relatedEntityHref(kind, String(reference.id))}>${name}</a>
+                        `
+                      : html`
+                          <strong>${name}</strong>
+                        `
+                  }
+                </span>
+                <b>×${Number(reward.resourceCount || 0).toLocaleString(c.contentLocale)}</b>
+              </div>
+            `;
+          })}
+        </div>
+      </section>
     `;
   }
   private renderTabs(tabs: ReadonlyArray<readonly [string, string, string, number]>, active: string) {

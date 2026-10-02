@@ -2625,5 +2625,9 @@
     "savedSong": "저장된 곡 {id}",
     "savedCharacter": "저장된 캐릭터 {id}",
     "totalRankHint": "게임에 표시된 전체 캐릭터 총 랭크를 입력하세요."
-  }
+  },
+  "characterRankRewards": "캐릭터 랭크 보상",
+  "characterRank": "캐릭터 랭크",
+  "artworkCard": "일러스트 카드",
+  "unlockConditions": "해금 조건"
 }
