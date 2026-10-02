@@ -8,7 +8,7 @@ import type { Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
 import "../styles/settings.css";
 import cnFlag from "circle-flags/flags/cn.svg?url";
-import gbFlag from "circle-flags/flags/gb.svg?url";
+import enUsFlag from "circle-flags/flags/language/en-us.svg?url";
 import hkFlag from "circle-flags/flags/hk.svg?url";
 import jpFlag from "circle-flags/flags/jp.svg?url";
 import krFlag from "circle-flags/flags/kr.svg?url";
@@ -87,7 +87,7 @@ const groups: Group[] = [
     initial: locale,
     options: [
       { value: "ja", image: jpFlag, label: "日本語" },
-      { value: "en", image: gbFlag, label: "English" },
+      { value: "en", image: enUsFlag, label: "English" },
       { value: "zh-TW", image: hkFlag, label: "繁體中文" },
       { value: "zh-CN", image: cnFlag, label: "简体中文" },
       { value: "ko", image: krFlag, label: "한국어" },

@@ -4,13 +4,13 @@ import type { GameRecordsRegion } from "../../lib/game-records";
 import type { ReleaseServer } from "../../lib/release-server";
 import jpFlag from "circle-flags/flags/jp.svg?url";
 import hkFlag from "circle-flags/flags/hk.svg?url";
-import gbFlag from "circle-flags/flags/gb.svg?url";
+import enUsFlag from "circle-flags/flags/language/en-us.svg?url";
 import krFlag from "circle-flags/flags/kr.svg?url";
 
 export const GAME_RECORDS_REGIONS = [
   { value: "jp", key: "regionJp", flag: jpFlag },
   { value: "tw", key: "regionTw", flag: hkFlag },
-  { value: "en", key: "regionEn", flag: gbFlag },
+  { value: "en", key: "regionEn", flag: enUsFlag },
   { value: "kr", key: "regionKr", flag: krFlag },
 ] as const;
 
