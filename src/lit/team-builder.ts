@@ -13,7 +13,7 @@ import { readReleaseServer } from "../lib/release-server";
 import { observeSongDisplay, songTitle } from "../lib/song-display";
 import { fetchTeamBuilderData } from "../lib/team-builder/data/fetch";
 import { getTeamBuilderCapabilities } from "../lib/team-builder/solver/capabilities";
-import { clearAppBarActions, clearAppBarSearch } from "../lib/app-bar";
+import { clearAppBarActions, clearAppBarSearch, setAppBarActions } from "../lib/app-bar";
 import {
   dataRows,
   objectRow,
@@ -131,6 +131,8 @@ export class TeamBuilder extends LitElement {
     bulkValue: { state: true },
     bulkOnlyMissing: { state: true },
     bulkPreview: { state: true },
+    maintenanceOpen: { state: true },
+    searchError: { state: true },
     saveState: { state: true },
     visibleLimit: { state: true },
     mergePriority: { state: true },
@@ -190,6 +192,8 @@ export class TeamBuilder extends LitElement {
   declare bulkValue: number | null;
   declare bulkOnlyMissing: boolean;
   declare bulkPreview: BulkPreview | null;
+  declare maintenanceOpen: boolean;
+  declare searchError: string;
   declare saveState: string;
   declare visibleLimit: number;
   declare mergePriority: "cloud" | "draft";
@@ -285,13 +289,13 @@ export class TeamBuilder extends LitElement {
             this.uniquenessOwner = state.ownerId;
             this.uniquenessFromStore = true;
             this.uniquenessOriginalText = "";
-            this.closePane();
+            this.closePane(true);
           } else if (this.pendingUniqueness && this.uniquenessFromStore && state.ownerId !== this.uniquenessOwner) {
             this.pendingUniqueness = null;
             this.uniquenessChoices = {};
           }
           this.saveState = state.phase;
-          if (state.phase === "loading" || state.phase === "auth-loading") this.closePane();
+          if (state.phase === "loading" || state.phase === "auth-loading") this.closePane(true);
           if (state.phase === "release-mismatch" && state.inventory && !this.pendingRebase) {
             this.pendingRebase = {
               original: structuredClone(state.inventory),
@@ -320,7 +324,7 @@ export class TeamBuilder extends LitElement {
     const previousOwner = this.currentOwner;
     const previousRevision = this.storeState?.revision ?? 0;
     this.cancelSearch();
-    this.closePane();
+    this.closePane(server === this.server && this.maintenanceOpen);
     this.visualsController?.abort();
     this.visuals = undefined;
     this.authController?.abort();
@@ -332,6 +336,7 @@ export class TeamBuilder extends LitElement {
     this.optimizationInput = null;
     this.selectedIds = new Set();
     this.bulkPreview = null;
+    this.searchError = "";
     this.pendingRebase = null;
     if (!sameServer) {
       this.pendingUniqueness = null;
@@ -714,6 +719,64 @@ export class TeamBuilder extends LitElement {
       </section>
     `;
   }
+  private get maintenanceNeedsAction(): boolean {
+    return (
+      !!this.pendingUniqueness ||
+      !!this.pendingRebase ||
+      !!this.error ||
+      [
+        "conflict",
+        "merge-required",
+        "normalization-required",
+        "release-mismatch",
+        "error",
+        "offline",
+        "auth-error",
+      ].includes(this.saveState)
+    );
+  }
+  private renderMaintenance() {
+    if (!this.maintenanceOpen) return nothing;
+    return html`
+      <dialog
+        class="selection-pane team-builder__maintenance"
+        data-inventory-maintenance
+        aria-label=${this.t("inventoryActions", "Inventory and sync")}
+        @cancel=${(event: Event) => {
+          event.preventDefault();
+          this.maintenanceOpen = false;
+        }}
+        @click=${(event: MouseEvent) => {
+          if (event.target === event.currentTarget) this.maintenanceOpen = false;
+        }}
+      >
+        <header class="sheet__header">
+          <strong>${this.t("inventoryActions", "Inventory and sync")}</strong>
+          ${iconButton({ icon: "close", label: clientText(this.locale, "close", "Close"), onClick: () => (this.maintenanceOpen = false) })}
+        </header>
+        <div class="selection-pane__body">
+          ${this.dataLoading || ["loading", "auth-loading"].includes(this.saveState) ? loadingState(clientText(this.locale, "loading", "Loading")) : nothing}
+          ${
+            this.error
+              ? html`
+                  <p class="team-builder__error" role="alert">${this.error}</p>
+                `
+              : nothing
+          }
+          ${
+            !this.data
+              ? html`
+                  <button class="button button--outlined" @click=${() => this.loadSource(readReleaseServer())}>
+                    ${clientText(this.locale, "retry", "Retry")}
+                  </button>
+                `
+              : nothing
+          }
+          ${this.renderStorage()}${this.renderUniqueness()}${this.renderRebase()}
+        </div>
+      </dialog>
+    `;
+  }
   private renderStorage() {
     const labels: Record<string, string> = {
       "auth-loading": "authLoading",
@@ -764,7 +827,10 @@ export class TeamBuilder extends LitElement {
           }
         </div>
         ${
-          this.saveState === "merge-required" || this.saveState === "conflict"
+          (this.saveState === "merge-required" || this.saveState === "conflict") &&
+          this.storeState &&
+          this.currentOwner === this.storeState?.ownerId &&
+          this.storeState?.remote?.ownerId === this.storeState.ownerId
             ? html`
                 <div class="team-builder__actions">
                   ${this.select(
@@ -906,6 +972,8 @@ export class TeamBuilder extends LitElement {
     this.bulkValue = null;
     this.bulkOnlyMissing = true;
     this.bulkPreview = null;
+    this.maintenanceOpen = false;
+    this.searchError = "";
     this.saveState = "auth-loading";
     this.visibleLimit = 30;
     this.mergePriority = "cloud";
@@ -978,7 +1046,7 @@ export class TeamBuilder extends LitElement {
     if (!this.isConnected) return;
     this.images.observe(this);
     const selector = this.querySelector<HTMLDialogElement>("dialog.selection-pane");
-    const modal = this.addingCards || this.selectingSong || Boolean(this.editingId);
+    const modal = this.addingCards || this.selectingSong || this.maintenanceOpen || Boolean(this.editingId);
     const content = this.querySelector<HTMLElement>(".team-builder__content");
     // Enable the opener before PaneFocus restores focus when the dialog closes.
     if (content && !modal) content.inert = false;
@@ -997,12 +1065,26 @@ export class TeamBuilder extends LitElement {
         selector.querySelector<HTMLElement>('md-outlined-text-field[type="search"]')?.focus(),
       );
     } else if (!selector && this.activeSelector) {
+      const maintenanceClosed = this.activeSelector.hasAttribute("data-inventory-maintenance");
       this.activeSelector = undefined;
       if (!modal && this.selectorOpener?.isConnected) this.selectorOpener.focus({ preventScroll: true });
+      else if (!modal && maintenanceClosed)
+        document.querySelector<HTMLElement>(`[data-app-bar-owner="${OWNER}"] button`)?.focus();
     }
     if (content && modal) content.inert = true;
 
-    clearAppBarActions(OWNER);
+    setAppBarActions(
+      OWNER,
+      iconButton({
+        icon: "manage_accounts",
+        label: this.t("inventoryActions", "Inventory and sync"),
+        badge: this.maintenanceNeedsAction ? 1 : undefined,
+        onClick: () => {
+          this.closePane();
+          this.maintenanceOpen = true;
+        },
+      }),
+    );
     clearAppBarSearch(OWNER);
   }
 
@@ -1185,7 +1267,8 @@ export class TeamBuilder extends LitElement {
       <span class="team-builder__artwork">${tileMedia(this.cardOptions(card, kind))}</span>
     `;
   }
-  private closePane() {
+  private closePane(keepMaintenance = false) {
+    if (!keepMaintenance) this.maintenanceOpen = false;
     this.selectingSong = false;
     this.addingCards = false;
     this.editingId = "";
@@ -2841,7 +2924,7 @@ export class TeamBuilder extends LitElement {
   startOptimization(): void {
     if (!this.canOptimize || !this.data || !this.inventory) return;
     this.cancelSearch();
-    this.error = "";
+    this.searchError = "";
     this.result = null;
     this.progress = null;
     this.searchStatus = "";
@@ -2858,7 +2941,7 @@ export class TeamBuilder extends LitElement {
         type: "module",
       });
     } catch {
-      this.error = this.t("unavailable", "Required data or formula is unavailable");
+      this.searchError = this.t("unavailable", "Required data or formula is unavailable");
       return;
     }
     this.running = true;
@@ -2871,7 +2954,7 @@ export class TeamBuilder extends LitElement {
       if (message.type === "progress") this.progress = message.progress;
       else {
         if (message.type === "result") this.result = message.result;
-        else this.error = this.t("unavailable", "Required data or formula is unavailable");
+        else this.searchError = this.t("unavailable", "Required data or formula is unavailable");
         this.running = false;
         worker.terminate();
         if (this.worker === worker) this.worker = undefined;
@@ -2879,7 +2962,7 @@ export class TeamBuilder extends LitElement {
     };
     worker.onerror = () => {
       if (generation !== this.requestId || !this.isConnected) return;
-      this.error = this.t("unavailable", "Required data or formula is unavailable");
+      this.searchError = this.t("unavailable", "Required data or formula is unavailable");
       this.cancelSearch();
     };
     try {
@@ -2910,7 +2993,7 @@ export class TeamBuilder extends LitElement {
       }
     } catch {
       this.cancelSearch();
-      this.error = this.t("unavailable", "Required data or formula is unavailable");
+      this.searchError = this.t("unavailable", "Required data or formula is unavailable");
     }
   }
   private metricUnit(metric: MetricValue): string {
@@ -2999,6 +3082,13 @@ export class TeamBuilder extends LitElement {
         aria-label=${this.t("results", "Candidates")}
       >
         ${renderDetailSectionHeading(this.t("results", "Candidates"), "stats", { level: 2 })}
+        ${
+          this.searchError
+            ? html`
+                <p class="team-builder__error" role="alert">${this.searchError}</p>
+              `
+            : nothing
+        }
         ${
           this.running
             ? html`
@@ -3228,16 +3318,8 @@ export class TeamBuilder extends LitElement {
       <div class="team-builder">
         <div class="team-builder__content">
           ${
-            this.error
-              ? html`
-                  <p class="team-builder__error" role="alert">${this.error}</p>
-                `
-              : nothing
-          }
-          ${
             this.data
               ? html`
-                  ${this.renderStorage()}${this.renderUniqueness()}${this.renderRebase()}
                   ${this.dataLoading ? loadingState(clientText(this.locale, "loading", "Loading")) : nothing}
                   ${
                     this.inventory &&
@@ -3270,19 +3352,27 @@ export class TeamBuilder extends LitElement {
                         `
                       : ["loading", "auth-loading", "authLoading"].includes(this.saveState)
                         ? loadingState(this.t("cloudLoading", "Loading account inventory"))
-                        : nothing
+                        : html`
+                            <div class="team-builder__results-empty">
+                              <button class="button button--outlined" @click=${() => (this.maintenanceOpen = true)}>
+                                ${this.t("inventoryReadyAction", "Open inventory")}
+                              </button>
+                            </div>
+                          `
                   }
                 `
               : this.error
                 ? html`
-                    <button class="button button--outlined" @click=${() => this.loadSource(readReleaseServer())}>
-                      ${clientText(this.locale, "retry", "Retry")}
-                    </button>
+                    <div class="team-builder__results-empty">
+                      <button class="button button--outlined" @click=${() => (this.maintenanceOpen = true)}>
+                        ${this.t("inventoryReadyAction", "Open inventory")}
+                      </button>
+                    </div>
                   `
                 : loadingState(clientText(this.locale, "loading", "Loading"))
           }
         </div>
-        ${this.renderCardPane()}${this.renderSongPane()}
+        ${this.renderCardPane()}${this.renderSongPane()}${this.renderMaintenance()}
       </div>
     `;
   }

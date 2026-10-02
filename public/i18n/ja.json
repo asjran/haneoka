@@ -2692,7 +2692,9 @@
     "bulkPreviewCount": "{count}枚を変更します",
     "bulkValuesInvalid": "適用前に育成値を確認してください。",
     "bulkPreviewStale": "所持状況が変わりました。再確認してください。",
-    "confirmBulk": "この変更を適用"
+    "confirmBulk": "この変更を適用",
+    "inventoryActions": "所持状況・同期",
+    "inventoryReadyAction": "所持状況を開く"
   },
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",

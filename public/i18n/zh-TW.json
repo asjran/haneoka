@@ -2692,7 +2692,9 @@
     "bulkPreviewCount": "將變更 {count} 張卡片",
     "bulkValuesInvalid": "請核對養成值後套用。",
     "bulkPreviewStale": "卡庫已變動，請重新預覽。",
-    "confirmBulk": "套用這些變更"
+    "confirmBulk": "套用這些變更",
+    "inventoryActions": "卡庫與同步",
+    "inventoryReadyAction": "開啟卡庫"
   },
   "characterRankRewards": "角色等級獎勵",
   "characterRank": "角色等級",

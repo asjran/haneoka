@@ -2692,7 +2692,9 @@
     "bulkPreviewCount": "카드 {count}장 변경 예정",
     "bulkValuesInvalid": "적용 전에 육성 값을 확인하세요.",
     "bulkPreviewStale": "보유 목록이 변경되었습니다. 다시 미리 보세요.",
-    "confirmBulk": "이 변경 적용"
+    "confirmBulk": "이 변경 적용",
+    "inventoryActions": "보유 목록 및 동기화",
+    "inventoryReadyAction": "보유 목록 열기"
   },
   "characterRankRewards": "캐릭터 랭크 보상",
   "characterRank": "캐릭터 랭크",

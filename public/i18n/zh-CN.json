@@ -2692,7 +2692,9 @@
     "bulkPreviewCount": "将变更 {count} 张卡片",
     "bulkValuesInvalid": "请核对养成值后应用。",
     "bulkPreviewStale": "卡库已变动，请重新预览。",
-    "confirmBulk": "应用这些变更"
+    "confirmBulk": "应用这些变更",
+    "inventoryActions": "卡库与同步",
+    "inventoryReadyAction": "打开卡库"
   },
   "characterRankRewards": "角色等级奖励",
   "characterRank": "角色等级",

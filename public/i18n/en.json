@@ -2692,7 +2692,9 @@
     "bulkPreviewCount": "{count} cards will change",
     "bulkValuesInvalid": "Check these training values before applying.",
     "bulkPreviewStale": "Inventory changed. Preview again.",
-    "confirmBulk": "Apply these changes"
+    "confirmBulk": "Apply these changes",
+    "inventoryActions": "Inventory and sync",
+    "inventoryReadyAction": "Open inventory"
   },
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",
