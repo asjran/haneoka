@@ -38,6 +38,28 @@ const maps = new Set([
   "dataRootsByWindowAsset",
 ]);
 
+/** Collect without cloning: shared records remain intact until preparation finishes. */
+export function collectPlaybackUrls(story: AdvStory, signal: AbortSignal): Set<string> {
+  const keys = new Set<string>();
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown, field = ""): void => {
+    signal.throwIfAborted();
+    if (typeof value === "string") {
+      if (field === "playableUrl" && value) keys.add(value);
+      return;
+    }
+    if (!value || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry);
+    } else {
+      for (const [key, entry] of Object.entries(value)) visit(entry, key);
+    }
+  };
+  visit(story);
+  return keys;
+}
+
 /** Clone resource fields and preserve shared model identity across commands. */
 export async function resolveStoryUrls(
   story: AdvStory,

@@ -16,9 +16,13 @@ const mediaTypes: Record<string, string> = {
 /** Materialize playback URLs through the bounded host transport. */
 export function createPlaybackUrls(loader: EmbedLoader<AdvStory>, signal: AbortSignal, timeoutMs: number) {
   const pending = new Map<string, Promise<string>>();
+  const resolvedKeys = new Map<string, Promise<string>>();
   const owned = new Set<string>();
-  return {
-    async resolve(key: string): Promise<string> {
+  const resolve = (key: string): Promise<string> => {
+    let keyed = resolvedKeys.get(key);
+    if (keyed) return keyed;
+    keyed = (async () => {
+      signal.throwIfAborted();
       const source = await loader.resourceUrl(key, { signal });
       if (!/^https?:\/\//iu.test(source)) return source;
       let result = pending.get(source);
@@ -40,11 +44,38 @@ export function createPlaybackUrls(loader: EmbedLoader<AdvStory>, signal: AbortS
         pending.set(source, result);
       }
       return result;
+    })();
+    resolvedKeys.set(key, keyed);
+    return keyed;
+  };
+  return {
+    resolve,
+    async prepare(keys: Iterable<string>): Promise<void> {
+      const queue = [...new Set(keys)];
+      let cursor = 0;
+      let failed = false;
+      let failure: unknown;
+      const worker = async (): Promise<void> => {
+        try {
+          while (!failed && cursor < queue.length) {
+            signal.throwIfAborted();
+            await resolve(queue[cursor++]!);
+          }
+        } catch (error) {
+          if (!failed) failure = error;
+          failed = true;
+        }
+      };
+      // Only these four workers launch IO; all finish before the clone/rewrite pass.
+      await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker));
+      signal.throwIfAborted();
+      if (failed) throw failure;
     },
     dispose(): void {
       for (const url of owned) URL.revokeObjectURL(url);
       owned.clear();
       pending.clear();
+      resolvedKeys.clear();
     },
   };
 }

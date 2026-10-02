@@ -1,7 +1,7 @@
 import { createEmbedLoader, memoryDataSource } from "@haneoka/embed-core";
 import { createHaneokaBranding } from "@haneoka/embed-core/branding";
 import type { VegaEngine, VegaPlayerHandle } from "@haneoka/vega/engine";
-import { resolveStoryUrls } from "./story-urls.js";
+import { collectPlaybackUrls, resolveStoryUrls } from "./story-urls.js";
 import { createPlaybackUrls } from "./playback-urls.js";
 import type {
   MountStoryOptions,
@@ -211,6 +211,7 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
       controller.signal.throwIfAborted();
       const story = await loader.load({ signal: controller.signal });
       if (!Array.isArray(story.commands)) throw new TypeError("Story document requires a commands array");
+      await playbackUrls.prepare(collectPlaybackUrls(story, controller.signal));
       const resolved = await resolveStoryUrls(story, loader, controller.signal, async (key) => {
         const url = await playbackUrls.resolve(key);
         resolvedUrls.add(url);
