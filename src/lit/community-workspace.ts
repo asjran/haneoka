@@ -729,8 +729,7 @@ export class CommunityWorkspace extends LitElement {
       country = "";
     }
     if (!country) return "";
-    const region = typeof location.regionName === "string" ? location.regionName.trim() : "";
-    return region ? `${country} · ${region}` : country;
+    return country === countryCode ? "" : country;
   }
   /**
    * Internal routes are emitted with the visitor's locale prefix: the worker

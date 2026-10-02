@@ -1,7 +1,7 @@
 import { communityAccessState, type CommunityRestrictionKind } from "./access";
 import { getAuthSession, type AuthSession } from "./auth";
 import { COMMENT_LAST_EDITED_AT_SELECT } from "./community-revision";
-import { publicIpLocation, requestIpMetadata } from "./ip-address";
+import { ipDetailsJson, publicIpLocation, requestIpMetadata } from "./ip-address";
 import { inspectCommunityText, scheduleEntityModeration } from "./moderation";
 import { requestClientMetadata, type BrowserFamily, type OsFamily } from "./user-agent";
 import { avatarUrlSelect } from "./avatar-url";
@@ -1172,8 +1172,8 @@ const patchComment = async (request: Request, env: Env, commentId: string): Prom
       `INSERT INTO community_comment_revision
          (comment_id, revision_number, editor_user_id, body, edit_reason, source_kind,
           ip_country_code, ip_region_code, ip_address, ip_region_name,
-          user_agent, browser_family, os_family, created_at)
-       SELECT comment.id, comment.moderation_revision + 1, ?, ?, ?, 'edit', ?, ?, ?, ?, ?, ?, ?, ?
+          user_agent, browser_family, os_family, ip_details_json, created_at)
+       SELECT comment.id, comment.moderation_revision + 1, ?, ?, ?, 'edit', ?, ?, ?, ?, ?, ?, ?, ?, ?
        FROM community_comment AS comment
        JOIN community_post AS post ON post.id = comment.post_id
        WHERE comment.id = ? AND comment.author_id = ? AND comment.version = ?
@@ -1198,6 +1198,7 @@ const patchComment = async (request: Request, env: Env, commentId: string): Prom
       client.userAgent,
       client.browserFamily,
       client.osFamily,
+      ipDetailsJson(ip),
       now,
       commentId,
       viewerId,
@@ -1295,8 +1296,8 @@ const deleteComment = async (request: Request, env: Env, commentId: string): Pro
     env.DB.prepare(
       `INSERT INTO community_comment_state_event
          (id, comment_id, actor_user_id, event_kind, revision_number, reason_code,
-          ip_country_code, ip_region_code, ip_address, ip_region_name, created_at)
-       SELECT ?, comment.id, ?, 'deleted', comment.moderation_revision, 'user.self_delete', ?, ?, ?, ?, ?
+          ip_country_code, ip_region_code, ip_address, ip_region_name, ip_details_json, created_at)
+       SELECT ?, comment.id, ?, 'deleted', comment.moderation_revision, 'user.self_delete', ?, ?, ?, ?, ?, ?
        FROM community_comment AS comment
        WHERE comment.id = ? AND comment.author_id = ? AND comment.version = ?
          AND comment.deleted_at IS NULL`,
@@ -1307,6 +1308,7 @@ const deleteComment = async (request: Request, env: Env, commentId: string): Pro
       ip.regionCode,
       ip.ipAddress,
       ip.regionName,
+      ipDetailsJson(ip),
       now,
       commentId,
       viewerId,

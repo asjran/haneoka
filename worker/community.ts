@@ -4,7 +4,7 @@ import { authConfiguration, getAuthSession, type AuthSession } from "./auth";
 import { communityAccessState } from "./access";
 import { COMMENT_LAST_EDITED_AT_SELECT } from "./community-revision";
 import { handleCommunitySocialRequest } from "./community-social";
-import { publicIpLocation, requestIpMetadata } from "./ip-address";
+import { ipDetailsJson, publicIpLocation, requestIpMetadata } from "./ip-address";
 import { communityPostModerationText, inspectCommunityText, scheduleEntityModeration } from "./moderation";
 import { requestClientMetadata, type BrowserFamily, type OsFamily } from "./user-agent";
 import { avatarUrlSelect } from "./avatar-url";
@@ -2070,12 +2070,12 @@ const createPost = async (request: Request, env: Env): Promise<Response> => {
     `INSERT INTO community_post_revision
        (post_id, revision_number, editor_user_id, title, body, visibility, edit_reason, source_kind,
         ip_country_code, ip_region_code, ip_region_name, ip_address,
-        user_agent, browser_family, os_family, created_at)
+        user_agent, browser_family, os_family, ip_details_json, created_at)
      SELECT id, 1, author_id, title, body, visibility, NULL, 'create',
             ip_country_code, ip_region_code, ip_region_name, ip_address,
-            user_agent, browser_family, os_family, ?
+            user_agent, browser_family, os_family, ?, ?
      FROM community_post WHERE id = ? AND author_id = ?`,
-  ).bind(now, id, session.user.id);
+  ).bind(ipDetailsJson(ip), now, id, session.user.id);
   const tagWrites = preparePostTagWrites(env, tagRecords, {
     now,
     postId: id,
@@ -2171,8 +2171,8 @@ const updatePost = async (request: Request, env: Env, id: string): Promise<Respo
     `INSERT INTO community_post_revision
        (post_id, revision_number, editor_user_id, title, body, visibility, edit_reason, source_kind,
         ip_country_code, ip_region_code, ip_region_name, ip_address,
-        user_agent, browser_family, os_family, created_at)
-     SELECT id, ?, author_id, ?, ?, COALESCE(?, visibility), ?, 'edit', ?, ?, ?, ?, ?, ?, ?, ?
+        user_agent, browser_family, os_family, ip_details_json, created_at)
+     SELECT id, ?, author_id, ?, ?, COALESCE(?, visibility), ?, 'edit', ?, ?, ?, ?, ?, ?, ?, ?, ?
      FROM community_post
      WHERE id = ? AND author_id = ? AND version = ? AND deleted_at IS NULL
        AND ${activePostAuthorProfileWhere}`,
@@ -2189,6 +2189,7 @@ const updatePost = async (request: Request, env: Env, id: string): Promise<Respo
     client.userAgent,
     client.browserFamily,
     client.osFamily,
+    ipDetailsJson(ip),
     now,
     id,
     session.user.id,
@@ -2320,8 +2321,8 @@ const deletePost = async (request: Request, env: Env, id: string): Promise<Respo
     env.DB.prepare(
       `INSERT INTO community_post_state_event
          (id, post_id, actor_user_id, event_kind, revision_number, reason_code,
-          ip_country_code, ip_region_code, ip_region_name, ip_address, created_at)
-       SELECT ?, id, ?, 'deleted', moderation_revision, 'user.self_delete', ?, ?, ?, ?, ?
+          ip_country_code, ip_region_code, ip_region_name, ip_address, ip_details_json, created_at)
+       SELECT ?, id, ?, 'deleted', moderation_revision, 'user.self_delete', ?, ?, ?, ?, ?, ?
        FROM community_post
        WHERE id = ? AND author_id = ? AND version = ? AND deleted_at IS NULL
          AND ${activePostAuthorProfileWhere}`,
@@ -2332,6 +2333,7 @@ const deletePost = async (request: Request, env: Env, id: string): Promise<Respo
       ip.regionCode,
       ip.regionName,
       ip.ipAddress,
+      ipDetailsJson(ip),
       now,
       id,
       session.user.id,
@@ -2374,8 +2376,8 @@ const setPinned = async (request: Request, env: Env, id: string): Promise<Respon
     env.DB.prepare(
       `INSERT INTO community_post_state_event
          (id, post_id, actor_user_id, event_kind, revision_number, reason_code,
-          ip_country_code, ip_region_code, ip_region_name, ip_address, created_at)
-       SELECT ?, id, ?, ?, moderation_revision, ?, ?, ?, ?, ?, ?
+          ip_country_code, ip_region_code, ip_region_name, ip_address, ip_details_json, created_at)
+       SELECT ?, id, ?, ?, moderation_revision, ?, ?, ?, ?, ?, ?, ?
        FROM community_post
        WHERE id = ? AND author_id = ? AND version = ? AND deleted_at IS NULL AND archived_at IS NULL
          AND ${activePostAuthorProfileWhere}
@@ -2389,6 +2391,7 @@ const setPinned = async (request: Request, env: Env, id: string): Promise<Respon
       ip.regionCode,
       ip.regionName,
       ip.ipAddress,
+      ipDetailsJson(ip),
       now,
       id,
       session.user.id,
@@ -2440,8 +2443,8 @@ const setArchived = async (request: Request, env: Env, id: string, archived: boo
     env.DB.prepare(
       `INSERT INTO community_post_state_event
          (id, post_id, actor_user_id, event_kind, revision_number, reason_code,
-          ip_country_code, ip_region_code, ip_region_name, ip_address, created_at)
-       SELECT ?, id, ?, ?, moderation_revision, ?, ?, ?, ?, ?, ?
+          ip_country_code, ip_region_code, ip_region_name, ip_address, ip_details_json, created_at)
+       SELECT ?, id, ?, ?, moderation_revision, ?, ?, ?, ?, ?, ?, ?
        FROM community_post
        WHERE id = ? AND author_id = ? AND version = ? AND deleted_at IS NULL
          AND ${activePostAuthorProfileWhere}
@@ -2455,6 +2458,7 @@ const setArchived = async (request: Request, env: Env, id: string, archived: boo
       ip.regionCode,
       ip.regionName,
       ip.ipAddress,
+      ipDetailsJson(ip),
       now,
       id,
       session.user.id,

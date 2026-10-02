@@ -1099,7 +1099,7 @@ export class AdminWorkspace extends LitElement {
               <input
                 name="package"
                 type="file"
-                accept="application/zip,.zip"
+                accept="application/vnd.android.package-archive,.apk,.apks,.xapk"
                 required
                 @change=${(event: Event) => (this.packageFileName = (event.target as HTMLInputElement).files?.[0]?.name || "")}
               />
