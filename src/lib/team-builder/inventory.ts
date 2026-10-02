@@ -1,7 +1,14 @@
 import type { ReleaseIdentity, TeamAssignment } from "./contracts";
 import { dataRows, nativeRow, type TeamBuilderData } from "./data";
 import { createUnknownPlayerModifiers, validatePlayerModifiers, type PlayerModifiers } from "./data/player-modifiers";
+import { InventoryUniquenessError, previewInventoryUniqueness } from "./data/inventory-unique";
 export { createUnknownPlayerModifiers, playerModifierRanges, type PlayerModifiers } from "./data/player-modifiers";
+export {
+  InventoryUniquenessError,
+  previewInventoryUniqueness,
+  applyInventoryUniqueness,
+  type InventoryUniquenessPreview,
+} from "./data/inventory-unique";
 
 export interface MemberEntry {
   instanceId: string;
@@ -54,7 +61,6 @@ export const MAX_INVENTORY_ENTRIES = 5000;
 export const MAX_INVENTORY_BYTES = 1024 * 1024;
 export interface InventoryAddition {
   cardId: number;
-  copies: number;
 }
 export interface InventoryRebasePreview {
   candidate: InventoryV1;
@@ -86,9 +92,17 @@ export function addInventoryEntry(
   inventory: InventoryV1,
   kind: InventoryKind,
   cardId: number,
-  instanceId: string = crypto.randomUUID(),
+  instanceId?: string,
 ): InventoryV1 {
-  const flags = { instanceId, cardId, locked: false, excluded: false };
+  const preview = previewInventoryUniqueness(inventory);
+  if (preview.changed) throw new InventoryUniquenessError(preview);
+  if (inventory[kind].some((entry) => entry.cardId === cardId)) return inventory;
+  if (!Number.isSafeInteger(cardId) || cardId < 1 || cardId > 0x7fffffff) throw new RangeError("invalid-card-id");
+  if (inventory[kind].length >= MAX_INVENTORY_ENTRIES) throw new RangeError("inventory-entry-limit");
+  const id = instanceId ?? crypto.randomUUID();
+  if ([...inventory.members, ...inventory.snapshots].some((entry) => entry.instanceId === id))
+    throw new Error("duplicate-instance-id");
+  const flags = { instanceId: id, cardId, locked: false, excluded: false };
   return kind === "members"
     ? {
         ...inventory,
@@ -107,48 +121,53 @@ export function addInventoryEntries(
   data?: TeamBuilderData,
 ): InventoryV1 {
   if (requests.length > MAX_INVENTORY_ENTRIES) throw new RangeError("inventory-entry-limit");
-  let count = 0;
+  const preview = previewInventoryUniqueness(inventory);
+  if (preview.changed) throw new InventoryUniquenessError(preview);
+  const owned = new Set(inventory[kind].map((entry) => entry.cardId));
+  const additions: InventoryAddition[] = [];
   for (const request of requests) {
     if (
       !Number.isSafeInteger(request.cardId) ||
       request.cardId <= 0 ||
       request.cardId > 0x7fffffff ||
-      !Number.isSafeInteger(request.copies) ||
-      request.copies < 1
+      Object.keys(request).some((key) => key !== "cardId")
     )
       throw new RangeError("invalid-inventory-addition");
-    count += request.copies;
-    if (count + inventory[kind].length > MAX_INVENTORY_ENTRIES) throw new RangeError("inventory-entry-limit");
+    if (owned.has(request.cardId)) continue;
+    owned.add(request.cardId);
+    additions.push(request);
+    if (additions.length + inventory[kind].length > MAX_INVENTORY_ENTRIES)
+      throw new RangeError("inventory-entry-limit");
     if (data && !(kind === "members" ? data.members : data.snapshots)[String(request.cardId)])
       throw new RangeError("unknown-card");
   }
+  if (!additions.length) return inventory;
   const used = new Set([...inventory.members, ...inventory.snapshots].map((entry) => entry.instanceId));
   const members: MemberEntry[] = [],
     snapshots: SnapshotEntry[] = [];
-  for (const request of requests)
-    for (let copy = 0; copy < request.copies; copy++) {
-      let instanceId = "";
-      for (let attempt = 0; attempt < 16; attempt++) {
-        const id = crypto.randomUUID();
-        if (!used.has(id)) {
-          instanceId = id;
-          break;
-        }
+  for (const request of additions) {
+    let instanceId = "";
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const id = crypto.randomUUID();
+      if (!used.has(id)) {
+        instanceId = id;
+        break;
       }
-      if (!instanceId) throw new Error("inventory-instance-allocation-failed");
-      used.add(instanceId);
-      const flags = { instanceId, cardId: request.cardId, locked: false, excluded: false };
-      if (kind === "members")
-        members.push({
-          ...flags,
-          level: null,
-          training: null,
-          awakening: null,
-          liveSkillLevel: null,
-          gekisoSkillLevel: null,
-        });
-      else snapshots.push({ ...flags, level: null, awakening: null });
     }
+    if (!instanceId) throw new Error("inventory-instance-allocation-failed");
+    used.add(instanceId);
+    const flags = { instanceId, cardId: request.cardId, locked: false, excluded: false };
+    if (kind === "members")
+      members.push({
+        ...flags,
+        level: null,
+        training: null,
+        awakening: null,
+        liveSkillLevel: null,
+        gekisoSkillLevel: null,
+      });
+    else snapshots.push({ ...flags, level: null, awakening: null });
+  }
   const next =
     kind === "members"
       ? { ...inventory, members: [...inventory.members, ...members] }
@@ -294,7 +313,12 @@ export function practiceRanges(
 export function validateInventory(
   value: unknown,
   data: TeamBuilderData,
-  options: { requirePractice?: boolean; requireModifiers?: boolean; allowDifferentRelease?: boolean } = {},
+  options: {
+    requirePractice?: boolean;
+    requireModifiers?: boolean;
+    allowDifferentRelease?: boolean;
+    allowDuplicateCards?: boolean;
+  } = {},
 ): { valid: boolean; issues: InventoryIssue[] } {
   const issues: InventoryIssue[] = [];
   const problem = (path: string, code: string, allowed?: number[]) =>
@@ -327,6 +351,7 @@ export function validateInventory(
     problem("releaseId", "different-release");
   const seen = new Set<string>();
   for (const kind of ["members", "snapshots"] as const) {
+    const cardIds = new Set<number>();
     if (!Array.isArray(inventory[kind]) || inventory[kind].length > MAX_INVENTORY_ENTRIES) {
       problem(kind, "invalid-entry-list");
       continue;
@@ -350,6 +375,8 @@ export function validateInventory(
       else seen.add(entry.instanceId);
       const card = (kind === "members" ? data.members : data.snapshots)[String(entry.cardId)];
       if (!Number.isSafeInteger(entry.cardId) || !card) problem(`${path}.cardId`, "unknown-card");
+      if (cardIds.has(entry.cardId) && !options.allowDuplicateCards) problem(`${path}.cardId`, "duplicate-card");
+      cardIds.add(entry.cardId);
       if (typeof entry.locked !== "boolean" || typeof entry.excluded !== "boolean" || (entry.locked && entry.excluded))
         problem(path, "invalid-flags");
       const ranges = practiceRanges(data, kind, entry.cardId, entry);

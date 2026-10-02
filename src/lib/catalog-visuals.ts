@@ -1,0 +1,40 @@
+import { objectRow } from "./team-builder/data";
+
+/** The catalogue's presentation records, read under the caller's existing pin. */
+export async function fetchCatalogVisuals(
+  identity: { server: string; releaseId: string; sourceId?: string },
+  signal: AbortSignal,
+) {
+  const read = async (resource: string) => {
+    const response = await fetch(
+      `/api/v1/servers/${encodeURIComponent(identity.server)}/${resource}?release=${encodeURIComponent(identity.releaseId)}`,
+      { cache: "no-store", signal },
+    );
+    if (
+      !response.ok ||
+      response.headers.get("x-haneoka-release-id") !== identity.releaseId ||
+      response.headers.get("x-haneoka-source-id") !== identity.sourceId
+    )
+      throw new Error("catalog-visuals-unavailable");
+    const value = objectRow(await response.json());
+    return objectRow(value.entries ?? value.items ?? value[resource] ?? value);
+  };
+  const [marks, characters, songs] = await Promise.all([read("ui-marks"), read("characters"), read("songs")]);
+  return {
+    marks: new Map(
+      Object.entries(marks)
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+        .map(([name, path]) => [name, `/runtime/${identity.server}/${path.replace(/^runtime\//u, "")}`]),
+    ),
+    characters: Object.fromEntries(
+      Object.entries(characters)
+        .filter(([, row]) => row && typeof row === "object")
+        .map(([id, row]) => [id, objectRow(row)]),
+    ),
+    songs: Object.fromEntries(
+      Object.entries(songs)
+        .filter(([, row]) => row && typeof row === "object")
+        .map(([id, row]) => [id, objectRow(row)]),
+    ),
+  };
+}

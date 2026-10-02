@@ -200,7 +200,7 @@ const namespaceRootKeys: Readonly<Record<MainI18nNamespace, readonly string[]>> 
   live2d: LIVE2D_ROOT_KEYS,
   help: HELP_ROOT_KEYS,
   stampMaker: STAMP_MAKER_ROOT_KEYS,
-  teamBuilder: ["teamBuilder", "liveMusicTypes"],
+  teamBuilder: ["teamBuilder", "liveMusicTypes", "songTypes", "character", "characters", "genre"],
 };
 
 const FEATURE_SCALAR_EXCLUSIONS = new Set<string>([

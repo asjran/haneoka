@@ -187,6 +187,26 @@ const modifiersValid = (value: unknown): value is TeamPlayerModifiers =>
   rankMap(value.characterMemoryPoints, modifierCounter) &&
   (value.vipRank === null || positiveId(value.vipRank));
 
+const duplicateCards = (value: unknown): { kind: "members" | "snapshots"; cardId: number }[] => {
+  if (!object(value)) return [];
+  const duplicates: { kind: "members" | "snapshots"; cardId: number }[] = [];
+  for (const kind of ["members", "snapshots"] as const) {
+    const rows = value[kind];
+    if (!Array.isArray(rows)) continue;
+    const seen = new Set<number>();
+    const reported = new Set<number>();
+    for (const row of rows) {
+      if (!object(row) || !positiveId(row.cardId)) continue;
+      if (seen.has(row.cardId) && !reported.has(row.cardId)) {
+        duplicates.push({ kind, cardId: row.cardId });
+        reported.add(row.cardId);
+      }
+      seen.add(row.cardId);
+    }
+  }
+  return duplicates;
+};
+
 /** Transport bounds and shape; T20 validates the original Master values for the chosen release. */
 const inventoryValid = (value: unknown, server: string): value is TeamInventory => {
   const v2 = object(value) && value.schema === "haneoka-team-inventory-v2";
@@ -235,7 +255,11 @@ const inventoryValid = (value: unknown, server: string): value is TeamInventory 
     instances.add(row.instanceId);
     return true;
   };
-  return value.members.every((row) => entry(row, true)) && value.snapshots.every((row) => entry(row, false));
+  return (
+    value.members.every((row) => entry(row, true)) &&
+    value.snapshots.every((row) => entry(row, false)) &&
+    duplicateCards(value).length === 0
+  );
 };
 
 const readInventory = (env: Env, userId: string, server: string): Promise<InventoryRow | null> =>
@@ -308,10 +332,26 @@ export const handleTeamInventoryRequest = async (request: Request, env: Env): Pr
     typeof body.expectedRevision !== "number" ||
     !Number.isSafeInteger(body.expectedRevision) ||
     body.expectedRevision < 0 ||
-    body.expectedRevision >= Number.MAX_SAFE_INTEGER ||
-    !inventoryValid(body.inventory, server)
+    body.expectedRevision >= Number.MAX_SAFE_INTEGER
   )
     return error(request, 422, "invalid_inventory", "Send a valid inventory and expectedRevision");
+  if (!inventoryValid(body.inventory, server)) {
+    const duplicates = duplicateCards(body.inventory);
+    if (duplicates.length)
+      return json(
+        request,
+        {
+          error: {
+            code: "duplicate_card",
+            message:
+              "Keep one owned card per server, kind, and cardId; resolve historical practice conflicts before saving",
+          },
+          duplicates,
+        },
+        422,
+      );
+    return error(request, 422, "invalid_inventory", "Send a valid inventory and expectedRevision");
+  }
   const expected = body.expectedRevision;
   const serialized = JSON.stringify(body.inventory);
   const now = Date.now();
