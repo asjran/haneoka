@@ -9,6 +9,8 @@ export interface MemberCatalog {
   bandId: number;
   rarity: number;
   attribute: number;
+  /** Native MemberCard.get_MusicType reads the same Master field as cardType. */
+  musicType: number;
   name: unknown;
   image: string;
   statMax: PowerStats;
@@ -107,6 +109,7 @@ export function adaptTeamBuilderData(
           bandId: Number(characters[String(characterId)]?.bandId ?? 0),
           rarity: Number(row.rarity),
           attribute: Number(row.cardType),
+          musicType: Number(row.cardType),
           name: row.prefix ?? row.cardName,
           image: String(objectRow(row.images).thumbnail ?? ""),
           statMax: stats(row),
@@ -187,19 +190,8 @@ export function adaptTeamBuilderData(
       id,
       {
         ...pick(row, ["bandItemId", "bandId", "name", "resourceGroupId"]),
-        levels: dataRows(row.levels).map((level) => pick(nativeRow(level), ["level", "playerRank"])),
-        effects: dataRows(row.effects).map((effect) =>
-          pick(nativeRow(effect), [
-            "id",
-            "effectId",
-            "level",
-            "skillEffectType",
-            "effectType",
-            "effectValue",
-            "skillTargetIDs",
-            "targetIds",
-          ]),
-        ),
+        levels: dataRows(row.levels).map(nativeRow),
+        effects: dataRows(row.effects).map(nativeRow),
       },
     ]),
   );
@@ -234,6 +226,9 @@ export function adaptTeamBuilderData(
           "bandIds",
           "musicType",
           "bestMusicTagIds",
+          "liveScoreRankGroup",
+          "scoreRankRewardGroup",
+          "comboRewardGroup",
           "musicCategories",
           "vocalCharacterIds",
           "jacketThumbUrl",
@@ -255,6 +250,7 @@ export function adaptTeamBuilderData(
               "name",
               "startAt",
               "endAt",
+              "displayEndAt",
               "eventType",
               "musicId",
               "eventItem",
@@ -312,6 +308,7 @@ export function adaptTeamBuilderData(
         "judgementTiming",
         "comboScoreBonuses",
         "liveBoostBonuses",
+        "challengeBoostBonuses",
         "expRewards",
       ]),
     ) as DataRow,

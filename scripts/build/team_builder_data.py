@@ -80,6 +80,8 @@ def build_team_builder_data(data: Any, source_id: str) -> dict[str, Any]:
         songs[str(row["_id"])] = {"musicId": row["_id"], "musicTitle": data.text(row.get("_titleTextID")),
             "bestMusicTagIds": row.get("_bestMusicTagIDs", []),
             "bandIds": row.get("_bandIDs", []), "musicType": row.get("_musicType"), "difficulty": difficulties,
+            "liveScoreRankGroup": row.get("_liveScoreRankGroup"),
+            "scoreRankRewardGroup": row.get("_scoreRankRewardGroup"), "comboRewardGroup": row.get("_comboRewardGroup"),
             "gekisou": {"missionTypes": [row.get(f"_gekisouMission{index}", 0) for index in (1, 2, 3)]}}
     events = {str(row["_id"]): {"id": row["_id"], "name": data.text(row.get("_nameTextId") or row.get("_nameTextID")),
         **{key.removeprefix("_"): value for key, value in row.items()}} for row in data.rows("MasterEvent")}
@@ -101,7 +103,8 @@ def build_team_builder_data(data: Any, source_id: str) -> dict[str, Any]:
                 "liveSettings": "MasterLiveSettings", "scoreRanks": "MasterLiveScoreRank",
                 "judgementTiming": "MasterLiveJudgementTiming", "judgementParameters": "MasterLiveJudgementParameter",
                 "noteParameters": "MasterLiveNoteParameter", "comboScoreBonuses": "MasterLiveComboScoreBonus",
-                "liveBoostBonuses": "MasterLiveMusicBoostBonus", "expRewards": "MasterLiveMusicExpReward"}.items()},
+                "liveBoostBonuses": "MasterLiveMusicBoostBonus", "challengeBoostBonuses": "MasterChallengeMusicBoostBonus",
+                "expRewards": "MasterLiveMusicExpReward"}.items()},
             "progression": {key: exact(table) for key, table in TABLES.items()}, **skills},
         "sourceTables": ["MasterMemberCard", "MasterSupportCard", *TABLES.values()],
     }

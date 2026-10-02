@@ -2252,6 +2252,62 @@ async function handleCatalogApi(
 }
 
 
+const TEAM_BUILDER_RUNTIME_MASTER_TABLES: ReadonlySet<string> = new Set([
+  "MasterVip",
+  "MasterVipRankBonus",
+  "MasterMemoryMemberLevel",
+  "MasterMemorySupportLevel",
+  "MasterMemoryMusic",
+  "MasterMemoryMusicBonus",
+  "MasterMemoryMusicGroup",
+]);
+
+async function handleTeamBuilderDataApi(
+  env: Env,
+  ctx: ExecutionContext,
+  request: Request,
+): Promise<Response | null> {
+  // Per-request snapshot captured from the existing validated catalog pin.
+  let pinned: Release | null = null;
+  return handleTeamBuilderData(
+    request,
+    async (catalogRequest) => {
+      const catalogUrl = new URL(catalogRequest.url);
+      const response = await handleCatalogApi(env, ctx, catalogRequest, catalogUrl.pathname);
+      const pin = /^\/api\/v1\/servers\/([^/]+)\/release$/u.exec(catalogUrl.pathname);
+      if (pin?.[1] && response?.ok && catalogUrl.searchParams.get("projection") === "identity") {
+        const slug = decodePathPart(pin[1]);
+        const server = slug ? await activeResourceServer(env, slug) : null;
+        const releaseId = response.headers.get("X-Haneoka-Release-Id") || "";
+        const sourceId = response.headers.get("X-Haneoka-Source-Id") || "";
+        if (!server || !RELEASE_ID_PATTERN.test(releaseId) || !SOURCE_ID_PATTERN.test(sourceId)) {
+          throw new Error("Invalid team builder catalog pin");
+        }
+        pinned = {
+          server: server.slug,
+          releaseId,
+          sourceId,
+          identityKey: `${server.resourcePrefix}/releases/${releaseId}/${RELEASE_IDENTITY_FILENAME}`,
+          indexPrefix: `${server.resourcePrefix}/releases/${releaseId}/index/`,
+          manifestKey: `${server.resourcePrefix}/releases/${releaseId}/release.json`,
+        };
+      }
+      return response;
+    },
+    async (identity, sourceTable) => {
+      if (!TEAM_BUILDER_RUNTIME_MASTER_TABLES.has(sourceTable)) {
+        throw new Error("Runtime Master table is not allowed");
+      }
+      if (!pinned || identity.server !== pinned.server || identity.releaseId !== pinned.releaseId ||
+          identity.sourceId !== pinned.sourceId) {
+        throw new Error("Runtime Master pin does not match the selected release");
+      }
+      return readReleaseJson(env, pinned, `master/${sourceTable}.json`);
+    },
+  );
+}
+
+
 const LATEST_CATALOG_RESERVED_SEGMENTS = new Set([
   "game",
   "search",
@@ -3106,9 +3162,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (garupaPlaylists) return garupaPlaylists;
   const releaseRegistry = await handleReleaseRegistryApi(env, ctx, request, url.pathname);
   if (releaseRegistry) return releaseRegistry;
-  const teamBuilderData = await handleTeamBuilderData(request, (catalogRequest) =>
-    handleCatalogApi(env, ctx, catalogRequest, new URL(catalogRequest.url).pathname),
-  );
+  const teamBuilderData = await handleTeamBuilderDataApi(env, ctx, request);
   if (teamBuilderData) return teamBuilderData;
   const latestCatalog = await handleLatestCatalogApi(env, ctx, request, url.pathname);
   if (latestCatalog) return latestCatalog;

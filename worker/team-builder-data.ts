@@ -1,10 +1,13 @@
 import { teamBuilderDataResponse } from "../src/lib/team-builder/data/response";
+import { readRuntimeRulesDocument, type RuntimeMasterReader } from "../src/lib/team-builder/data/runtime-rules";
 
 export type TeamBuilderCatalogReader = (request: Request) => Promise<Response | null>;
+export type TeamBuilderRuntimeMasterReader = RuntimeMasterReader;
 /** Public wrapper reuses the dispatcher's catalog handler, including its server/pin validation. */
 export async function handleTeamBuilderData(
   request: Request,
   readCatalog: TeamBuilderCatalogReader,
+  readRuntimeMaster?: TeamBuilderRuntimeMasterReader,
 ): Promise<Response | null> {
   const url = new URL(request.url),
     match = /^\/api\/v1\/team-builder\/([^/]+)\/?$/u.exec(url.pathname);
@@ -51,6 +54,9 @@ export async function handleTeamBuilderData(
       identity: { server, releaseId, sourceId },
       readCollection: read,
       readEntity: (resource, id) => read(`${resource}/${encodeURIComponent(id)}`),
+      ...(readRuntimeMaster
+        ? { readRuntimeRules: () => readRuntimeRulesDocument({ server, releaseId, sourceId }, readRuntimeMaster) }
+        : {}),
     });
     if (request.method === "HEAD") {
       await response.body?.cancel();
