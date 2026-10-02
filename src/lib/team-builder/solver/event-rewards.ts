@@ -59,6 +59,19 @@ function eventAmount(bonusBP: number, rate: number, baseAmount: number): number 
 export function calcClientEventPoints(pointBonusBP: number, eventPointRate: number, baseRankPoint: number): number {
   return eventAmount(pointBonusBP, eventPointRate, baseRankPoint);
 }
+/** ConsumeLiveBoost: MasterLiveChallengePoint.Value uses the resolved Boost
+ * eventPointRate directly. Member/snapshot point bonuses do not enter CP.
+ */
+export function calcClientChallengePointGain(baseRankCP: number, eventPointRate: number): number {
+  integer(baseRankCP);
+  integer(eventPointRate);
+  return Math.imul(baseRankCP, eventPointRate);
+}
+/** Native madd32 followed by ChallengeLive's direct integer setter. */
+export function updateClientChallengePointBalance(current: number, baseRankCP: number, eventPointRate: number): number {
+  integer(current);
+  return (current + calcClientChallengePointGain(baseRankCP, eventPointRate)) | 0;
+}
 export interface SelectedEventReward {
   rewardId: number;
   resourceType: number;
