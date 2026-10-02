@@ -29,6 +29,7 @@ import type {
   SearchProgress,
   OptimizationInput,
   SolverResponse,
+  SolverRequest,
   WorkerPreparationInput,
   EvaluationBasisRequest,
   MetricValue,
@@ -76,6 +77,7 @@ import {
 import { downloadBlob } from "../lib/canvas-capture";
 
 type Kind = "members" | "snapshots";
+type SearchRunRequest = Extract<SolverRequest, { type: "prepare" | "start" }>;
 type RebaseDraft = {
   original: InventoryV1;
   draft: InventoryV1;
@@ -229,6 +231,11 @@ export class TeamBuilder extends LitElement {
   private images = new LazyImages();
   private paneFocus = new PaneFocus();
   private worker?: Worker;
+  private completedSearch: {
+    request: SearchRunRequest;
+    result: SearchResult;
+    completedAt: string;
+  } | null = null;
   private requestId = 0;
   private store?: InventoryStore;
   private storeState: InventoryStoreState | null = null;
@@ -2849,6 +2856,22 @@ export class TeamBuilder extends LitElement {
     this.worker?.terminate();
     this.worker = undefined;
     this.running = false;
+    this.progress = null;
+    this.searchStatus = "";
+    this.completedSearch = null;
+  }
+  private resultExport() {
+    const completed = this.completedSearch;
+    if (this.running || !completed || this.result !== completed.result) return null;
+    return { schema: "haneoka-team-search-result-v1", ...completed };
+  }
+  private exportResult() {
+    const value = this.resultExport();
+    if (!value) return;
+    void downloadBlob(
+      new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }),
+      "haneoka-team-result.json",
+    );
   }
   private get chartSelections(): { songId: number; difficulty: number }[] {
     if (!this.data) return [];
@@ -2941,6 +2964,7 @@ export class TeamBuilder extends LitElement {
     this.searchStatus = "";
     const generation = this.requestId;
     const runId = crypto.randomUUID();
+    let runRequest: SearchRunRequest;
     const budget = {
       maxEvaluations: 100000,
       maxMilliseconds: Math.round(this.budgetSeconds * 1000),
@@ -2964,8 +2988,10 @@ export class TeamBuilder extends LitElement {
       if (generation !== this.requestId || message.runId !== runId || !this.isConnected) return;
       if (message.type === "progress") this.progress = message.progress;
       else {
-        if (message.type === "result") this.result = message.result;
-        else this.searchError = this.t("unavailable", "Required data or formula is unavailable");
+        if (message.type === "result") {
+          this.result = message.result;
+          this.completedSearch = { request: runRequest, result: message.result, completedAt: new Date().toISOString() };
+        } else this.searchError = this.t("unavailable", "Required data or formula is unavailable");
         this.running = false;
         worker.terminate();
         if (this.worker === worker) this.worker = undefined;
@@ -2988,11 +3014,12 @@ export class TeamBuilder extends LitElement {
           ),
           budget,
         };
-        worker.postMessage({ type: "start", runId, input });
+        runRequest = { type: "start", runId, input: structuredClone(input) };
+        worker.postMessage(runRequest);
       } else {
         const request: WorkerPreparationInput = {
           data: this.data,
-          inventory: this.inventory,
+          inventory: structuredClone(this.inventory),
           selections: this.chartSelections,
           mode: this.mode,
           objectives: [...this.objectives],
@@ -3000,7 +3027,8 @@ export class TeamBuilder extends LitElement {
           basis: this.evaluationBasis!,
           budget,
         };
-        worker.postMessage({ type: "prepare", runId, request });
+        runRequest = { type: "prepare", runId, request };
+        worker.postMessage(runRequest);
       }
     } catch {
       this.cancelSearch();
@@ -3092,7 +3120,14 @@ export class TeamBuilder extends LitElement {
         class="team-builder__section team-builder__results"
         aria-label=${this.t("results", "Candidates")}
       >
-        ${renderDetailSectionHeading(this.t("results", "Candidates"), "stats", { level: 2 })}
+        <div class="team-builder__section-header">
+          ${renderDetailSectionHeading(this.t("results", "Candidates"), "stats", { level: 2 })}
+          ${
+            this.completedSearch && this.result === this.completedSearch.result && !this.running
+              ? iconButton({ icon: "download", label: this.t("exportResult", "Export result"), onClick: () => this.exportResult() })
+              : nothing
+          }
+        </div>
         ${
           this.searchError
             ? html`

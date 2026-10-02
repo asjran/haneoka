@@ -2695,7 +2695,8 @@
     "confirmBulk": "この変更を適用",
     "inventoryActions": "所持状況・同期",
     "inventoryReadyAction": "所持状況を開く",
-    "cloudUnavailable": "アカウントの所持状況を読み込めませんでした。ローカルの下書きは保持されています。"
+    "cloudUnavailable": "アカウントの所持状況を読み込めませんでした。ローカルの下書きは保持されています。",
+    "exportResult": "結果をエクスポート"
   },
   "characterRankRewards": "キャラクターランク報酬",
   "characterRank": "キャラクターランク",

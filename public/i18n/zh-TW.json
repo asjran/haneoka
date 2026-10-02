@@ -2695,7 +2695,8 @@
     "confirmBulk": "套用這些變更",
     "inventoryActions": "卡庫與同步",
     "inventoryReadyAction": "開啟卡庫",
-    "cloudUnavailable": "無法讀取帳戶卡庫，本機草稿已保留。"
+    "cloudUnavailable": "無法讀取帳戶卡庫，本機草稿已保留。",
+    "exportResult": "匯出結果"
   },
   "characterRankRewards": "角色等級獎勵",
   "characterRank": "角色等級",

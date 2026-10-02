@@ -2695,7 +2695,8 @@
     "confirmBulk": "Apply these changes",
     "inventoryActions": "Inventory and sync",
     "inventoryReadyAction": "Open inventory",
-    "cloudUnavailable": "Could not load account inventory. Your local draft is retained."
+    "cloudUnavailable": "Could not load account inventory. Your local draft is retained.",
+    "exportResult": "Export result"
   },
   "characterRankRewards": "Character rank rewards",
   "characterRank": "Character rank",
