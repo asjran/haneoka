@@ -24,6 +24,16 @@ export function eventEditionSignature(row: CrossCatalogRow, source: CrossCatalog
   if (!title || !chapterName || !logo || !background || !banner || !bandKey || !Array.isArray(story.description)) return null;
   const episodes: unknown[][] = [], keys = new Set<string>();
   let participantsObserved = false;
+  const chapterParticipants: string[] = [];
+  if (story.mainCharacterIds !== undefined) {
+    if (!Array.isArray(story.mainCharacterIds) || new Set(story.mainCharacterIds).size !== story.mainCharacterIds.length) return null;
+    for (const id of story.mainCharacterIds) {
+      const character = source.collections.characters?.[String(id)], sig = character && helpers.character(character, source);
+      if (!positive(id) || !sig) return null;
+      chapterParticipants.push(sig.key);
+    }
+    participantsObserved ||= chapterParticipants.length > 0;
+  }
   for (const value of story.episodes) {
     const episode = object(value), key = episode.storyKey ?? episode.storyId;
     if (typeof key !== "string" || !/^[A-Za-z][A-Za-z0-9_.-]+$/u.test(key) || keys.has(key) ||
@@ -49,7 +59,7 @@ export function eventEditionSignature(row: CrossCatalogRow, source: CrossCatalog
   episodes.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   return {
     key: JSON.stringify(["native-event-edition", row.eventType, title, logo, background, banner, chapterName,
-      helpers.japanese(story.description) ?? "", bandKey.key, episodes]),
+      helpers.japanese(story.description) ?? "", bandKey.key, episodes, chapterParticipants.sort()]),
     evidence: ["native-event-type", "native-event-logo-background-and-story-banner", "typed-MasterEvent-story-chapter",
       "native-story-episode-key-set", "Japanese-original-metadata-text-edition", "corroborated-story-band",
       ...(participantsObserved ? ["corroborated-participant-characters"] : [])],
@@ -102,7 +112,7 @@ export function sharedEventStoryContent(primary: CrossCatalogVariant, peer: Cros
   }
   if (changed) output.overrides.story = story;
   for (const field of ["story.episodes.unlockEpisodeNumber", "story.episodes.eventPoint", "story.episodes.rewardTracks", "story.episodes.playTime",
-    "story.episodes.script", "story.episodes.scenario", "story.episodes.assets", "story.episodes.audio"])
+    "story.episodes.script", "story.episodes.scenario", "story.episodes.assets", "story.episodes.audio", "story.mainCharacterIds"])
     output.fields.push({ field, classification: "server-variant" });
   return output;
 }

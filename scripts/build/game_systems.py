@@ -399,6 +399,7 @@ def _event_story(
     return {
         "chapterId": chapter_id,
         "chapterName": chapter.get("chapterName", []),
+        "mainCharacterIds": list(chapter.get("mainCharacterIds") or []),
         "bandId": _number(chapter, "bandId"),
         "bandDetails": {
             field: band[field]
