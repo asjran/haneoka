@@ -206,14 +206,16 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
     { once: true },
   );
   boot = Promise.resolve().then(async () => {
+    let playbackPreparation: Promise<void> | undefined;
     try {
       publish();
       controller.signal.throwIfAborted();
       const story = await loader.load({ signal: controller.signal });
       if (!Array.isArray(story.commands)) throw new TypeError("Story document requires a commands array");
-      await playbackUrls.prepare(collectPlaybackUrls(story, controller.signal));
+      playbackPreparation = playbackUrls.prepare(collectPlaybackUrls(story, controller.signal));
+      void playbackPreparation.catch(() => undefined);
       const resolved = await resolveStoryUrls(story, loader, controller.signal, async (key) => {
-        const url = await playbackUrls.resolve(key);
+        const url = await playbackUrls.reference(key);
         resolvedUrls.add(url);
         return url;
       });
@@ -247,11 +249,13 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
             context.contribute("resource", {
               id: "embed-resources",
               name: "Embed resource transport",
-              schemes: ["http", "https", "blob", "data"],
+              schemes: ["http", "https", "blob", "data", "embed-playback"],
               load: (url, signal) =>
-                loader.resourceBytes(url.href, {
-                  signal: AbortSignal.any([signal, AbortSignal.timeout(resourceTimeoutMs)]),
-                }),
+                url.protocol === "embed-playback:"
+                  ? playbackUrls.read(url, signal)
+                  : loader.resourceBytes(url.href, {
+                      signal: AbortSignal.any([signal, AbortSignal.timeout(resourceTimeoutMs)]),
+                    }),
             });
           },
         }),
@@ -278,6 +282,7 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
             ? { shell: { initialScreen: "game" } }
             : { shell: false }),
       });
+      await playbackPreparation;
       controller.signal.throwIfAborted();
       // The shell fullscreens player.root. Keep both attribution and the
       // full scene area inside that root, including in native fullscreen.
@@ -296,8 +301,17 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
       if (controller.signal.aborted && phase !== "disposed") {
         phase = "cancelled";
         publish();
-      } else fail(error);
-      await stopPlayer();
+      } else {
+        // Publish the originating boot error before aborting shared preparation.
+        fail(error);
+        controller.abort(error);
+      }
+      try {
+        await stopPlayer();
+      } finally {
+        await playbackPreparation?.catch(() => undefined);
+        playbackUrls.dispose();
+      }
       throw error;
     }
   });
