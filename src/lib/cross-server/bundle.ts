@@ -8,6 +8,7 @@ export async function loadCrossServerCatalogs(
 ) {
   const identities = new Map<OfficialCatalogServer, ReturnType<CrossCatalogReader["readIdentity"]>>();
   const collections = new Map<string, ReturnType<CrossCatalogReader["readCollection"]>>();
+  const entities = new Map<string, Promise<unknown>>();
   const reader: CrossCatalogReader = {
     readIdentity(server) {
       let pending = identities.get(server);
@@ -20,6 +21,12 @@ export async function loadCrossServerCatalogs(
       if (!pending) { pending = options.reader.readCollection(resource, identity); collections.set(key, pending); }
       return pending;
     },
+  };
+  if (options.reader.readEntity) reader.readEntity = (resource, identity, id) => {
+    const key = `${identity.server}\u0000${identity.releaseId}\u0000${identity.sourceId}\u0000${resource}\u0000${id}`;
+    let pending = entities.get(key);
+    if (!pending) { pending = options.reader.readEntity!(resource, identity, id); entities.set(key, pending); }
+    return pending;
   };
   return Object.fromEntries(await Promise.all([...new Set(resources)].map(async (resource) =>
     [resource, await loadCrossServerCatalog(resource, { ...options, reader })] as const)));

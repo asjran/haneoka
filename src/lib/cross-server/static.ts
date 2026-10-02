@@ -12,6 +12,7 @@ export function loadStaticCrossServerCatalog(resource: CrossCatalogResource, sel
         return { ...identity, server };
       },
       readCollection: (name, identity) => fetchStaticCatalog(name, identity.server, identity),
+      readEntity: (name, identity, id) => fetchStaticCatalog(`${name}/${encodeURIComponent(id)}`, identity.server, identity),
     },
   });
 }

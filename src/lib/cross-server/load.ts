@@ -6,6 +6,7 @@ import {
 export interface CrossCatalogReader {
   readIdentity(server: OfficialCatalogServer): Promise<CrossCatalogIdentity>;
   readCollection(resource: CrossCatalogResource, identity: CrossCatalogIdentity): Promise<unknown>;
+  readEntity?(resource: CrossCatalogResource, identity: CrossCatalogIdentity, id: string): Promise<unknown>;
 }
 const object = (value: unknown): value is CrossCatalogRow => !!value && typeof value === "object" && !Array.isArray(value);
 function collection(resource: CrossCatalogResource, value: unknown): Record<string, CrossCatalogRow> {
@@ -22,7 +23,7 @@ export async function loadCrossServerCatalog(
 ) {
   const dependencies: CrossCatalogResource[] = resource === "cards" || resource === "support-cards" || resource === "characters"
     ? ["bands", "characters", resource]
-    : resource === "songs" ? ["bands", "characters", "songs"] : [resource];
+    : resource === "songs" ? ["bands", "characters", "songs"] : resource === "events" ? ["bands", "characters", "events"] : [resource];
   const resources = [...new Set(dependencies)];
   const failures: { server: OfficialCatalogServer; resource: CrossCatalogResource | "identity"; message: string }[] = [];
   const sources: CrossCatalogSnapshot[] = [];
@@ -39,6 +40,22 @@ export async function loadCrossServerCatalog(
     for (const name of resources) {
       try { snapshot.collections[name] = collection(name, await options.reader.readCollection(name, identity)); }
       catch (error) { failures.push({ server, resource: name, message: error instanceof Error ? error.message : String(error) }); }
+    }
+    if (resource === "events" && snapshot.collections.events && options.reader.readEntity) {
+      const entries = Object.entries(snapshot.collections.events).filter(([, row]) => row.kind === "game-event");
+      if (entries.length > 64) failures.push({ server, resource, message: "Event identity hydration budget exceeded; entries remain independent" });
+      else for (let start = 0; start < entries.length; start += 4) {
+        await Promise.all(entries.slice(start, start + 4).map(async ([id, summary]) => {
+          try {
+            const detail = await options.reader.readEntity!(resource, identity, id);
+            if (!object(detail) || String(detail.id) !== id || detail.kind !== "game-event") throw new Error("Event entity identity mismatch");
+            for (const field of ["title", "image", "backgroundImage", "logo", "startAt", "endAt"])
+              if (summary[field] !== undefined && JSON.stringify(summary[field]) !== JSON.stringify(detail[field]))
+                throw new Error("Event entity disagrees with its pinned collection summary");
+            snapshot.collections.events![id] = detail;
+          } catch (error) { failures.push({ server, resource, message: error instanceof Error ? error.message : String(error) }); }
+        }));
+      }
     }
     sources.push(snapshot);
   }));

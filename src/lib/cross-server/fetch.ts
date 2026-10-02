@@ -24,6 +24,16 @@ function reader(options: { signal?: AbortSignal; fetcher?: typeof fetch }): Cros
         options.signal?.throwIfAborted();
         return value;
       },
+      async readEntity(name, identity, id) {
+        options.signal?.throwIfAborted();
+        const response = await fetcher(`/api/v1/servers/${identity.server}/${name}/${encodeURIComponent(id)}?release=${encodeURIComponent(identity.releaseId)}`, {
+          signal: options.signal, cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`Cross-server entity unavailable:${identity.server}/${name}/${id}/${response.status}`);
+        if (response.headers.get("x-haneoka-release-id") !== identity.releaseId || response.headers.get("x-haneoka-source-id") !== identity.sourceId)
+          throw new Error("Cross-server entity release mismatch");
+        const value: unknown = await response.json(); options.signal?.throwIfAborted(); return value;
+      },
   };
 }
 export function fetchCrossServerCatalog(

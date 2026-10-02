@@ -1,4 +1,5 @@
 /** Browse-only associations. Inventory, progression and scoring keep their own server identity. */
+import { eventEditionSignature, sharedEventStoryContent } from "./events";
 export const OFFICIAL_CATALOG_SERVERS = ["jp", "intl"] as const;
 export type OfficialCatalogServer = (typeof OFFICIAL_CATALOG_SERVERS)[number];
 export type CrossCatalogResource = "cards" | "support-cards" | "songs" | "characters" | "bands" | "events";
@@ -98,7 +99,9 @@ function entitySignature(resource: CrossCatalogResource, row: CrossCatalogRow, s
   const server = source.identity.server;
   if (resource === "bands") return bandSignature(row, server);
   if (resource === "characters") return characterSignature(row, source);
-  if (resource === "events") return null; // Event edition/window semantics require their own reviewed matcher.
+  if (resource === "events") return eventEditionSignature(row, source, {
+    asset, japanese, band: bandSignature, character: characterSignature,
+  });
   if (resource === "cards" || resource === "support-cards") {
     const assetId = row.assetId, rarity = row.rarity, attribute = row.cardType, image = asset(object(row.images).full, server);
     const prefix = japanese(row.prefix), raw = object(row.raw);
@@ -168,6 +171,11 @@ const MEDIA_FIELDS = ["image", "backgroundImage", "logo", "icon", "profileImage"
 function sharedContent(resource: CrossCatalogResource, primary: CrossCatalogVariant, peer?: CrossCatalogVariant): CrossServerContent {
   const result: CrossServerContent = { overrides: {}, supplements: [], fields: [] };
   if (!peer) return result;
+  if (resource === "events") {
+    const story = sharedEventStoryContent(primary, peer, japanese);
+    Object.assign(result.overrides, story.overrides);
+    result.fields.push(...story.fields); result.supplements.push(...story.supplements);
+  }
   const supplement = (field: string, value: unknown, classification: CrossServerContent["supplements"][number]["classification"]) =>
     result.supplements.push({ field, value: structuredClone(value), fromServer: peer.identity.server,
       identity: { ...peer.identity }, href: peer.href, classification });
@@ -211,7 +219,7 @@ function sharedContent(resource: CrossCatalogResource, primary: CrossCatalogVari
   // These fields can be inspected through the variant switch, never supplemented into another server.
   for (const field of ["stat", "difficulty", "resolvedSkills", "skillId", "liveSkillId", "leaderSkillId", "gekisouSkillId",
     "releasedAt", "publishedAt", "startAt", "endAt", "rewardGroups", "effects", "support", "characterId", "characterIds", "bandId", "bandIds",
-    "musicUrl", "mvUrl", "musicVideos", "diarySound", "movies"])
+    "musicUrl", "mvUrl", "musicVideos", "diarySound", "movies", "storyChapterId", "musicId", "song", "eventItem", "rewards", "rankings"])
     if (primary.row[field] !== undefined || peer.row[field] !== undefined) result.fields.push({ field, classification: "server-variant" });
   for (const field of ["musicUrl", "mvUrl", "musicVideos", "diarySound", "movies"])
     if (!primary.row[field] && peer.row[field]) supplement(field, peer.row[field], "foreign-variant-content");
@@ -238,6 +246,7 @@ export function mergeCrossServerCatalog(
   if (!OFFICIAL_CATALOG_SERVERS.includes(options.selectedServer) || !/^[A-Za-z0-9-]+$/u.test(options.locale))
     throw new Error("Invalid cross-server view");
   const identities: CrossCatalogDTO["identities"] = {}, availability: CrossCatalogDTO["sourceAvailability"] = { jp: "unavailable", intl: "unavailable" };
+  const completeIdentityEvidence = { jp: false, intl: false };
   const buckets = new Map<string, { jp: CrossCatalogVariant[]; intl: CrossCatalogVariant[]; signature: Signature | null }>();
   for (const source of snapshots) {
     const identity = source.identity, server = identity.server;
@@ -247,10 +256,12 @@ export function mergeCrossServerCatalog(
     const collection = source.collections[resource];
     if (!collection) continue;
     availability[server] = "loaded";
+    completeIdentityEvidence[server] = true;
     for (const [id, original] of Object.entries(collection)) {
       const row = structuredClone(original), ownId = rowId(resource, row);
       if (ownId !== undefined && String(ownId) !== id) throw new Error(`Cross-server row identity mismatch:${server}/${resource}/${id}`);
       const sig = entitySignature(resource, row, source), key = sig?.key ?? `independent:${server}:${id}`;
+      if (!sig) completeIdentityEvidence[server] = false;
       const bucket = buckets.get(key) ?? { jp: [], intl: [], signature: sig };
       bucket[server].push({ identity: { ...identity }, id, row, available: true,
         releasedAt: structuredClone(row.releasedAt ?? row.publishedAt ?? null), href: href(resource, server, options.locale, id), assets: assets(row) });
@@ -270,7 +281,8 @@ export function mergeCrossServerCatalog(
     const key = both ? `${resource}:shared:${sig!.key}` : `${resource}:${display.identity.server}:${display.id}`;
     entries.push({ key, resource, selectedServer: options.selectedServer, displayServer: display.identity.server,
       inSelectedServer: !!selected, perServer, serverAvailability: { jp: !!perServer.jp, intl: !!perServer.intl },
-      exclusive: !both && complete && sig && !ambiguous ? display.identity.server : null,
+      exclusive: !both && complete && sig && !ambiguous &&
+        completeIdentityEvidence[display.identity.server === "jp" ? "intl" : "jp"] ? display.identity.server : null,
       association: { status: both ? "verified" : ambiguous ? "ambiguous" : "independent", evidence: sig?.evidence ?? [],
         ...(!both ? { reason: ambiguous ? "multiple-candidates-with-the-same-signature" : sig ? "no-peer-with-corroborated-signature" : "insufficient-identity-evidence" } : {}) },
       nameOverrides: names.overrides, nameFallbacks: names.provenance, content: sharedContent(resource, display, peer) });
