@@ -25,6 +25,11 @@ const int = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0x7fffffff;
 
 const orders = normalSkillOrders();
+export interface NativeNormalPlayScoreLaw {
+  nominalOrders: number;
+  /** Integer complete-play scores, grouped by identical outcome. */
+  outcomes: readonly { score: number; multiplicity: number }[];
+}
 function lowerBound(song: PreparedSong, timeMs: number): number {
   let low = 0,
     high = song.nodes.length;
@@ -48,6 +53,11 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
   if (phase.length !== 1 || phase[0]!.phase !== 2)
     gaps.push(gap("native-normal-effect-phase-unresolved", "same-release MasterSkillEffectSetting/2000"));
   if (input.constraints.teamSize !== 5) gaps.push(gap("native-normal-requires-five-members", "normal formation"));
+  // LiveScoreController .ctor passes literal s2=1 to LiveScoreCalculator;
+  // assist percentage is the separate s3 argument. Event card power belongs
+  // to the slot factory and must not be counted again through this multiplier.
+  if (input.songs.some((song) => input.evaluation.songContexts[song.key]?.eventBonusFactor !== 1))
+    gaps.push(gap("native-controller-event-factor-requires-one", "LiveScoreController .ctor 0x55e59b0"));
   const supports = createNativeNormalSupportResolver(data, input);
   const snapshotCards = new Map(input.snapshots.map((snapshot) => [snapshot.instanceId, snapshot.cardId]));
   const phaseByEffectType = Object.fromEntries(
@@ -142,6 +152,7 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
       song: PreparedSong,
       profiles: readonly (ResolvedSlotProfile | undefined)[],
       controls: SearchEvaluationControls,
+      onCompleteLaw?: (law: NativeNormalPlayScoreLaw) => void,
     ): Promise<MetricValue> {
       const local = [
         ...gaps,
@@ -204,6 +215,7 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
         minimum = Infinity,
         maximum = -Infinity;
       let bestSkillOrder: string[] = [];
+      const scores = onCompleteLaw ? new Map<number, number>() : null;
       const assumptions = new Set([
         ...input.evaluation.assumptions,
         "native-normal-nominal-uniform-member-shuffle",
@@ -263,12 +275,20 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
         if (!int(score))
           return unavailableMetric("native-normal-score-domain-unresolved", "native signed score accumulation");
         total += score;
+        scores?.set(score, (scores.get(score) ?? 0) + 1);
         minimum = Math.min(minimum, score);
         if (score > maximum) {
           maximum = score;
           bestSkillOrder = order.map((slot) => nativeMembers[slot]!);
         }
       }
+      // Publish once after all nominal orders complete. A cancelled/budgeted
+      // prefix cannot become a reward law or a resource-cycle input.
+      if (scores && !interrupted(controls))
+        onCompleteLaw!({
+          nominalOrders: orders.length,
+          outcomes: [...scores].sort(([a], [b]) => a - b).map(([score, multiplicity]) => ({ score, multiplicity })),
+        });
       return {
         value: total / orders.length,
         status: "conditional",
