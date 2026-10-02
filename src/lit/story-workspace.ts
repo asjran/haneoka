@@ -43,6 +43,7 @@ import { emptyState, errorState, loadingState } from "./ui/state";
 import { tile } from "./ui/tile";
 import { storyTile } from "./shared/story-tile";
 import { storyCastMedia } from "./ui/story-media";
+import { catalogCharacterRelationship } from "./shared/catalog-relationships";
 import { dialogueRow } from "./ui/dialogue-row";
 import { characterPair } from "./ui/character-pair";
 import { entityHref, parseEntitySelection, returnStateFromLocation } from "../lib/resource-route";
@@ -53,7 +54,7 @@ import { readPageData } from "../lib/page-data";
 import type { StoryPayload } from "../lib/entity-graph";
 
 /** Sections of the archive's own story catalogue. */
-type ReleaseMode = "event" | "band" | "link" | "home" | "afterlive" | "tutorial";
+type ReleaseMode = "event" | "band" | "link" | "birthday" | "home" | "afterlive" | "tutorial";
 /** Sections the Bestdori worker serves. */
 type BestdoriMode = "event" | "band" | "main" | "afterlive" | "card";
 type StoryMode = ReleaseMode | BestdoriMode;
@@ -274,7 +275,11 @@ export class StoryWorkspace extends LitElement {
     if (this.origin === "release" && selection?.source === "canonical" && selection.route.kind === "stories")
       this.entityId = selection.route.id;
     const mode = documentUrl.searchParams.get("mode");
-    if (this.origin === "release" && mode && ["event", "band", "link", "home", "afterlive", "tutorial"].includes(mode))
+    if (
+      this.origin === "release" &&
+      mode &&
+      ["event", "band", "link", "birthday", "home", "afterlive", "tutorial"].includes(mode)
+    )
       this.mode = mode as ReleaseMode;
     addEventListener("haneoka:locale-ready", this.onLocale);
     this.releaseLocation = observeDetailLocation(this.restoreLocation, this);
@@ -489,7 +494,7 @@ export class StoryWorkspace extends LitElement {
   }
   private defaultSort() {
     if (this.mode === "event") return "id";
-    return this.mode === "link" || this.mode === "afterlive" ? "release" : "id";
+    return ["link", "birthday", "afterlive"].includes(this.mode) ? "release" : "id";
   }
   private defaultOrder(): "asc" | "desc" {
     if (this.origin === "release" && this.mode === "event") return "asc";
@@ -537,8 +542,14 @@ export class StoryWorkspace extends LitElement {
     }
     if (this.mode === "band")
       return this.chapters
-        .filter((c) => Number(c.chapterId) < 900000 && !eventIds.has(String(c.chapterId)))
+        .filter(
+          (c) => Number(c.chapterId) < 900000 && !eventIds.has(String(c.chapterId)) && this.chapterEpisodes(c).length > 0,
+        )
         .sort((a, b) => Number(a.chapterSort) - Number(b.chapterSort));
+    if (this.mode === "birthday")
+      return this.chapters
+        .filter((c) => !eventIds.has(String(c.chapterId)) && this.chapterEpisodes(c).length > 0)
+        .sort((a, b) => this.releaseValue(b) - this.releaseValue(a) || Number(b.chapterId) - Number(a.chapterId));
     const key = this.mode === "link" ? "asset_linkstory" : `asset_${this.mode}`;
     return this.chapters.filter((c) => this.chapterKind(c) === key);
   }
@@ -546,7 +557,16 @@ export class StoryWorkspace extends LitElement {
     return (Array.isArray(chapter?.episodes) ? chapter.episodes : [])
       .map(String)
       .map((id) => this.episodes[id])
-      .filter(Boolean);
+      .filter(
+        (episode) =>
+          episode &&
+          (this.origin !== "release" ||
+            (this.mode === "birthday"
+              ? episode.storyCategory === "birthday"
+              : this.mode === "band"
+                ? episode.storyCategory !== "birthday"
+                : true)),
+      );
   }
   private chapterOf(episode: JsonRecord) {
     if (this.isBestdori())
@@ -580,7 +600,7 @@ export class StoryWorkspace extends LitElement {
       // A release section with no chapters is simply empty — the event
       // section before any event ships its story. The everything fallback
       // below only serves the Bestdori worker's bare, chapter-less records.
-      if (this.origin === "release" && this.mode === "event") return [];
+      if (this.origin === "release" && ["event", "band", "birthday"].includes(this.mode)) return [];
       return Object.values(this.episodes);
     }
     const seen = new Set<string>();
@@ -913,6 +933,7 @@ export class StoryWorkspace extends LitElement {
   }
   /** The heading: the rail's current destination, named. */
   private heading(): BrowseHeading | undefined {
+    if (this.origin === "release" && this.mode === "birthday") return undefined;
     const value = this.railValue();
     if (!value) return undefined;
     if (this.origin === "release" && this.mode === "home") {
@@ -1251,7 +1272,7 @@ export class StoryWorkspace extends LitElement {
           value: this.railValue(),
           items: this.railItems(),
           onSelect: (value) => this.selectRail(value),
-          single: this.origin === "release" && this.mode === "event",
+          single: this.origin === "release" && ["event", "birthday"].includes(this.mode),
         },
         heading: this.heading(),
         modes: viewSwitch(this.locale, this.view, (view) => {
@@ -1410,6 +1431,14 @@ export class StoryWorkspace extends LitElement {
     );
   }
   private tileSubtitleContent(episode: JsonRecord) {
+    if (this.origin === "release" && this.mode === "birthday") {
+      const relationship = catalogCharacterRelationship(this.characterIds(episode), this.locale, (id) =>
+        this.character(id),
+      );
+      return html`
+        ${relationship.adornment}${relationship.content}
+      `;
+    }
     const subtitle = this.tileSubtitle(episode);
     if (subtitle && subtitle === this.cast(episode)) return this.castContent(episode);
     for (const value of [

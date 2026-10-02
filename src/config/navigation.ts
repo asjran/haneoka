@@ -24,11 +24,12 @@ export interface PrimaryDestination {
   exclude?: string[];
 }
 
-const STORY_ROUTES = ["event", "band", "link", "home", "afterlive", "tutorial"] as const;
+const STORY_ROUTES = ["event", "band", "link", "birthday", "home", "afterlive", "tutorial"] as const;
 const STORY_ICONS: Record<(typeof STORY_ROUTES)[number], string> = {
   event: "local_activity",
   band: "groups",
   link: "diversity_1",
+  birthday: "cake",
   home: "home",
   afterlive: "celebration",
   tutorial: "school",
@@ -125,7 +126,7 @@ const sections: NavSection[] = [
     items: STORY_ROUTES.map((key) => ({
       route: `/catalog/stories/${key}`,
       icon: STORY_ICONS[key],
-      label: `storyNavigation.${key}`,
+      label: key === "birthday" ? "birthdayStory" : `storyNavigation.${key}`,
     })),
   },
   {

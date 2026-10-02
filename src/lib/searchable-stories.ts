@@ -11,7 +11,7 @@ import {
 import { disambiguateTitles } from "./title-disambiguation";
 import type { ReleaseServer } from "./release-server";
 
-export type StoryMode = "event" | "band" | "link" | "home" | "afterlive" | "tutorial";
+export type StoryMode = "event" | "band" | "link" | "birthday" | "home" | "afterlive" | "tutorial";
 
 export interface SearchableStoryPage {
   mode: StoryMode;
@@ -28,6 +28,7 @@ export interface SearchableStoryPage {
 
 interface EpisodeRecord extends RecordValue {
   storyId?: string;
+  storyCategory?: unknown;
   chapterId?: unknown;
   chapterKey?: unknown;
   chapterName?: unknown;
@@ -48,12 +49,14 @@ const localizedAll = (value: unknown): Record<Locale, string> =>
 
 /**
  * The interactive screen derives the mode from the chapter: event-owned
- * chapters are event stories, other numbered chapters (below the synthetic
- * 900000 range) are band stories, the rest map by key.
+ * chapters are event stories, native birthday categories come next, other
+ * numbered chapters (below the synthetic 900000 range) are band stories,
+ * and the rest map by key.
  */
 function modeOf(episode: EpisodeRecord, eventChapterIds: ReadonlySet<string>): StoryMode | undefined {
   const chapterId = String(episode.chapterId || "");
   if (eventChapterIds.has(chapterId)) return "event";
+  if (episode.storyCategory === "birthday") return "birthday";
   if (Number(episode.chapterId || 0) < 900000) return "band";
   switch (episode.chapterKey) {
     case "asset_linkstory":
