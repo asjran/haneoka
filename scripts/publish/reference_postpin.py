@@ -48,9 +48,10 @@ def bootstrap(output: Path) -> None:
 
 def identity(server: str, release: str, source: str) -> dict[str, str]:
     if server != "intl" or not re.fullmatch(r"r-[a-f0-9]{20}", release):
-        raise ValueError("this fixed baseline requires an exact Intl release")
-    if not re.fullmatch(r"v[0-9]+-c0b6a1541e45-[A-Za-z0-9._-]+", source) or len(source) > 128:
-        raise ValueError("this workflow retains the c0b6 native source guard")
+        raise ValueError("reference requires an exact Intl release")
+    if not re.fullmatch(r"v[0-9]+-[A-Za-z0-9._-]+", source) or len(source) > 128:
+        raise ValueError("reference requires an exact normalized source identity")
+    # Native capability is guarded by the shared resolver using staged source evidence.
     return {"server": server, "releaseId": release, "sourceId": source}
 
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -23,6 +24,7 @@ from core.manifests import write_json
 from core.paths import safe_id, validate_release_path
 from core.storage import cas_key
 from publish.r2 import R2Store, _validate_release_manifest_for_gc
+from publish.song_reference import MAX_NATIVE_EVIDENCE_BYTES, validate_native_rule_evidence
 
 RESOURCES = (
     "cards", "support-cards", "characters", "bands", "band-items", "songs", "events",
@@ -30,6 +32,28 @@ RESOURCES = (
     "gekisou-support-skills", "skill-reference", "live-tools", "gekisou",
 )
 MAX_JSON_BYTES = 64 * 1024 * 1024
+
+
+def stage_native_rule_evidence(store: R2Store, identity: dict[str, str], root: Path) -> dict[str, Any]:
+    key = f"servers/{identity['server']}/sources/{identity['sourceId']}/native-rule-evidence.json"
+    file = root / ".reference-source/native-rule-evidence.json"
+    head = store.head(key)
+    if head is None:
+        if file.exists():
+            raise ValueError("reference source evidence missing but a stale staged copy exists")
+        return {"key": key, "available": False}
+    if not 0 < head.get("ContentLength", 0) <= MAX_NATIVE_EVIDENCE_BYTES:
+        raise ValueError("reference source native evidence exceeds byte limit")
+    body = store.get_bytes(key)
+    if body is None or len(body) != head["ContentLength"]:
+        raise ValueError("reference source native evidence bytes differ from HEAD")
+    value = validate_native_rule_evidence(json.loads(body), identity["sourceId"])
+    if value is None:
+        raise ValueError("reference source native evidence must be an object")
+    # This source-side input is outside the immutable resource manifest/index.
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_bytes(body)
+    return {"key": key, "available": True, "bytes": len(body), "sha256": hashlib.sha256(body).hexdigest()}
 
 
 def stage_reference_inputs(
@@ -59,6 +83,7 @@ def stage_reference_inputs(
     root.mkdir(parents=True, exist_ok=True)
     write_json(root / "release-identity.json", actual_identity)
     write_json(root / "release.json", manifest)
+    native_evidence = stage_native_rule_evidence(store, identity, root)
     downloaded: set[str] = set()
     missing_charts: list[str] = []
 
@@ -130,6 +155,7 @@ def stage_reference_inputs(
         "identity": identity, "downloadedFiles": len(downloaded),
         "downloadedBytes": sum(entries[relative]["bytes"] for relative in downloaded),
         "missingChartPaths": missing_charts,
+        "nativeRuleEvidence": native_evidence,
     }
 
 

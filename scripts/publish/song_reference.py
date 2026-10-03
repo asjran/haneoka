@@ -24,6 +24,19 @@ MAX_JSON_BYTES = 64 * 1024 * 1024
 RECIPE_SCHEMA = "haneoka-team-reference-recipe-v1"
 REQUEST_SCHEMA = "haneoka-meta-reference-request-v1"
 RESULT_SCHEMA = "haneoka-meta-reference-v1"
+MAX_NATIVE_EVIDENCE_BYTES = 64 * 1024
+
+
+def validate_native_rule_evidence(value: Any, source_id: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if (not isinstance(value, dict) or value.get("schema") != "haneoka-native-rule-evidence-v1"
+            or value.get("sourceId") != source_id):
+        raise ValueError("reference native evidence schema/source mismatch")
+    if len(_canonical(value)) > MAX_NATIVE_EVIDENCE_BYTES:
+        raise ValueError("reference native evidence exceeds byte limit")
+    # Rule eligibility remains the shared native resolver's responsibility.
+    return value
 
 
 def _canonical(value: Any) -> bytes:
@@ -89,6 +102,7 @@ def _chart_key(row: dict[str, Any]) -> tuple[int, int, int]:
 def validate_request(
     request: dict[str, Any], recipe: dict[str, Any], identity: dict[str, str],
 ) -> set[tuple[int, int, int]]:
+    identity = {field: identity[field] for field in ("server", "releaseId", "sourceId")}
     if request.get("schema") != REQUEST_SCHEMA or recipe.get("schema") != RECIPE_SCHEMA:
         raise ValueError("meta reference request/recipe schema mismatch")
     profile = request.get("profile", {})
@@ -99,8 +113,12 @@ def validate_request(
     if "eventId" not in profile or not isinstance(profile.get("basis"), dict):
         raise ValueError("reference scenario/basis missing")
     data = request.get("data", {})
-    if data.get("identity") != identity or profile.get("identity") != identity:
+    data_identity = data.get("identity")
+    if (not isinstance(data_identity, dict)
+            or {field: data_identity.get(field) for field in identity} != identity
+            or profile.get("identity") != identity):
         raise ValueError("reference data/profile pin mismatch")
+    validate_native_rule_evidence(data_identity.get("nativeRuleEvidence"), identity["sourceId"])
     inventory = profile["inventory"]
     if inventory.get("server") != identity["server"] or inventory.get("releaseId") != identity["releaseId"]:
         raise ValueError("reference inventory pin mismatch")
@@ -229,6 +247,10 @@ def publish_meta_reference(
     recipe, recipe_bytes = _read(recipe_file)
     request, request_bytes = _read(request_file)
     expected = validate_request(request, recipe, identity)
+    evidence_key = f"servers/{server}/sources/{source_id}/native-rule-evidence.json"
+    observed = validate_native_rule_evidence(_remote_json(store, evidence_key, MAX_NATIVE_EVIDENCE_BYTES), source_id)
+    if request["data"]["identity"].get("nativeRuleEvidence") != observed:
+        raise ValueError("reference input native evidence differs from the published source certificate")
     recipe_sha = hashlib.sha256(recipe_bytes).hexdigest()
     request_sha = hashlib.sha256(request_bytes).hexdigest()
     key = f"servers/{server}/meta-reference/{release_id}/{recipe_sha}/{request_sha}/reference.json"

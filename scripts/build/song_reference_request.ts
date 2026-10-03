@@ -13,6 +13,7 @@ import type { teamBuilderDataResponse } from "../../src/lib/team-builder/data/re
 import type { readRuntimeRulesDocument } from "../../src/lib/team-builder/data/runtime-rules.ts";
 import type { materializeReferenceRequest, CanonicalReferenceChart, TeamReferenceRecipe } from "../../src/lib/team-builder/data/reference-request.ts";
 import type { TeamBuilderData } from "../../src/lib/team-builder/data.ts";
+import type { nativeRuleSupports } from "../../src/lib/team-builder/solver/native-rule-profile.ts";
 
 const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -40,6 +41,7 @@ const bundle = buildSync({
       'export { teamBuilderDataResponse } from "./src/lib/team-builder/data/response.ts";',
       'export { readRuntimeRulesDocument } from "./src/lib/team-builder/data/runtime-rules.ts";',
       'export { materializeReferenceRequest } from "./src/lib/team-builder/data/reference-request.ts";',
+      'export { nativeRuleSupports } from "./src/lib/team-builder/solver/native-rule-profile.ts";',
     ].join("\n"),
     resolveDir: repository, loader: "ts",
   },
@@ -50,6 +52,7 @@ const compiled: { exports: {
   teamBuilderDataResponse: typeof teamBuilderDataResponse;
   readRuntimeRulesDocument: typeof readRuntimeRulesDocument;
   materializeReferenceRequest: typeof materializeReferenceRequest;
+  nativeRuleSupports: typeof nativeRuleSupports;
 } } = { exports: {} as never };
 new Function("module", "exports", "require", bundle.outputFiles![0]!.text)(compiled, compiled.exports, createRequire(import.meta.url));
 const api = compiled.exports;
@@ -94,8 +97,19 @@ const catalog = api.openReleaseCatalog(identity.server, { releaseRoot: root });
 if (catalog.identity.server !== identity.server || catalog.identity.releaseId !== identity.releaseId || catalog.identity.sourceId !== identity.sourceId)
   throw new Error("Materializer release identity mismatch");
 const verifiedEntityResources = new Set<string>();
+const evidenceFile = path.join(root, ".reference-source/native-rule-evidence.json");
 const response = await api.teamBuilderDataResponse({
   identity,
+  readNativeRuleEvidence() {
+    if (!fs.existsSync(evidenceFile)) return null;
+    const real = fs.realpathSync(evidenceFile);
+    if (!real.startsWith(root + path.sep) || fs.statSync(real).size > 64 * 1024)
+      throw new Error("Materializer source evidence path/size mismatch");
+    const observed = JSON.parse(fs.readFileSync(real, "utf8"));
+    if (observed?.schema !== "haneoka-native-rule-evidence-v1" || observed.sourceId !== identity.sourceId)
+      throw new Error("Materializer source evidence schema/source mismatch");
+    return observed;
+  },
   readCollection(resource) {
     const storage = catalog.manifest.resources[resource];
     if (!storage) throw new Error(`Materializer catalogue resource missing:${resource}`);
@@ -116,6 +130,8 @@ const response = await api.teamBuilderDataResponse({
   }),
 });
 const data = await response.json() as TeamBuilderData;
+if (!api.nativeRuleSupports(data.identity, "normal-score"))
+  throw new Error("reference-native-rule-unsupported");
 const files: Record<string, string> = {};
 const canonical = new Map<string, CanonicalReferenceChart | null>();
 for (const [songId, song] of Object.entries(data.songs)) {
