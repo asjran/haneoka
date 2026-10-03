@@ -2,7 +2,7 @@
 import SongRankingPage from "../../../../../components/entities/SongRankingPage.astro";
 import { LOCALES, type Locale } from "../../../../../i18n/locales";
 import { staticResourceServers } from "../../../../../lib/entity-graph";
-import type { ReleaseServer } from "../../../../../lib/release-server";
+import { isPublicReleaseServer, type ReleaseServer } from "../../../../../lib/release-server";
 import { searchableCatalogPages, type SearchableCatalogPage } from "../../../../../lib/searchable-catalog";
 
 type RouteProps = {
@@ -13,7 +13,7 @@ type RouteProps = {
 
 export async function getStaticPaths() {
   const output: Array<{ params: Record<string, string>; props: RouteProps }> = [];
-  for (const server of staticResourceServers()) {
+  for (const server of staticResourceServers().filter(isPublicReleaseServer)) {
     const pages = await searchableCatalogPages(server);
     for (const page of pages) {
       if (page.collection !== "songs" || page.kind !== "song") continue;

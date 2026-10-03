@@ -1,3 +1,5 @@
+import { isTemporarilyHiddenRoute } from "../lib/temporary-public-routing";
+
 export interface NavItem {
   route: string;
   icon: string;
@@ -205,10 +207,10 @@ const sections: NavSection[] = [
 // of the same catalogue, not a separate wing with its own headline. The order
 // is editorial: the archive's spine first (songs, characters, cards), then
 // the dated game systems, then the economies, then collectibles and materials.
-export const NAV_SECTIONS = sections;
+export const NAV_SECTIONS = sections.filter((section) => section.id !== "anon-tokyo");
 
 /** Catalog hub cards: every browsable collection with the catalog resource that counts it. */
-export const CATALOG_HUB: Array<NavItem & { resource?: string; countKey?: string }> = [
+const catalogHub: Array<NavItem & { resource?: string; countKey?: string }> = [
   { route: "/catalog/songs", icon: "library_music", label: "songs", resource: "songs" },
   { route: "/catalog/characters", icon: "group", label: "characters", resource: "characters" },
   { route: "/catalog/member-cards", icon: "style", label: "memberCards", resource: "cards" },
@@ -235,6 +237,8 @@ export const CATALOG_HUB: Array<NavItem & { resource?: string; countKey?: string
   { route: "/catalog/anon-tokyo/characters", icon: "storefront", label: "anonTokyo" },
   { route: "/catalog/real-lives", icon: "festival", label: "realLives", resource: "real-lives" },
 ];
+
+export const CATALOG_HUB = catalogHub.filter((item) => !isTemporarilyHiddenRoute(item.route));
 
 export const isRouteActive = (target: string, route: string) =>
   target === "/"

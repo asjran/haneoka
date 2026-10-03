@@ -5,7 +5,7 @@ import Live2DEntityPage from "../../../../components/entities/Live2DEntityPage.a
 import SpineEntityPage from "../../../../components/entities/SpineEntityPage.astro";
 import StoryEntityPage from "../../../../components/entities/StoryEntityPage.astro";
 import { LOCALES, type Locale } from "../../../../i18n/locales";
-import type { ReleaseServer } from "../../../../lib/release-server";
+import { isPublicReleaseServer, type ReleaseServer } from "../../../../lib/release-server";
 import {
   entityHref,
   resourceKindForCollection,
@@ -29,7 +29,7 @@ type RouteProps = {
 
 export async function getStaticPaths() {
   const output: Array<{ params: Record<string, string>; props: RouteProps }> = [];
-  for (const server of staticResourceServers()) {
+  for (const server of staticResourceServers().filter(isPublicReleaseServer)) {
     const [catalog, models, stories, help] = await Promise.all([
       searchableCatalogPages(server),
       searchableModelPages(server),

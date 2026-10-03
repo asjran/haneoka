@@ -15,6 +15,8 @@ import {
   type ReleaseServer,
 } from "../lib/resource-route";
 
+import { isPublicReleaseServer } from "../lib/release-server";
+
 const XML_ROUTES = ROUTES.filter(({ route }) => !shouldNoindex(route));
 
 export const GET: APIRoute = async () => {
@@ -24,7 +26,7 @@ export const GET: APIRoute = async () => {
   const servers = [...new Set(configured?.length ? configured : ["intl"])];
   if (!servers.every(isReleaseServer)) throw new Error("Unsupported static resource server");
   const urls = new Set<string>();
-  for (const selected of servers) {
+  for (const selected of servers.filter(isPublicReleaseServer)) {
     const server = selected as ReleaseServer;
     for (const locale of LOCALES) urls.add(`https://haneoka.org${announcementPath(server, locale)}`);
     const [catalogUrls, storyUrls, modelUrls, helpUrls] = await Promise.all([

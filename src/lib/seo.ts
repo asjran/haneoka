@@ -10,6 +10,8 @@ import {
   resourcePath,
 } from "./resource-route";
 
+import { isTemporarilyHiddenRoute } from "./temporary-public-routing";
+
 const PRIVATE_ROUTES = new Set([
   "/account",
   "/account/reset-password",
@@ -30,6 +32,7 @@ export function canonicalPath(route: string): string {
 export function shouldNoindex(route: string): boolean {
   const path = canonicalPath(route).replace(/\/$/, "") || "/";
   return (
+    isTemporarilyHiddenRoute(path) ||
     PRIVATE_ROUTES.has(path) ||
     path === "/catalog/assets" ||
     path.startsWith("/catalog/assets/") ||

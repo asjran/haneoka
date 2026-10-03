@@ -51,6 +51,7 @@ import {
   type ResourceKind,
   type ResourceRoute,
 } from "../src/lib/resource-route";
+import { temporaryPublicRedirectTarget } from "../src/lib/temporary-public-routing";
 import {
   createOurNotesSonolusItemLabels,
   encodeSonolusLocalizedText,
@@ -3244,6 +3245,18 @@ const WORKER_FIRST_PREFIXES = [
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const segments = url.pathname.split("/").filter(Boolean);
+  if (request.method === "GET" || request.method === "HEAD") {
+    const documentPath =
+      url.pathname === "/" ||
+      /^\/(?:jp|intl|jp-cbt|intl-cbt|gl-cbt|ja|en|zh-TW|zh-CN|ko)(?:\/|$)/u.test(url.pathname);
+    const temporaryTarget = documentPath ? temporaryPublicRedirectTarget(url.pathname, url.search) : undefined;
+    if (temporaryTarget) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: temporaryTarget, "Cache-Control": "no-store" },
+      });
+    }
+  }
   const stampFonts = await handleStampFontsRequest(request, env, ctx);
   if (stampFonts) return stampFonts;
   if (isReleaseServer(segments[0]) && (request.method === "GET" || request.method === "HEAD")) {
