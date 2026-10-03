@@ -5,7 +5,7 @@ import "@material/web/textfield/outlined-text-field.js";
 import "@material/web/select/outlined-select.js";
 import "@material/web/select/select-option.js";
 import "@material/web/checkbox/checkbox.js";
-import "@material/web/progress/linear-progress.js";
+import { beginLoading, type LoadingReporter } from "../lib/loading-progress";
 import { clientText } from "../i18n/client";
 import { resolveLocalizedText } from "../lib/localized-text";
 import { readReleaseServer } from "../lib/release-server";
@@ -23,6 +23,7 @@ import {
 } from "../lib/team-builder/data";
 import type {
   Objective,
+  SkillOrderCriterion,
   NativeEventScene,
   PlayMode,
   SearchConstraints,
@@ -59,6 +60,7 @@ import {
 import { PaneFocus } from "./ui/pane";
 import { specList } from "./ui/spec";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
+import { icon } from "./ui/icon";
 import { filterChip, iconButton, segmented } from "./ui/controls";
 import { selectionPane } from "./ui/selection-pane";
 import { songJacketCandidates, songTile, liveMusicTypeMark } from "./shared/song-tile";
@@ -72,7 +74,6 @@ import { tile, tileMedia, type TileOptions } from "./ui/tile";
 import { LazyImages } from "./ui/lazy-images";
 import { difficultyKey, difficultyPicker } from "./ui/difficulty-picker";
 import { renderLevelSwitch } from "./ui/level-switch";
-import { loadingState } from "./ui/state";
 import {
   InventoryStore,
   importInventory,
@@ -143,6 +144,7 @@ export class TeamBuilder extends LitElement {
     rankingLimit: { state: true },
     progress: { state: true },
     running: { state: true },
+    skillOrderCriterion: { state: true },
     searchStatus: { state: true },
     picker: { state: true },
     query: { state: true },
@@ -218,6 +220,7 @@ export class TeamBuilder extends LitElement {
   declare rankingLimit: number;
   declare progress: SearchProgress | null;
   declare running: boolean;
+  declare skillOrderCriterion: SkillOrderCriterion;
   declare searchStatus: string;
   declare picker: string;
   declare query: string;
@@ -267,6 +270,7 @@ export class TeamBuilder extends LitElement {
   private images = new LazyImages();
   private paneFocus = new PaneFocus();
   private worker?: Worker;
+  private searchLoading?: LoadingReporter;
   private checkpointCache: SearchCheckpointStore | null = null;
   private eventPreview: { data: TeamBuilderData; inventory: InventoryV1; value: ReturnType<typeof createEventConditionPreview> | null } | null = null;
   private completedSearch: {
@@ -302,6 +306,7 @@ export class TeamBuilder extends LitElement {
     }
     this.identityController?.abort();
     const controller = (this.identityController = new AbortController());
+    const loading = beginLoading(this.t("refreshData", "Check latest data"), { signal: controller.signal });
     const data = this.data;
     this.sourceReady = false;
     let timedOut = false;
@@ -333,6 +338,7 @@ export class TeamBuilder extends LitElement {
       }
     } finally {
       clearTimeout(timer);
+      loading.finish();
     }
   }
 
@@ -424,7 +430,7 @@ export class TeamBuilder extends LitElement {
     this.store = undefined;
     this.storeState = null;
     this.sourceReady = false;
-    this.result = null;
+    if (!sameServer) this.result = null;
     this.optimizationInput = null;
     this.selectedIds = new Set();
     this.bulkPreview = null;
@@ -458,6 +464,7 @@ export class TeamBuilder extends LitElement {
     }
     this.dataController?.abort();
     const controller = (this.dataController = new AbortController());
+    const loading = beginLoading(clientText(this.locale, "loading", "Loading"), { signal: controller.signal });
     this.server = server;
     this.syncCheckpointCache();
     this.dataLoading = true;
@@ -466,6 +473,7 @@ export class TeamBuilder extends LitElement {
     try {
       const data = await fetchTeamBuilderData(server, controller.signal);
       if (this.dataController !== controller || !this.isConnected) return;
+      if (previousData?.identity.releaseId !== data.identity.releaseId || previousData?.identity.sourceId !== data.identity.sourceId) this.result = null;
       this.data = data;
       this.verifiedData = data;
       this.sourceReady = true;
@@ -496,12 +504,14 @@ export class TeamBuilder extends LitElement {
       }
     } finally {
       clearTimeout(timeout);
+      loading.finish();
     }
   }
   private async checkAccount(force = false): Promise<void> {
     if (!this.sourceReady || !this.store || !this.data || readReleaseServer() !== this.data.identity.server) return;
     this.authController?.abort();
     const controller = (this.authController = new AbortController());
+    const loading = beginLoading(this.t("authLoading", "Checking sign-in status"), { signal: controller.signal });
     const generation = ++this.authGeneration;
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -531,9 +541,10 @@ export class TeamBuilder extends LitElement {
       }
       if (owner !== this.currentOwner || force || this.store.state.phase === "auth-loading") {
         this.cancelSearch();
-        this.result = null;
+        if (owner !== this.currentOwner) this.result = null;
         await this.store.setAccount(owner);
         if (generation !== this.authGeneration || !this.isConnected) return;
+        this.result = null;
         this.currentOwner = owner;
         this.syncCheckpointCache();
         this.requestUpdate();
@@ -545,6 +556,7 @@ export class TeamBuilder extends LitElement {
       }
     } finally {
       clearTimeout(timer);
+      loading.finish();
     }
   }
   private async retryInventory(): Promise<void> {
@@ -890,7 +902,6 @@ export class TeamBuilder extends LitElement {
           })}
         </div>
         <div class="selection-pane__body">
-          ${this.dataLoading || ["loading", "auth-loading"].includes(this.saveState) ? loadingState(clientText(this.locale, "loading", "Loading")) : nothing}
           ${
             this.error
               ? html`
@@ -1083,7 +1094,8 @@ export class TeamBuilder extends LitElement {
     this.inventory = null;
     this.kind = "members";
     this.mode = "normal";
-    this.objectives = ["base-score"];
+    this.objectives = ["score"];
+    this.skillOrderCriterion = "nominal-mean";
     this.excludeJust = true;
     this.justRate = 0;
     this.budgetSeconds = 5;
@@ -1293,7 +1305,7 @@ export class TeamBuilder extends LitElement {
       <md-outlined-text-field
         type="number"
         label=${label}
-        .value=${live(value === null ? "" : String(value))}
+        .value=${value === null ? "" : String(value)}
         min=${limits.min ?? nothing}
         max=${limits.max ?? nothing}
         step=${limits.step ?? 1}
@@ -1438,7 +1450,8 @@ export class TeamBuilder extends LitElement {
         rarityIcon: rarity ? (marks?.get(`RarityIconCenter_${rarity}.png`) ?? "") : "",
         rarityLabel: rarity,
       }),
-      aspectRatio: kind === "members" ? "224 / 294" : 1,
+      // Member and photo thumbnail families retain their native portrait/wide frames.
+      aspectRatio: kind === "members" ? "3 / 4" : "16 / 9",
     };
   }
   private artwork(card: MemberCatalog | SnapshotCatalog | undefined, kind: Kind = this.kind) {
@@ -1933,16 +1946,6 @@ export class TeamBuilder extends LitElement {
         <section class="detail-section">
           ${renderDetailSectionHeading(this.t("editPractice", "Edit training"), "stats", { level: 2 })}
           ${
-            this.dataLoading
-              ? html`
-                  <md-linear-progress
-                    indeterminate
-                    aria-label=${this.t("refreshData", "Check latest data")}
-                  ></md-linear-progress>
-                `
-              : nothing
-          }
-          ${
             this.error
               ? html`
                   <p class="team-builder__error" role="alert">${this.error}</p>
@@ -2332,6 +2335,32 @@ export class TeamBuilder extends LitElement {
       ? this.t("personalSoloScore", "Solo score")
       : this.t(objective, objective);
   }
+  private get skillOrderCriteria(): SkillOrderCriterion[] {
+    if (!this.data) return [];
+    const targets = getTeamBuilderCapabilities(this.data.identity).targets.filter(
+      (target) => target.mode === this.mode && target.supported && this.objectives.includes(target.objective) && target.bases.includes(this.metricBasis),
+    ).filter((target) => target.skillOrderCriteria?.length);
+    return targets.length ? targets[0].skillOrderCriteria!.filter((criterion) => targets.every((target) => target.skillOrderCriteria!.includes(criterion))) : [];
+  }
+  private get effectiveSkillOrderCriterion(): SkillOrderCriterion {
+    const criteria = this.skillOrderCriteria;
+    return criteria.includes(this.skillOrderCriterion) ? this.skillOrderCriterion : criteria[0] ?? "nominal-mean";
+  }
+  private criterionLabel(criterion: SkillOrderCriterion): string {
+    return criterion === "worst-ap" ? this.t("worstAP", "Least favorable order") : this.t("nominalMean", "Average");
+  }
+  private renderSkillOrderCriterion() {
+    const criteria = this.skillOrderCriteria;
+    const pending = this.dataLoading || !this.sourceReady;
+    if (criteria.length < 2 && !pending) return nothing;
+    const visibleCriteria = criteria.length ? criteria : [this.skillOrderCriterion];
+    return this.select(
+      this.t("skillOrderCriterion", "Skill order"), this.effectiveSkillOrderCriterion,
+      visibleCriteria.map((value) => ({ value, label: this.criterionLabel(value) })),
+      (value) => { this.cancelSearch(); this.result = null; this.skillOrderCriterion = value as SkillOrderCriterion; },
+      pending || criteria.length < 2,
+    );
+  }
   private supportsObjective(objective: Objective): boolean {
     if (!this.data) return false;
     return getTeamBuilderCapabilities(this.data.identity).targets.some(
@@ -2374,11 +2403,11 @@ export class TeamBuilder extends LitElement {
               : this.gekisoSoloForecast
               ? this.t(
                   "gekisoSoloForecastScope",
-                  "Personal Solo SS forecast. Live score and event rewards are unavailable.",
+                  "Compare personal Solo score and SS attainment. Total Live score is outside this calculation.",
                 )
               : this.t(
                   "normalForecastScope",
-                  "Normal solo forecast supports resolved member and snapshot effects. The score averages 120 skill orders; actual play can vary.",
+                  "Compare normal solo runs using the entered training and selected skill-order criterion.",
                 )
           }
         </p>
@@ -2763,10 +2792,10 @@ export class TeamBuilder extends LitElement {
     `;
   }
   private renderGoals() {
+    const goalNames = this.objectives.map((objective) => this.objectiveLabel(objective)).join(" · ");
     return html`
       <section class="team-builder__section">
         ${renderDetailSectionHeading(this.t("goals", "Goals"), "difficulty", { level: 2 })}
-        <div class="team-builder__fields">
           ${this.select(
             this.t("mode", "Play mode"),
             this.mode,
@@ -2775,11 +2804,45 @@ export class TeamBuilder extends LitElement {
               this.cancelSearch();
               this.optimizationInput = null;
               this.mode = value as PlayMode;
+              if (this.data) {
+                this.objectives = this.objectives.filter((objective) => this.supportsObjective(objective));
+                if (!this.objectives.length) this.objectives = this.supportsObjective("score") ? ["score"] : this.supportsObjective("base-score") ? ["base-score"] : [];
+              }
               this.result = null;
             },
           )}
+        <details class="team-builder__options">
+          <summary><span>${this.t("objectives", "Objectives to compare")}<small class="team-builder__hint">${goalNames || this.t("chooseObjective", "Choose an objective to compare.")}</small></span>${icon("expand_more", 20)}</summary>
+        <fieldset class="team-builder__objectives">
+          <legend class="sr-only">${this.t("objectives", "Objectives to compare")}</legend>
+          ${OBJECTIVES.map(
+            (objective) => html`
+              <div class="team-builder__target-option">
+                ${this.check(this.objectiveLabel(objective), this.objectives.includes(objective), (checked) => {
+                  this.cancelSearch();
+                  this.result = null;
+                  this.objectives = checked
+                    ? [...this.objectives, objective]
+                    : this.objectives.filter((value) => value !== objective);
+                }, !this.supportsObjective(objective) && !this.objectives.includes(objective))}
+                ${
+                  !this.supportsObjective(objective)
+                    ? html`
+                        <small class="team-builder__hint">${this.t("goalUnavailable", "Unavailable")}</small>
+                      `
+                    : nothing
+                }
+              </div>
+            `,
+          )}
+        </fieldset>        </details>
+        ${this.renderSkillOrderCriterion()}
+      </section>
+      <section class="team-builder__section">
+        ${renderDetailSectionHeading(clientText(this.locale, "songs", "Songs"), "songs", { level: 2 })}
           <button
             class="button button--outlined"
+            ?disabled=${!this.data}
             @click=${() => {
               this.closePane();
               this.selectingSong = true;
@@ -2793,21 +2856,6 @@ export class TeamBuilder extends LitElement {
           >
             ${this.selectedSong ? this.t("changeSong", "Change song") : this.t("chooseSong", "Choose song")}
           </button>
-          ${Object.keys(this.data?.events ?? {}).some((id) => /^[1-9]\d*$/.test(id))
-            ? html`<button class="button button--outlined" @click=${() => {
-                this.closePane(); this.selectingEvent = true; this.pickerEvent = this.selectedEvent;
-                this.pickerEventStatus = ""; this.pickerQuery = ""; this.pickerLimit = 30;
-              }}>${this.t("chooseEvent", "Choose event")}</button>`
-            : nothing}
-          ${this.numericField(
-            this.t("budget", "Search budget (seconds)"),
-            this.budgetSeconds,
-            (value) => {
-              this.budgetSeconds = value ?? 5;
-            },
-            { min: 1, max: 60 },
-          )}
-        </div>
         ${
           this.selectedSong
             ? html`
@@ -2829,6 +2877,8 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
+        <details class="team-builder__options">
+          <summary><span>${this.t("chartSummary", "{count} eligible charts", { count: this.chartSelections.length })}</span>${icon("expand_more", 20)}</summary>
         <div class="team-builder__actions">
           ${this.check(this.t("lockSong", "Use this song only"), this.lockSong, (value) => {
             this.cancelSearch();
@@ -2858,9 +2908,30 @@ export class TeamBuilder extends LitElement {
               : nothing
           }
         </div>
-        <p class="team-builder__hint" role="status">
-          ${this.t("chartSummary", "{count} eligible charts", { count: this.chartSelections.length })}
-        </p>
+        </details>
+      </section>
+      ${Object.keys(this.data?.events ?? {}).some((id) => /^[1-9]\d*$/.test(id)) ? html`
+        <section class="team-builder__section">
+          ${Object.keys(this.data?.events ?? {}).some((id) => /^[1-9]\d*$/.test(id))
+            ? html`<button class="button button--outlined" @click=${() => {
+                this.closePane(); this.selectingEvent = true; this.pickerEvent = this.selectedEvent;
+                this.pickerEventStatus = ""; this.pickerQuery = ""; this.pickerLimit = 30;
+              }}>${this.t("chooseEvent", "Choose event")}</button>`
+            : nothing}
+          ${this.renderEventConditions()}
+        </section>
+      ` : nothing}
+      <details class="team-builder__section team-builder__options">
+        <summary><span>${this.t("searchOptions", "Search options")}</span>${icon("expand_more", 20)}</summary>
+        <div class="team-builder__fields">
+          ${this.numericField(
+            this.t("budget", "Search budget (seconds)"),
+            this.budgetSeconds,
+            (value) => {
+              this.budgetSeconds = value ?? 5;
+            },
+            { min: 1, max: 60 },
+          )}
         ${this.select(
           this.t("metricBasis", "Compare by"),
           this.metricBasis,
@@ -2875,30 +2946,10 @@ export class TeamBuilder extends LitElement {
             this.metricBasis = value as "single" | "time" | "consumption";
           },
         )}
+
+        </div>
         ${this.renderBasisFields()}
-        <fieldset class="team-builder__objectives">
-          <legend>${this.t("objectives", "Objectives to compare")}</legend>
-          ${OBJECTIVES.map(
-            (objective) => html`
-              <div class="team-builder__target-option">
-                ${this.check(this.objectiveLabel(objective), this.objectives.includes(objective), (checked) => {
-                  this.cancelSearch();
-                  this.result = null;
-                  this.objectives = checked
-                    ? [...this.objectives, objective]
-                    : this.objectives.filter((value) => value !== objective);
-                })}
-                ${
-                  !this.supportsObjective(objective)
-                    ? html`
-                        <small class="team-builder__hint">${this.t("goalUnavailable", "Unavailable")}</small>
-                      `
-                    : nothing
-                }
-              </div>
-            `,
-          )}
-        </fieldset>
+
         ${
           this.mode === "gekiso"
             ? html`
@@ -2924,7 +2975,7 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
-        ${this.renderEventConditions()} ${this.renderForecastScope()}
+        ${this.renderForecastScope()}
         <p class="team-builder__hint">${this.t("perfect", "Other judgments: 100% PERFECT")}</p>
         ${
           this.objectives.includes("base-score")
@@ -2935,6 +2986,8 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
+      </details>
+      <div class="team-builder__run-actions">
         <button
           class="button"
           aria-describedby=${!this.canOptimize ? "team-builder-start-hint" : nothing}
@@ -2943,14 +2996,10 @@ export class TeamBuilder extends LitElement {
         >
           ${this.t("optimize", "Find candidates")}
         </button>
-        ${
-          !this.canOptimize
-            ? html`
-                <p id="team-builder-start-hint" class="team-builder__hint">${this.optimizationHint}</p>
-              `
-            : nothing
-        }
-      </section>
+        <p id="team-builder-start-hint" class="team-builder__hint team-builder__start-hint">
+          ${!this.canOptimize ? this.optimizationHint : nothing}
+        </p>
+      </div>
     `;
   }
   private get playerModifiers(): PlayerModifiers {
@@ -3198,6 +3247,8 @@ export class TeamBuilder extends LitElement {
     ++this.requestId;
     this.worker?.terminate();
     this.worker = undefined;
+    this.searchLoading?.cancel();
+    this.searchLoading = undefined;
     this.running = false;
     this.progress = null;
     this.searchStatus = "";
@@ -3306,7 +3357,6 @@ export class TeamBuilder extends LitElement {
     this.cancelSearch();
     this.syncCheckpointCache();
     this.searchError = "";
-    this.result = null;
     this.progress = null;
     this.searchStatus = "";
     const generation = this.requestId;
@@ -3329,13 +3379,14 @@ export class TeamBuilder extends LitElement {
       return;
     }
     this.running = true;
-    void this.updateComplete.then(() =>
-      this.querySelector("#team-results")?.scrollIntoView({ block: "start", behavior: "smooth" }),
-    );
+    this.searchLoading = beginLoading(this.t("searching", "Finding candidates"));
     worker.onmessage = (event: MessageEvent<SolverResponse>) => {
       const message = event.data;
       if (generation !== this.requestId || message.runId !== runId || !this.isConnected) return;
-      if (message.type === "progress") this.progress = message.progress;
+      if (message.type === "progress") {
+        this.progress = message.progress;
+        this.searchLoading?.update({ stageLabel: this.searchProgressLabel });
+      }
       else {
         if (message.type === "result") {
           this.result = message.result;
@@ -3350,6 +3401,8 @@ export class TeamBuilder extends LitElement {
         } else this.searchError = this.t("unavailable", "Required data or formula is unavailable");
         void checkpointCache?.flush();
         this.running = false;
+        this.searchLoading?.finish();
+        this.searchLoading = undefined;
         worker.terminate();
         if (this.worker === worker) this.worker = undefined;
       }
@@ -3364,6 +3417,7 @@ export class TeamBuilder extends LitElement {
         const input: OptimizationInput = {
           ...this.optimizationInput,
           scoreDomain: this.scoreDomain,
+          skillOrderCriterion: this.effectiveSkillOrderCriterion,
           objectives: [...this.objectives],
           constraints: this.constraints,
           basis: this.evaluationBasis!,
@@ -3377,6 +3431,7 @@ export class TeamBuilder extends LitElement {
         const request: WorkerPreparationInput = {
           data: this.data,
           scoreDomain: this.scoreDomain,
+          skillOrderCriterion: this.effectiveSkillOrderCriterion,
           inventory: structuredClone(this.inventory),
           selections: this.chartSelections,
           mode: this.mode,
@@ -3419,7 +3474,7 @@ export class TeamBuilder extends LitElement {
       return this.t("personalSoloSSRatio", "Personal Solo SS attainment");
     if (this.gekisoSoloForecast && objective === "ss-surplus")
       return this.t("personalSoloSSSurplus", "Personal Solo SS margin");
-    if (objective === "score" && metric?.range) return this.t("expectedScore", "Expected score");
+    if (objective === "score" && metric?.range && metric.skillOrderCriterion !== "worst-ap") return this.t("expectedScore", "Expected score");
     if (objective === "ss-ratio") {
       const domain = metric?.breakdown?.find((row) => row.key === "ss-ratio-numerator")?.source;
       if (domain === "room") return this.t("roomSSRatio", "Room SS attainment");
@@ -3428,13 +3483,14 @@ export class TeamBuilder extends LitElement {
     return this.t(objective, objective);
   }
   private renderMetricDetails(objective: Objective, metric: MetricValue) {
-    if ((!metric.basis || metric.basis.kind === "single") && !metric.breakdown?.length) return nothing;
+    if ((!metric.basis || metric.basis.kind === "single") && !metric.breakdown?.length && !metric.skillOrderCriterion && !metric.bestSkillOrder?.length && !metric.worstSkillOrder?.length) return nothing;
     return html`
       <details>
         <summary>
           ${this.t("metricDetails", "{metric} breakdown", { metric: this.metricLabel(objective, metric) })}
         </summary>
         ${specList([
+          ...(metric.skillOrderCriterion ? [{ label: this.t("skillOrderCriterion", "Skill order"), value: this.criterionLabel(metric.skillOrderCriterion) }] : []),
           ...(metric.basis && metric.basis.kind !== "single"
             ? [
                 {
@@ -3464,27 +3520,22 @@ export class TeamBuilder extends LitElement {
           })),
         ])}
       </details>
-      ${
-        metric.bestSkillOrder?.length
-          ? html`
-              <details>
-                <summary>${this.t("bestSkillOrder", "Highest-scoring skill order")}</summary>
-                <ol class="team-builder__skill-order">
-                  ${metric.bestSkillOrder.map((id) => {
-                    const member = this.inventory?.members.find((entry) => entry.instanceId === id);
-                    const card = member ? this.catalogEntry(member.cardId, "members") : undefined;
-                    return html`
-                      <li>
-                        ${card ? this.artwork(card, "members") : nothing}
-                        <span>${this.text(card?.name)}</span>
-                      </li>
-                    `;
-                  })}
-                </ol>
-              </details>
-            `
-          : nothing
-      }
+      ${([
+        { values: metric.bestSkillOrder, label: this.t("bestSkillOrder", "Highest-scoring skill order") },
+        { values: metric.worstSkillOrder, label: this.t("worstSkillOrder", "Lowest-scoring skill order") },
+      ]).map(({ values, label }) => values?.length ? html`
+        <details>
+          <summary>${label}</summary>
+          <ol class="team-builder__skill-order">
+            ${values.map((id) => {
+              const member = this.inventory?.members.find((entry) => entry.instanceId === id);
+              const card = member ? this.catalogEntry(member.cardId, "members") : undefined;
+              return html`<li>${card ? this.artwork(card, "members") : nothing}<span>${this.text(card?.name)}</span></li>`;
+            })}
+          </ol>
+        </details>
+      ` : nothing)}
+
     `;
   }
   private renderCandidate(candidate: Candidate, showSong = true) {
@@ -3683,6 +3734,9 @@ export class TeamBuilder extends LitElement {
       return this.result.bySong.some((ranking) => Boolean(ranking.top3[this.activeRankingObjective]?.length));
     return this.result.candidates.length > 0;
   }
+  private get previousResult(): boolean {
+    return Boolean(this.result && this.completedSearch?.result !== this.result);
+  }
   private renderCheckpointStatus() {
     const cache = this.checkpointCache;
     if (!cache?.lastComplete || this.result !== cache.lastComplete.result) return nothing;
@@ -3701,6 +3755,15 @@ export class TeamBuilder extends LitElement {
           : nothing}
       </div>
     `;
+  }
+  private get searchProgressLabel(): string {
+    if (!this.progress || this.progress.phase === "loading") return this.t("searching", "Finding candidates");
+    const labels = [this.t("evaluated", "Evaluated configurations") + ": " + this.progress.evaluated.toLocaleString(this.locale)];
+    if (Number.isSafeInteger(this.progress.candidateCount) && this.progress.candidateCount! >= 0)
+      labels.push(this.t("candidateCount", "{count} candidates found", { count: this.progress.candidateCount! }));
+    if (this.progress.proofStatus === "candidate" && Number.isSafeInteger(this.progress.candidateCount) && this.progress.candidateCount! > 0)
+      labels.push(this.t("chartCandidate", "Provisional candidates"));
+    return labels.join(" · ");
   }
   private renderResults() {
     return html`
@@ -3724,43 +3787,23 @@ export class TeamBuilder extends LitElement {
               `
             : nothing
         }
-        ${
-          this.running
-            ? html`
-                <md-linear-progress
-                  indeterminate
-                  aria-label=${this.t("searching", "Finding candidates")}
-                ></md-linear-progress>
-                <p role="status">
-                  ${this.progress?.phase === "loading" ? clientText(this.locale, "loading", "Loading") : this.t("evaluated", "Evaluated configurations") + ": " + (this.progress?.evaluated.toLocaleString(this.locale) ?? "0")}
-                  ${Number.isSafeInteger(this.progress?.candidateCount) && this.progress!.candidateCount! >= 0
-                    ? html` · ${this.t("candidateCount", "{count} candidates found", { count: this.progress!.candidateCount! })}`
-                    : nothing}
-                </p>
-                <button
-                  class="button button--outlined"
-                  @click=${() => {
-                    this.cancelSearch();
-                    this.searchStatus = this.t("cancelled", "Search cancelled");
-                  }}
-                >
-                  ${clientText(this.locale, "cancel", "Cancel")}
-                </button>
-              `
-            : nothing
-        }
-        ${
-          this.searchStatus
-            ? html`
-                <p role="status">${this.searchStatus}</p>
-              `
-            : nothing
-        }
+        <div class="team-builder__run-status" data-running=${String(this.running)}>
+          <span role="status">${this.running ? this.searchProgressLabel : this.searchStatus}</span>
+          <button
+            class="button button--outlined"
+            ?disabled=${!this.running}
+            @click=${() => {
+              this.cancelSearch();
+              this.searchStatus = this.t("cancelled", "Search cancelled");
+            }}
+          >${clientText(this.locale, "cancel", "Cancel")}</button>
+        </div>
         ${this.renderCheckpointStatus()}
         ${
           this.result
             ? html`
-                <p role="status">
+                <p class="team-builder__completion-status team-builder__hint" role="status">
+                  ${this.previousResult ? this.t("previousResult", "Previous result") + " · " : ""}
                   ${this.result.completeness === "unavailable" && this.hasResultCandidates ? this.t("partialCandidates", "Some teams could be calculated. Other cards need their training or supported rules checked.") : this.t(this.result.completeness, this.result.completeness)}
                 </p>
                 ${
@@ -3807,47 +3850,12 @@ export class TeamBuilder extends LitElement {
     return html`
       <div class="team-builder">
         <div class="team-builder__content">
-          ${
-            this.data
-              ? html`
-                  ${this.dataLoading ? loadingState(clientText(this.locale, "loading", "Loading")) : nothing}
-                  ${
-                    this.inventory &&
-                    !this.pendingRebase &&
-                    !this.pendingUniqueness &&
-                    this.saveState !== "release-mismatch"
-                      ? html`
-                          <div class="team-builder__workspace" ?inert=${!this.canEdit}>
-                            <aside
-                              class="team-builder__controls"
-                              aria-label=${this.t("planningControls", "Team and resource conditions")}
-                            >
-                              ${this.renderGoals()}
-                            </aside>
-                            <div class="team-builder__result-area">${this.renderResults()}</div>
-                          </div>
-                        `
-                      : ["loading", "auth-loading", "authLoading"].includes(this.saveState)
-                        ? loadingState(this.t("cloudLoading", "Loading account inventory"))
-                        : html`
-                            <div class="team-builder__results-empty">
-                              <button class="button button--outlined" @click=${() => { this.inventoryTab = "sync"; this.maintenanceOpen = true; }}>
-                                ${this.t("inventoryReadyAction", "Open inventory")}
-                              </button>
-                            </div>
-                          `
-                  }
-                `
-              : this.error
-                ? html`
-                    <div class="team-builder__results-empty">
-                      <button class="button button--outlined" @click=${() => { this.inventoryTab = "sync"; this.maintenanceOpen = true; }}>
-                        ${this.t("inventoryReadyAction", "Open inventory")}
-                      </button>
-                    </div>
-                  `
-                : loadingState(clientText(this.locale, "loading", "Loading"))
-          }
+          <div class="team-builder__workspace" aria-busy=${String(this.dataLoading || ["loading", "auth-loading"].includes(this.saveState))}>
+            <aside class="team-builder__controls" aria-label=${this.t("planningControls", "Team and resource conditions")}>
+              ${this.renderGoals()}
+            </aside>
+            <div class="team-builder__result-area">${this.renderResults()}</div>
+          </div>
         </div>
         ${this.renderCardPane()}${this.renderSongPane()}${this.renderEventPane()}${this.renderMaintenance()}
       </div>

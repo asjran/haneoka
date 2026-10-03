@@ -28,8 +28,14 @@ const liveOnlyFamilies = new Set([
 export function createNativeGekisoSoloEvaluator(data: TeamBuilderData, normal: NormalPrepared) {
   const memberGaps = new Map<string, EvidenceGap[]>();
   const snapshotGaps = new Map<string, EvidenceGap[]>();
-  const skillGaps = (kind: "gekiso" | "gekisoSupport", id: number, level: number, source: string): EvidenceGap[] => {
+  const skillGaps = (
+    kind: "gekiso" | "gekisoSupport",
+    id: number,
+    level: number | null,
+    source: string,
+  ): EvidenceGap[] => {
     if (id === 0) return [];
+    if (level === null) return [gap("native-gekiso-solo-skill-level-unresolved", source)];
     const key = kind === "gekiso" ? "gekisouSkillID" : "gekisouSupportSkillID";
     const rows = dataRows(data.skills[kind]?.[String(id)]?.effects)
       .map(nativeRow)

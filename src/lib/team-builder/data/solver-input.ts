@@ -21,10 +21,15 @@ export interface PowerResolver {
     data: TeamBuilderData,
   ): { stats: PowerStats | null; bonusBP?: PowerStats; gaps: EvidenceGap[] };
 }
+export interface InventoryOptionsRequirements {
+  /** Gekiso preparation also consumes ordinary skills through its normal score path. */
+  requiredMode: "normal" | "gekiso";
+}
 export function inventoryOptions(
   inventory: InventoryV1,
   data: TeamBuilderData,
   resolver: PowerResolver,
+  requirements?: InventoryOptionsRequirements,
 ): {
   members: MemberOption[];
   snapshots: SnapshotOption[];
@@ -41,7 +46,7 @@ export function inventoryOptions(
   for (const state of inventory.members) {
     if (state.excluded) continue;
     if (
-      [state.level, state.training, state.awakening, state.liveSkillLevel, state.gekisoSkillLevel].some(
+      [state.level, state.training, state.awakening, state.liveSkillLevel].some(
         (value) => value === null,
       )
     ) {
@@ -51,6 +56,14 @@ export function inventoryOptions(
     const card = data.members[String(state.cardId)];
     if (!card) {
       gaps.push({ code: "unknown-member-card", source: state.instanceId });
+      continue;
+    }
+    // An absent Gekiso skill consumes no level. Unselected-mode unknowns stay null.
+    if (
+      state.gekisoSkillLevel === null &&
+      (!requirements || (requirements.requiredMode === "gekiso" && card.gekisoSkillId !== 0))
+    ) {
+      gaps.push({ code: "unknown-member-practice", source: state.instanceId });
       continue;
     }
     const power = resolver.member(card, state, data);
@@ -69,7 +82,7 @@ export function inventoryOptions(
       liveSkillId: card.liveSkillId,
       liveSkillLevel: state.liveSkillLevel!,
       gekisoSkillId: card.gekisoSkillId,
-      gekisoSkillLevel: state.gekisoSkillLevel!,
+      gekisoSkillLevel: state.gekisoSkillLevel,
       gaps: power.gaps,
     });
     const rank = (data.progression.memberCardRanks || []).find(
@@ -105,7 +118,15 @@ export function inventoryOptions(
       continue;
     }
     const skills = snapshotSkillLevels(data, state.cardId, state.awakening);
-    if ([...skills.support, ...skills.gekisoSupport].some((skill) => skill.level === null)) {
+    const missingGekisoLevel =
+      requirements?.requiredMode !== "normal" &&
+      skills.gekisoSupport.some((skill) => skill.level === null && (!requirements || skill.id !== 0));
+    if (
+      skills.support.some((skill) => skill.level === null) ||
+      missingGekisoLevel ||
+      (requirements?.requiredMode === "gekiso" &&
+        (skills.gekisoSupport.length !== 2 || card.gekisoSupportSkillSlotsKnown === false))
+    ) {
       gaps.push({ code: "missing-snapshot-skill-rank-field", source: state.instanceId });
       continue;
     }
@@ -116,7 +137,9 @@ export function inventoryOptions(
       supportSkillId: card.supportSkillIds[0] || 0,
       supportSkillLevel: skills.support[0]?.level ?? 0,
       gekisoSupportSkillId: card.gekisoSupportSkillIds[0] || 0,
-      gekisoSupportSkillLevel: skills.gekisoSupport[0]?.level ?? 0,
+      gekisoSupportSkillLevel: requirements
+        ? skills.gekisoSupport[0]?.level ?? null
+        : skills.gekisoSupport[0]?.level ?? 0,
       gaps: [
         ...power.gaps,
         ...(!nativeSnapshotEquipRuleKnown(data.identity)
@@ -133,7 +156,7 @@ export function inventoryOptions(
     if (nativeSnapshotEquipRuleKnown(data.identity))
       option.allowedCharacterIds = Object.keys(data.characters).map(Number);
     option.supportSkills = skills.support.map((skill) => ({ id: skill.id, level: skill.level! }));
-    option.gekisoSupportSkills = skills.gekisoSupport.map((skill) => ({ id: skill.id, level: skill.level! }));
+    option.gekisoSupportSkills = skills.gekisoSupport.map((skill) => ({ id: skill.id, level: skill.level }));
     if (power.bonusBP) option.bonusBP = power.bonusBP;
   }
   return { members, snapshots, gaps };

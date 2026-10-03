@@ -78,6 +78,8 @@ export const nativeGrowthPowerResolver: PowerResolver = {
 };
 
 export interface EvaluationRequest {
+  /** Internal: preserve Gekiso requirements while preparing its normal Solo ledger. */
+  requireGekisoPractice?: true;
   skillOrderCriterion?: SkillOrderCriterion;
   scoreDomain?: "personal-solo";
   data: TeamBuilderData;
@@ -100,7 +102,14 @@ export function prepareEvaluation(request: EvaluationRequest): OptimizationInput
   const { data, inventory, songs } = request;
   if (inventory.server !== data.identity.server || inventory.releaseId !== data.identity.releaseId)
     throw new RangeError("different-inventory-release");
-  const options = inventoryOptions(inventory, data, nativeGrowthPowerResolver);
+  const requirements = request.nativeRuntime
+    ? undefined
+    : request.mode === "gekiso" || (request.mode === "normal" && request.requireGekisoPractice)
+      ? { requiredMode: "gekiso" as const }
+      : request.mode === "normal"
+        ? { requiredMode: "normal" as const }
+        : undefined;
+  const options = inventoryOptions(inventory, data, nativeGrowthPowerResolver, requirements);
   if (request.nativeRuntime) {
     if (
       request.nativeRuntime.server !== data.identity.server ||
@@ -113,6 +122,7 @@ export function prepareEvaluation(request: EvaluationRequest): OptimizationInput
       skillOrderCriterion: request.skillOrderCriterion,
       scoreDomain: request.scoreDomain,
       ...options,
+      inputGaps: options.gaps,
       songs,
       objectives: request.objectives,
       constraints: request.constraints,
@@ -243,7 +253,7 @@ export function prepareEvaluationForSearch(request: EvaluationRequest): Prepared
         (objective === "score" && request.scoreDomain === "personal-solo"),
     )
   ) {
-    const normal = prepareEvaluationForSearch({ ...request, mode: "normal" });
+    const normal = prepareEvaluationForSearch({ ...request, mode: "normal", requireGekisoPractice: true });
     normal.input.evaluation.gaps.push(...nativeRuleGaps(request.data.identity, "personal-solo"));
     return createNativeGekisoSoloEvaluator(request.data, normal);
   }

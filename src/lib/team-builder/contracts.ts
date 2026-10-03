@@ -106,7 +106,7 @@ export interface MemberOption {
   liveSkillId: number;
   liveSkillLevel: number;
   gekisoSkillId: number;
-  gekisoSkillLevel: number;
+  gekisoSkillLevel: number | null;
   gaps: EvidenceGap[];
 }
 export interface SnapshotOption {
@@ -116,11 +116,11 @@ export interface SnapshotOption {
   /** PowerBonusPercent uses BP percentages, not additive member power. */
   bonusBP?: PowerStats;
   supportSkills?: { id: number; level: number }[];
-  gekisoSupportSkills?: { id: number; level: number }[];
+  gekisoSupportSkills?: { id: number; level: number | null }[];
   supportSkillId: number;
   supportSkillLevel: number;
   gekisoSupportSkillId: number;
-  gekisoSupportSkillLevel: number;
+  gekisoSupportSkillLevel: number | null;
   /** undefined means the adapter has not established equip restrictions. */
   allowedCharacterIds?: number[];
   gaps: EvidenceGap[];
