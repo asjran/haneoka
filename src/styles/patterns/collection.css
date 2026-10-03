@@ -18,6 +18,14 @@
   padding: 0;
   list-style: none;
 }
+/* Keep two results side by side when a pane is narrower than the resource's
+ * preferred tile width. The navigation rail keeps its own layout. */
+.collection:not(.collection--rail) {
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(min(var(--tile-min), calc((100% - var(--tile-gap)) / 2)), 1fr)
+  );
+}
 /* Presentation sizes. One line each, because the only thing that changes
  * between resources is how wide a tile wants to be. */
 .collection--member {
