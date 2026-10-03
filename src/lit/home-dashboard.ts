@@ -1560,6 +1560,14 @@ export class HomeDashboard extends LitElement {
     return html`
       <section class="home-card home-info home-birthdays" aria-labelledby="home-birthdays-title">
         <h2 class="sr-only" id="home-birthdays-title">${this.text("birthdaysTitle", "Birthday countdown")}</h2>
+        <a
+          class="icon-button home-birthday-calendar"
+          href=${resourceCollectionHref("/calendar", this.sourceServer(), this.locale as Locale)}
+          aria-label=${clientText(this.locale, "calendar.title", "Calendar")}
+          title=${clientText(this.locale, "calendar.title", "Calendar")}
+        >
+          ${icon("event", 20)}
+        </a>
         ${
           featured
             ? html`
@@ -1746,14 +1754,6 @@ export class HomeDashboard extends LitElement {
                           `
                         : nothing
                     }
-                    <a
-                      class="icon-button"
-                      href=${resourceCollectionHref("/calendar", this.sourceServer(), this.locale as Locale)}
-                      aria-label=${clientText(this.locale, "calendar.title", "Calendar")}
-                      title=${clientText(this.locale, "calendar.title", "Calendar")}
-                    >
-                      ${icon("event", 20)}
-                    </a>
                   </nav>
                 </div>
               `

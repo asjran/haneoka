@@ -409,11 +409,13 @@
 
   /* A real linked birthday image leads; the lower row keeps people and destinations together. */
   .home-birthdays {
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: minmax(0, 1fr) auto;
     padding: 12px;
     gap: 8px;
   }
   .home-birthday-feature {
+    grid-column: 1;
     display: grid;
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
     gap: 16px;
@@ -514,7 +516,14 @@
     color: var(--md-sys-color-on-surface-variant);
     font: 400 11px/16px var(--app-font);
   }
+  .home-birthday-calendar {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+  }
   .home-birthday-bottom {
+    grid-column: 1 / -1;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
