@@ -106,6 +106,18 @@ export function staticCatalogUrl(path: string, server = "intl", releaseId?: stri
 
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+async function releaseResponseBody(response: Response): Promise<void> {
+  // Lit SSR installs node-fetch, whose body is a Node readable rather than a Web stream.
+  const body = response.body as { destroy?: () => void; cancel?: () => Promise<void> } | null;
+  if (!body) return;
+  if (typeof body.destroy === "function") {
+    body.destroy();
+  } else if (!response.bodyUsed) {
+    if (typeof body.cancel === "function") await body.cancel();
+    else await response.arrayBuffer();
+  }
+}
+
 async function fetchResponse(path: string, server: string, releaseId?: string, method = "GET"): Promise<Response> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let response: Response;
@@ -123,16 +135,19 @@ async function fetchResponse(path: string, server: string, releaseId?: string, m
       continue;
     }
     if (response.ok) return response;
-    if (response.status === 404 && response.headers.get("content-type")?.includes("application/json")) {
-      const body = asRecord(await response.json());
-      const error = asRecord(body?.error);
-      if (typeof error?.code === "string" && error.code.startsWith("release_identity_")) {
-        throw new StaticCatalogConsistencyError(
-          `Static catalog release identity failed for ${server}/${path.split("?")[0]}: ${error.code}`,
-        );
+    try {
+      if (response.status === 404 && response.headers.get("content-type")?.includes("application/json")) {
+        const body = asRecord(await response.json());
+        const error = asRecord(body?.error);
+        if (typeof error?.code === "string" && error.code.startsWith("release_identity_")) {
+          throw new StaticCatalogConsistencyError(
+            `Static catalog release identity failed for ${server}/${path.split("?")[0]}: ${error.code}`,
+          );
+        }
       }
+    } finally {
+      await releaseResponseBody(response);
     }
-    if (!response.bodyUsed) await response.body?.cancel();
     if (attempt === 0 && RETRYABLE.has(response.status)) {
       await wait(1500);
       continue;
@@ -203,7 +218,7 @@ async function fetchJson(path: string, server: string, release?: StaticCatalogRe
         }
         return value;
       } catch (error) {
-        await response.body?.cancel().catch(() => undefined);
+        await releaseResponseBody(response);
         throw error;
       }
     })();
@@ -240,12 +255,16 @@ export async function staticCatalogRelease(server = "intl"): Promise<StaticCatal
     const local = localCatalog(server);
     if (local) return Object.freeze({ ...local.identity });
     const response = await fetchResponse("release?projection=identity", server, undefined, "HEAD");
-    const releaseId = response.headers.get("x-haneoka-release-id") || "";
-    const sourceId = response.headers.get("x-haneoka-source-id") || "";
-    if (!RELEASE_ID_PATTERN.test(releaseId) || !SOURCE_ID_PATTERN.test(sourceId)) {
-      throw new Error(`Static catalog returned an invalid release identity for ${server}`);
+    try {
+      const releaseId = response.headers.get("x-haneoka-release-id") || "";
+      const sourceId = response.headers.get("x-haneoka-source-id") || "";
+      if (!RELEASE_ID_PATTERN.test(releaseId) || !SOURCE_ID_PATTERN.test(sourceId)) {
+        throw new Error(`Static catalog returned an invalid release identity for ${server}`);
+      }
+      return Object.freeze({ server, releaseId, sourceId });
+    } finally {
+      await releaseResponseBody(response);
     }
-    return Object.freeze({ server, releaseId, sourceId });
   })();
   releasePromises.set(server, promise);
   try {
