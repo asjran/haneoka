@@ -17,6 +17,8 @@ interface AuthEmailMessage {
 interface EmailCopy {
   action: string;
   fallbackAction: string;
+  expiry: string;
+  details?: string;
   greeting: (name: string) => string;
   heading: string;
   intro: string;
@@ -77,255 +79,257 @@ const escapeHTML = (value: string): string =>
   });
 
 const copyFor = (message: AuthEmailMessage): EmailCopy => {
-  const destination = message.newEmail ? ` ${message.newEmail}` : "";
-  const copy: Record<AuthEmailKind, Omit<EmailCopy, "greeting" | "lang">> = {
-    "verify-email": {
-      action: "メールアドレスを確認",
-      fallbackAction: "ボタンが動作しない場合は、次のリンクを開いてください：",
-      heading: "メールアドレスを確認",
-      intro: "このメールアドレスを確認して、Haneoka アカウントの設定を完了してください。",
-      signature: "Haneoka",
-      subject: "[Haneoka] メールアドレスを確認してください",
-      warning:
-        "このリンクは 1 時間で期限切れになります。アカウントを作成した覚えがない場合は、このメールを無視してください。",
+  const destination = message.newEmail || "";
+  const common = {
+    ja: {
+      lang: "ja",
+      greeting: (name: string) => (name ? `${name} さん、こんにちは。` : "こんにちは。"),
+      expiry: "このリンクの有効期限は1時間です。",
+      fallbackAction: "ボタンを開けない場合は、次のURLをブラウザーに貼り付けてください。",
     },
-    "continue-signup": {
-      action: "パスワードを設定して続行",
-      fallbackAction: "ボタンが動作しない場合は、次のリンクを開いてください：",
-      heading: "アカウントのパスワードを設定",
-      intro: "安全なリンクからパスワードを設定して、Haneoka アカウントのセットアップを完了してください。",
-      signature: "Haneoka",
-      subject: "[Haneoka] アカウント設定を安全に続行",
-      warning:
-        "この手順を完了すると、メールアドレスが確認され、以前のパスワードと既存のセッションが無効になり、アカウント設定が完了します。登録した覚えがない場合は、このメールを無視してください。",
-    },
-    "reset-password": {
-      action: "パスワードを再設定",
-      fallbackAction: "ボタンが動作しない場合は、次のリンクを開いてください：",
-      heading: "パスワードを再設定",
-      intro: "下の安全なリンクから、Haneoka アカウントの新しいパスワードを設定してください。",
-      signature: "Haneoka",
-      subject: "[Haneoka] パスワードを再設定",
-      warning:
-        "このリンクは 1 時間で期限切れになります。再設定をリクエストしていない場合は、このメールを無視し、現在のパスワードをそのままお使いください。",
-    },
-    "verify-email-change": {
-      action: "メールアドレス変更を承認",
-      fallbackAction: "ボタンが動作しない場合は、次のリンクを開いてください：",
-      heading: "メールアドレス変更を承認",
-      intro: `Haneoka へのサインインに使用するメールアドレスを${destination}に変更します。`,
-      signature: "Haneoka",
-      subject: "[Haneoka] メールアドレス変更を承認",
-      warning:
-        "このリンクは 1 時間で期限切れになります。この変更をリクエストしていない場合は、リンクを開かないでください。",
-    },
-  };
-
-  const localizedCopy: Record<EmailLocale, Record<AuthEmailKind, Omit<EmailCopy, "greeting" | "lang">>> = {
-    ja: copy,
     en: {
+      lang: "en",
+      greeting: (name: string) => (name ? `Hello ${name},` : "Hello,"),
+      expiry: "This link is valid for one hour.",
+      fallbackAction: "If the button does not open, copy this URL into your browser.",
+    },
+    "zh-TW": {
+      lang: "zh-Hant",
+      greeting: (name: string) => (name ? `${name}，你好：` : "你好："),
+      expiry: "此連結的有效期限為一小時。",
+      fallbackAction: "若按鈕無法開啟，請將以下網址貼到瀏覽器。",
+    },
+    "zh-CN": {
+      lang: "zh-Hans",
+      greeting: (name: string) => (name ? `${name}，你好：` : "你好："),
+      expiry: "此链接的有效期为一小时。",
+      fallbackAction: "若按钮无法打开，请将以下网址粘贴到浏览器。",
+    },
+    ko: {
+      lang: "ko",
+      greeting: (name: string) => (name ? `${name}님, 안녕하세요.` : "안녕하세요."),
+      expiry: "이 링크는 한 시간 동안 유효합니다.",
+      fallbackAction: "버튼이 열리지 않으면 아래 URL을 브라우저에 붙여 넣으세요.",
+    },
+  } satisfies Record<EmailLocale, Pick<EmailCopy, "lang" | "greeting" | "expiry" | "fallbackAction">>;
+  type MessageCopy = Pick<EmailCopy, "heading" | "intro" | "action" | "warning" | "details">;
+  const messages: Record<EmailLocale, Record<AuthEmailKind, MessageCopy>> = {
+    ja: {
       "verify-email": {
-        action: "Verify email",
-        fallbackAction: "If the button does not work, open this link:",
-        heading: "Verify your email address",
-        intro: "Confirm this address to finish setting up your Haneoka account.",
-        signature: "Haneoka",
-        subject: "[Haneoka] Verify your email address",
-        warning: "This link expires in one hour. If you did not create this account, you can ignore this email.",
+        heading: "メールアドレスを確認",
+        intro: "このメールアドレスを確認して、Haneoka アカウントの設定を完了してください。",
+        action: "メールアドレスを確認",
+        warning: "アカウントを作成した覚えがない場合は、このメールを無視してください。",
       },
       "continue-signup": {
-        action: "Choose password and continue",
-        fallbackAction: "If the button does not work, open this link:",
-        heading: "Choose the password for this account",
-        intro: "Use this secure link to choose your password and finish setting up your Haneoka account.",
-        signature: "Haneoka",
-        subject: "[Haneoka] Securely continue setting up your account",
-        warning:
-          "Completing this step verifies the email address, replaces any earlier password, revokes existing sessions, and finishes account setup. If you did not try to register, ignore this email.",
+        heading: "アカウント設定を完了",
+        intro: "パスワードを設定すると、Haneoka アカウントをご利用いただけます。",
+        action: "パスワードを設定",
+        details:
+          "この手続きでメールアドレスの確認が完了し、以前のパスワードは置き換えられ、ログイン中のセッションは終了します。",
+        warning: "登録した覚えがない場合は、このメールを無視してください。",
       },
       "reset-password": {
-        action: "Reset password",
-        fallbackAction: "If the button does not work, open this link:",
-        heading: "Reset your password",
-        intro: "Use the secure link below to choose a new password for your Haneoka account.",
-        signature: "Haneoka",
-        subject: "[Haneoka] Reset your password",
-        warning:
-          "This link expires in one hour. If you did not request a reset, ignore this email and keep your password.",
+        heading: "パスワードを再設定",
+        intro: "Haneoka アカウントの新しいパスワードを設定してください。",
+        action: "パスワードを再設定",
+        warning: "再設定をリクエストしていない場合は、このメールを無視してください。現在のパスワードは変更されません。",
       },
       "verify-email-change": {
-        action: "Approve email change",
-        fallbackAction: "If the button does not work, open this link:",
+        heading: "メールアドレスの変更を承認",
+        intro: destination
+          ? `Haneoka のログイン用メールアドレスを ${destination} に変更するリクエストがありました。`
+          : "Haneoka のログイン用メールアドレスの変更を確認してください。",
+        action: "メールアドレスの変更を承認",
+        warning: "この変更をリクエストしていない場合は、リンクを開かないでください。",
+      },
+    },
+    en: {
+      "verify-email": {
+        heading: "Verify your email address",
+        intro: "Confirm this address to finish setting up your Haneoka account.",
+        action: "Verify email",
+        warning: "If you did not create this account, you can ignore this email.",
+      },
+      "continue-signup": {
+        heading: "Finish setting up your account",
+        intro: "Choose a password to start using your Haneoka account.",
+        action: "Set password",
+        details: "This also verifies your email, replaces any earlier password, and signs out existing sessions.",
+        warning: "If you did not try to register, you can ignore this email.",
+      },
+      "reset-password": {
+        heading: "Reset your password",
+        intro: "Choose a new password for your Haneoka account.",
+        action: "Reset password",
+        warning: "If you did not request a reset, ignore this email. Your current password will stay the same.",
+      },
+      "verify-email-change": {
         heading: "Approve your email change",
-        intro: `Confirm that you want to change your Haneoka sign-in email to${destination}.`,
-        signature: "Haneoka",
-        subject: "[Haneoka] Approve your email change",
-        warning: "This link expires in one hour. If you did not request this change, do not open the link.",
+        intro: destination
+          ? `A change to your Haneoka sign-in email was requested. Confirm the new address: ${destination}.`
+          : "Confirm the requested change to your Haneoka sign-in email.",
+        action: "Approve email change",
+        warning: "If you did not request this change, do not open the link.",
       },
     },
     "zh-TW": {
       "verify-email": {
+        heading: "驗證你的電子郵件",
+        intro: "確認此地址，即可完成 Haneoka 帳號設定。",
         action: "驗證電子郵件",
-        fallbackAction: "如果按鈕無法使用，請開啟此連結：",
-        heading: "驗證你的電子郵件地址",
-        intro: "確認此地址以完成 Haneoka 帳號設定。",
-        signature: "Haneoka",
-        subject: "[Haneoka] 驗證你的電子郵件地址",
-        warning: "此連結將於一小時後失效。若非你建立此帳號，請忽略這封郵件。",
+        warning: "若非你建立此帳號，請忽略這封郵件。",
       },
       "continue-signup": {
-        action: "設定密碼並繼續",
-        fallbackAction: "如果按鈕無法使用，請開啟此連結：",
-        heading: "設定此帳號的密碼",
-        intro: "使用此安全連結設定密碼，並完成 Haneoka 帳號設定。",
-        signature: "Haneoka",
-        subject: "[Haneoka] 安全地繼續設定帳號",
-        warning:
-          "完成此步驟會驗證電子郵件地址、取代任何舊密碼、撤銷現有工作階段，並完成帳號設定。若非你嘗試註冊，請忽略這封郵件。",
+        heading: "完成帳號設定",
+        intro: "設定密碼，開始使用你的 Haneoka 帳號。",
+        action: "設定密碼",
+        details: "這個步驟也會完成電子郵件驗證、取代舊密碼，並登出已登入的裝置。",
+        warning: "若非你嘗試註冊，請忽略這封郵件。",
       },
       "reset-password": {
-        action: "重設密碼",
-        fallbackAction: "如果按鈕無法使用，請開啟此連結：",
         heading: "重設你的密碼",
-        intro: "使用下方安全連結，為你的 Haneoka 帳號設定新密碼。",
-        signature: "Haneoka",
-        subject: "[Haneoka] 重設你的密碼",
-        warning: "此連結將於一小時後失效。若非你要求重設，請忽略這封郵件並保留目前的密碼。",
+        intro: "為你的 Haneoka 帳號設定新密碼。",
+        action: "重設密碼",
+        warning: "若非你要求重設，請忽略這封郵件。目前的密碼不會改變。",
       },
       "verify-email-change": {
-        action: "核准變更電子郵件",
-        fallbackAction: "如果按鈕無法使用，請開啟此連結：",
-        heading: "核准變更電子郵件",
-        intro: `確認你要將 Haneoka 登入電子郵件變更為${destination}。`,
-        signature: "Haneoka",
-        subject: "[Haneoka] 核准變更電子郵件",
-        warning: "此連結將於一小時後失效。若非你要求此變更，請勿開啟連結。",
+        heading: "確認變更電子郵件",
+        intro: destination
+          ? `你要求將 Haneoka 登入電子郵件變更為 ${destination}，請確認此變更。`
+          : "請確認變更你的 Haneoka 登入電子郵件。",
+        action: "確認變更",
+        warning: "若非你要求此變更，請勿開啟連結。",
       },
     },
     "zh-CN": {
       "verify-email": {
+        heading: "验证你的电子邮件",
+        intro: "确认此地址，即可完成 Haneoka 帐号设置。",
         action: "验证电子邮件",
-        fallbackAction: "如果按钮无法使用，请打开此链接：",
-        heading: "验证你的电子邮件地址",
-        intro: "确认此地址以完成 Haneoka 帐号设置。",
-        signature: "Haneoka",
-        subject: "[Haneoka] 验证你的电子邮件地址",
-        warning: "此链接将在一小时后失效。如果不是你创建了此帐号，请忽略这封邮件。",
+        warning: "如果不是你创建了此帐号，请忽略这封邮件。",
       },
       "continue-signup": {
-        action: "设置密码并继续",
-        fallbackAction: "如果按钮无法使用，请打开此链接：",
-        heading: "设置此帐号的密码",
-        intro: "使用此安全链接设置密码，并完成 Haneoka 帐号设置。",
-        signature: "Haneoka",
-        subject: "[Haneoka] 安全地继续设置帐号",
-        warning:
-          "完成此步骤会验证电子邮件地址、替换任何旧密码、撤销现有会话，并完成帐号设置。如果不是你尝试注册，请忽略这封邮件。",
+        heading: "完成帐号设置",
+        intro: "设置密码，开始使用你的 Haneoka 帐号。",
+        action: "设置密码",
+        details: "这一步也会完成邮箱验证、替换旧密码，并退出已登录的设备。",
+        warning: "如果不是你尝试注册，请忽略这封邮件。",
       },
       "reset-password": {
-        action: "重设密码",
-        fallbackAction: "如果按钮无法使用，请打开此链接：",
         heading: "重设你的密码",
-        intro: "使用下方安全链接，为你的 Haneoka 帐号设置新密码。",
-        signature: "Haneoka",
-        subject: "[Haneoka] 重设你的密码",
-        warning: "此链接将在一小时后失效。如果不是你要求重设，请忽略这封邮件并保留当前密码。",
+        intro: "为你的 Haneoka 帐号设置新密码。",
+        action: "重设密码",
+        warning: "如果不是你要求重设，请忽略这封邮件。当前密码不会改变。",
       },
       "verify-email-change": {
-        action: "批准更改电子邮件",
-        fallbackAction: "如果按钮无法使用，请打开此链接：",
-        heading: "批准更改电子邮件",
-        intro: `确认你要将 Haneoka 登录电子邮件更改为${destination}。`,
-        signature: "Haneoka",
-        subject: "[Haneoka] 批准更改电子邮件",
-        warning: "此链接将在一小时后失效。如果不是你要求此更改，请勿打开链接。",
+        heading: "确认更改电子邮件",
+        intro: destination
+          ? `你要求将 Haneoka 登录邮箱更改为 ${destination}，请确认此更改。`
+          : "请确认更改你的 Haneoka 登录邮箱。",
+        action: "确认更改",
+        warning: "如果不是你要求此更改，请勿打开链接。",
       },
     },
     ko: {
       "verify-email": {
-        action: "이메일 확인",
-        fallbackAction: "버튼이 작동하지 않으면 이 링크를 여세요:",
         heading: "이메일 주소 확인",
         intro: "이 주소를 확인하여 Haneoka 계정 설정을 완료하세요.",
-        signature: "Haneoka",
-        subject: "[Haneoka] 이메일 주소 확인",
-        warning: "이 링크는 한 시간 후에 만료됩니다. 계정을 만든 적이 없다면 이 이메일을 무시해도 됩니다.",
+        action: "이메일 확인",
+        warning: "계정을 만든 적이 없다면 이 이메일을 무시해도 됩니다.",
       },
       "continue-signup": {
-        action: "비밀번호 설정하고 계속",
-        fallbackAction: "버튼이 작동하지 않으면 이 링크를 여세요:",
-        heading: "계정 비밀번호 설정",
-        intro: "이 보안 링크에서 비밀번호를 설정하여 Haneoka 계정 설정을 완료하세요.",
-        signature: "Haneoka",
-        subject: "[Haneoka] 계정 설정을 안전하게 계속",
-        warning:
-          "이 단계를 완료하면 이메일 주소가 확인되고, 이전 비밀번호와 기존 세션이 해제되며 계정 설정이 완료됩니다. 가입을 시도한 적이 없다면 이 이메일을 무시하세요.",
+        heading: "계정 설정 완료",
+        intro: "비밀번호를 설정하고 Haneoka 계정 사용을 시작하세요.",
+        action: "비밀번호 설정",
+        details: "이 단계를 완료하면 이메일이 확인되고, 이전 비밀번호가 교체되며 로그인된 세션이 종료됩니다.",
+        warning: "가입을 시도한 적이 없다면 이 이메일을 무시하세요.",
       },
       "reset-password": {
-        action: "비밀번호 재설정",
-        fallbackAction: "버튼이 작동하지 않으면 이 링크를 여세요:",
         heading: "비밀번호 재설정",
-        intro: "아래 보안 링크에서 Haneoka 계정의 새 비밀번호를 설정하세요.",
-        signature: "Haneoka",
-        subject: "[Haneoka] 비밀번호 재설정",
-        warning:
-          "이 링크는 한 시간 후에 만료됩니다. 재설정을 요청하지 않았다면 이 이메일을 무시하고 현재 비밀번호를 유지하세요.",
+        intro: "Haneoka 계정의 새 비밀번호를 설정하세요.",
+        action: "비밀번호 재설정",
+        warning: "재설정을 요청하지 않았다면 이 이메일을 무시하세요. 현재 비밀번호는 변경되지 않습니다.",
       },
       "verify-email-change": {
-        action: "이메일 변경 승인",
-        fallbackAction: "버튼이 작동하지 않으면 이 링크를 여세요:",
         heading: "이메일 변경 승인",
-        intro: `Haneoka 로그인 이메일을${destination}(으)로 변경할지 확인하세요.`,
-        signature: "Haneoka",
-        subject: "[Haneoka] 이메일 변경 승인",
-        warning: "이 링크는 한 시간 후에 만료됩니다. 이 변경을 요청하지 않았다면 링크를 열지 마세요.",
+        intro: destination
+          ? `Haneoka 로그인 이메일을 ${destination}(으)로 변경하는 요청을 확인해 주세요.`
+          : "Haneoka 로그인 이메일 변경 요청을 확인해 주세요.",
+        action: "이메일 변경 승인",
+        warning: "이 변경을 요청하지 않았다면 링크를 열지 마세요.",
       },
     },
   };
-  const language: Record<EmailLocale, Pick<EmailCopy, "greeting" | "lang">> = {
-    ja: { greeting: (name) => (name ? `${name} さん、こんにちは。` : "こんにちは。"), lang: "ja" },
-    en: { greeting: (name) => (name ? `Hello ${name},` : "Hello,"), lang: "en" },
-    "zh-TW": { greeting: (name) => (name ? `${name}，你好：` : "你好："), lang: "zh-Hant" },
-    "zh-CN": { greeting: (name) => (name ? `${name}，你好：` : "你好："), lang: "zh-Hans" },
-    ko: { greeting: (name) => (name ? `${name}님, 안녕하세요.` : "안녕하세요."), lang: "ko" },
+  const messageCopy = messages[message.locale][message.kind];
+  return {
+    ...common[message.locale],
+    ...messageCopy,
+    signature: "Haneoka",
+    subject: `[Haneoka] ${messageCopy.heading}`,
   };
-  return { ...localizedCopy[message.locale][message.kind], ...language[message.locale] };
 };
 
 const renderEmail = (message: AuthEmailMessage, safeURL: string): { html: string; subject: string; text: string } => {
   const copy = copyFor(message);
-  const name = message.userName.trim();
+  const greeting = copy.greeting(message.userName.trim());
+  const siteURL = "https://haneoka.org/";
+  // Public PNG works in mail image proxies and clients without SVG support.
+  const logoURL = "https://haneoka.org/apple-touch-icon.png";
   const text = [
-    copy.greeting(name),
+    copy.heading,
+    "",
+    greeting,
     "",
     copy.intro,
+    ...(copy.details ? ["", copy.details] : []),
     "",
-    copy.action,
+    `${copy.action}:`,
     safeURL,
+    "",
+    copy.expiry,
     "",
     copy.warning,
     "",
     copy.signature,
+    siteURL,
   ].join("\n");
   const html = `<!doctype html>
 <html lang="${copy.lang}">
-  <body style="margin:0;background:#fef7ff;color:#1d1b20;font-family:Roboto,'Noto Sans',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:32px 16px;background:#fef7ff">
-      <tr><td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border:1px solid #cac4d0;border-radius:28px;background:#fffbfe;overflow:hidden">
-          <tr><td style="padding:24px 32px;background:#e8def8;font-size:14px;font-weight:700;letter-spacing:.08em;color:#21005d">HANEOKA</td></tr>
-          <tr><td style="padding:32px">
-            <h1 style="margin:0 0 20px;font-size:28px;line-height:1.28;font-weight:500;letter-spacing:0;color:#1d1b20">${escapeHTML(copy.heading)}</h1>
-            <p style="margin:0 0 12px;font-size:16px;line-height:1.6;color:#1d1b20">${escapeHTML(copy.greeting(name))}</p>
-            <p style="margin:0 0 26px;font-size:16px;line-height:1.6;color:#49454f">${escapeHTML(copy.intro)}</p>
-            <p style="margin:0 0 28px"><a href="${escapeHTML(safeURL)}" style="display:inline-block;border-radius:20px;background:#6750a4;color:#ffffff;text-decoration:none;padding:12px 24px;font-size:14px;font-weight:700;line-height:20px">${escapeHTML(copy.action)}</a></p>
-            <p style="margin:0 0 20px;padding:16px;border-radius:12px;background:#f3edf7;font-size:14px;line-height:1.55;color:#49454f">${escapeHTML(copy.warning)}</p>
-            <p style="margin:0;font-size:12px;line-height:1.55;color:#79747e;word-break:break-all">${escapeHTML(copy.fallbackAction)}<br><a href="${escapeHTML(safeURL)}" style="color:#6750a4;text-decoration:underline">${escapeHTML(safeURL)}</a></p>
-          </td></tr>
-        </table>
-      </td></tr>
-    </table>
-  </body>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>${escapeHTML(copy.heading)}</title></head>
+<body style="margin:0;padding:0;background:#fcf8fd;color:#1b1b1f;font-family:Arial,'Hiragino Kaku Gothic ProN','Yu Gothic','Microsoft JhengHei','Microsoft YaHei','Malgun Gothic',sans-serif;-webkit-text-size-adjust:100%">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${escapeHTML(copy.intro)}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#fcf8fd" style="width:100%;border-collapse:collapse">
+    <tr><td align="center" style="padding:24px 12px">
+      <!--[if mso]><table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:560px;border-collapse:separate;background:#ffffff;border:1px solid #c7c5d0;border-radius:24px">
+        <tr><td style="padding:24px 24px 20px;border-bottom:1px solid #e4e1ec">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+            <td width="44" style="vertical-align:middle"><a href="${siteURL}" style="text-decoration:none"><img src="${logoURL}" width="44" height="44" alt="" referrerpolicy="no-referrer" border="0" style="display:block;border:0;border-radius:12px"></a></td>
+            <td style="padding-left:12px;vertical-align:middle"><a href="${siteURL}" style="font-size:20px;line-height:26px;font-weight:700;letter-spacing:.2px;color:#31356e;text-decoration:none">Haneoka</a></td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:28px 24px 24px">
+          <h1 style="margin:0 0 22px;font-size:26px;line-height:34px;font-weight:600;color:#1b1b1f">${escapeHTML(copy.heading)}</h1>
+          <p style="margin:0 0 12px;font-size:15px;line-height:24px">${escapeHTML(greeting)}</p>
+          <p style="margin:0 0 20px;font-size:16px;line-height:26px;color:#46464f;overflow-wrap:anywhere">${escapeHTML(copy.intro)}</p>
+          ${copy.details ? `<p style="margin:0 0 20px;font-size:14px;line-height:22px;color:#46464f">${escapeHTML(copy.details)}</p>` : ""}
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 18px"><tr><td align="center" bgcolor="#555994" style="border-radius:24px;mso-padding-alt:12px 24px">
+            <a href="${escapeHTML(safeURL)}" style="display:inline-block;border:12px solid #555994;border-right-width:24px;border-left-width:24px;border-radius:24px;background:#555994;color:#ffffff;font-size:14px;line-height:20px;font-weight:700;text-align:center;text-decoration:none">${escapeHTML(copy.action)}</a>
+          </td></tr></table>
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px"><tr><td bgcolor="#e0e0ff" style="padding:8px 12px;border-radius:8px;font-size:13px;line-height:20px;color:#3d417b">${escapeHTML(copy.expiry)}</td></tr></table>
+          <p style="margin:0;font-size:13px;line-height:21px;color:#46464f">${escapeHTML(copy.warning)}</p>
+        </td></tr>
+        <tr><td style="padding:20px 24px;border-top:1px solid #e4e1ec;background:#f6f2f7;border-radius:0 0 24px 24px">
+          <p style="margin:0 0 8px;font-size:12px;line-height:19px;color:#46464f">${escapeHTML(copy.fallbackAction)}</p>
+          <p style="margin:0;font-size:12px;line-height:19px;word-break:break-all;overflow-wrap:anywhere"><a href="${escapeHTML(safeURL)}" style="color:#555994;text-decoration:underline;word-break:break-all">${escapeHTML(safeURL)}</a></p>
+        </td></tr>
+      </table>
+      <!--[if mso]></td></tr></table><![endif]-->
+      <p style="margin:18px 0 0;font-size:12px;line-height:20px;color:#777680"><a href="${siteURL}" style="color:#555994;text-decoration:none">Haneoka</a> &nbsp;·&nbsp; haneoka.org</p>
+    </td></tr>
+  </table>
+</body>
 </html>`;
   return { html, subject: copy.subject, text };
 };
