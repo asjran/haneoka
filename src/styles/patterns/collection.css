@@ -18,13 +18,15 @@
   padding: 0;
   list-style: none;
 }
-/* Keep two results side by side when a pane is narrower than the resource's
- * preferred tile width. The navigation rail keeps its own layout. */
+/* Bound columns by the resource's preferred width and a shared maximum.
+ * Narrow content panes keep at least two results. */
 .collection:not(.collection--rail) {
+  --collection-tile-max: 312px;
   grid-template-columns: repeat(
     auto-fill,
-    minmax(min(var(--tile-min), calc((100% - var(--tile-gap)) / 2)), 1fr)
+    minmax(0, min(var(--tile-min), var(--collection-tile-max), calc((100% - var(--tile-gap)) / 2)))
   );
+  justify-content: start;
 }
 /* Presentation sizes. One line each, because the only thing that changes
  * between resources is how wide a tile wants to be. */

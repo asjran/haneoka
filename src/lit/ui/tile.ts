@@ -102,13 +102,19 @@ export function mediaAspectRatio(width: unknown, height: unknown): number | unde
     : undefined;
 }
 
+const KIND_MEDIA_RATIOS: Record<string, number | string> = {
+  member: "3 / 4", support: "16 / 9", character: "3 / 4",
+  comic: "4 / 3", story: "16 / 9", background: "16 / 9", system: "16 / 9",
+  band: "3 / 1", song: 1, stamp: 1, item: 1, "band-item": 1, model: 1,
+};
+
 /** Artwork and native marks shared by grid tiles and compact identity rows. */
 export function tileMedia(options: TileOptions): TemplateResult {
   const width = Number(options.width);
   const height = Number(options.height);
   const dimensionRatio = mediaAspectRatio(width, height);
-  const ratio = options.aspectRatio ?? dimensionRatio;
-  const mediaStyle = ratio === undefined ? undefined : `--tile-ratio:${typeof ratio === "number" ? ratio : ratio}`;
+  const ratio = dimensionRatio ?? options.aspectRatio ?? KIND_MEDIA_RATIOS[options.kind ?? ""];
+  const mediaStyle = ratio === undefined ? undefined : `--tile-ratio:${ratio};aspect-ratio:${ratio}`;
   const onImageError = options.onImageError || nextImageCandidate;
   // Rendered as two plain templates rather than one static-html template with
   // a literal tag name: static templates lose their event-part wiring when the
