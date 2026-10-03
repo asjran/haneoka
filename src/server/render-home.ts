@@ -89,7 +89,7 @@ async function snapshot(server: ReleaseServer, locale: Locale): Promise<HomeSeed
             "rarity",
             "characterDetails",
           ]),
-          images: { thumbnail: (entry.images as JsonRecord)?.thumbnail },
+          images: pick((entry.images || {}) as JsonRecord, ["thumbnail", "full", "background", "character"]),
         },
       ]),
     );
@@ -199,6 +199,9 @@ export async function renderHome(server: ReleaseServer, locale: Locale) {
         if (!node.attrs.some((attribute) => attribute.name === "loading"))
           node.attrs.push({ name: "loading", value: "lazy" });
       }
+      // SSR has a real source: deferred-media CSS must not wait for client load hooks.
+      if (node.attrs.some((attribute) => attribute.name === "src" && attribute.value))
+        node.attrs = node.attrs.filter((attribute) => !["data-src", "data-loading"].includes(attribute.name));
     }
     if ("childNodes" in node) for (const child of node.childNodes) promote(child);
   };

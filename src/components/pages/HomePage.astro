@@ -19,12 +19,13 @@ const home = await renderHome(server, locale);
     const home = document.currentScript?.previousElementSibling;
     const board = home?.querySelector(".home-board");
     if (!board) return;
-    const ids = ["birthdays", "news", "community", "fanInfo", "cards", "songs"];
-    const storageKey = "haneoka:home-layout:v5";
+    const ids = ["birthdays", "news", "cards", "songs", "community", "fanInfo"];
+    const storageKey = "haneoka:home-layout:v6";
     let order = [...ids];
     let hidden = {};
     try {
-      const state = JSON.parse(localStorage.getItem(storageKey) || localStorage.getItem("haneoka:home-layout:v4") || "null");
+      const current = localStorage.getItem(storageKey);
+      const state = JSON.parse(current || localStorage.getItem("haneoka:home-layout:v5") || localStorage.getItem("haneoka:home-layout:v4") || "null");
       if (
         Array.isArray(state?.order) &&
         new Set(state.order).size === state.order.length &&
@@ -33,11 +34,13 @@ const home = await renderHome(server, locale);
       ) {
         order = [...state.order, ...ids.filter(id => !state.order.includes(id))];
       }
-      if (state?.hidden && typeof state.hidden === "object") hidden = state.hidden;
-      const rest = order.filter(id => id !== "news" && id !== "community" && id !== "fanInfo");
-      const position = Math.min(order.indexOf("news"), order.indexOf("community"));
-      rest.splice(Math.max(0, position), 0, "news", "community", "fanInfo");
-      order = rest;
+      if (state?.hidden && typeof state.hidden === "object" && !Array.isArray(state.hidden)) hidden = state.hidden;
+      if (!current) {
+        const rest = order.filter(id => id !== "community" && id !== "fanInfo");
+        const position = Math.max(rest.indexOf("cards"), rest.indexOf("songs")) + 1;
+        rest.splice(position, 0, "community", "fanInfo");
+        order = rest;
+      }
     } catch {
     }
     for (const id of order) {

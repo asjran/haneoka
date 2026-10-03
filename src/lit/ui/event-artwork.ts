@@ -1,5 +1,5 @@
 import { html, nothing } from "lit";
-import { nextImageCandidate } from "./lazy-images";
+import { localeTaggedCandidates, nextImageCandidate } from "./lazy-images";
 import "../../styles/event-artwork.css";
 
 /** The game's authored home banner, shared by event list and table thumbnails. */
@@ -19,24 +19,35 @@ export function eventBanner(image: string, label = "", deferred = true) {
 }
 
 /** The event's own illustration and title logo, composed inside a catalog tile. */
-export function eventArtwork(image: string, logo: string, label: string, deferred = true) {
+export function eventArtwork(image: string, logo: string, label: string, deferred = true, locale = "ja") {
+  const backgrounds = localeTaggedCandidates(image, locale);
+  const logos = localeTaggedCandidates(logo, locale);
+  const eagerError = (event: Event) => {
+    const element = event.currentTarget as HTMLImageElement;
+    const candidates = element.classList.contains("event-artwork__logo") ? logos : backgrounds;
+    element.dataset.candidates = JSON.stringify(candidates);
+    element.dataset.candidateIndex = String(
+      candidates.findIndex((source) => new URL(source, document.baseURI).href === element.src),
+    );
+    nextImageCandidate(event);
+  };
   return html`
     <span class="event-artwork" role="img" aria-label=${label}>
       <img
         class="event-artwork__background"
-        src=${deferred ? nothing : image}
+        src=${deferred ? nothing : backgrounds[0]}
         data-src=${deferred ? image : nothing}
         alt=""
         decoding="async"
-        @error=${nextImageCandidate}
+        @error=${deferred ? nextImageCandidate : eagerError}
       />
       <img
         class="event-artwork__logo"
-        src=${deferred ? nothing : logo}
+        src=${deferred ? nothing : logos[0]}
         data-src=${deferred ? logo : nothing}
         alt=""
         decoding="async"
-        @error=${nextImageCandidate}
+        @error=${deferred ? nextImageCandidate : eagerError}
       />
     </span>
   `;

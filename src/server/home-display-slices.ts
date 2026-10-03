@@ -18,7 +18,10 @@ export function compactHomeGacha(value: unknown, cards: unknown): RecordValue {
       const rarity = prize.rarity ?? card?.rarity;
       if (Number(prize.resourceType) !== 2 || Number(rarity) !== 20 || prize.pickup === false) return [];
       const characterId = prize.characterId ?? card?.characterId;
+      const cardImages = record(card?.images) ? fields(card.images, ["thumbnail", "full", "background", "character"]) : {};
       return [{ ...fields(prize, ["resourceType", "resourceId"]), rarity,
+        ...(typeof prize.image === "string" && prize.image ? { image: prize.image } : {}),
+        ...(Object.keys(cardImages).length ? { cardImages } : {}),
         ...(typeof characterId === "number" && Number.isSafeInteger(characterId) && characterId > 0 ? { characterId } : {}) }];
     });
     return [String(entry.id), { ...fields(entry, ["id", "title", "image", "startAt", "endAt"]), featured }];
