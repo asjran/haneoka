@@ -59,6 +59,8 @@ export interface EntityPayload {
   schema: typeof ENTITY_PAYLOAD_SCHEMA;
   server: ReleaseServer;
   releaseId: string;
+  /** The producer always supplies the source of this frozen release; optional for historical payloads. */
+  sourceId?: string;
   resource: EntityPayloadResource;
   id: string;
   /** The complete entity detail record (the `/{resource}/{id}` document). */
@@ -769,6 +771,7 @@ export async function buildEntityPayloads(
       schema: ENTITY_PAYLOAD_SCHEMA,
       server,
       releaseId: graph.release.releaseId,
+      sourceId: graph.release.sourceId,
       resource,
       id,
       item,
