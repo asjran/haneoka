@@ -31,6 +31,7 @@ export interface NativeRuleEvidence {
 }
 export type Objective = "score" | "ss-ratio" | "ss-surplus" | "event-points" | "event-items" | "base-score";
 export type PlayMode = "normal" | "gekiso" | "multi" | "battle";
+export type SkillOrderCriterion = "nominal-mean" | "worst-ap";
 export interface EvidenceGap {
   code: string;
   source: string;
@@ -60,6 +61,9 @@ export interface TargetCapability {
   gaps: EvidenceGap[];
   /** Input conditions for a factory that supports a calibrated subset. */
   conditions?: string[];
+  /** Gekiso score uses the explicitly selected personal ledger. */
+  scoreDomain?: "personal-solo";
+  skillOrderCriteria?: SkillOrderCriterion[];
 }
 export interface TeamBuilderCapabilities extends ReleaseIdentity {
   targets: TargetCapability[];
@@ -76,6 +80,9 @@ export interface MetricValue {
   range?: { minimum: number; maximum: number };
   /** Members bound to original chart event indices for the highest-scoring order. */
   bestSkillOrder?: string[];
+  worstSkillOrder?: string[];
+  skillOrderCriterion?: SkillOrderCriterion;
+  scoreDomain?: "personal-solo";
   assumptions: string[];
   gaps: EvidenceGap[];
 }
@@ -260,6 +267,8 @@ export interface ScoreEvaluationModel extends ReleaseIdentity {
   gaps: EvidenceGap[];
 }
 export interface OptimizationInput extends ReleaseIdentity {
+  skillOrderCriterion?: SkillOrderCriterion;
+  scoreDomain?: "personal-solo";
   members: MemberOption[];
   snapshots: SnapshotOption[];
   songs: SongOption[];
@@ -271,6 +280,10 @@ export interface OptimizationInput extends ReleaseIdentity {
   basis?: EvaluationBasisRequest;
 }
 export interface WorkerPreparationInput {
+  /** Default mean; worst-ap evaluates the least favorable complete AP order. */
+  skillOrderCriterion?: SkillOrderCriterion;
+  /** Required for Gekiso score; Live score uses a separate runtime factory. */
+  scoreDomain?: "personal-solo";
   data: TeamBuilderData;
   inventory: InventoryV1;
   /** Multiple charts compete under the same explicit objective and basis. */

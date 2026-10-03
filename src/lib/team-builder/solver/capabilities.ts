@@ -15,7 +15,7 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity & { sourceI
     targets: modes.flatMap((mode) =>
       objectives.map((objective) => {
         const normalForecast = mode === "normal" && ["score", "ss-ratio", "ss-surplus"].includes(objective);
-        const gekisoSolo = mode === "gekiso" && ["ss-ratio", "ss-surplus"].includes(objective);
+        const gekisoSolo = mode === "gekiso" && ["score", "ss-ratio", "ss-surplus"].includes(objective);
         const eventPoints =
           (mode === "normal" || (mode === "gekiso" && soloKnown)) && objective === "event-points" && eventKnown;
         const supported =
@@ -43,6 +43,10 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity & { sourceI
               ? ["single" as const]
               : ["single" as const, "time" as const, "consumption" as const],
           gaps: supported ? [] : [{ code, source: "same-release native runtime factory" }],
+          ...(gekisoSolo && objective === "score" ? { scoreDomain: "personal-solo" as const } : {}),
+          ...(supported && (normalForecast || gekisoSolo || eventPoints)
+            ? { skillOrderCriteria: ["nominal-mean" as const, "worst-ap" as const] }
+            : {}),
           conditions:
             supported && (normalForecast || gekisoSolo || eventPoints)
               ? [
@@ -58,9 +62,12 @@ export function getTeamBuilderCapabilities(identity: ReleaseIdentity & { sourceI
                         "native-ordinary-live-event-scene",
                       ]
                     : ["native-normal-non-event-or-explicit-event-scene"]),
-                  "native-normal-nominal-shuffle-mean",
+                  "native-normal-complete-member-order-domain",
                   ...(gekisoSolo || (eventPoints && mode === "gekiso")
-                    ? ["native-gekiso-personal-solo-perfect-timing"]
+                    ? [
+                        "native-gekiso-personal-solo-perfect-timing",
+                        ...(objective === "score" ? ["explicit-personal-solo-score-domain"] : []),
+                      ]
                     : []),
                 ]
               : undefined,

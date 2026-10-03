@@ -96,6 +96,7 @@ export function createNativeGekisoSoloEvaluator(data: TeamBuilderData, normal: N
           };
         } else {
           metric.value = objective === "ss-ratio" ? ss.value.ratio : ss.value.surplus;
+          metric.scoreDomain = "personal-solo";
           metric.assumptions.push("native-gekiso-personal-solo-perfect-timing");
           for (const entry of metric.breakdown ?? []) {
             if (entry.key.endsWith("numerator")) entry.source = "native personal-solo ledger";
@@ -112,10 +113,31 @@ export function createNativeGekisoSoloEvaluator(data: TeamBuilderData, normal: N
           };
         else metric.assumptions.push("native-gekiso-personal-solo-perfect-timing");
       }
-      candidate.metrics.score = unavailableMetric(
-        "native-gekiso-live-score-runtime-unresolved",
-        "Live ledger needs Gekiso frame/skill/Luck/ranking state",
-      );
+      if (input.scoreDomain === "personal-solo") {
+        candidate.metrics.score = local.length
+          ? {
+              ...unavailableMetric("native-gekiso-solo-runtime-unresolved", song.song.key),
+              gaps: [...score.gaps, ...local],
+            }
+          : {
+              ...score,
+              scoreDomain: "personal-solo",
+              assumptions: [...score.assumptions, "native-gekiso-personal-solo-perfect-timing"],
+              breakdown: [
+                ...(score.breakdown ?? []),
+                {
+                  key: "personal-solo-score",
+                  value: score.perPlayValue ?? score.value,
+                  unit: "score",
+                  source: "native personal-solo ledger",
+                },
+              ],
+            };
+      } else
+        candidate.metrics.score = unavailableMetric(
+          "native-gekiso-live-score-runtime-unresolved",
+          "Live ledger needs Gekiso frame/skill/Luck/ranking state",
+        );
       candidate.vector = input.objectives.map((objective) => candidate.metrics[objective].value ?? NaN);
       return candidate;
     },

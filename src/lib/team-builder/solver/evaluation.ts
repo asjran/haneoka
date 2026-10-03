@@ -13,6 +13,7 @@ import type {
   TeamAssignment,
   NativeEventScene,
   MetricValue,
+  SkillOrderCriterion,
 } from "../contracts.ts";
 import { dataRows, nativeRow, type TeamBuilderData } from "../data.ts";
 import { inventoryOptions, type PowerResolver } from "../data/solver-input.ts";
@@ -77,6 +78,8 @@ export const nativeGrowthPowerResolver: PowerResolver = {
 };
 
 export interface EvaluationRequest {
+  skillOrderCriterion?: SkillOrderCriterion;
+  scoreDomain?: "personal-solo";
   data: TeamBuilderData;
   inventory: InventoryV1;
   songs: SongOption[];
@@ -107,6 +110,8 @@ export function prepareEvaluation(request: EvaluationRequest): OptimizationInput
       throw new RangeError("different-runtime-context");
     return {
       ...data.identity,
+      skillOrderCriterion: request.skillOrderCriterion,
+      scoreDomain: request.scoreDomain,
       ...options,
       songs,
       objectives: request.objectives,
@@ -191,6 +196,8 @@ export function prepareEvaluation(request: EvaluationRequest): OptimizationInput
   }
   return {
     ...data.identity,
+    skillOrderCriterion: request.skillOrderCriterion,
+    scoreDomain: request.scoreDomain,
     members: options.members,
     snapshots: options.snapshots,
     inputGaps: options.gaps,
@@ -215,13 +222,25 @@ export interface PreparedSearchEvaluation {
   ) => Candidate | Promise<Candidate>;
 }
 export function prepareEvaluationForSearch(request: EvaluationRequest): PreparedSearchEvaluation {
+  if (request.nativeRuntime && request.skillOrderCriterion === "worst-ap")
+    throw new RangeError("worst-ap-requires-native-order-factory");
+  if (request.skillOrderCriterion !== undefined && !["nominal-mean", "worst-ap"].includes(request.skillOrderCriterion))
+    throw new RangeError("skill-order-criterion");
+  if (request.skillOrderCriterion === "worst-ap" && request.constraints.justRate !== 0)
+    throw new RangeError("worst-ap-requires-perfect-timing");
+  if (request.scoreDomain !== undefined && request.scoreDomain !== "personal-solo")
+    throw new RangeError("score-domain");
   if (
     !request.nativeRuntime &&
     request.mode === "gekiso" &&
     request.constraints.justRate === 0 &&
     request.objectives.length > 0 &&
     request.objectives.every(
-      (objective) => objective === "ss-ratio" || objective === "ss-surplus" || objective === "event-points",
+      (objective) =>
+        objective === "ss-ratio" ||
+        objective === "ss-surplus" ||
+        objective === "event-points" ||
+        (objective === "score" && request.scoreDomain === "personal-solo"),
     )
   ) {
     const normal = prepareEvaluationForSearch({ ...request, mode: "normal" });
@@ -350,16 +369,20 @@ export function prepareEvaluationForSearch(request: EvaluationRequest): Prepared
           }));
           const gaps = amounts.flatMap((outcome) => outcome.points.gaps);
           if (!gaps.length && amounts.every((outcome) => outcome.points.value !== null)) {
+            const minimum = Math.min(...amounts.map((outcome) => outcome.points.value!));
             const value =
-              amounts.reduce((sum, outcome) => sum + outcome.points.value! * outcome.multiplicity, 0) /
-              law.nominalOrders;
+              request.skillOrderCriterion === "worst-ap"
+                ? minimum
+                : amounts.reduce((sum, outcome) => sum + outcome.points.value! * outcome.multiplicity, 0) /
+                  law.nominalOrders;
             points = {
               value,
+              skillOrderCriterion: request.skillOrderCriterion ?? "nominal-mean",
               status: "conditional",
               assumptions: [...metric.assumptions, "native-personal-solo-event-rank", "client-event-point-amount"],
               gaps: [],
               range: {
-                minimum: Math.min(...amounts.map((outcome) => outcome.points.value!)),
+                minimum,
                 maximum: Math.max(...amounts.map((outcome) => outcome.points.value!)),
               },
               breakdown: [

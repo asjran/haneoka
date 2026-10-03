@@ -2321,6 +2321,17 @@ export class TeamBuilder extends LitElement {
       </div>
     `;
   }
+  private get scoreDomain(): "personal-solo" | undefined {
+    if (!this.data) return undefined;
+    return getTeamBuilderCapabilities(this.data.identity).targets.find(
+      (target) => target.mode === this.mode && target.objective === "score" && target.bases.includes(this.metricBasis),
+    )?.scoreDomain;
+  }
+  private objectiveLabel(objective: Objective): string {
+    return objective === "score" && this.scoreDomain === "personal-solo"
+      ? this.t("personalSoloScore", "Solo score")
+      : this.t(objective, objective);
+  }
   private supportsObjective(objective: Objective): boolean {
     if (!this.data) return false;
     return getTeamBuilderCapabilities(this.data.identity).targets.some(
@@ -2870,7 +2881,7 @@ export class TeamBuilder extends LitElement {
           ${OBJECTIVES.map(
             (objective) => html`
               <div class="team-builder__target-option">
-                ${this.check(this.t(objective, objective), this.objectives.includes(objective), (checked) => {
+                ${this.check(this.objectiveLabel(objective), this.objectives.includes(objective), (checked) => {
                   this.cancelSearch();
                   this.result = null;
                   this.objectives = checked
@@ -3352,6 +3363,7 @@ export class TeamBuilder extends LitElement {
       if (this.optimizationInput && !this.wantsEventScene) {
         const input: OptimizationInput = {
           ...this.optimizationInput,
+          scoreDomain: this.scoreDomain,
           objectives: [...this.objectives],
           constraints: this.constraints,
           basis: this.evaluationBasis!,
@@ -3364,6 +3376,7 @@ export class TeamBuilder extends LitElement {
       } else {
         const request: WorkerPreparationInput = {
           data: this.data,
+          scoreDomain: this.scoreDomain,
           inventory: structuredClone(this.inventory),
           selections: this.chartSelections,
           mode: this.mode,
@@ -3400,6 +3413,8 @@ export class TeamBuilder extends LitElement {
       : "";
   }
   private metricLabel(objective: Objective, metric?: MetricValue): string {
+    if (objective === "score" && (metric ? metric.scoreDomain === "personal-solo" : this.scoreDomain === "personal-solo"))
+      return this.t("personalSoloScore", "Solo score");
     if (this.gekisoSoloForecast && objective === "ss-ratio")
       return this.t("personalSoloSSRatio", "Personal Solo SS attainment");
     if (this.gekisoSoloForecast && objective === "ss-surplus")

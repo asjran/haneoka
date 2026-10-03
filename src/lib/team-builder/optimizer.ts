@@ -9,6 +9,7 @@ import type {
 import { prepareSong, type PreparedSong } from "./song-metrics.ts";
 import { createAssignmentEvaluator } from "./solver/evaluate.ts";
 import { createSongRankingCollector } from "./solver/search-rankings.ts";
+import { validateSearchBudget } from "./solver/search-budget.ts";
 
 export interface SearchHooks {
   /** Prepared in the worker for native formation conditions; reads selected slots only. */
@@ -38,6 +39,11 @@ export function dominates(left: readonly number[], right: readonly number[]): bo
   );
 }
 export function validateOptimizationInput(input: OptimizationInput): void {
+  if (input.skillOrderCriterion !== undefined && !["nominal-mean", "worst-ap"].includes(input.skillOrderCriterion))
+    throw new RangeError("skill-order-criterion");
+  if (input.skillOrderCriterion === "worst-ap" && input.constraints.justRate !== 0)
+    throw new RangeError("worst-ap-requires-perfect-timing");
+  if (input.scoreDomain !== undefined && input.scoreDomain !== "personal-solo") throw new RangeError("score-domain");
   if (input.server !== input.evaluation.server || input.releaseId !== input.evaluation.releaseId)
     throw new RangeError("different-evaluation-release");
   if (
@@ -48,8 +54,7 @@ export function validateOptimizationInput(input: OptimizationInput): void {
     throw new RangeError("team-size");
   if (!Number.isFinite(input.constraints.justRate) || input.constraints.justRate < 0 || input.constraints.justRate > 1)
     throw new RangeError("just-rate");
-  for (const [name, value] of Object.entries(input.budget))
-    if (!Number.isSafeInteger(value) || value < 1) throw new RangeError(`budget:${name}`);
+  validateSearchBudget(input.budget);
   if (
     !input.objectives.length ||
     new Set(input.objectives).size !== input.objectives.length ||
@@ -65,12 +70,6 @@ export function validateOptimizationInput(input: OptimizationInput): void {
     input.songs.some((song) => song.events.length > 25000)
   )
     throw new RangeError("solver-input-size");
-  if (
-    input.budget.maxCandidates > 1000 ||
-    input.budget.maxMilliseconds > 60000 ||
-    input.budget.maxEvaluations > 2000000
-  )
-    throw new RangeError("solver-budget-size");
   const ids = [
     ...input.members.map((option) => option.instanceId),
     ...input.snapshots.map((option) => option.instanceId),
@@ -114,6 +113,8 @@ export function validateOptimizationInput(input: OptimizationInput): void {
  */
 export async function optimizeTeams(input: OptimizationInput, hooks: SearchHooks = {}): Promise<SearchResult> {
   validateOptimizationInput(input);
+  if (input.skillOrderCriterion === "worst-ap" && !hooks.evaluate)
+    throw new RangeError("worst-ap-requires-native-order-factory");
   const now = hooks.now ?? (() => performance.now());
   const started = now();
   const elapsed = () => Math.max(0, now() - started);

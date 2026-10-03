@@ -1,9 +1,10 @@
-import type { SolverRequest, SolverResponse } from "../contracts.ts";
+import type { OptimizationInput, SongOption, SolverRequest, SolverResponse } from "../contracts.ts";
 import { optimizeTeams, validateOptimizationInput } from "../optimizer.ts";
 import { getTeamBuilderCapabilities } from "./capabilities.ts";
 import { prepareEvaluationForSearch } from "./evaluation.ts";
 import { loadSongOptions } from "./song-loader.ts";
 import { createSearchCheckpoint, restoreSearchCheckpoint, searchFingerprint } from "./search-checkpoint.ts";
+import { validateSearchBudget } from "./search-budget.ts";
 const scope = globalThis as unknown as {
   onmessage: ((event: MessageEvent<SolverRequest>) => void) | null;
   postMessage(message: SolverResponse): void;
@@ -26,7 +27,9 @@ scope.onmessage = (event) => {
   const run = { runId: message.runId, cancelled: false, controller: new AbortController() };
   active = run;
   const execute = async () => {
-    let input;
+    validateSearchBudget(message.type === "prepare" ? message.request.budget : message.input.budget);
+    let input: OptimizationInput | undefined;
+    let preparedSongs: SongOption[] = [];
     let evaluate;
     let fingerprint;
     if (message.type === "prepare") {
@@ -48,17 +51,27 @@ scope.onmessage = (event) => {
       }
       const { budget: _budget, ...semanticRequest } = message.request;
       fingerprint = await searchFingerprint({ kind: "prepare", request: semanticRequest, songs });
-      ({ input, evaluate } = prepareEvaluationForSearch({ ...message.request, songs }));
+      // A verified complete cache hit needs no inventory/skill/slot factory.
+      // Keep chart loading and the full semantic fingerprint before restore.
+      preparedSongs = songs;
     } else {
       input = message.input;
       const { budget: _budget, ...semanticInput } = input;
       fingerprint = await searchFingerprint({ kind: "start", input: semanticInput });
     }
     if (active !== run) return;
-    validateOptimizationInput(input);
     const restored = await restoreSearchCheckpoint(message.checkpoint, fingerprint);
     if (active !== run) return;
-    if (restored && !run.cancelled) {
+    if (run.cancelled) {
+      scope.postMessage({
+        type: "result",
+        runId: run.runId,
+        result: { candidates: [], completeness: "cancelled", evaluated: 0, elapsedMs: 0, gaps: [] },
+      });
+      active = null;
+      return;
+    }
+    if (restored) {
       scope.postMessage({
         type: "progress",
         runId: run.runId,
@@ -80,6 +93,10 @@ scope.onmessage = (event) => {
       active = null;
       return;
     }
+    if (message.type === "prepare")
+      ({ input, evaluate } = prepareEvaluationForSearch({ ...message.request, songs: preparedSongs }));
+    if (!input) throw new Error("solver-input-unresolved");
+    validateOptimizationInput(input);
     const result = await optimizeTeams(input, {
       evaluate,
       cancelled: () => run.cancelled,

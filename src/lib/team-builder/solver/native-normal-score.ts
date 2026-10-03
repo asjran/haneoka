@@ -4,14 +4,10 @@ import type { SearchEvaluationControls } from "../optimizer.ts";
 import type { PreparedSong } from "../song-metrics.ts";
 import { calcNativeNoteScore, nativeComboFactor, nativeDifficultyFactor, unavailableMetric } from "../score.ts";
 
-import {
-  buildNormalSkillWindows,
-  normalSkillOrders,
-  resolveNormalSkillEffects,
-  type NormalSkillPlan,
-} from "./normal-skills.ts";
+import { normalSkillOrders, resolveNormalSkillEffects, type NormalSkillPlan } from "./normal-skills.ts";
 import { addPower, floorPowerBP } from "./power.ts";
 import { createNativeNormalSupportResolver } from "./native-normal-support.ts";
+import { createNormalPreparationCache } from "./normal-preparation-cache.ts";
 
 const f = Math.fround;
 interface PrefixEntry {
@@ -47,6 +43,7 @@ function lowerBound(song: PreparedSong, timeMs: number): number {
  * same-member duration supports; unsupported state machines retain an explicit gap.
  */
 export function createNativeNormalScoreResolver(data: TeamBuilderData, input: OptimizationInput) {
+  const preparation = createNormalPreparationCache();
   const gaps: EvidenceGap[] = [];
   const phaseRows = dataRows(data.skillReference.effectSettings).map(nativeRow);
   const phase = phaseRows.filter((row) => row.skillEffectType === 2000);
@@ -211,17 +208,28 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
           }
       if (local.length) return { value: null, status: "unavailable", assumptions: [], gaps: local };
       const formation = plans.map((live, slot) => ({ live: live!, supports: supportPlans[slot]! }));
+      const prepared = await preparation.prepare(
+        { formation, skillTimesMs: times!, musicLengthMs: lastNoteMs },
+        controls,
+      );
+      if (!prepared) return unavailableMetric("native-normal-shuffle-interrupted", "search cancellation/budget");
+      if (!prepared.complete)
+        return { value: null, status: "unavailable", assumptions: [], gaps: [...prepared.entries[0]!.result.gaps] };
       let total = 0,
         minimum = Infinity,
         maximum = -Infinity;
-      let bestSkillOrder: string[] = [];
+      let bestSkillOrder: string[] = [],
+        worstSkillOrder: string[] = [];
       const scores = onCompleteLaw ? new Map<number, number>() : null;
       const assumptions = new Set([
         ...input.evaluation.assumptions,
-        "native-normal-nominal-uniform-member-shuffle",
+        input.skillOrderCriterion === "worst-ap"
+          ? "native-normal-complete-member-order-domain"
+          : "native-normal-nominal-uniform-member-shuffle",
         "100-percent-perfect",
       ]);
-      for (const [orderIndex, order] of orders.entries()) {
+      for (const [orderIndex, entry] of prepared.entries.entries()) {
+        const { order, result: skills } = entry;
         if (interrupted(controls))
           return unavailableMetric("native-normal-shuffle-interrupted", "search cancellation/budget");
         if (orderIndex && orderIndex % 8 === 0) {
@@ -230,7 +238,6 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
         }
         // Every positive Live effect is known to finish before this horizon;
         // actual audio duration >= the last valid judged node gives the same commands.
-        const skills = buildNormalSkillWindows({ formation, order, skillTimesMs: times!, musicLengthMs: lastNoteMs });
         if (skills.gaps.length) return { value: null, status: "unavailable", assumptions: [], gaps: [...skills.gaps] };
         skills.assumptions.forEach((assumption) => assumptions.add(assumption));
         const commands = [...skills.factorCommands];
@@ -276,7 +283,10 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
           return unavailableMetric("native-normal-score-domain-unresolved", "native signed score accumulation");
         total += score;
         scores?.set(score, (scores.get(score) ?? 0) + 1);
-        minimum = Math.min(minimum, score);
+        if (score < minimum) {
+          minimum = score;
+          worstSkillOrder = order.map((slot) => nativeMembers[slot]!);
+        }
         if (score > maximum) {
           maximum = score;
           bestSkillOrder = order.map((slot) => nativeMembers[slot]!);
@@ -290,10 +300,12 @@ export function createNativeNormalScoreResolver(data: TeamBuilderData, input: Op
           outcomes: [...scores].sort(([a], [b]) => a - b).map(([score, multiplicity]) => ({ score, multiplicity })),
         });
       return {
-        value: total / orders.length,
+        value: input.skillOrderCriterion === "worst-ap" ? minimum : total / orders.length,
         status: "conditional",
         range: { minimum, maximum },
         bestSkillOrder,
+        worstSkillOrder,
+        skillOrderCriterion: input.skillOrderCriterion ?? "nominal-mean",
         assumptions: [...assumptions],
         gaps: [],
         breakdown: [

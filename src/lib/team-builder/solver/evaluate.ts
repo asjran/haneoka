@@ -239,6 +239,9 @@ export function evaluateAssignment(
               ? { minimum: score.range.minimum / threshold!, maximum: score.range.maximum / threshold! }
               : undefined,
           bestSkillOrder: score.bestSkillOrder,
+          worstSkillOrder: score.worstSkillOrder,
+          skillOrderCriterion: score.skillOrderCriterion,
+          scoreDomain: score.scoreDomain,
           status: domain === "room" ? "conditional" : score.status,
           assumptions: [...score.assumptions, ...(domain === "room" ? ["explicit-room-score-context"] : [])],
           gaps: [],
