@@ -1,3 +1,4 @@
+import { crossServerPublicCache } from "./cache";
 import {
   crossServerDetail, type CrossCatalogEntry, type CrossCatalogIdentity, type CrossCatalogResource,
   type CrossCatalogRow, type OfficialCatalogServer,
@@ -50,19 +51,8 @@ export function fetchCrossServerDetail(
   entry: CrossCatalogEntry, activeServer = entry.displayServer,
   options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
 ) {
-  const fetcher = options.fetcher ?? fetch;
+  const cache = crossServerPublicCache(options.fetcher);
   return loadCrossServerDetail(entry, activeServer, {
-    async readEntity(resource, identity, id) {
-      options.signal?.throwIfAborted();
-      const response = await fetcher(`/api/v1/servers/${identity.server}/${resource}/${encodeURIComponent(id)}?release=${encodeURIComponent(identity.releaseId)}`, {
-        signal: options.signal, cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`Cross-server detail unavailable:${identity.server}/${resource}/${id}/${response.status}`);
-      if (response.headers.get("x-haneoka-release-id") !== identity.releaseId || response.headers.get("x-haneoka-source-id") !== identity.sourceId)
-        throw new Error("Cross-server detail release mismatch");
-      const row: unknown = await response.json();
-      options.signal?.throwIfAborted();
-      return row;
-    },
+    readEntity: (resource, identity, id) => cache.readEntity(resource, identity, id, options.signal),
   }).then((detail) => { options.signal?.throwIfAborted(); return detail; });
 }

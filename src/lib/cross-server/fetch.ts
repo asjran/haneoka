@@ -1,50 +1,29 @@
-import { fetchCurrentTeamBuilderIdentity } from "../team-builder/data/fetch";
+import { crossServerPublicCache } from "./cache";
 import { loadCrossServerCatalog } from "./load";
 import { loadCrossServerCatalogs } from "./bundle";
 import type { CrossCatalogReader } from "./load";
 import type { CrossCatalogResource, OfficialCatalogServer } from "./catalog";
 
-/** Browser adapter: current identities are refreshed per load, with no retained/build fallback. */
+/** Browser adapter: bounded public JSON cache, with short-lived current observations. */
 function reader(options: { signal?: AbortSignal; fetcher?: typeof fetch }): CrossCatalogReader {
-  const fetcher = options.fetcher ?? fetch;
+  const cache = crossServerPublicCache(options.fetcher);
   return {
-      async readIdentity(server) {
-        const identity = await fetchCurrentTeamBuilderIdentity(server, options.signal, fetcher);
-        return { ...identity, server };
-      },
-      async readCollection(name, identity) {
-        options.signal?.throwIfAborted();
-        const response = await fetcher(`/api/v1/servers/${identity.server}/${name}?release=${encodeURIComponent(identity.releaseId)}`, {
-          signal: options.signal, cache: "no-store",
-        });
-        if (!response.ok) throw new Error(`Cross-server collection unavailable:${identity.server}/${name}/${response.status}`);
-        if (response.headers.get("x-haneoka-release-id") !== identity.releaseId || response.headers.get("x-haneoka-source-id") !== identity.sourceId)
-          throw new Error("Cross-server collection release mismatch");
-        const value: unknown = await response.json();
-        options.signal?.throwIfAborted();
-        return value;
-      },
-      async readEntity(name, identity, id) {
-        options.signal?.throwIfAborted();
-        const response = await fetcher(`/api/v1/servers/${identity.server}/${name}/${encodeURIComponent(id)}?release=${encodeURIComponent(identity.releaseId)}`, {
-          signal: options.signal, cache: "no-store",
-        });
-        if (!response.ok) throw new Error(`Cross-server entity unavailable:${identity.server}/${name}/${id}/${response.status}`);
-        if (response.headers.get("x-haneoka-release-id") !== identity.releaseId || response.headers.get("x-haneoka-source-id") !== identity.sourceId)
-          throw new Error("Cross-server entity release mismatch");
-        const value: unknown = await response.json(); options.signal?.throwIfAborted(); return value;
-      },
+    readIdentity: (server) => cache.readIdentity(server, options.signal),
+    readCollection: (resource, identity) => cache.readCollection(resource, identity, options.signal),
+    readEntity: (resource, identity, id) => cache.readEntity(resource, identity, id, options.signal),
   };
 }
 export function fetchCrossServerCatalog(
   resource: CrossCatalogResource, selectedServer: OfficialCatalogServer, locale: string,
   options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
 ) {
-  return loadCrossServerCatalog(resource, { selectedServer, locale, reader: reader(options) });
+  return loadCrossServerCatalog(resource, { selectedServer, locale, reader: reader(options) })
+    .then((catalog) => { options.signal?.throwIfAborted(); return catalog; });
 }
 export function fetchCrossServerCatalogs(
   resources: readonly CrossCatalogResource[], selectedServer: OfficialCatalogServer, locale: string,
   options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
 ) {
-  return loadCrossServerCatalogs(resources, { selectedServer, locale, reader: reader(options) });
+  return loadCrossServerCatalogs(resources, { selectedServer, locale, reader: reader(options) })
+    .then((catalogs) => { options.signal?.throwIfAborted(); return catalogs; });
 }
