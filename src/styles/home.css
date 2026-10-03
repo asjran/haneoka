@@ -1231,3 +1231,10 @@
     }
   }
 }
+
+@layer pages {
+  .home-spotlight > .home-carousel,
+  .home-spotlight > .home-event {
+    inline-size: 100%;
+  }
+}
