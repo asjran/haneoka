@@ -463,6 +463,7 @@ class LoadingCoordinator {
       if (!customElements.get("md-linear-progress")) return;
       target.querySelectorAll<HTMLElement>("[data-page-progress]").forEach((host) => {
         host.dataset.pageProgressMd3 = "true";
+        prepareMaterialProgress(host.querySelector<HTMLElement>("[data-page-progress-control]") ?? undefined);
       });
     };
     if (customElements.get("md-linear-progress")) {
@@ -484,6 +485,31 @@ function coordinator(): LoadingCoordinator | undefined {
   const host = window as LoadingWindow;
   if (!host[COORDINATOR_KEY]) host[COORDINATOR_KEY] = new LoadingCoordinator();
   return host[COORDINATOR_KEY];
+}
+
+const motionPrepared = new WeakSet<HTMLElement>();
+
+/** Keep the native Material indicator and its indeterminate semantics when motion is reduced. */
+export function prepareMaterialProgress(element: Element | undefined): void {
+  const control = element as HTMLElement | undefined;
+  if (!control || !["md-linear-progress", "md-circular-progress"].includes(control.localName) || typeof customElements === "undefined" || motionPrepared.has(control)) return;
+  motionPrepared.add(control);
+  void customElements.whenDefined(control.localName).then(async () => {
+    await (control as HTMLElement & { updateComplete?: Promise<unknown> }).updateComplete;
+    const root = control.shadowRoot;
+    if (!root) { motionPrepared.delete(control); return; }
+    const style = document.createElement("style");
+    style.textContent = `@media (prefers-reduced-motion: reduce) {
+      .progress, .spinner, .circle, .bar, .bar-inner, .dots, .active-track, .inactive-track {
+        animation: none !important;
+        transition: none !important;
+      }
+      .indeterminate .primary-bar { inset-inline-start: 0 !important; width: 38% !important; transform: none !important; }
+      .indeterminate .secondary-bar { display: none !important; }
+      .indeterminate .bar-inner { transform: none !important; }
+    }`;
+    root.append(style);
+  });
 }
 
 export function installLoadingProgress(): void {

@@ -43,32 +43,22 @@
   pointer-events: none;
 }
 
-/* ---------- Linear progress ----------
-   Indeterminate Material linear indicator, 4dp track. Used for the top of a
-   pane that is refreshing content it already shows. */
-.progress-linear {
-  position: relative;
+/* Page loading is reported by the shell. A standalone view or modal keeps
+ * the same Material linear indicator in a compact, fixed-height slot. */
+haneoka-loading-state {
+  display: block;
+  min-width: 0;
+  width: 100%;
   height: 4px;
-  overflow: hidden;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-secondary-container);
 }
-.progress-linear::after {
-  position: absolute;
-  inset: 0;
-  width: 40%;
-  content: "";
-  border-radius: inherit;
-  background: var(--md-sys-color-primary);
-  animation: progress-slide 1.6s var(--ease-standard) infinite;
+haneoka-loading-state[data-shell-loading] {
+  display: contents;
 }
-@keyframes progress-slide {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(250%);
-  }
+haneoka-loading-state > md-linear-progress {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 4px;
 }
 
 /* ---------- Status region ----------
@@ -84,35 +74,6 @@
   gap: 8px;
   padding: 32px 16px;
   text-align: center;
-}
-.state__spinner-fallback {
-  display: block;
-  width: 32px;
-  height: 32px;
-  margin-bottom: 8px;
-  border: 3px solid var(--md-sys-color-secondary-container);
-  border-top-color: var(--md-sys-color-primary);
-  border-radius: 50%;
-  animation: state-spinner 900ms linear infinite;
-}
-.state > md-circular-progress {
-  display: none;
-}
-.state > md-circular-progress:defined {
-  display: block;
-}
-.state:has(> md-circular-progress:defined) .state__spinner-fallback {
-  display: none;
-}
-@keyframes state-spinner {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .state__spinner-fallback {
-    animation: none;
-  }
 }
 .state__icon {
   display: grid;

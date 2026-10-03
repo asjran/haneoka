@@ -1,27 +1,63 @@
 import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
-import { html, nothing, type TemplateResult } from "lit";
-// Loaded eagerly so the Material spinner is defined before the first loading
-// state renders; the CSS fallback circle only covers module-less environments.
-import "@material/web/progress/circular-progress.js";
+import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { ref } from "lit/directives/ref.js";
+import { beginLoading, prepareMaterialProgress, type LoadingReporter } from "../../lib/loading-progress";
+import "@material/web/progress/linear-progress.js";
 import { icon } from "./icon";
 
-/**
- * Loading / empty / error regions.
- *
- * One shape for all three, so "nothing here" reads the same on every route,
- * and so each one is announced: the loading region is a polite live region
- * and the error region an assertive alert, which hand-rolled spinners in the
- * individual workspaces never were.
- */
+/** A loading template owns one shell report for exactly its mounted lifetime. */
+class PageLoadingState extends LitElement {
+  static properties = {
+    label: {},
+    local: { type: Boolean },
+    shell: { state: true },
+  };
+  declare label: string;
+  declare local: boolean;
+  declare private shell: boolean;
+  private report?: LoadingReporter;
 
-export function loadingState(label: string): TemplateResult {
-  return html`
-    <div class="state" role="status" aria-live="polite">
-      <span class="state__spinner-fallback" aria-hidden="true"></span>
-      <md-circular-progress indeterminate aria-hidden="true"></md-circular-progress>
-      <p class="state__body">${label}</p>
-    </div>
-  `;
+  constructor() {
+    super();
+    this.label = "";
+    this.local = false;
+    this.shell = false;
+  }
+  createRenderRoot() { return this; }
+  connectedCallback() {
+    super.connectedCallback();
+    this.syncReport();
+  }
+  disconnectedCallback() {
+    this.report?.cancel();
+    this.report = undefined;
+    super.disconnectedCallback();
+  }
+  protected updated() { this.syncReport(); }
+  private syncReport() {
+    if (!this.isConnected) return;
+    const shell = !this.local && !this.closest("dialog") && Boolean(document.querySelector("[data-page-progress]"));
+    this.shell = shell;
+    this.toggleAttribute("data-shell-loading", shell);
+    if (shell) {
+      if (!this.report) this.report = beginLoading(this.label);
+      else this.report.update({ stageLabel: this.label });
+    } else {
+      this.report?.cancel();
+      this.report = undefined;
+    }
+  }
+  render() {
+    return this.shell ? nothing : html`
+      <md-linear-progress ${ref(prepareMaterialProgress)} indeterminate aria-label=${this.label}></md-linear-progress>
+    `;
+  }
+}
+if (typeof customElements !== "undefined" && !customElements.get("haneoka-loading-state"))
+  customElements.define("haneoka-loading-state", PageLoadingState);
+
+export function loadingState(label: string, options: { local?: boolean } = {}): TemplateResult {
+  return html`<haneoka-loading-state label=${label} ?local=${options.local}></haneoka-loading-state>`;
 }
 
 export interface EmptyStateOptions {
