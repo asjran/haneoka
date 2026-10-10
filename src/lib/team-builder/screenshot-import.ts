@@ -30,7 +30,8 @@ export interface ScreenshotCardProposal {
   existingInstanceId: string | null;
   existingLevel: number | null;
   observedLevels: number[];
-
+  /** Real screenshot imports never supply unseen practice presets. */
+  defaultPractice: Readonly<Record<string, number>> | null;
 }
 export interface ScreenshotImportPreview {
   context: ScreenshotReviewContext;
@@ -51,7 +52,7 @@ export function screenshotLevelDefault(card: ScreenshotCardProposal, existingVal
   if (card.existingInstanceId !== null && (existingValues === "keep" || !card.observedLevels.length))
     return { value: card.existingLevel, source: "saved" as const };
   if (card.observedLevels.length > 1) return { value: null, source: "conflict" as const };
-  if (existingValues === "updates" && card.existingLevel !== null && card.observedLevels.length === 1 && card.observedLevels[0]! <= card.existingLevel)
+  if (existingValues === "updates" && card.existingInstanceId !== null && card.existingLevel !== null && card.observedLevels.length === 1 && card.observedLevels[0]! < card.existingLevel)
     return { value: card.existingLevel, source: "saved" as const };
   if (card.observedLevels.length === 1) return { value: card.observedLevels[0]!, source: "observed" as const };
   return { value: null, source: "unknown" as const };
@@ -112,7 +113,8 @@ export function previewScreenshotImport(
     if (!proposal) {
       const owned = current[observation.kind].find(entry => entry.cardId === chosen);
       proposal = { key, kind: observation.kind, cardId: chosen, observations: [],
-        existingInstanceId: owned?.instanceId ?? null, existingLevel: owned?.level ?? null, observedLevels: [] };
+        existingInstanceId: owned?.instanceId ?? null, existingLevel: owned?.level ?? null, observedLevels: [],
+        defaultPractice: null };
       cards.set(key, proposal);
     }
     proposal.observations.push({ image: 0, index });
@@ -147,8 +149,8 @@ export function previewScreenshotImportBatch(
     cards: [...cards.values()], rejectedObservations: rejected };
 }
 
-/** Only explicit confirmation creates/changes owned cards. Fields a screenshot
- * does not show stay unknown; a confirmed observed/manual level is applied last.
+/** Only explicit confirmation creates/changes owned cards. Unseen fields stay unknown;
+ * a confirmed observed/manual level is applied without inferring other practice.
  * Existing cards retain unseen practice and all flags/player maps. A changed
  * account/revision/source or inventory requires review again.
  */

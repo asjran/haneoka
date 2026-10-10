@@ -22,6 +22,8 @@ const format = (host: TeamBuilder, value: number, digits = 0) =>
   new Intl.NumberFormat(host.locale, { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value);
 const hitKey = (hit: EngineHit) => `${hit.song ? `${hit.song.songId}:${hit.song.difficulty}` : "-"}|${hit.members.join(",")}|${hit.snaps.join(",")}`;
 const resultGoal = (host: TeamBuilder) => host.resultsFor ? (JSON.parse(host.resultsFor) as EngineRequest).goal : host.goal();
+const resultMode = (host: TeamBuilder) => host.resultsFor && JSON.parse(host.resultsFor).inputIntent === "simulation"
+  ? host.t("importFlow.simulation", "Simulation") : host.t("importFlow.actual", "Real inventory");
 
 function primary(host: TeamBuilder, hit: EngineHit): { label: string; value: string; unit?: string } {
   const s = host.settings;
@@ -133,19 +135,18 @@ const shownTimeline = new Map<string, Timeline>();
 function orderTimeline(host: TeamBuilder, hit: EngineHit, index: number) {
   const key = `${hitKey(hit)}|${index}`;
   const value = timelines.get(key);
-  if (value) return value;
-  timelines.set(key, "loading");
-  const request = host.request();
-  if (request && host.engine && hit.song)
-    void host.engine
-      .explain({ members: request.members, snaps: request.snaps, unknownPolicy: request.unknownPolicy, team: { members: hit.members, snaps: hit.snaps, leader: hit.members[0]! }, song: hit.song, eventOrder: ORDERS[index]!.map((slot) => hit.members[slot]!), play: { great: 0, good: 0, bad: 0, miss: 0 } })
-      .then((timeline) => timelines.set(key, timeline))
-      .catch(() => timelines.set(key, "error"))
-      .finally(() => host.requestUpdate());
-  return "loading" as const;
-}
-
-function memberFace(host: TeamBuilder, hit: EngineHit, slot: number) {
+  if (!value) {
+    timelines.set(key, "loading");
+    const request = host.request();
+    if (request && host.engine)
+      void host.engine
+        .explain({ inputIntent: request.inputIntent, members: request.members, snaps: request.snaps, unknownPolicy: request.unknownPolicy, team: { members: hit.members, snaps: hit.snaps, leader: hit.members[0]! }, song, eventOrder, play: { great: 0, good: 0, bad: 0, miss: 0 } })
+        .then((timeline) => timelines.set(key, timeline))
+        .catch(() => timelines.set(key, "error"))
+        .finally(() => host.requestUpdate());
+  }
+  if (!value || value === "loading") return html`<md-linear-progress indeterminate aria-label=${host.t("loadingTimeline", "Loading skill timeline")}></md-linear-progress>`;
+  if (value === "error") return html`<p class="inline-message">${host.t("timelineFailed", "The timeline could not be drawn.")}</p>`;
   const catalog = host.catalog!;
   const card = catalog.member(cardIdOf(hit.members[slot]!));
   const character = card?.characterId ?? 0;
@@ -314,7 +315,7 @@ async function exportImage(host: TeamBuilder, hit: EngineHit) {
   };
   const main = primary(host, hit);
   const blob = await renderTeamResultImage({
-    title: host.t("title", "Team builder"),
+    title: `${host.t("title", "Team builder")} · ${resultMode(host)}`,
     subtitle: hit.song ? `${catalog.songTitle(hit.song.songId)} · ${catalog.difficultyLabel(hit.song.songId, hit.song.difficulty)}` : main.label,
     membersLabel: host.t("members", "Members"),
     snapshotsLabel: host.t("snapshots", "Snaps"),
@@ -472,6 +473,7 @@ export function renderResults(host: TeamBuilder): TemplateResult {
   const stats = results.results.reduce((total, result) => total + result.stats.exact, 0);
   return html`
     <section class="tb-results stack" aria-live="polite">
+      <p class="tb-hint">${resultMode(host)} · ${host.t("importFlow.resultScope", "Results apply only to the selected candidates and assumptions for this calculation.")}</p>
       <div class="row row--wrap row--between tb-results__summary">
         <span class=${`tb-proof${proven && !results.plan ? " is-proven" : ""}`}>${icon(proven && !results.plan ? "verified" : "hourglass_bottom", 18)}${results.plan ? proven ? host.t("activity.budget", "Budget estimate") : host.t("activity.budgetIncomplete", "Budget estimate · Search incomplete") : proven ? host.t("proven", "Proven optimal") : host.t("unproven", "Time limit reached: best found so far")}</span>
         <span class="tb-results__meta tabular">${host.t("resultMeta", "{ms} ms · {exact} teams simulated exactly", { ms: format(host, results.elapsedMs), exact: stats })}</span>
