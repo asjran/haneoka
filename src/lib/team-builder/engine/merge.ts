@@ -4,6 +4,8 @@
 import type { EngineHit, EngineResponse, Goal, PlanSummary, SongResult } from "./api";
 
 const songKey = (hit: EngineHit) => (hit.song ? `${hit.song.songId}:${hit.song.difficulty}` : "-");
+/** Higher key first; equal keys (an event reward tie) prefer the higher mean score. */
+export const compareHits = (a: EngineHit, b: EngineHit) => b.key - a.key || (b.score?.mean ?? 0) - (a.score?.mean ?? 0);
 const setKey = (hit: EngineHit) => `${songKey(hit)}|${[...hit.members].sort().join(",")}`;
 
 function topDistinct(hits: readonly EngineHit[], k: number): EngineHit[] {
@@ -13,7 +15,7 @@ function topDistinct(hits: readonly EngineHit[], k: number): EngineHit[] {
     const known = best.get(key);
     if (!known || hit.key > known.key) best.set(key, hit);
   }
-  return [...best.values()].sort((a, b) => b.key - a.key).slice(0, k);
+  return [...best.values()].sort(compareHits).slice(0, k);
 }
 
 export function mergeShardResponses(responses: readonly EngineResponse[], k: number, elapsedMs: number): EngineResponse {
@@ -53,7 +55,7 @@ export function mergeShardResponses(responses: readonly EngineResponse[], k: num
   });
   const overall = results
     .flatMap((result) => result.hits)
-    .sort((a, b) => b.key - a.key)
+    .sort(compareHits)
     .slice(0, Math.max(k, 3));
   return { results, overall, unknownCards: first.unknownCards, elapsedMs };
 }

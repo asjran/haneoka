@@ -4,6 +4,7 @@ import { AP, ORDERS, isAllPerfect, playJudgements, prepareLive, skipScore, type 
 import type { EngineMaster, EventEffectRow } from "./master";
 import {
   eventObjective,
+  eventScoreTieObjective,
   eventPoints,
   liveScoreObjective,
   scoreCapObjective,
@@ -21,7 +22,7 @@ import { searchTeams, type Constraints, type ObjectiveAdapter, type SearchOutput
 import { resolveSlotSkill, windowMs } from "./skills";
 import { gekisoChart, type GekisoChart } from "./gekiso";
 import { gekisoSearch } from "./gekiso-objective";
-import { planSummary } from "./merge";
+import { compareHits, planSummary } from "./merge";
 import { validatePtChart, validatePtRequest } from "./pt-eligibility";
 import type { Accuracy } from "./full/play";
 import type { CpExchange } from "./pt-value";
@@ -556,6 +557,22 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
           floor = undefined;
         }
       } else out = seeded(adapter, music, powerEffects);
+      // Teams tied at one reward (other reward included) are ordered by mean score. One key cannot carry that order
+      // exactly, so each tied reward among the results gets its own search over the teams that reach exactly it.
+      if (out.hits.length && chart && goal.route !== "skip" && goal.measure !== "challenge-points" && goal.ranking !== "pt-only") {
+        const ordered: typeof out.hits = [];
+        for (const key of [...new Set(out.hits.map((hit) => hit.key))].sort((a, b) => b - a)) {
+          if (ordered.length >= request.k) break;
+          const group = out.hits.filter((hit) => hit.key === key);
+          const tie = run(eventScoreTieObjective({ ...shared, live: live!, play: goal.play, chart }, objective, key), music, powerEffects, request.k - ordered.length, group.map((hit) => hit.team), undefined, undefined, 0);
+          ordered.push(
+            ...tie.hits
+              .filter((hit) => hit.key >= 0)
+              .map((hit) => ({ ...hit, key, detail: objective.exact(hit.team, hit.power, hit.slotPowers).detail as unknown })),
+          );
+        }
+        out = { ...out, hits: ordered.slice(0, request.k) };
+      }
       results.push({
         song,
         proven: out.proven,
@@ -611,7 +628,7 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
   }
   const overall = results
     .flatMap((result) => result.hits)
-    .sort((a, b) => b.key - a.key)
+    .sort(compareHits)
     .slice(0, Math.max(request.k, 3));
   return { results, overall, unknownCards: box.unknown, elapsedMs: performance.now() - started };
 }
@@ -830,7 +847,7 @@ async function runPlan(
       }),
     });
   }
-  const bestNormal = normalResults.flatMap((result) => result.hits).sort((a, b) => b.key - a.key)[0] ?? null;
+  const bestNormal = normalResults.flatMap((result) => result.hits).sort(compareHits)[0] ?? null;
   return {
     plan: planSummary(goal, bestNormal, bestChallenge, pointsPerChallenge),
     results: [...challenge.results, ...normalResults],

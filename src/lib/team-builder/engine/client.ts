@@ -2,7 +2,7 @@
 import type { TeamBuilderData } from "../data";
 import type { EngineRequest, EngineResponse, TeamEvaluation, Timeline } from "./api";
 import type { EngineCall, EngineReply, EvaluateRequest, ExplainRequest } from "./protocol";
-import { aspirationHeld, mergeShardResponses, planSummary } from "./merge";
+import { aspirationHeld, compareHits, mergeShardResponses, planSummary } from "./merge";
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; progress?: (done: number, total: number) => void };
 
@@ -168,7 +168,7 @@ export class EngineClient {
     const bestChallenge = challenge.overall[0] ?? null;
     const pointsPerChallenge = bestChallenge?.event?.mean ?? 0;
     const normal = await this.sharded({ ...request, goal: { ...goal, challengePointsPerPlay: pointsPerChallenge } }, {}, progress, 1, 2);
-    const bestNormal = normal.results.flatMap((result) => result.hits).sort((a, b) => b.key - a.key)[0] ?? null;
+    const bestNormal = normal.results.flatMap((result) => result.hits).sort(compareHits)[0] ?? null;
     return {
       plan: planSummary(goal, bestNormal, bestChallenge, pointsPerChallenge),
       results: [...challenge.results, ...normal.results],

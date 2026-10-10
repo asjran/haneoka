@@ -493,6 +493,32 @@ export function eventObjective(
   };
 }
 
+/** Among teams whose event key is exactly `target`, the highest mean score: the last tie-break of an event reward,
+ * which one key cannot carry exactly. Every other team keys -1 and is never retained. */
+export function eventScoreTieObjective(
+  context: LiveContext & { chart: CompiledChart },
+  event: ObjectiveAdapter<EventDetail | { bonus: number; mean: number }>,
+  target: number,
+): ObjectiveAdapter<EventDetail> {
+  const core = liveCore(context);
+  return {
+    skill: (member, snap) => event.skill(member, snap),
+    memberBonus: (member) => event.memberBonus(member),
+    snapBonus: (snap) => event.snapBonus(snap),
+    bound: (totals) => (event.bound(totals) < target ? -1 : core.scoreHigh(totals)),
+    leafBound: (team, totals) => ((event.leafBound?.(team, totals) ?? event.bound(totals)) < target ? -1 : core.scoreHigh(totals)),
+    interval(team, totals) {
+      const [low, high] = event.interval(team, totals);
+      return high < target || low > target ? [-1, -1] : [core.scoreLow(totals), core.scoreHigh(totals)];
+    },
+    exact(team, power, slotPowers) {
+      const result = event.exact(team, power, slotPowers);
+      const detail = result.detail as EventDetail;
+      return { key: result.key === target ? detail.scores.mean : -1, detail };
+    },
+  };
+}
+
 /** Songless potential P·(1 + A/T): A sums each skill's raise × its window seconds. */
 export function potentialObjective(shared: Shared, windowSeconds: number): ObjectiveAdapter<{ potential: number; area: number }> {
   const slotSkill = slotSkillCache(shared);
