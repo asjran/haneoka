@@ -50,6 +50,13 @@ class EngineWorker {
     await this.spawn();
     return (await this.call(message, progress)) as T;
   }
+  /** Calls in flight; 0 when idle. */
+  get load() {
+    return this.pending.size;
+  }
+  get started() {
+    return this.ready !== null;
+  }
   /** Starts the Worker and compiles the release ahead of the first call. */
   warm() {
     void this.spawn().catch(() => {});
@@ -92,16 +99,20 @@ export class EngineClient {
   warm() {
     this.pool[0]?.warm();
   }
+  /** The idlest Worker, preferring one that has already compiled the release. */
+  private idlest() {
+    return [...this.pool].sort((a, b) => a.load - b.load || Number(b.started) - Number(a.started))[0]!;
+  }
   async run(request: EngineRequest, progress?: Pending["progress"]): Promise<EngineResponse> {
     const parallel = this.pool.length > 1 && request.members.length >= PARALLEL_MIN_MEMBERS;
-    if (!parallel) return this.pool[0]!.send<EngineResponse>({ type: "run", id: 0, request }, progress);
+    if (!parallel) return this.idlest().send<EngineResponse>({ type: "run", id: 0, request }, progress);
     const started = performance.now();
     // Most searches prove their ranking in well under a second on one Worker; only those that don't fan out, and
     // the teams found so far give every shard its starting floor.
     const initial: Record<string, number> = {};
     // Gekisou seeding alone outlasts the quick window, so it fans out at once.
     if (!request.noFloor && request.goal.kind !== "gekiso") {
-      const quick = await this.pool[0]!.send<EngineResponse>({
+      const quick = await this.idlest().send<EngineResponse>({
         type: "run",
         id: 0,
         request: { ...request, timeLimitMs: Math.min(request.timeLimitMs ?? Infinity, QUICK_MS) },

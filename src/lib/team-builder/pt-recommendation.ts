@@ -190,9 +190,18 @@ export class PtRunner {
     this.running = true;
     this.stopped = false;
     job.scope = scope;
-    const publish = async () => {
+    // The page redraws at most four times a second and the resumable checkpoint is written at most once a second;
+    // both are written once more at the end.
+    let savedAt = 0;
+    let shownAt = 0;
+    const publish = async (force = false) => {
       job.updatedAt = Date.now();
-      this.changed(job);
+      if (force || job.updatedAt - shownAt >= 250) {
+        shownAt = job.updatedAt;
+        this.changed(job);
+      }
+      if (!force && job.updatedAt - savedAt < 1000) return;
+      savedAt = job.updatedAt;
       try {
         await this.store.save(job);
       } catch {
@@ -215,16 +224,17 @@ export class PtRunner {
           a.song.difficulty - b.song.difficulty ||
           Number(a.measure === "items") - Number(b.measure === "items"),
       );
-      for (const task of tasks) {
-        if (this.stopped) break;
-        if (chartComplete(task) || (scope === "top-five" && task.status === "pruned")) continue;
+      /** Runs one task; false once the run was stopped. */
+      const step = async (task: PtTask): Promise<boolean> => {
+        if (this.stopped) return false;
+        if (chartComplete(task) || (scope === "top-five" && task.status === "pruned")) return true;
         const challenge = job.cycle && task.route === "live" ? ptChallengeBest(job, task.measure) : null;
-        if (job.cycle && task.route === "live" && !challenge) continue;
+        if (job.cycle && task.route === "live" && !challenge) return true;
         task.status = "running";
         await publish();
         if (this.stopped) {
           task.status = "queued";
-          break;
+          return false;
         }
         try {
           const request = structuredClone(job.request);
@@ -250,7 +260,7 @@ export class PtRunner {
           const response = await this.engine.run(request);
           if (this.stopped) {
             task.status = "queued";
-            break;
+            return false;
           }
           const result = response.results.find((r) => r.song && chartKey(r.song) === chartKey(task.song));
           if (!result) throw new Error("pt-incomplete");
@@ -258,26 +268,39 @@ export class PtRunner {
             task.result = result;
             task.status = "pruned";
             await publish();
-            continue;
+            return true;
           }
           if (!result.proven) throw new Error("pt-incomplete");
           task.result = result;
           task.status = result.hits.length ? "complete" : "empty";
         } catch (error) {
-          this.engine.cancel();
           if (this.stopped) {
             task.status = "queued";
-            break;
+            return false;
           }
           task.status = "failed";
           task.error = error instanceof Error ? error.message : String(error);
         }
         await publish();
-      }
+        return true;
+      };
+      // Points and medals rank separately, so their song sequences run side by side. Within one, two live songs are
+      // in flight: each starts under the cutoff of songs that started before it, so pruning stays valid.
+      const lane = async (measure: PtMeasure) => {
+        const own = tasks.filter((task) => task.measure === measure);
+        for (const task of own.filter((entry) => entry.route === "challenge")) if (!(await step(task))) return;
+        const live = own.filter((entry) => entry.route === "live");
+        let next = 0;
+        const runner = async () => {
+          while (next < live.length && !this.stopped) if (!(await step(live[next++]!))) return;
+        };
+        await Promise.all([runner(), runner()]);
+      };
+      await Promise.all((["points", "items"] as const).map(lane));
     } finally {
       for (const task of job.tasks) if (task.status === "running") task.status = "queued";
       this.running = false;
-      await publish();
+      await publish(true);
     }
   }
 }

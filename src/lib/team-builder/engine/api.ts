@@ -373,7 +373,8 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
       floor,
       shard: shard ?? undefined,
       seeds,
-      disableSnapDominance: ptTrial,
+      // Gekisou rewards also read support-skill effects the four dominance values do not carry.
+      disableSnapDominance: ptTrial && request.goal.kind === "event" && !!request.goal.gekiso,
       streaming: ptTrial,
       master,
       player,
