@@ -234,7 +234,9 @@ export class PtRunner {
           request.goal.measure = task.measure;
           delete request.rewardCutoff;
           const cutoff = scope === "top-five" && task.route === "live" ? ptCutoff(job, task.measure) : undefined;
-          if (cutoff !== undefined) request.rewardCutoff = cutoff;
+          // Tasks run in song order and equal rewards rank by song, so a later song only enters the top five by
+          // beating the fifth reward: a tie is pruned at the root instead of searched to proof.
+          if (cutoff !== undefined) request.rewardCutoff = cutoff + Math.max(1, Math.abs(cutoff)) * 1e-9;
           if (task.route === "challenge") {
             request.goal.consumption = job.cycle!.consumption;
             delete request.goal.gekiso;

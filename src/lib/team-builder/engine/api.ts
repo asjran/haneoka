@@ -497,6 +497,18 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
     } else if (goal.kind === "event") {
       const route = eventRoute(master, goal.eventId, goal.route, goal.consumption);
       const measure = goal.measure === "items" ? "items" : "points";
+      // Under another song's cutoff, the uncapped bounds alone usually prove this song cannot reach it: try that
+      // before paying for the score cap and the seed sweeps.
+      if (request.rewardCutoff !== undefined && chart && goal.route !== "skip" && goal.measure !== "challenge-points") {
+        const quick = eventObjective({ ...shared, live: live!, play: goal.play, chart }, route, measure, master.params.skipRank, 0, Infinity, goal.ranking ?? "legacy", goal.cpExchange);
+        const probe = run(quick as ObjectiveAdapter<unknown>, music, powerEffects, request.k, undefined, null, 150, request.rewardCutoff);
+        if (probe.proven && !probe.hits.some((hit) => hit.key >= request.rewardCutoff!)) {
+          const known = song ? request.floors?.[`${song.songId}:${song.difficulty}`] : undefined;
+          const excludedBelow = Math.max(request.rewardCutoff, known ?? -Infinity);
+          results.push({ song, proven: false, bound: excludedBelow, excludedBelow, stats: probe.stats, hits: [] });
+          continue;
+        }
+      }
       // A fast best-order score search proves the highest score any team reaches; event bounds cap ranks at it.
       let scoreCap = Infinity;
       if (chart && goal.route !== "skip") {
