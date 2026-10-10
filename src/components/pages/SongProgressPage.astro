@@ -1,0 +1,9 @@
+---
+import type { Locale } from "../../i18n/locales";
+const { locale } = Astro.props as { locale: Locale };
+---
+
+<song-progress locale={locale}></song-progress>
+<script>
+  import "../../lit/song-progress";
+</script>

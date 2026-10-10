@@ -125,6 +125,7 @@ import {
 } from "../lib/resource-route";
 import { normalizeReleaseServer, type ReleaseServer } from "../lib/release-server";
 import { LOCALES, type Locale } from "../i18n/locales";
+import { metaScatter } from "./shared/meta-scatter";
 
 /** Message paths for this view's finite control/metadata identifiers. */
 const uiLabelPaths: Readonly<Record<string, string>> = {
@@ -500,7 +501,7 @@ const profiles: Record<string, Profile> = {
     presentation: "song",
     collection: "songs",
     perDifficulty: true,
-    defaultSort: "eff",
+    defaultSort: "score",
     defaultOrder: "desc",
   },
   bands: {
@@ -770,7 +771,10 @@ export class CatalogScreen extends LitElement {
   private metaMode: "live" | "gekisou" = "live";
   private metaTier: "theory" | "current" | "band" = "theory";
   private metaBand = 0;
+  /** song-meta draws its rows as a scatter instead of the table. */
+  private metaChart = false;
   private restoreMetaReference(params: URLSearchParams) {
+    this.metaChart = params.get("view") === "chart";
     this.metaMode = params.get("metaMode") === "gekisou" ? "gekisou" : "live";
     const tier = params.get("metaTier");
     this.metaTier = tier === "current" || tier === "band" ? tier : "theory";
@@ -2357,6 +2361,7 @@ export class CatalogScreen extends LitElement {
     set("order", this.order, this.profile.defaultOrder);
     set("view", this.view, this.profile.perDifficulty ? "table" : "grid");
     if (this.settings.resource === "song-meta") {
+      set("view", this.metaChart ? "chart" : "", "");
       set("metaMode", this.metaMode, "live");
       set("metaTier", this.metaTier, "theory");
       set("metaBand", String(this.metaBand), "0");
@@ -2755,7 +2760,7 @@ export class CatalogScreen extends LitElement {
       return Number(row?.sortLevel ?? row?.displayLevel ?? row?.playLevel ?? -1);
     }
     if (this.sort === "levels") return Array.isArray(item.levels) ? item.levels.length : 0;
-    if (this.sort === "order") return Number(item.displayOrder ?? item.order ?? 0);
+    if (this.sort === "order") return Number(item.displayOrder ?? item.order ?? item.sortOrder ?? this.itemId(item));
     return this.displayValue(readPath(item, this.sort));
   }
   private ensureSongMeta() {
@@ -3979,7 +3984,25 @@ export class CatalogScreen extends LitElement {
   private renderBarModes() {
     // The meta table swaps its metric columns between the live and gekisou
     // models instead of switching grid/table views.
-    if (this.profile.perDifficulty) return this.renderMetaModeControls();
+    if (this.profile.perDifficulty)
+      return html`${this.renderMetaModeControls()}${
+        this.settings.resource === "song-meta"
+          ? segmented({
+              label: uiText(this.settings.locale, "common.actions.view"),
+              value: this.metaChart ? "chart" : "table",
+              iconOnly: true,
+              options: [
+                { value: "table", label: uiText(this.settings.locale, "common.layout.table"), icon: "view_list" },
+                { value: "chart", label: uiText(this.settings.locale, "catalog.analysis.fields.scatter"), icon: "monitoring" },
+              ],
+              onSelect: (view) => {
+                this.metaChart = view === "chart";
+                this.requestUpdate();
+                this.syncUrl();
+              },
+            })
+          : nothing
+      }`;
     return viewSwitch(this.settings.locale, this.view, (view) => {
       this.view = view;
       this.ensureSongMeta();
@@ -4245,6 +4268,7 @@ export class CatalogScreen extends LitElement {
       ],
       background: [["title", "title", "Title"]],
       song: [
+        ["order", "order", "Order"],
         ["id", "id", "ID"],
         ["title", "title", "Title"],
         ["musicType", "musicType", "Music type"],
@@ -4292,6 +4316,34 @@ export class CatalogScreen extends LitElement {
       label: this.label(key, fallback),
     }));
   }
+  private renderMetaScatter(items: Item[]) {
+    const numeric = ["score", "eff", "time", "bpm", "n", "nps", "sr", "justable", "justableRate", "luck", "nativeScore"];
+    const metric = numeric.includes(this.sort) ? this.sort : "score";
+    const option = this.sortOptions().find((entry) => entry.value === metric);
+    const percent = ["score", "eff", "sr", "justableRate"].includes(metric);
+    const number = new Intl.NumberFormat(this.settings.locale, { maximumFractionDigits: percent ? 0 : 1 });
+    const format = (value: number) => (percent ? `${number.format(value * 100)}%` : number.format(value));
+    return metaScatter({
+      label: `${uiText(this.settings.locale, "catalog.analysis.fields.scatter")} · ${option?.label ?? metric}`,
+      xLabel: this.label("level", "Level"),
+      yLabel: option?.label ?? metric,
+      format,
+      points: items.map((item) => {
+        const rows = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
+        const row = rows[0] || {};
+        const difficulty = difficultyKey(row, Number(item.__difficultyIndex ?? 0));
+        const value = metric === "nativeScore" ? Number(this.nativeSongScore(item) ?? Number.NaN) : this.songMetaValue(item, metric);
+        const level = Number(row.sortLevel ?? row.displayLevel ?? row.playLevel);
+        return {
+          x: level,
+          y: value,
+          difficulty,
+          label: `${this.itemTitle(item)} · ${difficulty.toUpperCase()} ${row.displayLevel ?? row.playLevel ?? ""} · ${format(value)}`,
+          href: this.itemEntityLink(item, Number(row.difficulty ?? item.__difficultyIndex ?? 0)),
+        };
+      }),
+    });
+  }
   private missionTableIconSource = "";
   private renderStructuredList(items: Item[]) {
     if (this.profile.presentation === "song" && this.settings.origin !== "bestdori" && this.missionTableIconSource !== this.dataServer()) {
@@ -4333,7 +4385,9 @@ export class CatalogScreen extends LitElement {
       : undefined;
     const collection =
       this.view === "table"
-        ? html`
+        ? this.metaChart && this.settings.resource === "song-meta"
+          ? html`${this.renderMetaTierBands()}${this.renderMetaScatter(items)}`
+          : html`
             ${this.renderMetaTierBands()}${this.renderStructuredList(items)}
           `
         : this.view === "list"

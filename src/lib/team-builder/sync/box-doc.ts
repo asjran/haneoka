@@ -35,6 +35,8 @@ const CARD_KEY = /^(m|s)\.([1-9]\d{0,9})\.([a-z]{2,4})$/u;
 const ACCOUNT_KEY = /^(cr|bi|br|cm|mm)\.([1-9]\d{0,9})$/u;
 const PLAYER_KEY = /^p\.(total|vip)$/u;
 const STRUCTURED_KEY = /^(team|plan|pref)\.([a-z0-9][a-z0-9-]{0,47})$/u;
+/** Live clear status per chart: l.<song>.<difficulty>, 0 none, 1 clear, 2 full combo, 3 all perfect. */
+const LIVE_KEY = /^l\.([1-9]\d{0,9})\.([0-9])$/u;
 
 const integer = (value: unknown, max: number): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= max;
@@ -50,6 +52,7 @@ export function validEntry(key: string, value: unknown): boolean {
     return false;
   }
   if (ACCOUNT_KEY.test(key)) return value === null || integer(value, 2_147_483_647);
+  if (LIVE_KEY.test(key)) return value === null || integer(value, 3);
   if (PLAYER_KEY.test(key)) return value === null || integer(value, 2_147_483_647);
   if (STRUCTURED_KEY.test(key)) {
     if (value === null) return true;

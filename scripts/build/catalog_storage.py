@@ -483,6 +483,7 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
                 "musicUrl",
                 "mvUrl",
                 "publishedAt",
+                "sortOrder",
                 "videoIds",
                 "vocalCharacterIds",
             )

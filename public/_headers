@@ -6,6 +6,9 @@
 /sw.js
   Cache-Control: public, max-age=0, must-revalidate
 
+/build.json
+  Cache-Control: no-store
+
 /images/*
   Cache-Control: public, max-age=2592000, stale-while-revalidate=604800
 

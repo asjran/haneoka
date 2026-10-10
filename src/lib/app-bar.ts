@@ -103,6 +103,7 @@ function renderSearch(node: HTMLElement, options: AppBarSearchOptions, forceExpa
           type="button"
           aria-controls=${inputId}
           aria-expanded=${expanded}
+          aria-keyshortcuts="/"
           aria-label=${options.label}
           @click=${() => {
             renderSearch(node, options, true);
@@ -117,6 +118,7 @@ function renderSearch(node: HTMLElement, options: AppBarSearchOptions, forceExpa
           <input
             id=${inputId}
             type="search"
+            aria-keyshortcuts="/"
             .value=${options.value}
             aria-label=${options.label}
             placeholder=${options.label}
@@ -172,7 +174,26 @@ export function clearAppBarActions(owner: string) {
  * rendered in page content. The returned disposer is generation-safe, so an
  * old component cannot clear a newer registration using the same owner id.
  */
+/** "/" opens the page's title-bar search from anywhere outside a text field. */
+function installSearchShortcut() {
+  if (shortcutInstalled) return;
+  shortcutInstalled = true;
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("input, textarea, select, [contenteditable=''], [contenteditable='true'], dialog[open]")) return;
+    const field = slot()?.querySelector<HTMLInputElement>(`${SEARCH_SLOT} input`);
+    const toggle = slot()?.querySelector<HTMLButtonElement>(`${SEARCH_SLOT} .top-app-bar__search-toggle`);
+    if (!field && !toggle) return;
+    event.preventDefault();
+    if (field && field.offsetParent !== null) field.focus();
+    else toggle?.click();
+  });
+}
+let shortcutInstalled = false;
+
 export function setAppBarSearch(owner: string, options: AppBarSearchOptions): () => void {
+  installSearchShortcut();
   const node = searchContainer(owner, true);
   const generation = ++searchGeneration;
   if (node) {

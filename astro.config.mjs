@@ -1,8 +1,11 @@
 import { defineConfig } from "astro/config";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeFile } from "node:fs/promises";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+/** Identifies one deployment; an open tab compares it with /build.json to offer a reload. */
+const buildId = String(process.env.GITHUB_SHA || Date.now()).slice(0, 12);
 const proxyTarget = String(process.env.LOCAL_WORKER_ORIGIN || process.env.LOCAL_RELEASE_ORIGIN || "").trim();
 
 export default defineConfig({
@@ -16,7 +19,18 @@ export default defineConfig({
   // the perceived page load.
   prefetch: true,
   build: { inlineStylesheets: "auto" },
+  integrations: [
+    {
+      name: "build-id",
+      hooks: {
+        "astro:build:done": async ({ dir }) => {
+          await writeFile(new URL("build.json", dir), JSON.stringify({ id: buildId }));
+        },
+      },
+    },
+  ],
   vite: {
+    define: { __BUILD_ID__: JSON.stringify(buildId) },
     worker: { format: "es" },
     build: {
       cssMinify: "lightningcss",

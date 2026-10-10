@@ -1,0 +1,37 @@
+/* Scatter of song charts: one point per chart, coloured by difficulty. */
+.meta-scatter {
+  min-width: 0;
+  margin: 0;
+  padding: var(--md-sys-spacing-3);
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container-low);
+}
+.meta-scatter svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.meta-scatter__grid {
+  stroke: var(--md-sys-color-outline-variant);
+  stroke-width: 1;
+}
+.meta-scatter__tick,
+.meta-scatter__axis {
+  fill: var(--md-sys-color-on-surface-variant);
+  font: 500 13px var(--app-font);
+}
+.meta-scatter__axis {
+  font-weight: 600;
+}
+.meta-scatter__dot {
+  fill: var(--dot, var(--md-sys-color-primary));
+  fill-opacity: 0.8;
+  stroke: var(--md-sys-color-surface);
+  stroke-width: 1.5;
+  transition: r var(--md-sys-motion-duration-short3) linear;
+}
+.meta-scatter a:is(:hover, :focus-visible) .meta-scatter__dot {
+  r: 9;
+  fill-opacity: 1;
+  stroke: var(--md-sys-color-on-surface);
+}

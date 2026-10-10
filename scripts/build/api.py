@@ -2486,6 +2486,7 @@ def _songs(data: BuildData, source_id: str) -> tuple[dict[str, Any], dict[str, A
             composer=data.text(row.get("_composerTextID"), ""),
             arranger=data.text(row.get("_arrangerTextID"), ""),
             vocalCharacterIds=[int(value) for value in row.get("_vocalCharacterIDs", [])],
+            sortOrder=int(row.get("_sortOrder") or 0),
             musicType=int(row.get("_musicType") or 0),
             musicCategories=[int(value) for value in row.get("_musicCategories", [])],
             liveScoreRankGroup=int(row.get("_liveScoreRankGroup") or 0),
