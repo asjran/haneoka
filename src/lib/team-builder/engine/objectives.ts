@@ -336,8 +336,15 @@ export function eventObjective(
   };
   const memberBonus = (i: number) => memberEventPercent(route.effects, context.members[i]!, bonusType);
   const snapBonus = (j: number) => snapEventPercent(route.effects, context.snaps[j]!, bonusType);
-  // Ties on points prefer the stronger team.
-  const TIE = ranking === "pt-only" ? 0 : 1 / 2 ** 36;
+  // Equal rewards prefer more of the other reward (medals for points, points for medals). Its weight keeps the whole
+  // term below the reward's smallest step, a 120th of one unit.
+  const TIE = ranking === "pt-only" ? 0 : 1 / 2 ** 24;
+  const otherType = 1 - bonusType;
+  const other = (bonus: number, rank: number) =>
+    measure === "points" ? eventItems(route, bonus, rank) : eventPoints(route, bonus, rank);
+  const otherBonus = (team: { members: readonly number[]; snaps: readonly number[] }) =>
+    team.members.reduce((sum, i) => sum + memberEventPercent(route.effects, context.members[i]!, otherType), 0) +
+    team.snaps.reduce((sum, j) => sum + (j < 0 ? 0 : snapEventPercent(route.effects, context.snaps[j]!, otherType)), 0);
   /** Search range of the bonus inversion (BP; 10000 = 100 %). */
   // In the strict trial, inversion must stay inside the validated integer domain.
   // An arbitrary million-BP endpoint can overflow native settlement even when every legal team is safe.
@@ -350,15 +357,15 @@ export function eventObjective(
       skill: () => [0, 0],
       memberBonus,
       snapBonus,
-      bound: (totals) => value(totals.bonus, skipRank) + TIE * totals.power,
-      interval: (_team, totals) => {
-        const key = value(totals.bonus, skipRank) + TIE * totals.power;
+      bound: (totals) => value(totals.bonus, skipRank),
+      interval(team, totals) {
+        const key = value(totals.bonus, skipRank) + TIE * other(otherBonus(team), skipRank);
         return [key, key];
       },
-      exact(team, power) {
+      exact(team) {
         const bonus = team.members.reduce((sum, i) => sum + memberBonus(i), 0) + team.snaps.reduce((sum, j) => sum + (j < 0 ? 0 : snapBonus(j)), 0);
         const mean = value(bonus, skipRank);
-        return { key: mean + TIE * power, detail: { bonus, mean } };
+        return { key: mean + TIE * other(otherBonus(team), skipRank), detail: { bonus, mean } };
       },
     };
   }
@@ -427,7 +434,8 @@ export function eventObjective(
       const rank = rankOf(scoreLow);
       if (rank === rankBound(scoreHigh)) {
         const points = value(totals.bonus, rank);
-        return [points + TIE * scoreLow, points + TIE * scoreHigh];
+        const tie = TIE * other(otherBonus(team), rank);
+        return [points + tie, points + tie];
       }
       const { lows, highs } = core.orderBounds(team, totals.power);
       let low = 0,
@@ -446,7 +454,14 @@ export function eventObjective(
         const key = this.exact(team, totals.power, []).key;
         return [key, key];
       }
-      return [low / lows.length + TIE * core.scoreLow(totals), high / highs.length + TIE * core.scoreHigh(totals)];
+      const bonus2 = otherBonus(team);
+      let otherLow = 0,
+        otherHigh = 0;
+      for (let index = 0; index < lows.length; index++) {
+        otherLow += other(bonus2, rankOf(lows[index]!));
+        otherHigh += other(bonus2, rankBound(highs[index]!));
+      }
+      return [(low + TIE * otherLow) / lows.length, (high + TIE * otherHigh) / highs.length];
     },
     exact(team, power) {
       const detail = core.evaluate(team, power);
@@ -455,9 +470,11 @@ export function eventObjective(
       const ranks = new Map<number, number>();
       let total = 0,
         challenge = 0;
-      let rewardSum = 0, directMin = Infinity, directMax = -Infinity;
+      let rewardSum = 0, directMin = Infinity, directMax = -Infinity, otherSum = 0;
+      const bonus2 = otherBonus(team);
       detail.scores.scores.forEach((score, index) => {
         const rank = rankOf(score);
+        otherSum += other(bonus2, rank);
         ranks.set(rank, (ranks.get(rank) ?? 0) + 1);
         perOrder[index] = value(bonus, rank);
         total += perOrder[index]!;
@@ -469,7 +486,7 @@ export function eventObjective(
       });
       const mean = total / ORDERS.length;
       return {
-        key: mean + TIE * detail.scores.mean,
+        key: mean + (TIE * otherSum) / ORDERS.length,
         detail: { ...detail, perOrder, mean, bonus, ranks, rewardSum, comparisonSum: total, directMin, directMax, challengePoints: route.kind === "live" ? challenge / ORDERS.length : 0 },
       };
     },
