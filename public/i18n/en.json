@@ -45,7 +45,8 @@
       "savePose": "Save pose",
       "rename": "Rename",
       "confirm": "Confirm",
-      "moreActions": "More options"
+      "moreActions": "More options",
+      "reload": "Reload"
     },
     "fields": {
       "duration": "Duration",
@@ -82,7 +83,8 @@
       "captureFailed": "The image could not be captured. Try again.",
       "captureCopyFailed": "The image could not be copied. Download it instead.",
       "metadataUnavailable": "Some model information could not be loaded.",
-      "requestTimedOut": "The request timed out. Please try again."
+      "requestTimedOut": "The request timed out. Please try again.",
+      "updateAvailable": "A new version is available"
     },
     "layout": {
       "ascending": "Ascending",
@@ -254,7 +256,9 @@
     "gekisouStages": "GEKISO Sections",
     "missions": "Missions",
     "battle": "Battle",
-    "media": "Media"
+    "media": "Media",
+    "games": "Games",
+    "gbpArchive": "GBP archive"
   },
   "settings": {
     "labels": {
@@ -691,7 +695,8 @@
         "gekisouPhase1": "Gekiso phase 1",
         "gekisouPhase2": "Gekiso phase 2",
         "gekisouPhase3": "Gekiso phase 3",
-        "gekisouType": "Gekiso type"
+        "gekisouType": "Gekiso type",
+        "scatter": "Scatter"
       }
     },
     "characters": {
@@ -1042,6 +1047,41 @@
       "catalogTestServer": "Test environment",
       "catalogViewingServerData": "Viewing {server} data.",
       "catalogFiltersUnavailable": "Additional card filters could not be loaded. Your cards are still available."
+    },
+    "songProgress": {
+      "title": "Song progress",
+      "notCleared": "Not cleared",
+      "cleared": "Cleared",
+      "fullCombo": "FULL COMBO",
+      "allPerfect": "ALL PERFECT",
+      "summary": "Summary",
+      "byLevel": "By level",
+      "charts": "Charts",
+      "status": "Status"
+    },
+    "songGuess": {
+      "title": "Guess the song",
+      "jacket": "Jacket",
+      "next": "Next",
+      "skip": "Skip",
+      "choices": "Choices",
+      "anyBand": "All songs",
+      "sameBand": "Same band",
+      "played": "Played",
+      "firstTry": "First try",
+      "streak": "Streak",
+      "best": "Best streak"
+    },
+    "sonolus": {
+      "title": "Sonolus",
+      "open": "Open in Sonolus",
+      "copy": "Copy server address",
+      "copied": "Copied",
+      "levels": "Charts",
+      "playlists": "Playlists",
+      "random": "Random",
+      "newest": "Newest",
+      "shuffle": "Shuffle"
     }
   },
   "story": {

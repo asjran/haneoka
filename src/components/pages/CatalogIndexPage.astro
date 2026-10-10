@@ -7,8 +7,8 @@ import { resourceCollectionHref } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
 const { locale, server = "intl" } = Astro.props as { locale: Locale; server?: ReleaseServer };
 const resources = new Map(CATALOG_HUB.map((item) => [item.route, item.resource]));
-// Every catalogue section except the community; the hub mirrors the drawer's grouping.
-const sections = NAV_SECTIONS.filter((section) => section.id !== "community");
+// The catalogue destination's own sections; stories, tools, games and the community have their own destinations.
+const sections = NAV_SECTIONS.filter((section) => section.id === "library");
 ---
 <div class="page catalog-hub">
   {sections.map((section) => (

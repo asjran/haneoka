@@ -65,27 +65,37 @@ export const PRIMARY_DESTINATIONS: PrimaryDestination[] = [
     route: "/catalog",
     icon: "category",
     label: "navigation.catalog",
+    match: ["/catalog"],
+    exclude: ["/catalog/stories", "/catalog/live2d", "/catalog/spine", "/catalog/assets", "/catalog/help"],
+  },
+  { id: "stories", route: "/catalog/stories", icon: "auto_stories", label: "navigation.stories", match: ["/catalog/stories"] },
+  {
+    id: "tools",
+    route: "/team-builder",
+    icon: "construction",
+    label: "navigation.tools",
     match: [
-      "/catalog",
       "/tools",
-      "/song-puzzle",
-      "/stamp-maker",
       "/team-builder",
-      "/chart-editor",
+      "/song-progress",
       "/player-profile",
-      "/community/stories-bestdori",
-      "/community/songs-bestdori",
-      "/community/playlists",
+      "/stamp-maker",
+      "/chart-editor",
+      "/catalog/live2d",
+      "/catalog/spine",
+      "/catalog/assets",
+      "/catalog/help",
     ],
+    exclude: ["/tools/song-puzzle"],
   },
   {
-    id: "community",
-    route: "/community",
-    icon: "forum",
-    label: "navigation.community",
-    match: ["/community"],
-    exclude: ["/community/stories-bestdori", "/community/songs-bestdori", "/community/playlists"],
+    id: "games",
+    route: "/sonolus",
+    icon: "sports_esports",
+    label: "navigation.games",
+    match: ["/sonolus", "/song-puzzle", "/song-guess", "/tools/song-puzzle"],
   },
+  { id: "community", route: "/community", icon: "forum", label: "navigation.community", match: ["/community"] },
   { id: "search", route: "/search", icon: "search", label: "common.actions.search", match: ["/search"] },
 ];
 
@@ -147,9 +157,18 @@ const sections: NavSection[] = [
       { route: "/catalog/help", icon: "help", label: "navigation.help" },
       { route: "/player-profile", icon: "person_search", label: "tools.playerProfile.title" },
       { route: "/team-builder", icon: "groups", label: "tools.teamBuilder.title" },
-      { route: "/song-puzzle", icon: "extension", label: "tools.songPuzzle.title" },
+      { route: "/song-progress", icon: "check_circle", label: "catalog.songProgress.title" },
       { route: "/stamp-maker", icon: "image", label: "tools.stampMaker.title" },
       { route: "/chart-editor/create", icon: "edit", label: "navigation.chartEditor" },
+    ],
+  },
+  {
+    id: "games",
+    label: "navigation.games",
+    items: [
+      { route: "/sonolus", icon: "sports_esports", label: "catalog.sonolus.title" },
+      { route: "/song-puzzle", icon: "extension", label: "tools.songPuzzle.title" },
+      { route: "/song-guess", icon: "help", label: "catalog.songGuess.title" },
     ],
   },
   {
@@ -183,23 +202,18 @@ const sections: NavSection[] = [
         { route: "/community/notifications", icon: "notifications", label: "community.page.notifications" },
         { route: "/community/activity", icon: "comment", label: "community.page.activity" },
       ] },
+      { route: "/community/playlists", icon: "queue_music", label: "community.page.playlistPage.title" },
       // Last in the tree: its boards are a live directory that loads after
       // the page, and at the end it can grow without moving any row.
       { route: "/community/forums", icon: "forum", label: "community.page.forums" },
     ],
   },
-  /**
-   * A separate source, not community posts. Playlists come from the game's
-   * own master data and the Bestdori pages mirror an external archive; none
-   * of them is user-generated, so grouping them under "community" implied a
-   * relationship that does not exist.
-   */
+  /** Pages mirrored from Bestdori's Girls Band Party archive. */
   {
     id: "mirrors",
-    label: "catalog.availability.mirrors",
+    label: "navigation.gbpArchive",
     collapsible: true,
     items: [
-      { route: "/community/playlists", icon: "queue_music", label: "community.page.playlistPage.title" },
       { route: "/community/songs-bestdori", icon: "library_music", label: "community.page.songsBestDori" },
       /**
        * Every Bestdori story section is listed, exactly as the archive's own

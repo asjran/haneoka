@@ -31,6 +31,7 @@ import {
   type PuzzlePosition,
 } from "../lib/song-puzzle/model";
 import type { SolveProgress, SolveResult } from "../lib/song-puzzle/solver";
+import { LazyImages } from "./ui/lazy-images";
 interface Song {
   labels: Record<Locale, string>;
   band: unknown;
@@ -45,6 +46,7 @@ export class SongPuzzle extends LitElement {
   declare locale: string;
   private server = "intl";
   private songs: Song[] = [];
+  private readonly images = new LazyImages();
   private song = "";
   private query = "";
   private pickerOpen = false;
@@ -110,6 +112,7 @@ export class SongPuzzle extends LitElement {
   disconnectedCallback() {
     window.removeEventListener("haneoka:locale-ready", this.localeReady);
     this.catalogController?.abort();
+    this.images.disconnect();
     this.clearDrag();
     this.cancel();
     this.pauseReplay();
@@ -132,6 +135,7 @@ export class SongPuzzle extends LitElement {
     for (const song of this.songs) song.name = song.labels[this.locale as Locale] || song.id;
   }
   protected updated() {
+    this.images.observe(this);
     const dialog = this.querySelector<HTMLDialogElement>("dialog.selection-pane");
     if (this.pickerOpen && dialog?.isConnected && !dialog.open) dialog.showModal();
   }

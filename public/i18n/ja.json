@@ -45,7 +45,8 @@
       "savePose": "ポーズを保存",
       "rename": "名前を変更",
       "confirm": "確認",
-      "moreActions": "その他のオプション"
+      "moreActions": "その他のオプション",
+      "reload": "再読み込み"
     },
     "fields": {
       "duration": "再生時間",
@@ -82,7 +83,8 @@
       "captureFailed": "画像を保存できませんでした。もう一度お試しください。",
       "captureCopyFailed": "画像をコピーできませんでした。ダウンロードをご利用ください。",
       "metadataUnavailable": "モデル情報の一部を読み込めませんでした。",
-      "requestTimedOut": "通信がタイムアウトしました。もう一度お試しください。"
+      "requestTimedOut": "通信がタイムアウトしました。もう一度お試しください。",
+      "updateAvailable": "新しいバージョンがあります"
     },
     "layout": {
       "ascending": "昇順",
@@ -254,7 +256,9 @@
     "gekisouStages": "撃奏区間",
     "missions": "ミッション",
     "battle": "バトル",
-    "media": "メディア"
+    "media": "メディア",
+    "games": "ゲーム",
+    "gbpArchive": "ガルパ資料"
   },
   "settings": {
     "labels": {
@@ -691,7 +695,8 @@
         "gekisouPhase1": "撃奏区間1",
         "gekisouPhase2": "撃奏区間2",
         "gekisouPhase3": "撃奏区間3",
-        "gekisouType": "撃奏タイプ"
+        "gekisouType": "撃奏タイプ",
+        "scatter": "散布図"
       }
     },
     "characters": {
@@ -1042,6 +1047,41 @@
       "catalogTestServer": "テスト環境",
       "catalogViewingServerData": "{server}のデータを表示しています",
       "catalogFiltersUnavailable": "追加のカード絞り込み情報を読み込めませんでした。カードは引き続き表示できます。"
+    },
+    "songProgress": {
+      "title": "楽曲クリア状況",
+      "notCleared": "未クリア",
+      "cleared": "クリア",
+      "fullCombo": "FULL COMBO",
+      "allPerfect": "ALL PERFECT",
+      "summary": "集計",
+      "byLevel": "レベル別",
+      "charts": "譜面数",
+      "status": "プレイ状況"
+    },
+    "songGuess": {
+      "title": "楽曲当て",
+      "jacket": "ジャケット",
+      "next": "次へ",
+      "skip": "スキップ",
+      "choices": "選択肢",
+      "anyBand": "全楽曲",
+      "sameBand": "同じバンド",
+      "played": "出題数",
+      "firstTry": "一発正解",
+      "streak": "連続正解",
+      "best": "最高連続正解"
+    },
+    "sonolus": {
+      "title": "Sonolus",
+      "open": "Sonolusで開く",
+      "copy": "サーバーアドレスをコピー",
+      "copied": "コピーしました",
+      "levels": "譜面",
+      "playlists": "プレイリスト",
+      "random": "ランダム",
+      "newest": "新着",
+      "shuffle": "シャッフル"
     }
   },
   "story": {

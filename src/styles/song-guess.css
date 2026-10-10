@@ -1,0 +1,98 @@
+/* Song guess: the jacket crop and its choices beside the score panel. */
+@layer pages {
+  .song-guess {
+    width: min(100%, var(--content-max));
+    margin-inline: auto;
+    padding: 8px var(--md-comp-page-inline-space) 24px;
+  }
+  .song-guess__layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+    align-items: start;
+    gap: var(--md-sys-spacing-5);
+  }
+  .song-guess__stage {
+    display: grid;
+    min-width: 0;
+    justify-items: center;
+    gap: var(--md-sys-spacing-4);
+    padding: var(--md-sys-spacing-5);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .song-guess__jacket {
+    width: min(100%, 360px);
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-highest);
+  }
+  .song-guess__jacket img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
+  }
+  .song-guess__options {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--md-sys-spacing-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .song-guess__option {
+    display: flex;
+    width: 100%;
+    min-height: 56px;
+    align-items: center;
+    gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-large);
+    color: var(--md-sys-color-on-surface);
+    background: var(--md-sys-color-surface);
+    font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) /
+      var(--md-sys-typescale-title-small-line-height) var(--app-font);
+    text-align: start;
+    cursor: pointer;
+  }
+  .song-guess__option:disabled {
+    cursor: default;
+  }
+  .song-guess__option[data-state="wrong"] {
+    color: var(--md-sys-color-on-surface-variant);
+    background: var(--md-sys-color-surface-container);
+    text-decoration: line-through;
+  }
+  .song-guess__option[data-state="correct"] {
+    border-color: transparent;
+    color: var(--md-sys-color-on-primary-container);
+    background: var(--md-sys-color-primary-container);
+  }
+  .song-guess__bar {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--md-sys-spacing-2);
+  }
+  .song-guess__panel {
+    padding: var(--md-sys-spacing-4);
+  }
+  @media (max-width: 839px) {
+    .song-guess__layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 599px) {
+    .song-guess__options {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .song-guess__stage {
+      padding: var(--md-sys-spacing-4);
+    }
+  }
+}

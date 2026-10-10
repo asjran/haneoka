@@ -1,0 +1,20 @@
+---
+import Base from "../../layouts/Base.astro";
+import AppShell from "../../components/AppShell.astro";
+import SongGuessPage from "../../components/pages/SongGuessPage.astro";
+import { LOCALES, type Locale } from "../../i18n/locales";
+import { t } from "../../i18n/messages";
+
+export function getStaticPaths() {
+  return LOCALES.map((locale) => ({ params: { locale }, props: { locale } }));
+}
+const { locale } = Astro.props as { locale: Locale };
+const route = "/song-guess";
+const title = t(locale, "catalog.songGuess.title", "Guess the song");
+---
+
+<Base locale={locale} route={route} title={title} titleKey="catalog.songGuess.title">
+  <AppShell locale={locale} route={route} title={title} titleKey="catalog.songGuess.title">
+    <SongGuessPage locale={locale} />
+  </AppShell>
+</Base>

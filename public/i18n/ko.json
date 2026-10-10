@@ -45,7 +45,8 @@
       "savePose": "포즈 저장",
       "rename": "이름 변경",
       "confirm": "확인",
-      "moreActions": "옵션 더보기"
+      "moreActions": "옵션 더보기",
+      "reload": "새로고침"
     },
     "fields": {
       "duration": "재생 시간",
@@ -82,7 +83,8 @@
       "captureFailed": "이미지를 캡처하지 못했습니다. 다시 시도해 주세요.",
       "captureCopyFailed": "이미지를 복사하지 못했습니다. 다운로드를 이용해 주세요.",
       "metadataUnavailable": "일부 모델 정보를 불러오지 못했습니다.",
-      "requestTimedOut": "요청 시간이 초과되었습니다. 다시 시도해 주세요."
+      "requestTimedOut": "요청 시간이 초과되었습니다. 다시 시도해 주세요.",
+      "updateAvailable": "새 버전이 있습니다"
     },
     "layout": {
       "ascending": "오름차순",
@@ -254,7 +256,9 @@
     "gekisouStages": "격주 구간",
     "missions": "미션",
     "battle": "배틀",
-    "media": "미디어"
+    "media": "미디어",
+    "games": "게임",
+    "gbpArchive": "GBP 자료"
   },
   "settings": {
     "labels": {
@@ -691,7 +695,8 @@
         "gekisouPhase1": "격주 구간 1",
         "gekisouPhase2": "격주 구간 2",
         "gekisouPhase3": "격주 구간 3",
-        "gekisouType": "격주 유형"
+        "gekisouType": "격주 유형",
+        "scatter": "산점도"
       }
     },
     "characters": {
@@ -1042,6 +1047,41 @@
       "catalogTestServer": "테스트 환경",
       "catalogViewingServerData": "{server} 데이터를 표시하고 있습니다",
       "catalogFiltersUnavailable": "추가 카드 필터 정보를 불러오지 못했습니다. 카드는 계속 확인할 수 있습니다."
+    },
+    "songProgress": {
+      "title": "악곡 진행도",
+      "notCleared": "미클리어",
+      "cleared": "클리어",
+      "fullCombo": "FULL COMBO",
+      "allPerfect": "ALL PERFECT",
+      "summary": "집계",
+      "byLevel": "레벨별",
+      "charts": "채보 수",
+      "status": "플레이 상태"
+    },
+    "songGuess": {
+      "title": "노래 맞히기",
+      "jacket": "재킷",
+      "next": "다음",
+      "skip": "건너뛰기",
+      "choices": "선택지",
+      "anyBand": "전체 곡",
+      "sameBand": "같은 밴드",
+      "played": "출제 수",
+      "firstTry": "한 번에 정답",
+      "streak": "연속 정답",
+      "best": "최고 연속"
+    },
+    "sonolus": {
+      "title": "Sonolus",
+      "open": "Sonolus에서 열기",
+      "copy": "서버 주소 복사",
+      "copied": "복사했습니다",
+      "levels": "채보",
+      "playlists": "플레이리스트",
+      "random": "랜덤",
+      "newest": "최신",
+      "shuffle": "다시 뽑기"
     }
   },
   "story": {

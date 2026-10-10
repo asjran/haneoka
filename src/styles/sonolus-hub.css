@@ -1,0 +1,51 @@
+/* Sonolus: the server banner with its address, then what the server serves. */
+@layer pages {
+  .sonolus-hub {
+    width: min(100%, var(--content-max));
+    margin-inline: auto;
+    padding: 8px var(--md-comp-page-inline-space) 24px;
+  }
+  .sonolus-hub__hero {
+    display: grid;
+    overflow: hidden;
+    padding: 0;
+    border-radius: var(--md-sys-shape-corner-extra-large);
+  }
+  .sonolus-hub__banner {
+    display: block;
+    width: 100%;
+    aspect-ratio: 3 / 1;
+    object-fit: cover;
+    background: var(--md-sys-color-surface-container-highest);
+  }
+  .sonolus-hub__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+  }
+  .sonolus-hub__actions > img {
+    border-radius: var(--md-sys-shape-corner-medium);
+  }
+  .sonolus-hub__server {
+    padding: 6px 12px;
+    border-radius: var(--md-sys-shape-corner-small);
+    color: var(--md-sys-color-on-surface);
+    background: var(--md-sys-color-surface-container-high);
+    font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) / 1.4 ui-monospace, monospace;
+  }
+  .sonolus-hub__open {
+    margin-inline-start: auto;
+  }
+  .sonolus-hub__more {
+    display: flex;
+    justify-content: center;
+  }
+  @media (max-width: 599px) {
+    .sonolus-hub__open {
+      width: 100%;
+      margin-inline-start: 0;
+    }
+  }
+}
