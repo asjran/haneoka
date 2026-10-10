@@ -21,17 +21,14 @@ import { LazyImages } from "./ui/lazy-images";
 import { icon } from "./ui/icon";
 import { DEFAULT_SETTINGS, type BoxFilters, type BuildSettings, type Tab } from "./team-builder/types";
 import { renderBuildTab } from "./team-builder/build-tab";
-import { renderActivityTab } from "./team-builder/activity-tab";
-import { goalForTab, isActivityGoal, mergeBuildSettings, restoreBuildSettings } from "./team-builder/navigation";
-import { renderBoxTab, renderCardEditor } from "./team-builder/box-tab";
+import { snackbar } from "../lib/snackbar";
+import { renderBoxTab, renderCardEditor, renderUndoAction } from "./team-builder/box-tab";
 import { renderAccountTab } from "./team-builder/account-tab";
 import { renderTeamsTab } from "./team-builder/teams-tab";
 import { renderSongPicker, type SongPickerState } from "./team-builder/song-picker";
 import { ImportController } from "./team-builder/importers";
 import { Catalog } from "./team-builder/catalog";
-import { PtController } from "./team-builder/pt-tab";
-import { inspectEngineInput, type InputIssue } from "../lib/team-builder/engine/input-eligibility";
-import { renderInputReview } from "./team-builder/input-review";
+import { PtController, renderPtTab } from "./team-builder/pt-tab";
 
 /** Message paths for this view's finite control/metadata identifiers. */
 const uiLabelPaths: Readonly<Record<string, string>> = {
@@ -94,13 +91,6 @@ export class TeamBuilder extends LitElement {
   slotFilters: BoxFilters = { kind: "members", query: "", show: "all", bands: [], characters: [], attributes: [], rarities: [], facets: {} };
   slotFiltersOpen = false;
   notice = "";
-  inputIssues: InputIssue[] | null = null;
-  completeInputs() {
-    const request = this.request();
-    if (!request || !this.master) { this.setTab("build"); return; }
-    this.inputIssues = inspectEngineInput(this.master, { ...request, inputIntent: "actual" }).issues;
-    this.requestUpdate();
-  }
   private readonly images = new LazyImages();
   private unsubscribe?: () => void;
   private loadedServer = "";
@@ -122,7 +112,6 @@ export class TeamBuilder extends LitElement {
   }
   disconnectedCallback() {
     super.disconnectedCallback();
-    this.imports.dispose();
     this.dataController?.abort();
     this.visualsController?.abort();
     this.images.disconnect();
@@ -183,8 +172,6 @@ export class TeamBuilder extends LitElement {
 
   async load(server: string) {
     if (this.loadedServer === server) return;
-    this.imports.dispose();
-    this.inputIssues = null;
     this.dataController?.abort();
     const loadController = this.dataController = new AbortController();
     this.visualsController?.abort();
@@ -244,15 +231,12 @@ export class TeamBuilder extends LitElement {
   private adopt(snapshot: BoxSnapshot) {
     const ownerChanged = this.snapshot?.owner !== snapshot.owner;
     if (ownerChanged) this.pt.dispose();
-    if (this.snapshot && this.snapshot.owner !== snapshot.owner) { this.imports.dispose(); this.inputIssues = null; }
     const versionChanged = this.snapshot?.version !== snapshot.version;
     this.snapshot = snapshot;
     if (versionChanged) {
       this.view = readBox(snapshot.entries);
       const stored = this.view.prefs[SETTINGS_KEY.slice(5)];
-      if (stored && typeof stored === "object") this.settings = restoreBuildSettings(stored as Partial<BuildSettings>);
-      if (this.tab === "build" && isActivityGoal(this.settings.goal)) this.tab = "pt";
-      this.settings = { ...this.settings, goal: goalForTab(this.settings, this.tab) };
+      if (stored && typeof stored === "object") this.settings = { ...DEFAULT_SETTINGS, ...(stored as Partial<BuildSettings>) };
     }
     this.requestUpdate();
     void this.pt.restore();
@@ -269,14 +253,12 @@ export class TeamBuilder extends LitElement {
     }
   }
   updateSettings(patch: Partial<BuildSettings>) {
-    this.settings = mergeBuildSettings(this.settings, patch);
+    this.settings = { ...this.settings, ...patch };
     this.write([{ key: SETTINGS_KEY, value: this.settings as unknown as BoxValue }]);
     this.requestUpdate();
   }
   setTab(tab: Tab) {
     this.tab = tab;
-    const goal = goalForTab(this.settings, tab);
-    if (goal !== this.settings.goal) this.updateSettings({ goal });
     this.requestUpdate();
     void this.updateComplete.then(() => this.querySelector<HTMLElement>(".tb-tabpanel")?.focus({ preventScroll: true }));
   }
@@ -364,23 +346,23 @@ export class TeamBuilder extends LitElement {
     const cards = this.engineCards();
     const s = this.settings;
     const theoretical = s.scope === "theoretical";
+    const memberKeys = new Set(cards.members.map((row) => row.key));
+    const snapKeys = new Set(cards.snaps.map((row) => row.key));
     const locked = (kind: "m" | "s") =>
       theoretical ? [] : [...(kind === "m" ? this.view!.members : this.view!.snaps).values()].filter((row) => row.use && row.lock).map((row) => `${kind}${row.cardId}`);
     return {
       members: cards.members,
       snaps: cards.snaps,
       player: this.view.player,
-      inputIntent: theoretical ? "simulation" : s.inputIntent,
-      knownOnly: !theoretical && s.knownOnly,
       unknownPolicy: theoretical ? "max" : s.unknownPolicy,
       goal,
       constraints: {
-        requiredMembers: locked("m"),
+        requiredMembers: locked("m").filter((key) => memberKeys.has(key)),
         excludedMembers: [],
-        requiredSnaps: locked("s"),
+        requiredSnaps: locked("s").filter((key) => snapKeys.has(key)),
         excludedSnaps: [],
-        leader: s.leader !== null ? `m${s.leader}` : null,
-        bindings: s.bindings.map(([member, snap]) => [`m${member}`, snap === null ? null : `s${snap}`]),
+        leader: s.leader !== null && memberKeys.has(`m${s.leader}`) ? `m${s.leader}` : null,
+        bindings: s.bindings.filter(([member]) => memberKeys.has(`m${member}`)).map(([member, snap]) => [`m${member}`, snap === null ? null : `s${snap}`]),
         noSnaps: s.noSnaps,
         minBonusPercent: s.minBonus,
       },
@@ -391,9 +373,7 @@ export class TeamBuilder extends LitElement {
   async run() {
     const request = this.request();
     if (!request || !this.engine || this.running) return;
-    const review = inspectEngineInput(this.master!, request);
-    if (review.issues.length) { this.inputIssues = review.issues; this.requestUpdate(); return; }
-    if (review.omitted.length) this.notice = this.t("importFlow.omitted", "This calculation omits {count} incomplete cards. Saved inventory and locks are unchanged.", { count: review.omitted.length });
+    const settings = { ...this.settings };
     this.running = true;
     this.error = "";
     this.progress = { done: 0, total: 1, started: performance.now() };
@@ -481,21 +461,18 @@ export class TeamBuilder extends LitElement {
     }
     if (this.pt.correcting && this.tab !== "pt") this.pt.sync();
     const panel =
-      this.tab === "pt" ? renderActivityTab(this) : this.tab === "build" ? renderBuildTab(this) : this.tab === "box" ? renderBoxTab(this) : this.tab === "account" ? renderAccountTab(this) : renderTeamsTab(this);
+      this.tab === "pt" ? renderPtTab(this) : this.tab === "build" ? renderBuildTab(this) : this.tab === "box" ? renderBoxTab(this) : this.tab === "account" ? renderAccountTab(this) : renderTeamsTab(this);
     return html`
       <div class="team-builder tb">
         <header class="tb-header">
           ${this.renderTabs()}
           ${this.renderSync()}
         </header>
-        ${this.notice ? html`<div class="banner" role="status"><span>${this.notice}</span><div class="banner__actions"><button class="button button--text" type="button" @click=${() => this.completeInputs()}>${this.t("importFlow.complete", "Complete required information")}</button><button class="button button--text" type="button" @click=${() => { this.notice = ""; this.requestUpdate(); }}>${this.common("common.actions.close", "Close")}</button></div></div>` : nothing}
-        ${this.catalogMetadataError ? html`<div class="banner" role="status"><span>${this.common("catalog.availability.catalogFiltersUnavailable", "Additional card filters could not be loaded. Your cards are still available.")}</span><button class="button button--text" type="button" @click=${() => void this.loadCatalogMetadata()}>${this.common("common.actions.retry", "Retry")}</button></div>` : nothing}
-        ${this.pt.correcting && this.tab !== "pt" ? html`<div class="banner" role="status"><span>${this.t("pt.correctionHelp", "Editing an input for event rewards")}</span><button class="button button--text" type="button" @click=${() => { this.setTab("pt"); void this.updateComplete.then(() => this.querySelector<HTMLElement>("#pt-issues")?.focus()); }}>${this.t("pt.back", "Back")}</button></div>` : nothing}
         <section id="tb-panel" class="tb-tabpanel" role="tabpanel" tabindex="-1">${panel}</section>
         ${renderCardEditor(this)}
         ${this.songPicker ? renderSongPicker(this) : nothing}
         ${this.imports.render()}
-        ${renderInputReview(this)}
+        ${this.renderSnackbar()}
       </div>
     `;
   }

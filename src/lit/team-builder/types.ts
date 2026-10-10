@@ -3,11 +3,7 @@ import type { Criterion } from "../../lib/team-builder/engine/objectives";
 
 export type Tab = "build" | "box" | "account" | "teams" | "pt";
 export type GoalKind = "score" | "gekiso" | "power" | "event" | "potential" | "plan";
-export type BuildGoal = Exclude<GoalKind, "event" | "plan">;
-export type ActivityMode = "recommend" | "event" | "plan";
 export interface BuildSettings {
-  buildGoal: BuildGoal;
-  activityMode: ActivityMode;
   ptMode: "solo" | "gekiso";
   ptJust: number;
   ptLuckSamples: number;
@@ -37,8 +33,6 @@ export interface BuildSettings {
   planChallengeSongs: SongRef[];
   k: number;
   unknownPolicy: "max" | "min";
-  inputIntent: "actual" | "simulation";
-  knownOnly: boolean;
   scope: "box" | "theoretical";
   leader: number | null;
   /** member card → snap card (null keeps it empty). */
@@ -54,8 +48,6 @@ export interface BuildSettings {
   gekisoRank: number;
 }
 export const DEFAULT_SETTINGS: BuildSettings = {
-  buildGoal: "score",
-  activityMode: "recommend",
   ptMode: "solo",
   ptJust: 25,
   ptLuckSamples: 32,
@@ -81,8 +73,6 @@ export const DEFAULT_SETTINGS: BuildSettings = {
   planChallengeSongs: [],
   k: 5,
   unknownPolicy: "max",
-  inputIntent: "actual",
-  knownOnly: false,
   scope: "box",
   leader: null,
   bindings: [],

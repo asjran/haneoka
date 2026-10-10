@@ -41,6 +41,44 @@
     align-content: start;
     gap: var(--md-sys-spacing-2);
   }
+  .team-builder__crops {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+    gap: var(--md-sys-spacing-4);
+  }
+  .team-builder__crop {
+    display: grid;
+    gap: var(--md-sys-spacing-1);
+    margin: 0;
+  }
+  .team-builder__crop-frame {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-surface-container-highest);
+  }
+  .team-builder__crop-frame img {
+    display: block;
+    width: 100%;
+    max-height: 50dvh;
+    object-fit: contain;
+  }
+  .team-builder__crop-frame span {
+    position: absolute;
+    outline: 2px solid var(--md-sys-color-primary);
+    box-shadow: 0 0 0 100vmax rgb(0 0 0 / 55%);
+    pointer-events: none;
+  }
+  .team-builder__crop-side {
+    display: grid;
+    grid-template-columns: 4rem minmax(0, 1fr);
+    align-items: center;
+    font-size: var(--md-sys-typescale-label-large-size);
+    font-weight: var(--md-sys-typescale-label-large-weight);
+  }
+  .team-builder__crop-side md-slider {
+    width: 100%;
+  }
   .team-builder__screenshot-review .collection--member {
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   }
@@ -130,15 +168,6 @@
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: none;
-  }
-  .tb-activity-modes {
-    min-width: 0;
-    margin: 0;
-    padding: 0;
-    border: 0;
-  }
-  .tb-activity-modes .segmented > button {
-    min-height: var(--md-comp-control-height-touch);
   }
   .tb-sync {
     display: inline-flex;

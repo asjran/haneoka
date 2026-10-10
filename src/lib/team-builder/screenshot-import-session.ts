@@ -73,7 +73,7 @@ export function createScreenshotImportSession(options: ScreenshotImportSessionOp
   }));
   const refreshCanConfirm = () => {
     state.canConfirm = false;
-    if (!state.bindingConfirmed || !state.preview || !state.confirmations.some(choice => choice.include)) return;
+    if (!state.preview || !state.confirmations.some(choice => choice.include)) return;
     try {
       applyConfirmedScreenshotImport(state.preview, inventory, data, context, state.confirmations, state.existingValues);
       state.canConfirm = true;
@@ -152,13 +152,6 @@ export function createScreenshotImportSession(options: ScreenshotImportSessionOp
     include(key: string, include: boolean) {
       if (closed || state.phase !== "review" || !state.preview?.cards.some(card => card.key === key)) throw new RangeError("recognition-review-selection");
       state = { ...state, confirmations: state.confirmations.map(choice => choice.key === key ? { ...choice, include } : choice) };
-      refreshCanConfirm(); emit();
-    },
-    bind(bindingConfirmed: boolean) {
-      if (closed || state.phase !== "review" || !state.preview) throw new RangeError("recognition-review-selection");
-      state = { ...state, bindingConfirmed, ...(bindingConfirmed && !state.bindingConfirmed ? {
-        existingValues: "updates" as const, confirmations: state.confirmations.map(choice => ({ ...choice, include: true })),
-      } : {}) };
       refreshCanConfirm(); emit();
     },
     existingValues(existingValues: "keep" | "overwrite" | "updates") {

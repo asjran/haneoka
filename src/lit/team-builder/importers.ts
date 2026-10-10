@@ -106,7 +106,7 @@ export class ImportController {
     this.boxStore = this.host.store;
     this.boxOwner = this.host.snapshot?.owner;
     this.boxBase = viewInventory(this.host, this.host.view);
-    this.box = { phase: "select", candidates: [], selectedCandidateId: "", preview: null, confirmation: { cards: [], maps: [] }, serverLabel: "", bindingConfirmed: false, progress: null, error: null, canConfirm: false };
+    this.box = { phase: "select", candidates: [], selectedCandidateId: "", preview: null, confirmation: { cards: [], maps: [] }, serverLabel: "", progress: null, error: null, canConfirm: false };
     this.box.server = context.server;
     this.box.usbChannel = ANDROID_CHANNELS.find(channel => channel.server === context.server)?.packageId;
     const generation = this.generation;
@@ -129,7 +129,6 @@ export class ImportController {
       const files = await readAndroidFiles(this.usb.createUsbReader(), channel, controller.signal);
       if (generation !== this.generation || !this.box) return;
       if (!files) { this.box = { ...this.box, phase: "select" }; return; }
-      this.box = { ...this.box, readAt: Date.now() };
       await this.parse({ files });
     } catch (error) {
       if (generation === this.generation && this.box) this.box = { ...this.box, phase: "select", error: error instanceof BoxImportError ? error.code : "device_read_failed" };
@@ -162,8 +161,8 @@ export class ImportController {
       if (isInventoryListInput(input)) {
         const preview = await previewInventoryListInput(input, this.boxBase, this.host.data!, this.boxContext, this.host.filters.kind === "members" ? "members" : "snapshots", { signal: controller.signal });
         if (generation !== this.generation || !this.box) return;
-        this.box = { ...this.box, phase: "review", selectedCandidateId: preview.candidateId, preview, confirmation: { cards: preview.cards.map((row) => ({ key: row.key, include: false })), maps: [] } };
-        this.reconfirm(this.box.confirmation, false);
+        this.box = { ...this.box, phase: "review", selectedCandidateId: preview.candidateId, preview, confirmation: { cards: preview.cards.map((row) => ({ key: row.key, include: true })), maps: [] } };
+        this.reconfirm(this.box.confirmation);
         return;
       }
       const parsed = await parseBoxLocally(input, {
@@ -195,20 +194,20 @@ export class ImportController {
     if (!state || !candidate || !this.boxBase || !this.boxContext) return;
     try {
       const preview = previewBoxImport(candidate, this.boxBase, this.host.data!, this.boxContext);
-      // Defaults are selected only after the same-account acknowledgment.
-      this.box = { ...state, phase: "review", selectedCandidateId: id, preview, confirmation: { cards: preview.cards.map((row) => ({ key: row.key, include: false })), maps: preview.maps.map((row) => ({ key: row.key, include: false })) } };
-      this.reconfirm(this.box.confirmation, false);
+      // Everything new is pre-selected; the review is about values, not about ticking each card.
+      this.box = { ...state, phase: "review", selectedCandidateId: id, preview, confirmation: { cards: preview.cards.map((row) => ({ key: row.key, include: true })), maps: preview.maps.map((row) => ({ key: row.key, include: true })) } };
+      this.reconfirm(this.box.confirmation);
     } catch (error) {
       this.box = { ...state, phase: "choose", error: error instanceof BoxImportError ? error.code : "box_review_context" };
     }
     this.host.requestUpdate();
   }
-  private reconfirm(confirmation: BoxConfirmation, bindingConfirmed = this.box?.bindingConfirmed ?? false) {
+  private reconfirm(confirmation: BoxConfirmation) {
     const state = this.box;
     if (!state?.preview || !this.boxBase || !this.boxContext) return;
     let canConfirm = false,
       error: string | null = null;
-    if (bindingConfirmed && (confirmation.cards.some((row) => row.include) || confirmation.maps.some((row) => row.include) || confirmation.modifiers?.some(row => row.include)))
+    if (confirmation.cards.some((row) => row.include) || confirmation.maps.some((row) => row.include))
       try {
         if (!buildBoxImportReview(state.preview, confirmation).canConfirm) throw new BoxImportError("box_unresolved_values");
         applyConfirmedBoxImport(this.boxBase, state.preview, confirmation, this.host.data!, this.boxContext);
@@ -216,7 +215,7 @@ export class ImportController {
       } catch (failure) {
         error = failure instanceof BoxImportError ? failure.code : "box_invalid_confirmed_inventory";
       }
-    this.box = { ...state, confirmation, bindingConfirmed, canConfirm, error };
+    this.box = { ...state, confirmation, canConfirm, error };
     this.host.requestUpdate();
   }
   private confirmBox() {
@@ -242,7 +241,11 @@ export class ImportController {
     return this.host.t(`boxImport.${key}`, fallback, params);
   }
   private boxError(code: string) {
-    if (code.startsWith("device_")) return this.text(code, "Device reading stopped. Check permission, close other ADB tools, or use a file/text export.");
+    if (code === "device_unsupported") return this.text("deviceUnsupported", "This browser cannot use USB devices.");
+    if (code === "device_permission" || code === "device_auth_failed") return this.text("devicePermission", "Allow USB debugging on the phone.");
+    if (code === "device_busy") return this.text("deviceBusy", "Another ADB program is using the phone.");
+    if (["device_channel", "device_path", "device_empty"].includes(code)) return this.text("deviceEmpty", "No game data found on the phone.");
+    if (code.startsWith("device_")) return this.text("deviceFailed", "Could not read the phone.");
     if (code === "box_review_changed") return this.text("changed", "Your account, data or inventory changed. Open the import again.");
     if (code === "box_no_player") return this.text("empty", "No supported Box records found.");
     if (code === "box_invalid_list") return this.text("invalidList", "Choose one CSV or TSV file up to 1 MiB, or paste a card list with IDs, names and levels.");
@@ -382,10 +385,6 @@ export class ImportController {
         channel: value => { if (this.box && ANDROID_CHANNELS.some(channel => channel.packageId === value && channel.server === this.box?.server)) { this.box = { ...this.box, usbChannel: value }; host.requestUpdate(); } },
         parseText: (text) => void this.parse({ text }),
         selectCandidate: (id) => this.select(id),
-        bind: (value) => this.reconfirm(value && !state.bindingConfirmed && state.preview ? {
-          ...state.confirmation, existingValues: "updates", cards: state.preview.cards.map(row => ({ key: row.key, include: !state.preview!.issues.some(issue => issue.kind === row.kind && issue.id === row.cardId) })),
-          maps: state.preview.maps.map(row => ({ key: row.key, include: true })),
-        } : state.confirmation, value),
         confirmation: (confirmation) => this.reconfirm(confirmation),
         close: () => this.closeBox(),
         cancel: () => this.closeBox(),
@@ -426,7 +425,13 @@ export class ImportController {
           host.requestUpdate();
         },
         close: () => this.closeScreenshots(),
-        cancel: () => void session.cancel(),
+        cancel: () => {
+          if (this.screenshot?.phase !== "preparing") return void session.cancel();
+          this.imageController?.abort();
+          this.clearLocalImages();
+          this.screenshot = session.state() as ScreenshotImportDialogState;
+          host.requestUpdate();
+        },
         correct: (image, observation) => {
           const row = this.screenshot?.results?.[image]?.observations[observation];
           if (row) this.correcting = { image, observation, kind: row.kind, query: "" };
@@ -434,7 +439,6 @@ export class ImportController {
         },
         candidate: (image, observation, id) => session.correct(image, observation, id),
         include: (key, value) => session.include(key, value),
-        bind: value => session.bind(value),
         level: (key, value, source) => session.level(key, value, source),
         existingValues: (value) => session.existingValues(value),
         expandedSource: (key) => this.expanded[`s-${key}`] ?? false,

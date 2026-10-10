@@ -38,8 +38,7 @@ function inputs(host: TeamBuilder) {
     const owned = host.view!.snaps.get(id);
     snaps.push({ key: `s${id}`, cardId: id, level: owned?.level ?? null, rank: owned?.rank ?? null });
   }
-  return { members, snaps, player: request.player, unknownPolicy: request.unknownPolicy,
-    inputIntent: host.settings.scope === "theoretical" ? "simulation" as const : host.settings.inputIntent };
+  return { members, snaps, player: request.player, unknownPolicy: request.unknownPolicy };
 }
 async function evaluate(host: TeamBuilder) {
   if (!manualReady(host) || !host.engine || !host.settings.songs.length || host.running) return;
