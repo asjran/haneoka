@@ -146,10 +146,12 @@ export class Catalog {
     const unknown = (value: number | null) => (value === null ? (policy === "max" ? "★" : "?") : String(value));
     if (kind === "members") {
       const row = owned as OwnedMember;
-      return [`Lv${unknown(row.level)}`, `${t("trainingShort", "T")}${unknown(row.awake)}`, `${t("rankShort", "A")}${unknown(row.rank)}`, `${t("skillShort", "SL")}${unknown(row.skill)}`].join(" ");
+      const cap = this.memberLimits(row.cardId, row.awake)?.levelCap;
+      return [`Lv${unknown(row.level === null || cap === undefined ? row.level : Math.min(row.level, cap))}`, `${t("trainingShort", "T")}${unknown(row.awake)}`, `${t("rankShort", "A")}${unknown(row.rank)}`, `${t("skillShort", "SL")}${unknown(row.skill)}`].join(" ");
     }
     const row = owned as OwnedSnap;
-    return [`Lv${unknown(row.level)}`, `${t("rankShort", "A")}${unknown(row.rank)}`].join(" ");
+    const cap = this.snapLimits(row.cardId, row.rank)?.levelCap;
+    return [`Lv${unknown(row.level === null || cap === undefined ? row.level : Math.min(row.level, cap))}`, `${t("rankShort", "A")}${unknown(row.rank)}`].join(" ");
   }
   memberLimits(id: number, awake: number | null) {
     const card = this.master.members.get(id);

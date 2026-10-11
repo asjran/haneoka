@@ -2250,7 +2250,8 @@
       "firstSkill": "첫 스킬별 최적 순서",
       "topOrders": "상위 순서",
       "orderRank": "순위",
-      "orderGap": "최적과 차이"
+      "orderGap": "최적과 차이",
+      "maxLevel": "최대 레벨"
     },
     "calendar": {
       "title": "달력",

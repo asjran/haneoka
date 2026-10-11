@@ -208,8 +208,16 @@ export function renderCardEditor(host: TeamBuilder): TemplateResult | typeof not
   };
   const p = prefix(kind);
   const owned = kind === "members" ? host.view.members.get(cardId) : host.view.snaps.get(cardId);
-  const write = (field: string, value: BoxValue) =>
-    host.write([...(owned ? [] : [{ key: `${p}.${cardId}.own`, value: true }, { key: `${p}.${cardId}.use`, value: true }]), { key: `${p}.${cardId}.${field}`, value }]);
+  const write = (field: string, value: BoxValue) => {
+    const changes = [{ key: `${p}.${cardId}.${field}`, value }];
+    // Lowering training or limit break lowers the cap; a level above it cannot exist in the game.
+    const capField = kind === "members" ? "awk" : "rnk";
+    if (field === capField && typeof value === "number" && owned?.level != null) {
+      const cap = (kind === "members" ? catalog.memberLimits(cardId, value) : catalog.snapLimits(cardId, value))?.levelCap;
+      if (cap !== undefined && owned.level > cap) changes.push({ key: `${p}.${cardId}.lvl`, value: cap });
+    }
+    host.write([...(owned ? [] : [{ key: `${p}.${cardId}.own`, value: true }, { key: `${p}.${cardId}.use`, value: true }]), ...changes]);
+  };
   const fieldKey = (field: string) => `${kind === "members" ? "m" : "s"}${cardId}.${({ awk: "awake", lvl: "level", rnk: "rank", sk: "liveSkillLevel", gsk: "gekisoSkillLevel" } as Record<string,string>)[field] ?? field}`;
   const steps = (label: string, field: string, value: number | null, max: number) => ptField(host, fieldKey(field), html`
     <div class="tb-field">
@@ -225,9 +233,12 @@ export function renderCardEditor(host: TeamBuilder): TemplateResult | typeof not
   `);
   const levelField = (value: number | null, cap: number) => ptField(host, fieldKey("lvl"), html`
     <div class="tb-field">
-      <span class="tb-field__label">${host.t("level", "Level")}<output>${value ?? "—"} / ${cap}</output></span>
-      <md-slider class="md3-slider" labeled min="1" max=${cap} .value=${Math.min(value ?? cap, cap)} aria-label=${host.t("level", "Level")}
-        @change=${(event: Event) => write("lvl", Number((event.target as HTMLInputElement).value))}></md-slider>
+      <span class="tb-field__label">${host.t("level", "Level")}<output>${value === null ? "—" : Math.min(value, cap)} / ${cap}</output></span>
+      <div class="tb-field__level">
+        <md-slider class="md3-slider" labeled min="1" max=${cap} .value=${Math.min(value ?? cap, cap)} aria-label=${host.t("level", "Level")}
+          @change=${(event: Event) => write("lvl", Number((event.target as HTMLInputElement).value))}></md-slider>
+        ${iconButton({ icon: "vertical_align_top", label: host.t("maxLevel", "Max level"), disabled: value === cap, onClick: () => write("lvl", cap) })}
+      </div>
     </div>
   `);
   let fields: TemplateResult;

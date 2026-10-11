@@ -328,6 +328,15 @@
     font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size) /
       var(--md-sys-typescale-label-large-line-height) var(--app-font);
   }
+  .tb-field__level {
+    display: flex;
+    align-items: center;
+    gap: var(--md-sys-spacing-1);
+  }
+  .tb-field__level md-slider {
+    flex: 1;
+    min-width: 0;
+  }
   .tb-field__label output {
     color: var(--md-sys-color-on-surface);
     font-variant-numeric: tabular-nums;

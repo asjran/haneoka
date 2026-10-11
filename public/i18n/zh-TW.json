@@ -2250,7 +2250,8 @@
       "firstSkill": "依首個技能的最佳順序",
       "topOrders": "前幾種順序",
       "orderRank": "排名",
-      "orderGap": "與最佳差"
+      "orderGap": "與最佳差",
+      "maxLevel": "最高等級"
     },
     "calendar": {
       "title": "日曆",

@@ -2250,7 +2250,8 @@
       "firstSkill": "先頭スキル別の最良順",
       "topOrders": "上位の順番",
       "orderRank": "順位",
-      "orderGap": "最良との差"
+      "orderGap": "最良との差",
+      "maxLevel": "最大レベル"
     },
     "calendar": {
       "title": "カレンダー",
