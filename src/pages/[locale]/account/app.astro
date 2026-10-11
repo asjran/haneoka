@@ -44,7 +44,9 @@ const title = t(locale, titleKey, "Sign in to the app");
   </AppShell>
 </Base>
 <script>
-  const CALLBACK = "haneoka://auth";
+  // The mobile app's scheme, or a desktop build's loopback listener (RFC 8252).
+  const requested = new URLSearchParams(location.search).get("redirect") || "";
+  const CALLBACK = /^http:\/\/(?:localhost|127\.0\.0\.1):\d{4,5}\/auth$/u.test(requested) ? requested : "haneoka://auth";
   const page = document.querySelector<HTMLElement>(".app-sign-in-page");
   const consent = document.querySelector<HTMLElement>("[data-app-consent]");
   const state = document.querySelector<HTMLElement>("[data-app-state]");
