@@ -276,7 +276,7 @@ const renderBranch = (
   localize: (value: LocalizedValue | null | undefined) => string,
 ): RenderResult => {
   const trimmed = branch.trim();
-  const quoted = trimmed.match(/^"([\s\S]*)"$/);
+  const quoted = trimmed.match(/^"([^"]*)"$/);
   if (quoted) return { resolved: true, value: quoted[1] || "" };
   const output: string[] = [];
   for (const part of trimmed.split(/\s*~\s*/)) {
