@@ -85,3 +85,7 @@
 	path = .dependencies/altair-plugin-sandbox
 	url = https://github.com/haneoka-gakuen/altair-plugin-sandbox.git
 	branch = main
+[submodule ".dependencies/game-data-exporter"]
+	path = .dependencies/game-data-exporter
+	url = https://github.com/haneoka-gakuen/game-data-exporter.git
+	branch = main

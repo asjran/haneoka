@@ -3,14 +3,14 @@ import "@material/web/checkbox/checkbox.js";
 import "@material/web/select/outlined-select.js";
 import "@material/web/select/select-option.js";
 import "@material/web/textfield/outlined-text-field.js";
-import type { BoxCandidate } from "../../lib/team-builder/box-import/types";
+import type { BoxCandidate } from "@haneoka/game-data-exporter";
 import type { BoxPreview } from "../../lib/team-builder/box-import/preview";
 import type { BoxConfirmation } from "../../lib/team-builder/box-import/merge";
 import { buildBoxImportReview, setBoxCardIncluded, setBoxField, setBoxMap, setBoxExistingValues, selectAvailableBoxItems, type BoxReviewField } from "../../lib/team-builder/box-review-model";
 import { tile, tileMedia, type TileOptions } from "../ui/tile";
 import { iconButton, segmented } from "../ui/controls";
 import { accordion } from "../ui/accordion";
-import { ANDROID_CHANNELS } from "../../lib/team-builder/box-import/device/reader";
+import { ANDROID_CHANNELS } from "@haneoka/game-data-exporter";
 
 export interface BoxImportDialogState {
   usbReady?: boolean;

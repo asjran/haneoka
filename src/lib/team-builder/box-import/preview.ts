@@ -6,7 +6,7 @@ import {
   type InventoryV1,
   type InventoryKind,
 } from "../inventory";
-import { BoxImportError, decimal, integer, type BoxCandidate } from "./types";
+import { BoxImportError, decimal, integer, type BoxCandidate } from "@haneoka/game-data-exporter";
 export interface BoxReviewContext {
   ownerId: string;
   revision: number;

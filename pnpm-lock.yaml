@@ -197,6 +197,9 @@ importers:
       '@haneoka/embed-core':
         specifier: workspace:*
         version: link:packages/embed-core
+      '@haneoka/game-data-exporter':
+        specifier: workspace:*
+        version: link:.dependencies/game-data-exporter
       '@haneoka/i18n':
         specifier: workspace:*
         version: link:packages/i18n
@@ -554,6 +557,28 @@ importers:
         version: 3.9.4
       typescript:
         specifier: ^6.0.3
+        version: 6.0.3
+
+  .dependencies/game-data-exporter:
+    dependencies:
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+    devDependencies:
+      '@types/node':
+        specifier: 26.1.0
+        version: 26.1.0
+      '@yume-chan/adb':
+        specifier: 2.6.4
+        version: 2.6.4
+      '@yume-chan/adb-daemon-webusb':
+        specifier: 2.3.2
+        version: 2.3.2
+      prettier:
+        specifier: 3.9.4
+        version: 3.9.4
+      typescript:
+        specifier: 6.0.3
         version: 6.0.3
 
   .dependencies/sonolus-our-notes:

@@ -7,7 +7,7 @@ import type { InventoryV2 } from "../../lib/team-builder/inventory";
 import { practiceRanges } from "../../lib/team-builder/inventory";
 import { parseBoxLocally } from "../../lib/team-builder/box-import/client";
 import { isInventoryListInput, previewInventoryListInput } from "../../lib/team-builder/box-import/list";
-import { BoxImportError } from "../../lib/team-builder/box-import/types";
+import { BoxImportError } from "@haneoka/game-data-exporter";
 import { previewBoxImport, type BoxReviewContext } from "../../lib/team-builder/box-import/preview";
 import { applyConfirmedBoxImport, type BoxConfirmation } from "../../lib/team-builder/box-import/merge";
 import { buildBoxImportReview } from "../../lib/team-builder/box-review-model";
@@ -19,7 +19,7 @@ import { renderBoxImportDialog, type BoxImportDialogState } from "../shared/team
 import { renderScreenshotImportDialog, type ScreenshotImportDialogState } from "../shared/team-screenshot-import";
 import { selectionPane } from "../ui/selection-pane";
 import type { TeamBuilder } from "../team-builder";
-import { ANDROID_CHANNELS, readAndroidFiles } from "../../lib/team-builder/box-import/device/reader";
+import { ANDROID_CHANNELS, readAndroidFiles } from "@haneoka/game-data-exporter";
 import { prepareScreenshot, FULL_SCREENSHOT, type ScreenshotCrop } from "../../lib/team-builder/screenshot-image";
 
 /** Message paths for this view's finite control/metadata identifiers. */
@@ -69,7 +69,7 @@ export class ImportController {
   private generation = 0;
   private parserController: AbortController | null = null;
   private deviceController: AbortController | null = null;
-  private usb: typeof import("../../lib/team-builder/box-import/device/tango") | null = null;
+  private usb: typeof import("@haneoka/game-data-exporter/webusb") | null = null;
   private expanded: Record<string, boolean> = {};
   screenshot: ScreenshotImportDialogState | null = null;
   private session: ReturnType<typeof createScreenshotImportSession> | null = null;
@@ -110,7 +110,7 @@ export class ImportController {
     this.box.server = context.server;
     this.box.usbChannel = ANDROID_CHANNELS.find(channel => channel.server === context.server)?.packageId;
     const generation = this.generation;
-    void import("../../lib/team-builder/box-import/device/tango").then(module => {
+    void import("@haneoka/game-data-exporter/webusb").then(module => {
       this.usb = module;
       if (generation !== this.generation || !this.box) return;
       this.box = { ...this.box, usbReady: module.usbAvailable() };

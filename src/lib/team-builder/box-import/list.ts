@@ -2,7 +2,7 @@ import type { TeamBuilderData } from "../data";
 import type { InventoryKind, InventoryV1 } from "../inventory";
 import { previewInventoryList } from "../data/list-import";
 import type { BoxPreview, BoxReviewContext } from "./preview";
-import { BoxImportError, type BoxParseOptions } from "./types";
+import { BoxImportError, type BoxParseOptions } from "@haneoka/game-data-exporter";
 
 export type InventoryListInput = { files: readonly File[] } | { text: string };
 const MAX_LIST_BYTES = 1024 * 1024;

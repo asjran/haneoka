@@ -1,6 +1,6 @@
 import { addInventoryEntries, updateInventoryEntries, validateInventory, type InventoryV1 } from "../inventory";
 import type { TeamBuilderData } from "../data";
-import { BoxImportError } from "./types";
+import { BoxImportError } from "@haneoka/game-data-exporter";
 import { sameBoxContext, type BoxPreview, type BoxPracticeField, type BoxReviewContext } from "./preview";
 export interface BoxConfirmation {
   /** updates: an existing value only changes when the import raises it. */

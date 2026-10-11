@@ -1,4 +1,4 @@
-import { BOX_LIMITS, BoxImportError, type BoxParseResult } from "./types";
+import { BOX_LIMITS, BoxImportError, type BoxParseResult } from "@haneoka/game-data-exporter";
 export function parseBoxLocally(
   input: { files: readonly Blob[] } | { text: string },
   options: {
