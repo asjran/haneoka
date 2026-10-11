@@ -33,6 +33,8 @@ export interface LibrarySong {
   performer?: SongPerformer;
   /** Other references that name this same song. */
   aliases: string[];
+  /** Cue name of a game BGM track; such tracks have no song page. */
+  bgm?: string;
 }
 
 export interface LibraryBand {
@@ -50,6 +52,8 @@ export interface SongLibrary {
   bands: LibraryBand[];
   /** A catalogue that failed to load; the library holds the other one. */
   partial: string[];
+  /** Background music of the game's own screens. */
+  bgm: LibrarySong[];
 }
 
 export const refKey = (ref: TrackRef) => `${ref.provider}:${ref.server}:${ref.musicId}`;
@@ -117,11 +121,56 @@ export function loadSongLibrary(server: string): Promise<SongLibrary> {
   return request;
 }
 
+/** Game screens in the order a player meets them; unlisted cues follow. */
+const BGM_ORDER = [
+  "sound_bgm_home", "sound_bgm_livetop", "sound_bgm_liveresult", "sound_bgm_gachatop", "sound_bgm_gacharesult",
+  "sound_bgm_birthday", "sound_bgm_snapdiary_positive", "sound_bgm_snapdiary_neutral", "sound_bgm_snapdiary_negative",
+  "sound_bgm_mygo_offline", "sound_bgm_mujica_offline", "sound_bgm_yumemita_offline", "sound_bgm_millsage_offline",
+  "sound_bgm_kadan_offline", "spot_1_1", "timing_adjust",
+];
+/** Offline band themes play under their band's logo. */
+const BGM_BANDS: Readonly<Record<string, number>> = { mygo: 1, mujica: 2, yumemita: 3, millsage: 4, kadan: 5 };
+
+/** Screen and ambience BGM; song audio in the same view is already in the song library. */
+async function loadBgm(server: string, bands: ReadonlyMap<number, RecordValue>): Promise<LibrarySong[]> {
+  const response = await fetch(`/api/v1/servers/${encodeURIComponent(server)}/audio/views/master-bgms`);
+  if (!response.ok) return [];
+  const rows = Object.values((await response.json()) as Record<string, RecordValue>);
+  const seen = new Set<string>();
+  const rank = (cue: string) => (BGM_ORDER.indexOf(cue) + BGM_ORDER.length + 1) % (BGM_ORDER.length + 1);
+  rows.sort((left, right) => rank(String(left.cueName)) - rank(String(right.cueName)));
+  return rows.flatMap((row) => {
+    const cue = String(row.cueName || "");
+    const path = String(row.outputPath || "");
+    if (row.missing !== false || !/^runtime\/cri\/sound\/(?:bgm|ambientbgm)\//u.test(path) || seen.has(cue)) return [];
+    seen.add(cue);
+    const band = bands.get(BGM_BANDS[cue.match(/^sound_bgm_(\w+)_offline$/u)?.[1] ?? ""] ?? 0);
+    const logo = String(band?.logo || band?.icon || "/android-chrome-192x192.png");
+    const ref: TrackRef = { provider: "our-notes", server, musicId: `bgm-${cue}` };
+    return [{
+      key: refKey(ref),
+      ref,
+      row: {},
+      title: cue,
+      bandKey: "",
+      bandName: band?.bandName ?? band?.name ?? "",
+      jacket: logo,
+      thumb: logo,
+      audio: String(row.playableUrl || ""),
+      released: 0,
+      aliases: [],
+      bgm: cue,
+    }];
+  });
+}
+
 async function build(server: string): Promise<SongLibrary> {
   const [native, gbp] = await Promise.allSettled([
     loadPlaylistCatalogSource("our-notes", server),
     loadPlaylistCatalogSource("bestdori", "jp"),
   ]);
+  const bgm = await loadBgm(server, native.status === "fulfilled" ? native.value.registry.bands : new Map()).catch(() => []);
+
   if (native.status === "rejected" && gbp.status === "rejected") throw native.reason;
   const partial: string[] = [];
   if (native.status === "rejected") partial.push("our-notes");
@@ -169,11 +218,13 @@ async function build(server: string): Promise<SongLibrary> {
     }
   }
   for (const song of songs) bands.get(song.bandKey)?.songs.push(song);
+  for (const song of bgm) byKey.set(song.key, song);
   return {
     songs,
     byKey,
     bands: [...bands.values()].filter((band) => band.songs.length),
     partial,
+    bgm,
   };
 }
 
@@ -279,6 +330,18 @@ export function officialPlaylists(library: SongLibrary, gamePlaylists: RecordVal
       refs: ofSongs(library.songs),
       trackCount: library.songs.length,
       preview: ofSongs(library.songs.slice(-4).reverse()),
+      complete: true,
+    });
+  if (library.bgm.length)
+    lists.push({
+      id: "official:bgm",
+      kind: "official",
+      group: "featured",
+      title: { key: "playlistPage.gameBgm" },
+      cover: { kind: "auto" },
+      refs: ofSongs(library.bgm),
+      trackCount: library.bgm.length,
+      preview: ofSongs(library.bgm.slice(0, 4)),
       complete: true,
     });
   for (const item of gamePlaylists) {

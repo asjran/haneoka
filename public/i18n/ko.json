@@ -3114,7 +3114,26 @@
         "updated": "{date} 업데이트",
         "uploadFailed": "업로드 실패",
         "newReleases": "신곡",
-        "allSongs": "전체 곡"
+        "allSongs": "전체 곡",
+        "gameBgm": "게임 BGM",
+        "bgm": {
+          "sound_bgm_home": "홈",
+          "sound_bgm_livetop": "라이브",
+          "sound_bgm_liveresult": "라이브 결과",
+          "sound_bgm_gachatop": "가챠",
+          "sound_bgm_gacharesult": "가챠 결과",
+          "sound_bgm_birthday": "생일",
+          "sound_bgm_snapdiary_positive": "스냅 다이어리 · 밝음",
+          "sound_bgm_snapdiary_neutral": "스냅 다이어리 · 차분함",
+          "sound_bgm_snapdiary_negative": "스냅 다이어리 · 어두움",
+          "sound_bgm_mygo_offline": "MyGO!!!!! · 오프라인",
+          "sound_bgm_mujica_offline": "Ave Mujica · 오프라인",
+          "sound_bgm_yumemita_offline": "Mugendai Myu-Type · 오프라인",
+          "sound_bgm_millsage_offline": "millsage · 오프라인",
+          "sound_bgm_kadan_offline": "Ikka Dumb Rock! · 오프라인",
+          "timing_adjust": "타이밍 조정",
+          "spot_1_1": "스폿 환경음"
+        }
       },
       "planned": "예정",
       "emptyMine": "작성한 게시물이 없습니다",

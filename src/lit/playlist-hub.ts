@@ -166,12 +166,13 @@ export class PlaylistHub extends LitElement {
     const title = playlist.title;
     if (title && typeof title === "object" && "key" in (title as RecordValue)) {
       const key = String((title as RecordValue).key).replace(/^playlistPage\./u, "");
-      return this.t(key, key === "newReleases" ? "New releases" : "All songs");
+      return this.t(key, key === "newReleases" ? "New releases" : key === "gameBgm" ? "Game BGM" : "All songs");
     }
     return localizedText(title, this.locale) || String(title || "—");
   }
 
   private songName(song: LibrarySong) {
+    if (song.bgm) return this.t(`bgm.${song.bgm}`, song.bgm);
     return songTitle(song.row, this.locale).text;
   }
 
@@ -506,6 +507,8 @@ export class PlaylistHub extends LitElement {
       document.body.append(dock);
     }
     const queue = songs.map((song) => {
+      if (song.bgm)
+        return { id: song.key, title: this.songName(song), artist: this.artistOf(song), artistSource: song.bandName, cover: song.thumb, url: song.audio };
       const title = songTitle(song.row, this.locale);
       return {
         id: song.key,
@@ -1268,7 +1271,7 @@ export class PlaylistHub extends LitElement {
                   `
                 : nothing
             }
-            <button
+            ${playlist.id === "official:bgm" ? nothing : html`<button
               class="button button--outlined"
               type="button"
               ?disabled=${!rows.length}
@@ -1276,7 +1279,7 @@ export class PlaylistHub extends LitElement {
             >
               ${icon("content_copy", 20)}
               <span>${this.t("copyToMine", "Save as my playlist")}</span>
-            </button>
+            </button>`}
           </div>
         </header>
         <section class="playlist-songlist" aria-label=${this.t("tracks", "Songs")}>
@@ -1355,7 +1358,7 @@ export class PlaylistHub extends LitElement {
             </span>
           </span>
         </button>
-        <span class="playlist-song__actions">
+        ${song.bgm ? nothing : html`<span class="playlist-song__actions">
           ${iconButton({
             icon: "add",
             label: this.t("addToPlaylist", "Add to playlist"),
@@ -1373,7 +1376,7 @@ export class PlaylistHub extends LitElement {
           >
             ${icon("chevron_right", 24)}
           </a>
-        </span>
+        </span>`}
       </li>
     `;
   }

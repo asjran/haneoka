@@ -3114,7 +3114,26 @@
         "updated": "{date} 更新",
         "uploadFailed": "アップロードに失敗しました",
         "newReleases": "新曲",
-        "allSongs": "全曲"
+        "allSongs": "全曲",
+        "gameBgm": "ゲームBGM",
+        "bgm": {
+          "sound_bgm_home": "ホーム",
+          "sound_bgm_livetop": "ライブ",
+          "sound_bgm_liveresult": "ライブリザルト",
+          "sound_bgm_gachatop": "ガチャ",
+          "sound_bgm_gacharesult": "ガチャ結果",
+          "sound_bgm_birthday": "誕生日",
+          "sound_bgm_snapdiary_positive": "スナップダイアリー・明るい",
+          "sound_bgm_snapdiary_neutral": "スナップダイアリー・穏やか",
+          "sound_bgm_snapdiary_negative": "スナップダイアリー・暗い",
+          "sound_bgm_mygo_offline": "MyGO!!!!!・オフライン",
+          "sound_bgm_mujica_offline": "Ave Mujica・オフライン",
+          "sound_bgm_yumemita_offline": "夢限大みゅーたいぷ・オフライン",
+          "sound_bgm_millsage_offline": "millsage・オフライン",
+          "sound_bgm_kadan_offline": "一家Dumb Rock!・オフライン",
+          "timing_adjust": "タイミング調整",
+          "spot_1_1": "スポット環境音"
+        }
       },
       "planned": "予定",
       "emptyMine": "投稿はありません",

@@ -3114,7 +3114,26 @@
         "updated": "{date} 更新",
         "uploadFailed": "上传失败",
         "newReleases": "新歌速递",
-        "allSongs": "全部歌曲"
+        "allSongs": "全部歌曲",
+        "gameBgm": "游戏 BGM",
+        "bgm": {
+          "sound_bgm_home": "主页",
+          "sound_bgm_livetop": "演出",
+          "sound_bgm_liveresult": "演出结果",
+          "sound_bgm_gachatop": "招募",
+          "sound_bgm_gacharesult": "招募结果",
+          "sound_bgm_birthday": "生日",
+          "sound_bgm_snapdiary_positive": "留影日记 · 明快",
+          "sound_bgm_snapdiary_neutral": "留影日记 · 平静",
+          "sound_bgm_snapdiary_negative": "留影日记 · 低沉",
+          "sound_bgm_mygo_offline": "MyGO!!!!! · 离线",
+          "sound_bgm_mujica_offline": "Ave Mujica · 离线",
+          "sound_bgm_yumemita_offline": "夢限大みゅーたいぷ · 离线",
+          "sound_bgm_millsage_offline": "millsage · 离线",
+          "sound_bgm_kadan_offline": "一家Dumb Rock! · 离线",
+          "timing_adjust": "时机调整",
+          "spot_1_1": "地点环境音"
+        }
       },
       "planned": "规划中",
       "emptyMine": "你还没有发布动态",

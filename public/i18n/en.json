@@ -3114,7 +3114,26 @@
         "updated": "Updated {date}",
         "uploadFailed": "Upload failed",
         "newReleases": "New releases",
-        "allSongs": "All songs"
+        "allSongs": "All songs",
+        "gameBgm": "Game BGM",
+        "bgm": {
+          "sound_bgm_home": "Home",
+          "sound_bgm_livetop": "Live",
+          "sound_bgm_liveresult": "Live result",
+          "sound_bgm_gachatop": "Gacha",
+          "sound_bgm_gacharesult": "Gacha result",
+          "sound_bgm_birthday": "Birthday",
+          "sound_bgm_snapdiary_positive": "Snap Diary · Bright",
+          "sound_bgm_snapdiary_neutral": "Snap Diary · Calm",
+          "sound_bgm_snapdiary_negative": "Snap Diary · Gloomy",
+          "sound_bgm_mygo_offline": "MyGO!!!!! · Offline",
+          "sound_bgm_mujica_offline": "Ave Mujica · Offline",
+          "sound_bgm_yumemita_offline": "Mugendai Myu-Type · Offline",
+          "sound_bgm_millsage_offline": "millsage · Offline",
+          "sound_bgm_kadan_offline": "Ikka Dumb Rock! · Offline",
+          "timing_adjust": "Timing adjustment",
+          "spot_1_1": "Spot ambience"
+        }
       },
       "planned": "Planned",
       "emptyMine": "You have no posts",
