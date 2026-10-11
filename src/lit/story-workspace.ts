@@ -1650,7 +1650,7 @@ export class StoryWorkspace extends LitElement {
                 ? html`
                     <section class="story-episode-group">
                       <h3>
-                        ${uiText(this.locale, this.mode === "event" && kind === "bandStory" ? "story.labels.eventStory" : kind)}
+                        ${uiText(this.locale, this.mode === "event" && kind === "bandStory" ? "story.labels.eventStory" : (uiLabelPaths[kind] ?? kind))}
                         <small>${episodes.filter((episode) => this.episodeGroup(episode) === kind).length}</small>
                       </h3>
                       ${this.renderEpisodeCollection(group)}
@@ -2617,12 +2617,18 @@ export class StoryWorkspace extends LitElement {
     if (entry.kind === "image")
       return html`
         <figure class="story-transcript__scene" data-command-index=${entry.commandIndex}>
-          <img
-            src=${this.imageForLocale(entry.source!)}
-            alt=${uiText(this.locale, entry.mediaKind === "background" ? "story.labels.background" : "story.labels.illustration")}
-            loading="lazy"
-            decoding="async"
-          />
+          <image-gallery
+            natural
+            lazy
+            .images=${[{
+              id: String(entry.commandIndex),
+              source: entry.source!,
+              label: uiText(this.locale, entry.mediaKind === "background" ? "story.labels.background" : "story.labels.illustration"),
+              candidates: this.localizedImages(entry.source!),
+            }]}
+            .active=${String(entry.commandIndex)}
+            .locale=${this.locale}
+          ></image-gallery>
         </figure>
       `;
     if (entry.kind === "video")

@@ -49,6 +49,7 @@ export class ImageGallery extends LitElement {
     active: {},
     title: {},
     natural: { type: Boolean, reflect: true },
+    lazy: { type: Boolean },
     busy: { state: true },
     error: { state: true },
     clipIndex: { state: true },
@@ -62,6 +63,8 @@ export class ImageGallery extends LitElement {
   declare active: string;
   declare title: string;
   declare natural: boolean;
+  /** Load the stage image only near the viewport (long lists of galleries). */
+  declare lazy: boolean;
   declare busy: boolean;
   declare error: string;
   declare clipIndex: number;
@@ -101,6 +104,7 @@ export class ImageGallery extends LitElement {
     this.active = "";
     this.title = "";
     this.natural = false;
+    this.lazy = false;
     this.busy = false;
     this.error = "";
     this.clipIndex = 0;
@@ -584,7 +588,7 @@ export class ImageGallery extends LitElement {
         data-candidate-index="0"
         alt=${thumbnail ? "" : entry.label}
         decoding="async"
-        loading=${thumbnail ? "lazy" : "eager"}
+        loading=${thumbnail || this.lazy ? "lazy" : "eager"}
         @error=${nextImageCandidate}
         @load=${(event: Event) => {
           if (!thumbnail || !entry.thumbnail) this.remember(event.currentTarget as HTMLImageElement, entry.source);
