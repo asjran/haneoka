@@ -3483,8 +3483,16 @@
       "description": "Community data is loaded on demand.",
       "sekai": {
         "title": "Project Sekai songs",
-        "storiesTitle": "Project Sekai event stories",
-        "mainStoriesTitle": "Project Sekai main stories"
+        "stories": {
+          "event": "Project Sekai event stories",
+          "unit": "Project Sekai unit stories",
+          "character": "Project Sekai character stories",
+          "card": "Project Sekai card stories",
+          "area": "Project Sekai area conversations",
+          "special": "Project Sekai special stories",
+          "mysekai": "Project Sekai My Sekai conversations",
+          "live": "Project Sekai virtual live MCs"
+        }
       }
     }
   },

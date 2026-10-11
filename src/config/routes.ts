@@ -55,8 +55,14 @@ const appPages: Array<[string, string]> = [
   ["/community/playlists", "community.page.playlistPage.title"],
   ["/community/songs-bestdori", "community.page.songsBestDori"],
   ["/community/sekai/songs", "community.page.sekai.title"],
-  ["/community/sekai/stories/event", "community.page.sekai.storiesTitle"],
-  ["/community/sekai/stories/main", "community.page.sekai.mainStoriesTitle"],
+  ["/community/sekai/stories/event", "community.page.sekai.stories.event"],
+  ["/community/sekai/stories/unit", "community.page.sekai.stories.unit"],
+  ["/community/sekai/stories/character", "community.page.sekai.stories.character"],
+  ["/community/sekai/stories/card", "community.page.sekai.stories.card"],
+  ["/community/sekai/stories/area", "community.page.sekai.stories.area"],
+  ["/community/sekai/stories/special", "community.page.sekai.stories.special"],
+  ["/community/sekai/stories/mysekai", "community.page.sekai.stories.mysekai"],
+  ["/community/sekai/stories/live", "community.page.sekai.stories.live"],
   // Bestdori stories are one route per section, rendered by <story-workspace>.
   ...(["event", "band", "main", "afterlive", "card"] as const).map(
     (section) =>

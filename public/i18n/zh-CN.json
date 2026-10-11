@@ -3483,8 +3483,16 @@
       "description": "社区数据按需加载。",
       "sekai": {
         "title": "世界计划乐曲",
-        "storiesTitle": "世界计划活动故事",
-        "mainStoriesTitle": "世界计划主线故事"
+        "stories": {
+          "event": "世界计划活动故事",
+          "unit": "世界计划组合故事",
+          "character": "世界计划角色故事",
+          "card": "世界计划卡牌故事",
+          "area": "世界计划区域对话",
+          "special": "世界计划特别故事",
+          "mysekai": "世界计划我的世界对话",
+          "live": "世界计划虚拟演唱会对话"
+        }
       }
     }
   },

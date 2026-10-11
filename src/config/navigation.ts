@@ -46,6 +46,19 @@ const BESTDORI_STORY_ICONS: Record<(typeof BESTDORI_STORY_ROUTES)[number], strin
   card: "style",
 };
 
+/** Project Sekai story sections, in the game's story menu order. */
+export const SEKAI_STORY_SECTIONS = ["event", "unit", "character", "card", "area", "special", "mysekai", "live"] as const;
+const SEKAI_STORY_ICONS: Record<(typeof SEKAI_STORY_SECTIONS)[number], string> = {
+  event: "event",
+  unit: "groups",
+  character: "person",
+  card: "style",
+  area: "map",
+  special: "auto_awesome",
+  mysekai: "chair",
+  live: "mic",
+};
+
 export const UTILITY_DESTINATIONS = [
   { route: "/account", icon: "account_circle", label: "navigation.account" },
   { route: "/settings", icon: "settings", label: "navigation.settings" },
@@ -236,8 +249,11 @@ const sections: NavSection[] = [
     collapsible: true,
     items: [
       { route: "/community/sekai/songs", icon: "library_music", label: "community.page.sekai.title" },
-      { route: "/community/sekai/stories/event", icon: "event", label: "community.page.sekai.storiesTitle" },
-      { route: "/community/sekai/stories/main", icon: "auto_stories", label: "community.page.sekai.mainStoriesTitle" },
+      ...SEKAI_STORY_SECTIONS.map((key) => ({
+        route: `/community/sekai/stories/${key}`,
+        icon: SEKAI_STORY_ICONS[key],
+        label: `community.page.sekai.stories.${key}`,
+      })),
     ],
   },
 ];

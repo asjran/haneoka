@@ -3,18 +3,19 @@ import Base from "../../../../../layouts/Base.astro";
 import AppShell from "../../../../../components/AppShell.astro";
 import { LOCALES, type Locale } from "../../../../../i18n/locales";
 import { t } from "../../../../../i18n/messages";
+import { SEKAI_STORY_SECTIONS } from "../../../../../config/navigation";
 import "../../../../../lit/story-workspace";
 import "../../../../../styles/catalog.css";
 import "../../../../../styles/story.css";
 
 export function getStaticPaths() {
   return LOCALES.flatMap((locale) =>
-    ["event", "main"].map((section) => ({ params: { locale, section }, props: { locale, section } })),
+    SEKAI_STORY_SECTIONS.map((section) => ({ params: { locale, section }, props: { locale, section } })),
   );
 }
-const { locale, section } = Astro.props as { locale: Locale; section: "event" | "main" };
+const { locale, section } = Astro.props as { locale: Locale; section: string };
 const route = `/community/sekai/stories/${section}`;
-const titleKey = `community.page.sekai.${section === "event" ? "storiesTitle" : "mainStoriesTitle"}`;
+const titleKey = `community.page.sekai.stories.${section}`;
 const title = t(locale, titleKey, section);
 ---
 
