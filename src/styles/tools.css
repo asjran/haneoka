@@ -3,44 +3,14 @@
     display: grid;
     height: 100%;
     min-height: 0;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
   .asset-workspace > .state,
   .asset-workspace > .notice {
     grid-row: 1/-1;
   }
-  /* The breadcrumb bar is the browse bar of this page: sticky at the top of the
- * pane, never positioned over the shell's app bar (which it used to overlap
- * as soon as the page title needed the same pixels). */
-  .asset-toolbar {
-    position: sticky;
-    z-index: var(--md-sys-z-index-local-sticky);
-    top: 0;
-    display: flex;
-    min-width: 0;
-    min-height: 56px;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 8px var(--pane-gutter);
-    border: 0;
-    background: var(--md-sys-color-surface);
-    box-shadow: 0 1px 0 var(--md-sys-color-outline-variant);
-  }
-  .asset-toolbar nav {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: 4px;
-    overflow: auto hidden;
-  }
-  .asset-toolbar nav button {
-    min-width: max-content;
-    padding: 8px;
-    color: var(--md-sys-color-primary);
-    border-radius: var(--md-sys-shape-corner-small);
-    background: transparent;
-    cursor: pointer;
+  body:has(asset-explorer) .top-app-bar > h1 {
+    flex-shrink: 0;
   }
   .asset-columns {
     display: flex;
@@ -56,19 +26,6 @@
     border-right: 1px solid var(--md-sys-color-outline-variant);
     background: var(--md-sys-color-surface-container-low);
     scroll-snap-align: start;
-  }
-  .asset-column > header,
-  .asset-preview > header {
-    position: sticky;
-    z-index: 1;
-    top: 0;
-    display: flex;
-    height: 48px;
-    align-items: center;
-    padding: 0 16px;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
-    background: var(--md-sys-color-surface-container-low);
-    font-weight: 500;
   }
   .asset-column > button {
     display: grid;
@@ -97,22 +54,35 @@
   .asset-column > button small {
     color: var(--md-sys-color-on-surface-variant);
   }
+  .asset-column--results {
+    width: clamp(280px, 34vw, 440px);
+  }
+  .asset-column--results > button {
+    grid-template-columns: 28px minmax(0, 1fr) 20px;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 56px;
+  }
+  .asset-column--results > button small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--md-sys-typescale-body-small-size);
+  }
   .asset-preview {
     display: grid;
     min-width: min(520px, 100%);
     flex: 1;
-    grid-template-rows: 48px minmax(0, 1fr);
+    position: relative;
+    grid-template-rows: minmax(0, 1fr);
     background: var(--md-sys-color-surface);
     scroll-snap-align: start;
   }
-  .asset-preview > header {
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .asset-preview > header strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .asset-preview__download {
+    position: absolute;
+    z-index: 1;
+    top: 8px;
+    right: 8px;
+    background: var(--md-sys-color-surface-container-high);
   }
   .asset-preview > div {
     display: grid;
@@ -184,28 +154,7 @@
     white-space: pre-wrap;
   }
 
-  @media (pointer: coarse) {
-    .asset-toolbar nav button {
-      min-height: 48px;
-    }
-  }
   @media (max-width: 760px) {
-    body:has(asset-explorer) .top-app-bar h1 {
-      display: none;
-    }
-    .asset-toolbar {
-      right: max(8px, env(safe-area-inset-right));
-      left: 56px;
-      width: auto;
-      gap: 4px;
-    }
-    .asset-toolbar nav {
-      flex: 1;
-      scroll-snap-type: x proximity;
-    }
-    .asset-toolbar nav button {
-      scroll-snap-align: start;
-    }
     .asset-columns {
       width: 100%;
       scroll-snap-type: x mandatory;
