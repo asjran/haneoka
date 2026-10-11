@@ -667,8 +667,8 @@ export class SongPuzzle extends LitElement {
           : this.renderBoard(goal, song);
     const toggle = (key: "numbers" | "reference", value: boolean, change: () => void) => html`
       <label class="control-row">
+        <span class="control-row__label">${this.text(key)}</span>
         <md-switch .selected=${value} @change=${change}></md-switch>
-        <span>${this.text(key)}</span>
       </label>
     `;
     return html`
@@ -870,6 +870,7 @@ export class SongPuzzle extends LitElement {
                     this.mode === "edit"
                       ? html`
                           <label class="control-row">
+                            <span class="control-row__label">${this.text("drag")}</span>
                             <md-switch
                               .selected=${this.dragEnabled}
                               @change=${() => {
@@ -882,7 +883,6 @@ export class SongPuzzle extends LitElement {
                                 this.requestUpdate();
                               }}
                             ></md-switch>
-                            <span>${this.text("drag")}</span>
                           </label>
                         `
                       : nothing
@@ -961,8 +961,11 @@ export class SongPuzzle extends LitElement {
                       this.requestUpdate();
                     }}
                   ></md-outlined-text-field>
-                  <label class="control-row puzzle-zoom">
-                    <span>${this.text("zoom")}</span>
+                  <label class="puzzle-zoom">
+                    <span class="puzzle-zoom__label">
+                      ${this.text("zoom")}
+                      <output>${this.cellSize} px</output>
+                    </span>
                     <md-slider
                       class="md3-slider"
                       labeled

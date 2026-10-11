@@ -217,7 +217,20 @@
   }
 }
 @layer pages {
-  .song-slide-puzzle .puzzle-zoom > md-slider {
-    flex: 1;
+  .song-slide-puzzle .puzzle-zoom {
+    display: grid;
+    gap: 4px;
+    padding: 8px 4px 0;
+  }
+  .song-slide-puzzle .puzzle-zoom__label {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font: var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size) /
+      var(--md-sys-typescale-body-large-line-height) var(--app-font);
+  }
+  .song-slide-puzzle .puzzle-zoom__label > output {
+    color: var(--md-sys-color-on-surface-variant);
+    font-variant-numeric: tabular-nums;
   }
 }
