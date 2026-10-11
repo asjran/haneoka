@@ -1,0 +1,145 @@
+---
+import Base from "../../../layouts/Base.astro";
+import AppShell from "../../../components/AppShell.astro";
+import I18nText from "../../../components/I18nText.astro";
+import { LOCALES, type Locale } from "../../../i18n/locales";
+
+export function getStaticPaths() {
+  return LOCALES.map((locale) => ({ params: { locale }, props: { locale } }));
+}
+import { t } from "../../../i18n/messages";
+import "../../../styles/account-settings.css";
+
+const { locale } = Astro.props as { locale: Locale };
+const titleKey = "account.app.title";
+const title = t(locale, titleKey, "Sign in to the app");
+---
+<Base locale={locale} route="/account/app" title={title} titleKey={titleKey}>
+  <AppShell locale={locale} route="/account/app" title={title} titleKey={titleKey}>
+    <section class="page page--compact account-page app-sign-in-page" data-locale={locale}>
+      <section class="surface surface--outlined app-sign-in" data-app-consent hidden>
+        <span class="app-sign-in__label"><I18nText keyName="account.app.signedInAs" fallback="Signed in as" locale={locale} /></span>
+        <div class="app-sign-in__user">
+          <img class="app-sign-in__avatar" data-app-avatar alt="" width="56" height="56" hidden />
+          <span class="app-sign-in__avatar app-sign-in__avatar--empty" data-app-avatar-empty><svg class="material-icon" width="32" height="32"><use href="/icons.svg#person"></use></svg></span>
+          <span>
+            <strong data-app-name></strong>
+            <span data-app-email></span>
+          </span>
+        </div>
+        <button class="button" type="button" data-app-allow><I18nText keyName="account.app.continue" fallback="Continue in the app" locale={locale} /></button>
+        <div class="app-sign-in__secondary">
+          <button class="button button--text" type="button" data-app-switch><I18nText keyName="account.app.useAnother" fallback="Use another account" locale={locale} /></button>
+          <button class="button button--text" type="button" data-app-cancel><I18nText keyName="account.app.cancel" fallback="Cancel" locale={locale} /></button>
+        </div>
+      </section>
+      <section class="surface surface--outlined app-sign-in app-sign-in--state" data-app-state hidden>
+        <svg class="material-icon" width="32" height="32"><use href="/icons.svg#check_circle"></use></svg>
+        <h2 data-app-state-text></h2>
+      </section>
+      <span hidden data-app-returned><I18nText keyName="account.app.returned" fallback="Returned to the app" locale={locale} /></span>
+      <span hidden data-app-invalid><I18nText keyName="account.app.invalid" fallback="Open this page from the app" locale={locale} /></span>
+      <span hidden data-app-failed><I18nText keyName="account.app.failed" fallback="Could not sign in to the app" locale={locale} /></span>
+    </section>
+  </AppShell>
+</Base>
+<script>
+  const CALLBACK = "haneoka://auth";
+  const page = document.querySelector<HTMLElement>(".app-sign-in-page");
+  const consent = document.querySelector<HTMLElement>("[data-app-consent]");
+  const state = document.querySelector<HTMLElement>("[data-app-state]");
+  const params = new URLSearchParams(location.search);
+  const challenge = params.get("challenge") || "";
+  const appState = params.get("state") || "";
+  const text = (selector: string) => document.querySelector<HTMLElement>(selector)?.textContent?.trim() || "";
+  const show = (selector: string, icon: string) => {
+    if (consent) consent.hidden = true;
+    if (!state) return;
+    state.querySelector("use")?.setAttribute("href", `/icons.svg#${icon}`);
+    const heading = state.querySelector<HTMLElement>("[data-app-state-text]");
+    if (heading) heading.textContent = text(selector);
+    state.hidden = false;
+  };
+  const back = (query: Record<string, string>) => {
+    location.assign(`${CALLBACK}?${new URLSearchParams({ ...query, state: appState })}`);
+  };
+  const signIn = () => {
+    const locale = page?.dataset.locale || "en";
+    location.assign(`/${locale}/account/?${new URLSearchParams({ next: location.pathname + location.search })}`);
+  };
+
+  const start = async () => {
+    if (!/^[A-Za-z0-9\-_]{43}$/u.test(challenge) || !appState || appState.length > 128) {
+      show("[data-app-invalid]", "link_off");
+      return;
+    }
+    const response = await fetch("/api/auth/get-session", { credentials: "same-origin", cache: "no-store" });
+    const session = response.ok ? ((await response.json()) as { user?: Record<string, unknown> } | null) : null;
+    const user = session?.user;
+    if (!user) {
+      signIn();
+      return;
+    }
+    const name = document.querySelector<HTMLElement>("[data-app-name]");
+    const email = document.querySelector<HTMLElement>("[data-app-email]");
+    if (name) name.textContent = String(user.name || user.email || "");
+    if (email) email.textContent = user.name ? String(user.email || "") : "";
+    if (typeof user.image === "string" && user.image) {
+      const avatar = document.querySelector<HTMLImageElement>("[data-app-avatar]");
+      if (avatar) {
+        avatar.src = user.image;
+        avatar.hidden = false;
+        document.querySelector<HTMLElement>("[data-app-avatar-empty]")?.setAttribute("hidden", "");
+      }
+    }
+    if (consent) consent.hidden = false;
+  };
+
+  document.querySelector("[data-app-allow]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/v1/account/app/authorize", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ challenge }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      const { code } = (await response.json()) as { code: string };
+      show("[data-app-returned]", "check_circle");
+      back({ code });
+    } catch {
+      show("[data-app-failed]", "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.querySelector("[data-app-cancel]")?.addEventListener("click", () => back({ error: "access_denied" }));
+  document.querySelector("[data-app-switch]")?.addEventListener("click", async () => {
+    await fetch("/api/auth/sign-out", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }).catch(() => null);
+    signIn();
+  });
+  void start().catch(() => show("[data-app-failed]", "error"));
+</script>
+<style>
+  .app-sign-in-page { display: grid; place-items: start center; }
+  .app-sign-in { display: grid; gap: 16px; width: min(100%, 480px); }
+  .app-sign-in__label { color: var(--md-sys-color-on-surface-variant); }
+  .app-sign-in__user { display: flex; gap: 16px; align-items: center; min-width: 0; }
+  .app-sign-in__user > span:last-child { display: grid; min-width: 0; }
+  .app-sign-in__user strong { font: var(--md-sys-typescale-title-large); overflow-wrap: anywhere; }
+  .app-sign-in__user strong + span { color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+  .app-sign-in__avatar { flex: none; width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+  .app-sign-in__avatar--empty { display: grid; place-items: center; background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+  .app-sign-in__avatar[hidden] { display: none; }
+  .app-sign-in .button[data-app-allow] { width: 100%; }
+  .app-sign-in__secondary { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .app-sign-in--state { justify-items: center; text-align: center; }
+  .app-sign-in--state h2 { margin: 0; }
+</style>

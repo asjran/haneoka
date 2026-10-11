@@ -2964,6 +2964,16 @@
       "reportUser": "举报用户",
       "relationshipActions": "用户关系操作",
       "relationshipFailed": "无法更新用户关系"
+    },
+    "app": {
+      "title": "登录 App",
+      "signedInAs": "当前账号",
+      "continue": "在 App 中继续",
+      "useAnother": "使用其他账号",
+      "cancel": "取消",
+      "returned": "已返回 App",
+      "invalid": "请从 App 中打开此页面",
+      "failed": "无法登录 App"
     }
   },
   "community": {
@@ -3494,7 +3504,10 @@
           "mysekai": "世界计划我的世界对话",
           "live": "世界计划虚拟演唱会对话"
         }
-      }
+      },
+      "gameAccountPlayerId": "玩家 ID {id}",
+      "gameAccountRank": "玩家等级 {value}",
+      "gameAccountRating": "高分评级 {value}"
     }
   },
   "legal": {

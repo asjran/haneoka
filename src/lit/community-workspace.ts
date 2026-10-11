@@ -1518,6 +1518,26 @@ export class CommunityWorkspace extends LitElement {
   private detailHref(route: string) {
     return `${this.path(route)}?return=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
   }
+  private gameAccountFacts(account: Value): string[] {
+    const summary = ((account.latestSnapshot as Value | null)?.summary ?? {}) as Value;
+    const number = (value: unknown) => new Intl.NumberFormat(this.locale).format(Number(value));
+    return [
+      account.region === "jp"
+        ? this.label("settings.labels.settingsJapan", "Japan")
+        : account.region === "intl"
+          ? this.label("settings.labels.settingsGlobal", "International")
+          : String(account.region || ""),
+      account.displayName && account.playerUid
+        ? this.label("community.page.gameAccountPlayerId", "Player ID {id}", { id: String(account.playerUid) })
+        : "",
+      typeof summary.rank === "number"
+        ? this.label("community.page.gameAccountRank", "Player rank {value}", { value: number(summary.rank) })
+        : "",
+      typeof summary.rating === "number"
+        ? this.label("community.page.gameAccountRating", "High score rating {value}", { value: number(summary.rating) })
+        : "",
+    ].filter(Boolean);
+  }
   private label(path: string, fallback: string, params?: MessageParams) {
     const value = path
       .split(".")
@@ -4673,7 +4693,7 @@ export class CommunityWorkspace extends LitElement {
                     ${gameAccounts.map(
                       (account) => html`
                         <li>
-                          <div class="list-item list-item--two-line">
+                          <div class="list-item list-item--three-line">
                             <span class="list-item__avatar"
                               >${icon("sports_esports", 20)}</span
                             >
@@ -4682,9 +4702,7 @@ export class CommunityWorkspace extends LitElement {
                                 ${String(account.displayName || account.playerUid || "")}
                               </span>
                               <span class="list-item__supporting">
-                                ${String(account.provider || "")} ·
-                                ${String(account.region || "")} ·
-                                ${String(account.verificationStatus || "")}
+                                ${this.gameAccountFacts(account).join(" · ")}
                               </span>
                             </span>
                           </div>

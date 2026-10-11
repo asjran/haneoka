@@ -8,6 +8,7 @@ export { CommunityMediaContainer } from "./community-media-container";
 import { handleAdminRequest } from "./admin";
 import { applySiteSettings, readSiteSettings, testContentAllowed } from "./site-settings";
 import { handleAccountRegistrationRequest, handleAuthRequest } from "./auth";
+import { handleAppAccountRequest } from "./app-account";
 import { handleAvatarRequest } from "./avatar";
 import { handleAppealRequest } from "./appeals";
 import {
@@ -3450,6 +3451,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     if (registration) return registration;
     const auth = await handleAuthRequest(request, env);
     if (auth) return auth;
+    const appAccount = await handleAppAccountRequest(request, env);
+    if (appAccount) return appAccount;
     const resolveCommunityEntity = createCommunityEntityResolver((catalogEnv, catalogRequest) =>
       handleCatalogApi(catalogEnv, ctx, catalogRequest, new URL(catalogRequest.url).pathname),
     );

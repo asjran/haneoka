@@ -1,7 +1,7 @@
 import { backgroundWork } from "./request-work";
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { APIError } from "better-auth/api";
-import { captcha } from "better-auth/plugins";
+import { bearer, captcha } from "better-auth/plugins";
 import { communityAccessState } from "./access";
 import { claimAuthEmailDelivery, queueAuthEmail, type EmailLocale } from "./email";
 import { inspectCommunityText, scheduleEntityModeration } from "./moderation";
@@ -1142,7 +1142,8 @@ export const createAuth = (request: Request, env: Env): HaneokaAuth => {
   const cached = authCache.get(env.DB);
   if (cached?.key === cacheKey) return cached.auth;
 
-  const plugins: BetterAuthPlugin[] = [];
+  // The app signs requests with its own session token (see app-account.ts).
+  const plugins: BetterAuthPlugin[] = [bearer({ requireSignature: false })];
   if (turnstileEnabled(env) && env.TURNSTILE_SECRET_KEY) {
     const allowedHostnames = String(env.TURNSTILE_ALLOWED_HOSTNAMES || "")
       .split(",")

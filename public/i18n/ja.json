@@ -2964,6 +2964,16 @@
       "reportUser": "ユーザーを報告",
       "relationshipActions": "ユーザー関係の操作",
       "relationshipFailed": "ユーザー関係を更新できませんでした"
+    },
+    "app": {
+      "title": "アプリにサインイン",
+      "signedInAs": "サインイン中のアカウント",
+      "continue": "アプリで続ける",
+      "useAnother": "別のアカウントを使う",
+      "cancel": "キャンセル",
+      "returned": "アプリに戻りました",
+      "invalid": "このページはアプリから開いてください",
+      "failed": "アプリにサインインできませんでした"
     }
   },
   "community": {
@@ -3494,7 +3504,10 @@
           "mysekai": "プロセカ マイセカイ会話",
           "live": "プロセカ バーチャルライブ MC"
         }
-      }
+      },
+      "gameAccountPlayerId": "プレイヤー ID {id}",
+      "gameAccountRank": "プレイヤーランク {value}",
+      "gameAccountRating": "ハイスコアレーティング {value}"
     }
   },
   "legal": {

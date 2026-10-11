@@ -2964,6 +2964,16 @@
       "reportUser": "사용자 신고",
       "relationshipActions": "사용자 관계 작업",
       "relationshipFailed": "사용자 관계를 변경할 수 없습니다"
+    },
+    "app": {
+      "title": "앱에 로그인",
+      "signedInAs": "로그인한 계정",
+      "continue": "앱에서 계속",
+      "useAnother": "다른 계정 사용",
+      "cancel": "취소",
+      "returned": "앱으로 돌아갔습니다",
+      "invalid": "앱에서 이 페이지를 열어 주세요",
+      "failed": "앱에 로그인하지 못했습니다"
     }
   },
   "community": {
@@ -3494,7 +3504,10 @@
           "mysekai": "프로세카 마이 세카이 대화",
           "live": "프로세카 버추얼 라이브 MC"
         }
-      }
+      },
+      "gameAccountPlayerId": "플레이어 ID {id}",
+      "gameAccountRank": "플레이어 랭크 {value}",
+      "gameAccountRating": "하이스코어 레이팅 {value}"
     }
   },
   "legal": {

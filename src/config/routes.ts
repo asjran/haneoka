@@ -42,6 +42,7 @@ const catalogs: Array<[string, string, string?]> = [
 const appPages: Array<[string, string]> = [
   ["/account", "navigation.account"],
   ["/account/reset-password", "account.page.resetPasswordTitle"],
+  ["/account/app", "account.app.title"],
   ["/settings", "navigation.settings"],
   ["/community", "navigation.community"],
   ["/community/feeds", "community.page.feedRecommended"],

@@ -2964,6 +2964,16 @@
       "reportUser": "檢舉使用者",
       "relationshipActions": "使用者關係操作",
       "relationshipFailed": "無法更新使用者關係"
+    },
+    "app": {
+      "title": "登入 App",
+      "signedInAs": "目前帳號",
+      "continue": "在 App 中繼續",
+      "useAnother": "使用其他帳號",
+      "cancel": "取消",
+      "returned": "已返回 App",
+      "invalid": "請從 App 中開啟此頁面",
+      "failed": "無法登入 App"
     }
   },
   "community": {
@@ -3494,7 +3504,10 @@
           "mysekai": "世界計畫我的世界對話",
           "live": "世界計畫虛擬演唱會對話"
         }
-      }
+      },
+      "gameAccountPlayerId": "玩家 ID {id}",
+      "gameAccountRank": "玩家等級 {value}",
+      "gameAccountRating": "高分評級 {value}"
     }
   },
   "legal": {

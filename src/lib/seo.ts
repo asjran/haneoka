@@ -15,6 +15,7 @@ import { isTemporarilyHiddenRoute } from "./temporary-public-routing";
 const PRIVATE_ROUTES = new Set([
   "/account",
   "/account/reset-password",
+  "/account/app",
   "/settings",
   "/community",
   "/community/mine",
