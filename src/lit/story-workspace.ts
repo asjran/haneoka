@@ -67,7 +67,7 @@ import { fetchCrossServerCatalogs } from "../lib/cross-server/fetch";
 import { crossCatalogPresentation, pinCrossCatalogValue, type CrossCatalogPresentation } from "../lib/cross-server/presentation";
 import { OFFICIAL_CATALOG_SERVERS, type OfficialCatalogServer } from "../lib/cross-server/catalog";
 import { catalogServerMark } from "./shared/server-availability";
-import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
+import { clearAppBarActions, clearAppBarIdentity, setAppBarActions, setAppBarIdentity } from "../lib/app-bar";
 import type { Locale } from "@haneoka/i18n";
 import { readPageData } from "../lib/page-data";
 import type { StoryPayload } from "../lib/entity-graph";
@@ -534,6 +534,8 @@ export class StoryWorkspace extends LitElement {
     this.paneFocus.detach();
     clearAppBarActions(this.appBarOwner);
     this.appBarRegistered = false;
+    this.detailEpisode = null;
+    this.syncOverlayShell();
     window.removeEventListener("keydown", this.onKeydown);
     super.disconnectedCallback();
   }
@@ -2148,8 +2150,62 @@ export class StoryWorkspace extends LitElement {
       },
     });
   }
+  /** An episode opened over the collection takes the shell's bar: Back, its title, its chapter, its modes. */
+  private overlayShell?: { back: HTMLAnchorElement; menu?: HTMLElement; leading: HTMLElement; group?: HTMLElement; title: string; lang: string | null };
+  private syncOverlayShell() {
+    const episode = !this.entityId ? this.detailEpisode : null;
+    const heading = this.closest("[data-shell]")?.querySelector<HTMLElement>("[data-top-app-bar] h1");
+    if (!episode || !heading) {
+      if (!this.overlayShell) return;
+      const { back, menu, leading, group, title, lang } = this.overlayShell;
+      back.remove();
+      if (menu) leading.append(menu);
+      group?.remove();
+      if (heading) {
+        heading.textContent = title;
+        delete heading.dataset.entityTitle;
+        if (lang) heading.lang = lang;
+        else heading.removeAttribute("lang");
+      }
+      clearAppBarIdentity(this.appBarOwner);
+      this.overlayShell = undefined;
+      return;
+    }
+    // The collection behind keeps rendering its bar; an open episode replaces it.
+    clearBrowseBar();
+    const leading = document.querySelector<HTMLElement>("[data-top-app-bar-leading]");
+    if (!this.overlayShell && leading) {
+      const back = document.createElement("a");
+      back.className = "icon-button";
+      back.href = location.pathname;
+      back.dataset.entityBack = "";
+      back.setAttribute("aria-label", uiText(this.locale, "common.actions.back"));
+      back.innerHTML = `<svg class="material-icon" width="24" height="24" aria-hidden="true"><use href="/icons.svg#arrow_back"></use></svg>`;
+      back.addEventListener("click", (event) => {
+        if (event.button || event.metaKey || event.ctrlKey || event.shiftKey) return;
+        event.preventDefault();
+        this.closeDetail();
+      });
+      const menu = leading.querySelector<HTMLElement>("[data-nav-toggle]") ?? undefined;
+      const actions = document.querySelector<HTMLElement>("[data-top-app-bar-actions]");
+      let group: HTMLElement | undefined;
+      if (menu && actions) {
+        group = document.createElement("div");
+        group.className = "top-app-bar__group";
+        group.append(menu);
+        actions.prepend(group);
+      }
+      leading.prepend(back);
+      this.overlayShell = { back, menu, leading, group, title: heading.textContent ?? "", lang: heading.getAttribute("lang") };
+    }
+    const title = this.episodeTitleValue(episode);
+    updateEntityHeading(this, title.text, title.locale);
+    const chapter = localizedContent(this.chapterOf(episode)?.chapterName || episode.chapterName, this.locale);
+    setAppBarIdentity(this.appBarOwner, html`<div class="browse__crumbs">${icon("chevron_right", 20)}<span>${chapter}</span></div>`);
+  }
   private syncAppBarActions() {
-    const visible = Boolean(this.entityId && this.detailEpisode && !this.detailLoading && !this.detailError);
+    this.syncOverlayShell();
+    const visible = Boolean(this.detailEpisode && !this.detailLoading && !this.detailError);
     if (!visible) {
       if (this.appBarRegistered) {
         clearAppBarActions(this.appBarOwner);
@@ -2228,30 +2284,6 @@ export class StoryWorkspace extends LitElement {
         tabindex="-1"
         data-overlay-pane=${this.entityId ? nothing : ""}
       >
-        ${
-          !this.entityId
-            ? html`
-                <header>
-                  <button
-                    class="icon-button"
-                    type="button"
-                    aria-label=${uiText(this.locale, "common.actions.close")}
-                    @click=${() => this.closeDetail()}
-                  >
-                    <svg class="material-icon" width="22" height="22"><use href="/icons.svg#arrow_back"></use></svg>
-                  </button>
-                  <span class="story-detail__title">
-                    <strong lang=${this.episodeTitleValue(episode).locale}>${this.episodeTitle(episode)}</strong>
-                    <small>
-                      ${localizedContent(this.chapterOf(episode)?.chapterName || episode.chapterName, this.locale)}
-                    </small>
-                  </span>
-                  <span class="row__spacer"></span>
-                  ${this.renderDetailModes()}
-                </header>
-              `
-            : nothing
-        }
         ${
           this.detailMode === "play"
             ? html`
