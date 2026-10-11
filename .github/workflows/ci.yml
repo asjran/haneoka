@@ -44,6 +44,9 @@ jobs:
       - name: Verify external repository compatibility lock
         run: pnpm dependencies:verify
 
+      - name: Test team builder search
+        run: pnpm test:team-builder
+
       - name: Generate production application
         run: pnpm build
         env:
