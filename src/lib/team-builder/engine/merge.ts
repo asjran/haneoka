@@ -13,7 +13,7 @@ function topDistinct(hits: readonly EngineHit[], k: number): EngineHit[] {
   for (const hit of hits) {
     const key = setKey(hit);
     const known = best.get(key);
-    if (!known || hit.key > known.key) best.set(key, hit);
+    if (!known || compareHits(hit, known) < 0) best.set(key, hit);
   }
   return [...best.values()].sort(compareHits).slice(0, k);
 }

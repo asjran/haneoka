@@ -33,6 +33,7 @@
   "packageManager": "pnpm@11.14.0",
   "type": "module",
   "scripts": {
+    "test:team-builder": "node scripts/tests/run-team-builder.mjs",
     "dependencies:checkout": "node scripts/external-repositories.mjs checkout",
     "dependencies:verify": "node scripts/external-repositories.mjs verify",
     "dependencies:update": "node scripts/external-repositories.mjs update && pnpm install --lockfile-only",

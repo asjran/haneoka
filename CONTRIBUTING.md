@@ -38,6 +38,7 @@ Run the checks relevant to your change:
 ```sh
 pnpm typecheck
 pnpm lint
+pnpm test:team-builder
 HANEOKA_CUBISM_RUNTIME_POLICY=optional pnpm build
 python3 -m unittest discover -s scripts/garupa_master/tests -t .
 ```

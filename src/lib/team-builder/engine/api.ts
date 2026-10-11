@@ -376,7 +376,6 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
       seeds,
       // Gekisou rewards also read support-skill effects the four dominance values do not carry.
       disableSnapDominance: ptTrial && request.goal.kind === "event" && !!request.goal.gekiso,
-      streaming: ptTrial,
       master,
       player,
       members,
@@ -561,17 +560,25 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
       // exactly, so each tied reward among the results gets its own search over the teams that reach exactly it.
       if (out.hits.length && chart && goal.route !== "skip" && goal.measure !== "challenge-points" && goal.ranking !== "pt-only") {
         const ordered: typeof out.hits = [];
+        let proven = out.proven;
+        let bound = out.bound;
         for (const key of [...new Set(out.hits.map((hit) => hit.key))].sort((a, b) => b - a)) {
           if (ordered.length >= request.k) break;
           const group = out.hits.filter((hit) => hit.key === key);
-          const tie = run(eventScoreTieObjective({ ...shared, live: live!, play: goal.play, chart }, objective, key), music, powerEffects, request.k - ordered.length, group.map((hit) => hit.team), undefined, undefined, 0);
+          const tie = run(eventScoreTieObjective({ ...shared, live: live!, play: goal.play, chart }, objective, key, ordered.map(hit => hit.team)), music, powerEffects, request.k - ordered.length, group.map((hit) => hit.team), undefined, undefined, 0);
+          if (!tie.proven) {
+            proven = false;
+            bound = Math.max(bound ?? -Infinity, key);
+          }
+          for (const field of ["leaders", "memberNodes", "snapNodes", "candidates", "exact", "elapsedMs"] as const)
+            out.stats[field] += tie.stats[field];
           ordered.push(
             ...tie.hits
               .filter((hit) => hit.key >= 0)
               .map((hit) => ({ ...hit, key, detail: objective.exact(hit.team, hit.power, hit.slotPowers).detail as unknown })),
           );
         }
-        out = { ...out, hits: ordered.slice(0, request.k) };
+        out = { ...out, proven, bound, hits: ordered.slice(0, request.k) };
       }
       results.push({
         song,

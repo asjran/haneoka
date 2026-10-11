@@ -41,8 +41,15 @@ export interface ObjectiveAdapter<Detail> {
   /** Additive event bonus of a member and a snap (BP, 10000 = 100 %). */
   memberBonus(member: number): number;
   snapBonus(snap: number): number;
+  /** Additional monotone dimensions required before discarding a dominated snap. */
+  snapDominance?(member: number, snap: number): readonly number[];
+  /** Equality-constrained objectives cannot replace a snap with a stronger one. */
+  preserveSnapOptions?: boolean;
   /** Upper bound of the key for optimistic totals. */
   bound(totals: Totals): number;
+  /** Tighter bounds after the members and each snap prefix are fixed. */
+  assignmentBound?(members: readonly number[], options: readonly (readonly number[])[]):
+    (totals: Totals, assigned: readonly number[], from: number) => number;
   /** When set, `bound` depends on power and skill only through power × (productBase + skill): the snap assignment
    * then bounds that product directly (much tighter than bounding both sums apart). */
   productBase?: number;
@@ -114,7 +121,7 @@ export interface SearchInput<Detail> {
   progress?: (done: number, total: number) => void;
   /** Keep every legal photo option when scalar dominance has not been established for the objective. */
   disableSnapDominance?: boolean;
-  /** Evaluate competitive candidates as they arrive; retain only the exact Top-K, never a candidate-count cutoff. */
+  /** Defaults to true: evaluate competitive candidates as they arrive and retain the exact Top-K. */
   streaming?: boolean;
 }
 export interface SearchHit<Detail> {
@@ -301,6 +308,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
   const { master, player, members, snaps, music, objective } = input;
   const constraints = input.constraints ?? NO_CONSTRAINTS;
   const k = Math.max(1, input.k);
+  const streaming = input.streaming !== false;
   const n = members.length,
     s = snaps.length;
   const stats = { leaders: 0, memberNodes: 0, snapNodes: 0, candidates: 0, exact: 0, elapsedMs: 0 };
@@ -368,18 +376,18 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
     const list = [...allowedSnaps.filter((j) => !boundElsewhere.has(j)), -1];
     const value = (j: number) => {
       const column = j < 0 ? s : j;
-      return [snapPower[i * width + column]!, skill[i * width + column]!, skillLow[i * width + column]!, j < 0 ? 0 : snapBonus[j]!];
+      return [snapPower[i * width + column]!, skill[i * width + column]!, skillLow[i * width + column]!, j < 0 ? 0 : snapBonus[j]!, ...(objective.snapDominance?.(i, j) ?? [])];
     };
     const values = list.map(value);
-    const kept = input.disableSnapDominance ? list : list.filter((j, a) => {
+    const kept = input.disableSnapDominance || objective.preserveSnapOptions ? list : list.filter((j, a) => {
       if (j < 0 || requiredSnaps.has(j)) return true;
       let dominated = 0;
       for (let b = 0; b < list.length && dominated < 5; b++) {
         if (b === a || list[b]! < 0) continue;
         const x = values[a]!,
           y = values[b]!;
-        if (y[0]! >= x[0]! && y[1]! >= x[1]! && y[2]! >= x[2]! && y[3]! >= x[3]!) {
-          const equal = y[0] === x[0] && y[1] === x[1] && y[2] === x[2] && y[3] === x[3];
+        if (y.every((value, dimension) => value >= x[dimension]!)) {
+          const equal = y.every((value, dimension) => value === x[dimension]);
           if (!equal || b < a) dominated++;
         }
       }
@@ -421,11 +429,12 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
   const frontier = new Frontier(k);
   const candidates: Candidate[] = [];
   const hits: SearchHit<Detail>[] = [];
+  const retainedKeys = new Map<string, number>();
   // Equality is prunable only after k distinct legal teams have been evaluated exactly.
   // Until then lower bounds (including seeds and other shards' floors) retain their strict comparison.
-  const cannotImprove = (upper: number) => !!input.streaming && hits.length >= k && upper <= hits[k - 1]!.key;
+  const cannotImprove = (upper: number) => streaming && hits.length >= k && upper <= hits[k - 1]!.key;
   const retain = (candidate: Candidate, evaluated?: { key: number; detail: Detail }) => {
-    if (!input.streaming) {
+    if (!streaming) {
       candidates.push(candidate);
       return;
     }
@@ -448,13 +457,15 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
       return;
     }
     if (!evaluated) stats.exact++;
+    frontier.offer(candidate.setKey, exact.key);
     if (existing >= 0 && hits[existing]!.key >= exact.key) return;
     if (existing >= 0) hits.splice(existing, 1);
     const hit = { team: candidate.team, power: candidate.power, slotPowers: candidate.slotPowers, totals: candidate.totals, ...exact };
     let index = hits.length;
     while (index > 0 && hits[index - 1]!.key < hit.key) index--;
     hits.splice(index, 0, hit);
-    if (hits.length > k) hits.length = k;
+    retainedKeys.set(candidate.setKey, exact.key);
+    if (hits.length > k) retainedKeys.delete(setKeyOf(hits.pop()!.team));
   };
   /** Compact when the pool doubles past what survived the last compaction, keeping the work amortized linear. */
   let compactAt = 4096;
@@ -676,6 +687,8 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
       .map((i) => members[i]!.key)
       .sort()
       .join("|");
+    const cannotImproveSet = (upper: number) => cannotImprove(upper) ||
+      (streaming && (retainedKeys.get(setKey) ?? -Infinity) >= upper);
     const lead = profile(leader);
     let exactLead: number[] | null = null;
     if (!lead.simple) {
@@ -687,6 +700,9 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
     const used = new Uint8Array(s);
     for (const [member, snap] of constraints.bindings) if (snap >= 0 && !team.includes(member)) used[snap] = 1;
     const assignment = new Array<number>(5).fill(-1);
+    const tightenedBound = objective.assignmentBound?.(team, options);
+    const bound = (totals: Totals, from = 0) => tightenedBound
+      ? tightenedBound(totals, assignment, from) : objective.bound(totals);
     const maxPower = team.map((i) => best[i]!.power);
     const maxWeight = team.map((i) => best[i]!.weight);
     const maxBonus = team.map((i) => best[i]!.bonus);
@@ -810,27 +826,28 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
         const targets = objective.jointTargets(limit());
         if (!targets.some((target) => jointFeasible(t, power, base + weight, bonus, P, S, B, target.bonus, target.product))) return -Infinity;
       }
-      if (base === undefined) return objective.bound({ power: power + P, skill: weight + S, skillLow: 0, bonus: bonus + B });
+      if (base === undefined) return bound({ power: power + P, skill: weight + S, skillLow: 0, bonus: bonus + B }, from);
       const x = power,
         y = base + weight;
       let product = (x + P) * (y + S);
       // Separate maxima first; the λ-tangents only when that does not already prune.
-      if (objective.bound({ power: product / (y + S), skill: weight + S, skillLow: 0, bonus: bonus + B }) < limit()) return -Infinity;
+      if (bound({ power: product / (y + S), skill: weight + S, skillLow: 0, bonus: bonus + B }, from) < limit()) return -Infinity;
       const lambda = Math.sqrt((y + S) / Math.max(1e-9, x + P));
       for (const scale of [1, 1.02, 1 / 1.02]) {
         const l = lambda * scale;
         const M = maxAssignment(blend(t, l), t.columns);
         product = Math.min(product, (l * x + y / l + M) ** 2 / 4);
       }
-      return objective.bound({ power: product / (y + S), skill: weight + S, skillLow: 0, bonus: bonus + B });
+      return bound({ power: product / (y + S), skill: weight + S, skillLow: 0, bonus: bonus + B }, from);
     };
     const baseTotal = basePower.reduce((sum, value) => sum + value, 0);
     // Cheap first: every member's own best snap, distinctness ignored.
-    if (objective.bound({ power: baseTotal + suffix(maxPower, 0), skill: suffix(maxWeight, 0), skillLow: 0, bonus: memberTotalBonus + suffix(maxBonus, 0) }) < limit()) return;
+    if (bound({ power: baseTotal + suffix(maxPower, 0), skill: suffix(maxWeight, 0), skillLow: 0, bonus: memberTotalBonus + suffix(maxBonus, 0) }) < limit()) return;
     // Bonus constraints: the set's members fix their part; the snaps can add at most a matching's worth.
     if (constraints.maxBonus != null && memberTotalBonus > constraints.maxBonus) return;
     if (constraints.minBonus !== null && memberTotalBonus + (anySnapBonus ? maxAssignment(tables(0).bonus, tables(0).columns) : 0) < constraints.minBonus) return;
-    if (remainingBound(0, baseTotal, 0, memberTotalBonus) < limit()) return;
+    const upper = remainingBound(0, baseTotal, 0, memberTotalBonus);
+    if (upper < limit() || cannotImproveSet(upper)) return;
     // Incumbent: the assignment maximizing the linearized key (λ·power + skill/λ) is feasible and usually optimal or
     // close, so the walk below starts with a high bar for this set.
     if (objective.productBase !== undefined && !requiredSnaps.size) {
@@ -860,7 +877,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
         const fits = (constraints.minBonus === null || bonus >= constraints.minBonus) && (constraints.maxBonus == null || bonus <= constraints.maxBonus);
         if (fits) {
           const [low, high] = objective.interval({ members: team, snaps: picks }, totals);
-          if (high >= limit() && !cannotImprove(high)) {
+          if (high >= limit() && !cannotImproveSet(high)) {
             frontier.offer(setKey, low);
             setLow = Math.max(setLow, low);
             stats.candidates++;
@@ -893,7 +910,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
       if (timedOut) {
         unexploredBound = Math.max(
           unexploredBound,
-          objective.bound({ power: power + suffix(maxPower, slot), skill: weight + suffix(maxWeight, slot), skillLow: 0, bonus: bonus + suffix(maxBonus, slot) }),
+          bound({ power: power + suffix(maxPower, slot), skill: weight + suffix(maxWeight, slot), skillLow: 0, bonus: bonus + suffix(maxBonus, slot) }),
         );
         return;
       }
@@ -902,10 +919,10 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
         const totals = { power, skill: weight, skillLow: weightLow, bonus };
         if (constraints.minBonus !== null && bonus < constraints.minBonus) return;
         if (constraints.maxBonus != null && bonus > constraints.maxBonus) return;
-        if (objective.bound(totals) < limit()) return;
+        if (bound(totals, 5) < limit()) return;
         if (objective.leafBound && objective.leafBound({ members: team, snaps: assignment }, totals) < limit()) return;
         const [low, high] = objective.interval({ members: team, snaps: assignment }, totals);
-        if (high < limit() || cannotImprove(high)) return;
+        if (high < limit() || cannotImproveSet(high)) return;
         frontier.offer(setKey, low);
         setLow = Math.max(setLow, low);
         stats.candidates++;
@@ -921,13 +938,13 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
         });
         return;
       }
-      const optimistic = objective.bound({
+      const optimistic = bound({
         power: power + suffix(maxPower, slot),
         skill: weight + suffix(maxWeight, slot),
         skillLow: 0,
         bonus: bonus + Math.min(suffix(maxBonus, slot), unusedBonusTop(5 - slot)),
-      });
-      if (optimistic < limit() || cannotImprove(optimistic)) return;
+      }, slot);
+      if (optimistic < limit() || cannotImproveSet(optimistic)) return;
       if (slot > 0 && slot < 4 && remainingBound(slot, power, weight, bonus) < limit()) return;
       // One slot left: each option's own bound (its power, skill and bonus together), and only options that can still
       // reach the limit are walked.
@@ -939,7 +956,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
         for (const j of options[4]!) {
           if (j >= 0 && used[j]) continue;
           const column = j < 0 ? s : j;
-          const value = objective.bound({
+          const value = bound({
             power: power + snapPower[i * width + column]!,
             skill: weight + skill[i * width + column]!,
             skillLow: 0,
@@ -984,7 +1001,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
   // Exact phase: highest optimistic first, until nothing left can enter the Top-K.
   const threshold = Math.max(frontier.threshold, floor);
   const pool = candidates.filter((candidate) => candidate.high >= threshold).sort((a, b) => b.high - a.high);
-  if (input.streaming) {
+  if (streaming) {
     stats.elapsedMs = performance.now() - started;
     return { hits, proven: !timedOut, bound: timedOut ? unexploredBound : null, stats: { ...stats, ...objective.work } };
   }

@@ -256,6 +256,7 @@ export function scoreCapObjective(context: LiveContext): ObjectiveAdapter<null> 
     memberBonus: () => 0,
     snapBonus: () => 0,
     bound: core.scoreHigh,
+    productBase: core.productBase,
     interval: (_team, totals) => {
       const value = core.scoreHigh(totals);
       return [value, value];
@@ -342,22 +343,64 @@ export function eventObjective(
   const otherType = 1 - bonusType;
   const other = (bonus: number, rank: number) =>
     measure === "points" ? eventItems(route, bonus, rank) : eventPoints(route, bonus, rank);
+  const otherMemberBonuses = context.members.map(member => memberEventPercent(route.effects, member, otherType));
+  const otherSnapBonuses = context.snaps.map(snap => snapEventPercent(route.effects, snap, otherType));
   const otherBonus = (team: { members: readonly number[]; snaps: readonly number[] }) =>
-    team.members.reduce((sum, i) => sum + memberEventPercent(route.effects, context.members[i]!, otherType), 0) +
-    team.snaps.reduce((sum, j) => sum + (j < 0 ? 0 : snapEventPercent(route.effects, context.snaps[j]!, otherType)), 0);
+    team.members.reduce((sum, i) => sum + otherMemberBonuses[i]!, 0) +
+    team.snaps.reduce((sum, j) => sum + (j < 0 ? 0 : otherSnapBonuses[j]!), 0);
   /** Search range of the bonus inversion (BP; 10000 = 100 %). */
   // In the strict trial, inversion must stay inside the validated integer domain.
   // An arbitrary million-BP endpoint can overflow native settlement even when every legal team is safe.
   const topFive = (values: number[]) => values.sort((a, b) => b - a).slice(0, 5).reduce((a, b) => a + b, 0);
+  const otherSnapBonus = (snap: number) => snap < 0 ? 0 : otherSnapBonuses[snap]!;
+  const maxOtherBonus = TIE ? topFive(otherMemberBonuses.map(bonus => Math.max(0, bonus))) +
+    topFive(context.snaps.map((_, snap) => Math.max(0, otherSnapBonus(snap)))) : 0;
+  const tieBounds = new Map<number, number>();
+  const tieBound = (rank: number) => {
+    let bound = tieBounds.get(rank);
+    if (bound === undefined) tieBounds.set(rank, (bound = TIE ? TIE * other(maxOtherBonus, rank) : 0));
+    return bound;
+  };
+  const rewardBound = (bonus: number, rank: number) => value(bonus, rank) + tieBound(rank);
+  const snapDominance = (_member: number, snap: number) => TIE ? [otherSnapBonus(snap)] : [];
+  const assignmentBound = (rankOfTotals: (totals: Totals) => number): NonNullable<ObjectiveAdapter<unknown>["assignmentBound"]> =>
+    (members, options) => {
+      const memberOther = members.reduce((sum, i) => sum + otherMemberBonuses[i]!, 0);
+      const suffix = new Float64Array(6);
+      for (let slot = 4; slot >= 0; slot--)
+        suffix[slot] = suffix[slot + 1]! + Math.max(...options[slot]!.map(otherSnapBonus));
+      const orderedSnaps = [...new Set(options.flat())].filter(snap => snap >= 0 && otherSnapBonus(snap) > 0)
+        .sort((a, b) => otherSnapBonus(b) - otherSnapBonus(a));
+      return (totals, assigned, from) => {
+        const rank = rankOfTotals(totals);
+        let distinct = 0, left = 5 - from;
+        for (const snap of orderedSnaps) {
+          if (!left) break;
+          let used = false;
+          for (let slot = 0; slot < from; slot++) if (assigned[slot] === snap) used = true;
+          if (used) continue;
+          distinct += otherSnapBonus(snap);
+          left--;
+        }
+        let bonus = memberOther + Math.min(suffix[from]!, distinct);
+        for (let slot = 0; slot < from; slot++) bonus += otherSnapBonus(assigned[slot]!);
+        return value(totals.bonus, rank) + TIE * other(bonus, rank);
+      };
+    };
   const MAX_BONUS = ranking === "pt-only"
     ? topFive(context.members.map((_, i) => memberBonus(i))) + topFive(context.snaps.map((_, i) => snapBonus(i)))
     : 1_000_000;
   if (route.kind === "skip" || !context.chart) {
     return {
-      skill: () => [0, 0],
+      skill: (member, snap) => {
+        const bonus = TIE ? otherMemberBonuses[member]! + otherSnapBonus(snap) : 0;
+        return [bonus, bonus];
+      },
       memberBonus,
       snapBonus,
-      bound: (totals) => value(totals.bonus, skipRank),
+      snapDominance,
+      bound: (totals) => value(totals.bonus, skipRank) + TIE * other(totals.skill, skipRank),
+      leafBound: (team, totals) => value(totals.bonus, skipRank) + TIE * other(otherBonus(team), skipRank),
       interval(team, totals) {
         const key = value(totals.bonus, skipRank) + TIE * other(otherBonus(team), skipRank);
         return [key, key];
@@ -372,19 +415,17 @@ export function eventObjective(
   const live = context as LiveContext & { chart: CompiledChart };
   const core = liveCore(live);
   // scoreRank starts at 2 even when the table omits that zero-score row.
-  // A PT-only bound must retain its possible payout below the next threshold.
-  const rankTargets = ranking === "pt-only"
-    ? [{ rank: 2, required: 0 }, ...live.chart.ranks.filter((row) => row.rank > 2)]
-    : live.chart.ranks;
+  // Retain its possible payout below the next threshold.
+  const rankTargets = [{ rank: 2, required: 0 }, ...live.chart.ranks.filter((row) => row.rank > 2)];
   const rankOf = (score: number) => scoreRank(live.chart, score);
   /** Least bonus whose payoff at `rank` reaches `target` (payoffs rise with bonus). */
   const bonusFor = (rank: number, target: number) => {
-    if (value(MAX_BONUS, rank) < target) return Infinity;
+    if (rewardBound(MAX_BONUS, rank) < target) return Infinity;
     let low = 0,
       high = MAX_BONUS;
     while (low < high) {
       const mid = (low + high) >> 1;
-      if (value(mid, rank) >= target) high = mid;
+      if (rewardBound(mid, rank) >= target) high = mid;
       else low = mid + 1;
     }
     return low;
@@ -400,6 +441,7 @@ export function eventObjective(
     },
     memberBonus,
     snapBonus,
+    snapDominance,
     productBase: core.productBase,
     jointTargets(limit) {
       // Like `bound`, payoff only: some order must bring the payoff to the limit, at a rank its score reaches.
@@ -414,17 +456,17 @@ export function eventObjective(
       }
       return targets;
     },
+    assignmentBound: TIE ? assignmentBound((totals) => rankBound(core.scoreHigh(totals))) : undefined,
     // The best order of a complete team assigns each slot a distinct skill event: a 5×5 assignment over the slots'
     // per-event weights, far below the sum of each slot's best event.
     leafBound(team, totals) {
-      if (core.play) return value(totals.bonus, rankBound(core.teamHigh(team, totals)));
-      const skill = bestOrder5(team.members.map((member, slot) => core.weightOf(member, team.snaps[slot]!).high.perEvent));
-      return value(totals.bonus, rankBound(core.scoreHigh({ ...totals, skill })));
+      const score = core.play ? core.teamHigh(team, totals) : core.scoreHigh({ ...totals,
+        skill: bestOrder5(team.members.map((member, slot) => core.weightOf(member, team.snaps[slot]!).high.perEvent)) });
+      const rank = rankBound(score);
+      return value(totals.bonus, rank) + TIE * other(otherBonus(team), rank);
     },
     bound: (totals) => {
-      // Points only: equal-point teams are ordered by score among those found, but the bound does not try to
-      // prove that order (proving it means enumerating every team tied at the top points).
-      return value(totals.bonus, rankBound(core.scoreHigh(totals)));
+      return rewardBound(totals.bonus, rankBound(core.scoreHigh(totals)));
     },
     interval(team, totals) {
       // The team's worst/best slot weights bound every order's score: when both ends share a rank, every order
@@ -499,22 +541,52 @@ export function eventScoreTieObjective(
   context: LiveContext & { chart: CompiledChart },
   event: ObjectiveAdapter<EventDetail | { bonus: number; mean: number }>,
   target: number,
+  higherRewardTeams: readonly Team[] = [],
 ): ObjectiveAdapter<EventDetail> {
-  const core = liveCore(context);
+  const mean = liveScoreObjective(context, "mean");
+  const eventTotals = (team: Team, totals: Totals): Totals => {
+    let skill = 0, skillLow = 0;
+    team.members.forEach((member, slot) => {
+      const [low, high] = event.skill(member, team.snaps[slot]!);
+      skill += high;
+      skillLow += low;
+    });
+    return { ...totals, skill, skillLow };
+  };
+  const setKey = (team: Team) => [...team.members].sort((a, b) => a - b).join(",");
+  const excluded = new Set(higherRewardTeams.map(setKey));
+  const eligible = (team: Team) => !excluded.has(setKey(team));
   return {
-    skill: (member, snap) => event.skill(member, snap),
+    preserveSnapOptions: true,
+    skill: (member, snap) => mean.skill(member, snap),
     memberBonus: (member) => event.memberBonus(member),
     snapBonus: (snap) => event.snapBonus(snap),
-    bound: (totals) => (event.bound(totals) < target ? -1 : core.scoreHigh(totals)),
-    leafBound: (team, totals) => ((event.leafBound?.(team, totals) ?? event.bound(totals)) < target ? -1 : core.scoreHigh(totals)),
+    bound: (totals) => mean.bound(totals),
+    assignmentBound(members, options) {
+      if (excluded.has([...members].sort((a, b) => a - b).join(","))) return () => -1;
+      const rewardBound = event.assignmentBound?.(members, options);
+      const suffix = new Float64Array(6);
+      for (let slot = 4; slot >= 0; slot--)
+        suffix[slot] = suffix[slot + 1]! + Math.max(...options[slot]!.map(snap => event.skill(members[slot]!, snap)[1]));
+      return (totals, assigned, from) => {
+        let skill = suffix[from]!;
+        for (let slot = 0; slot < from; slot++) skill += event.skill(members[slot]!, assigned[slot]!)[1];
+        const optimistic = { ...totals, skill };
+        return (rewardBound ? rewardBound(optimistic, assigned, from) : event.bound(optimistic)) < target ? -1 : mean.bound(totals);
+      };
+    },
+    leafBound: (team, totals) => (!eligible(team) || (event.leafBound?.(team, eventTotals(team, totals)) ?? event.bound(eventTotals(team, totals))) < target ? -1 : mean.bound(totals)),
     interval(team, totals) {
-      const [low, high] = event.interval(team, totals);
-      return high < target || low > target ? [-1, -1] : [core.scoreLow(totals), core.scoreHigh(totals)];
+      if (!eligible(team)) return [-1, -1];
+      const [low, high] = event.interval(team, eventTotals(team, totals));
+      if (high < target || low > target) return [-1, -1];
+      const [scoreLow, scoreHigh] = mean.interval(team, totals);
+      return [low === target && high === target ? scoreLow : -1, scoreHigh];
     },
     exact(team, power, slotPowers) {
       const result = event.exact(team, power, slotPowers);
       const detail = result.detail as EventDetail;
-      return { key: result.key === target ? detail.scores.mean : -1, detail };
+      return { key: eligible(team) && result.key === target ? detail.scores.mean : -1, detail };
     },
   };
 }
