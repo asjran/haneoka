@@ -29,6 +29,8 @@ export interface SongSummaryRenderOptions {
    * per-difficulty segment metrics from the song-meta entry. */
   gekisou: Item;
   metaView?: { mode: string; tier: string; band: number };
+  /** False for a game without BanG Dream scoring: only level and note count apply. */
+  scoring?: boolean;
   label(key: string, fallback: string): string;
   detailLabel(key: string): string;
   fieldValue(item: Item, key: string): string;
@@ -65,6 +67,7 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     fieldValue,
     selectDifficulty,
     metaView,
+    scoring = true,
   } = options;
   const percentage = (value: unknown) =>
     value !== null && value !== undefined && Number.isFinite(Number(value))
@@ -95,28 +98,39 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
     difficulty[selectedDifficulty]?.playLevel ??
     meta.r;
   const estimatedLevel = estimatedDifficulty(difficulty[selectedDifficulty], locale);
-  const metrics: Array<[string, string, string]> = [
-    [
-      "metaOfficialLevel",
-      "Official level",
-      officialLevel !== null && officialLevel !== undefined && Number.isFinite(Number(officialLevel))
-        ? Number(officialLevel).toLocaleString(locale, { maximumFractionDigits: 20 })
-        : "—",
-    ],
-    ...(estimatedLevel === undefined
-      ? []
-      : ([["difficultyEstimateBeta", "Estimated difficulty · Beta", estimatedLevel]] as Array<[string, string, string]>)),
-    ["metaTime", "Song Duration", duration(meta.time)],
-    ...(nativeScore === undefined
-      ? []
-      : ([["metaNativeScore", "Score", decimal(nativeScore, 2)]] as Array<[string, string, string]>)),
-    ["metaScoreFactor", label("metaScore", "Factor"), percentage(selected.score)],
-    ["metaEff", "Score Efficiency per Minute", percentage(selected.eff)],
-    ["metaBpm", "Beats per Minute", bpm],
-    ["metaN", "Note Count", decimal(meta.n)],
-    ["metaNps", "Notes per Second", decimal(meta.nps, 1)],
-    ["metaSr", "Skill Coverage", percentage(estimated ? undefined : selected.sr)],
+  const level: [string, string, string] = [
+    "metaOfficialLevel",
+    "Official level",
+    officialLevel !== null && officialLevel !== undefined && Number.isFinite(Number(officialLevel))
+      ? Number(officialLevel).toLocaleString(locale, { maximumFractionDigits: 20 })
+      : "—",
   ];
+  const metrics: Array<[string, string, string]> = !scoring
+    ? [level, ["metaN", "Note Count", decimal(meta.n ?? difficulty[selectedDifficulty]?.noteCount)]]
+    : [
+        [
+          "metaOfficialLevel",
+          "Official level",
+          officialLevel !== null && officialLevel !== undefined && Number.isFinite(Number(officialLevel))
+            ? Number(officialLevel).toLocaleString(locale, { maximumFractionDigits: 20 })
+            : "—",
+        ],
+        ...(estimatedLevel === undefined
+          ? []
+          : ([["difficultyEstimateBeta", "Estimated difficulty · Beta", estimatedLevel]] as Array<
+              [string, string, string]
+            >)),
+        ["metaTime", "Song Duration", duration(meta.time)],
+        ...(nativeScore === undefined
+          ? []
+          : ([["metaNativeScore", "Score", decimal(nativeScore, 2)]] as Array<[string, string, string]>)),
+        ["metaScoreFactor", label("metaScore", "Factor"), percentage(selected.score)],
+        ["metaEff", "Score Efficiency per Minute", percentage(selected.eff)],
+        ["metaBpm", "Beats per Minute", bpm],
+        ["metaN", "Note Count", decimal(meta.n)],
+        ["metaNps", "Notes per Second", decimal(meta.nps, 1)],
+        ["metaSr", "Skill Coverage", percentage(estimated ? undefined : selected.sr)],
+      ];
   const facts: Array<{ key: string; value: string }> = ["composer", "lyricist", "arranger", "publishedAt"].flatMap(
     (key) => {
       const raw = item[key];
@@ -180,9 +194,7 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
               <dt title=${key === "difficultyEstimateBeta" ? nothing : label(key, fallback)}>
                 ${label(key, fallback)}
               </dt>
-              <dd lang=${resolveLocalizedText(item[key], locale).locale}>
-                ${value}
-              </dd>
+              <dd lang=${resolveLocalizedText(item[key], locale).locale}>${value}</dd>
             </div>
           `,
         )}
@@ -198,7 +210,16 @@ export function renderSongSummary(options: SongSummaryRenderOptions) {
         )}
       </dl>
     </section>
-    <song-skill-points source=${String(difficulty[selectedDifficulty]?.file || "")} locale=${locale}></song-skill-points>
+    ${
+      scoring
+        ? html`
+            <song-skill-points
+              source=${String(difficulty[selectedDifficulty]?.file || "")}
+              locale=${locale}
+            ></song-skill-points>
+          `
+        : nothing
+    }
     ${
       gekisouCells.length
         ? html`
@@ -253,7 +274,9 @@ export function renderSongRewards({ item, chart, server, label, localized }: Son
       ? html`
           <img src=${value.image} alt="" width="26" height="26" decoding="async" />
         `
-      : html`<span class="song-reward-value__placeholder" aria-hidden="true">${icon("redeem", 18)}</span>`;
+      : html`
+          <span class="song-reward-value__placeholder" aria-hidden="true">${icon("redeem", 18)}</span>
+        `;
     return html`
       <span class="song-reward-value">
         ${image}
@@ -312,7 +335,9 @@ export function renderSongRewards({ item, chart, server, label, localized }: Son
                         ? html`
                             <img src=${value.image} alt="" width="26" height="26" decoding="async" />
                           `
-                        : html`<span class="song-reward-value__placeholder" aria-hidden="true">${icon("redeem", 18)}</span>`
+                        : html`
+                            <span class="song-reward-value__placeholder" aria-hidden="true">${icon("redeem", 18)}</span>
+                          `
                     }
                     <span>
                       ${value.name}

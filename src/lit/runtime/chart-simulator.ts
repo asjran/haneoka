@@ -145,6 +145,8 @@ export class ChartSimulator extends LitElement {
   static properties = {
     source: { type: String },
     audioUrl: { type: String, attribute: "audio-url" },
+    chartFormat: { type: String, attribute: "chart-format" },
+    offsetMs: { type: Number, attribute: "offset-ms" },
     bandId: { type: Number, attribute: "band-id" },
     label: { type: String },
     server: { type: String },
@@ -172,6 +174,10 @@ export class ChartSimulator extends LitElement {
   };
   declare source: string;
   declare audioUrl: string;
+  /** "sus" reads a Project Sekai score through its Cassiopeia plugin. */
+  declare chartFormat: string;
+  /** Where the chart starts in the audio. */
+  declare offsetMs: number;
   declare bandId: number;
   declare label: string;
   declare server: string;
@@ -233,6 +239,8 @@ export class ChartSimulator extends LitElement {
     super();
     this.source = "";
     this.audioUrl = "";
+    this.chartFormat = "";
+    this.offsetMs = 0;
     this.bandId = 1;
     this.label = "Chart";
     this.server = "intl";
@@ -462,6 +470,17 @@ export class ChartSimulator extends LitElement {
     });
   }
 
+  private async sekaiChart(source: string): Promise<ChartDocument> {
+    const { convertSekaiSus } = await import("@haneoka/cassiopeia-plugin-sekai");
+    const { chart } = convertSekaiSus(source, { bgmOffsetMs: this.offsetMs });
+    const shift = <T extends { timeMs: number }>(rows: T[]) => rows.forEach((row) => (row.timeMs += this.offsetMs));
+    shift(chart.notes);
+    shift(chart.bpmChanges);
+    shift(chart.signatureChanges);
+    shift(chart.timeScaleChanges);
+    chart.durationMs += this.offsetMs;
+    return chart;
+  }
   private async load() {
     if (!this.source) return;
     this.dispose();
@@ -480,7 +499,7 @@ export class ChartSimulator extends LitElement {
       if (!response.ok) throw new Error(`Chart ${response.status}`);
       const source = await response.text();
       signal.throwIfAborted();
-      this.chart = this.runtime().require(OUR_NOTES_RULES).parse(source);
+      this.chart = this.chartFormat === "sus" ? await this.sekaiChart(source) : this.runtime().require(OUR_NOTES_RULES).parse(source);
       this.assets = assets;
       await this.initialize(signal);
       signal.throwIfAborted();

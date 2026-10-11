@@ -333,7 +333,7 @@ interface Config {
    * the same shape — so both render through this one screen instead of a
    * second hand-rolled list that drifts out of sync.
    */
-  origin?: "release" | "bestdori";
+  origin?: "release" | "bestdori" | "sekai";
   /** T29's published immutable sidecar receipt, supplied by the page build. */
   nativeMetaReference?: unknown;
 }
@@ -812,7 +812,7 @@ export class CatalogScreen extends LitElement {
         Number.isInteger(Number(type)) && Number(type) >= 1 && Number(type) <= 3));
   }
   private ensureSongMissions() {
-    if (!this.isConnected || this.settings.origin === "bestdori" || this.settings.entityContext) return;
+    if (!this.isConnected || this.isProvider() || this.settings.entityContext) return;
     const items = this.items;
     const groups = new Map<string, { identity: CrossCatalogIdentity; rows: Map<string, Item> }>();
     for (const item of items) {
@@ -867,7 +867,7 @@ export class CatalogScreen extends LitElement {
   private unionRequests = new RequestScope();
   private unionResource(): CrossCatalogResource | undefined {
     const resource = this.profile.collection || this.settings.resource;
-    return this.settings.origin !== "bestdori" &&
+    return !this.isProvider() &&
       ["jp", "intl", "intl-test"].includes(this.dataServer()) &&
       isCrossCatalogResource(resource)
       ? resource
@@ -1203,7 +1203,7 @@ export class CatalogScreen extends LitElement {
   private songMetaUrl(): string {
     const source = this.sourceUrl("song-meta");
     const releaseId = this.nativeCatalogPin?.releaseId || this.payload?.releaseId;
-    if (this.settings.origin === "bestdori" || !releaseId) return source;
+    if (this.isProvider() || !releaseId) return source;
     const url = new URL(source, "https://route.invalid");
     url.searchParams.set("release", releaseId);
     return url.pathname + url.search;
@@ -1211,7 +1211,7 @@ export class CatalogScreen extends LitElement {
   private async readSongMeta(response: Response): Promise<void> {
     this.songMeta = response.ok ? ((await response.json()) as Item) : {};
     this.songMetaPin =
-      this.settings.origin === "bestdori"
+      this.isProvider()
         ? undefined
         : nativeMetaIdentity({
             server: this.dataServer(),
@@ -1238,7 +1238,7 @@ export class CatalogScreen extends LitElement {
     if (
       !receipt ||
       receipt.server !== server ||
-      this.settings.origin === "bestdori" ||
+      this.isProvider() ||
       this.profile.presentation !== "song" ||
       (this.payload &&
         (this.payload.server !== receipt.server ||
@@ -1374,7 +1374,7 @@ export class CatalogScreen extends LitElement {
     // CharacterDetailArchive owns its own light-DOM loader; leave those
     // related tiles to it while this screen owns the browse/detail siblings.
     filter: (image) => !image.closest("character-detail-archive"),
-    observationTarget: (image) => this.settings.origin === "bestdori"
+    observationTarget: (image) => this.isProvider()
       ? image.closest(".catalog-song-tile") ?? image
       : image,
   });
@@ -1645,7 +1645,7 @@ export class CatalogScreen extends LitElement {
     if (this.profile.presentation === "song") this.restoreMetaReference(params);
     this.restoreFacets(params);
     this.selectedId = this.settings.entityId || params.get(this.selectionParam()) || "";
-    if (this.settings.origin === "bestdori" && this.profile.presentation === "song") {
+    if (this.isProvider() && this.profile.presentation === "song") {
       if (this.settings.entityContext) this.syncBestdoriChartPage(params);
       else if (this.selectedId) {
         const href = this.entityLink(this.selectedId);
@@ -1877,7 +1877,7 @@ export class CatalogScreen extends LitElement {
     // tile() defers its artwork as `data-src`; this is what promotes it.
     this.lazyImages.observe(this);
     this.viewportGrid.sync(
-      this.settings.origin === "bestdori" && this.profile.presentation === "song" && this.view === "grid"
+      this.isProvider() && this.profile.presentation === "song" && this.view === "grid"
         ? this.querySelector<HTMLElement>("#browse-results > .collection--song")
         : null,
       this.closest(".page-stage"),
@@ -1885,19 +1885,26 @@ export class CatalogScreen extends LitElement {
     this.restoreLocationState();
   }
   private localizedImageCandidates = (source: string) =>
-    this.settings.origin === "bestdori" ? [source] : localeTaggedCandidates(source, this.settings.locale);
+    this.isProvider() ? [source] : localeTaggedCandidates(source, this.settings.locale);
   imageForLocale(source: string) {
-    return this.settings.origin === "bestdori" ? source : localizedAssetUrl(source, this.settings.locale);
+    return this.isProvider() ? source : localizedAssetUrl(source, this.settings.locale);
   }
   private imageError = nextImageCandidate;
-  /** Bestdori's region is chosen by the reading locale, as the worker expects. */
+  /** A worker provider projects another game's data into this screen's records. */
+  private isProvider() {
+    return this.settings.origin === "bestdori" || this.settings.origin === "sekai";
+  }
+  private providerCollection() {
+    return `/${this.settings.locale}/community/${this.settings.origin === "sekai" ? "sekai/songs" : "songs-bestdori"}/`;
+  }
+  /** A provider's region is chosen by the reading locale, as the worker expects. */
   private bestdoriRegion() {
     return { "zh-TW": "tw", "zh-CN": "cn", ko: "kr", en: "en" }[this.settings.locale] || "jp";
   }
   /** Resolves a resource against whichever origin this screen was given. */
   private sourceUrl(resource: string, id = "") {
-    if (this.settings.origin !== "bestdori") return catalogUrl(resource, id, this.dataServer());
-    const base = `/api/v1/garupa/bestdori/${this.bestdoriRegion()}`;
+    if (!this.isProvider()) return catalogUrl(resource, id, this.dataServer());
+    const base = `/api/v1/${this.settings.origin === "sekai" ? "sekai" : "garupa/bestdori"}/${this.bestdoriRegion()}`;
     const path = id ? `${resource}/${encodeURIComponent(id)}` : resource;
     return `${base}/${path}?lang=${encodeURIComponent(this.settings.locale)}`;
   }
@@ -1924,15 +1931,15 @@ export class CatalogScreen extends LitElement {
   private entityLink(id: string, difficulty?: number, server: ReleaseServer = this.dataServer()): string | undefined {
     const kind = this.canonicalKind();
     if (!kind) return undefined;
-    if (this.settings.origin === "bestdori") {
+    if (this.isProvider()) {
       if (this.profile.presentation !== "song") return undefined;
-      const collection = `/${this.settings.locale}/community/songs-bestdori/`;
+      const collection = this.providerCollection();
       const returnTo = this.settings.entityContext
         ? entityReturnHref() || collection
         : returnStateFromLocation(location.pathname, location.search, kind);
       const query = new URLSearchParams({ song: id, return: returnTo, chartDifficulty: this.selectedSongDifficulty });
       if (difficulty !== undefined) query.set("difficulty", String(difficulty));
-      return `/${this.settings.locale}/community/songs-bestdori/detail/?${query}`;
+      return `${collection}detail/?${query}`;
     }
     const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
     return entityHref({
@@ -2155,7 +2162,7 @@ export class CatalogScreen extends LitElement {
     this.songMissionRequests.cancel();
     this.songMissionSignal = undefined;
     this.songMissionBatches.clear();
-    if (this.settings.entityContext && this.settings.origin === "bestdori" && !this.selectedId) {
+    if (this.settings.entityContext && this.isProvider() && !this.selectedId) {
       this.phase = "error";
       this.setEntityReady(false);
       return;
@@ -2213,10 +2220,10 @@ export class CatalogScreen extends LitElement {
           : null,
         needsRelations ? fetch(this.sourceUrl("bands"), { headers: { accept: "application/json" }, signal }) : null,
         // Game-sprite marks and item tables are release-only projections.
-        needsGameMarks && this.settings.origin !== "bestdori"
+        needsGameMarks && !this.isProvider()
           ? fetch(this.sourceUrl("ui-marks"), { headers: { accept: "application/json" }, signal })
           : null,
-        needsItems && this.settings.origin !== "bestdori"
+        needsItems && !this.isProvider()
           ? fetch(this.sourceUrl("items"), { headers: { accept: "application/json" }, signal })
           : null,
       ]);
@@ -2230,7 +2237,7 @@ export class CatalogScreen extends LitElement {
       ]);
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
       let collectionDocument = document && typeof document === "object" ? (document as Item) : {};
-      if (this.settings.resource === "events" && this.settings.origin !== "bestdori") {
+      if (this.settings.resource === "events" && !this.isProvider()) {
         const ids = Object.keys((collectionDocument.entries || {}) as Item);
         const batches = new Map(ids.map((id, index) => [id, Math.floor(index / 32)]));
         collectionDocument = await eventArtworkIndex(
@@ -2251,7 +2258,7 @@ export class CatalogScreen extends LitElement {
       }
       if (!this.isConnected || !this.catalogRequests.current(signal)) return;
       this.nativeCatalogPin =
-        this.settings.origin === "bestdori"
+        this.isProvider()
           ? undefined
           : nativeMetaIdentity({
               server: this.dataServer(),
@@ -2509,7 +2516,7 @@ export class CatalogScreen extends LitElement {
     return { items, source: source.length };
   }
   private releaseTimestamp(item: Item) {
-    if (this.settings.origin === "bestdori" && "releaseAt" in item) {
+    if (this.isProvider() && "releaseAt" in item) {
       const release = Number(item.releaseAt || 0);
       return Number.isFinite(release) ? release : 0;
     }
@@ -2576,7 +2583,7 @@ export class CatalogScreen extends LitElement {
     });
   }
   private windowRegion(item: Item): TimeRegion | undefined {
-    if (this.settings.origin !== "bestdori") return;
+    if (!this.isProvider()) return;
     return TIME_REGIONS.find((region) => region === item.sourceServer) || this.bestdoriRegion() as TimeRegion;
   }
   private scheduleRelativeTimeRefresh() {
@@ -2813,7 +2820,7 @@ export class CatalogScreen extends LitElement {
     } catch { /* Source names remain available when a portrait archive is unavailable. */ }
   }
   private songPerformer(item:Item):SongPerformer {
-    const gbp=this.settings.origin==="bestdori";
+    const gbp=this.isProvider();
     const server=gbp?this.bestdoriRegion():this.itemSourceServer(item);
     const characters=gbp?this.characters:this.unionCharacters[server as OfficialCatalogServer]??this.characters;
     const bands=gbp?this.bands:this.unionBands[server as OfficialCatalogServer]??this.bands;
@@ -2990,7 +2997,7 @@ export class CatalogScreen extends LitElement {
   }
   private matchesFacets(item: Item, omitted = "") {
     for (const [key, values] of Object.entries(this.facets)) {
-      if (!values.length || key === omitted || (key === "gekisouType" && this.settings.origin === "bestdori") || /^(min|max|releaseFrom|releaseTo)/.test(key)) continue;
+      if (!values.length || key === omitted || (key === "gekisouType" && this.isProvider()) || /^(min|max|releaseFrom|releaseTo)/.test(key)) continue;
       if (!this.facetValues(item, key).some((value) => values.includes(value))) return false;
     }
     const chartRanges = [
@@ -3167,7 +3174,7 @@ export class CatalogScreen extends LitElement {
       }
       groups.push({ key: facet.key, label: this.detailLabel(facet.key), options: [...options.values()] });
     }
-    if (kind === "song" && this.settings.origin !== "bestdori") groups.push({ key: "gekisouType", label: this.label("gekisouType", "Gekiso type"), options: [
+    if (kind === "song" && !this.isProvider()) groups.push({ key: "gekisouType", label: this.label("gekisouType", "Gekiso type"), options: [
       { value: "Combo", label: this.label("gekisouMissionCombo", "COMBO") },
       { value: "Luck", label: this.label("gekisouMissionLuck", "LUCK") },
       { value: "JustCount", label: this.label("gekisouMissionJustCount", "JUST") },
@@ -3517,7 +3524,7 @@ export class CatalogScreen extends LitElement {
     if (!this.isConnected) return;
     const signal = this.detailRequests.begin();
     const id = this.itemId(summary);
-    const growth = this.settings.origin !== "bestdori" && ["member", "support", "band-item"].includes(this.profile.presentation);
+    const growth = !this.isProvider() && ["member", "support", "band-item"].includes(this.profile.presentation);
     const growthPin = growth && this.nativeCatalogPin?.server === this.dataServer() ? this.nativeCatalogPin : undefined;
     const growthSourceUrl = (resource: string, entity = "") => {
       const source = this.sourceUrl(resource, entity);
@@ -3576,7 +3583,7 @@ export class CatalogScreen extends LitElement {
               bandName: detail.bandName || summary.bandName,
             };
             loadedActualDetail = true;
-            if (this.settings.entityContext && this.settings.origin === "bestdori") this.restoreDetailQuery(true);
+            if (this.settings.entityContext && this.isProvider()) this.restoreDetailQuery(true);
             if (this.settings.chartPage) {
               await this.ensureChartPlayer();
               // Loading the chart player yields to a dynamic import. The route
@@ -3595,7 +3602,7 @@ export class CatalogScreen extends LitElement {
     // is unavailable. A summary row is a browse projection, not a usable
     // replacement for the page's detail payload.
     if (this.settings.entityContext && !loadedActualDetail) {
-      if (this.settings.origin === "bestdori") this.phase = "error";
+      if (this.isProvider()) this.phase = "error";
       return;
     }
     const views: string[] = [];
@@ -3786,7 +3793,7 @@ export class CatalogScreen extends LitElement {
           () => void this.load(),
         );
       // GBP details load on demand; canonical archive pages retain SSR content.
-      if (this.settings.origin === "bestdori") return loadingState(this.label("loading", "Loading"));
+      if (this.isProvider()) return loadingState(this.label("loading", "Loading"));
       return nothing;
     }
     const appliedCount = Object.values(this.facets).reduce((sum, values) => sum + values.length, 0);
@@ -4347,7 +4354,7 @@ export class CatalogScreen extends LitElement {
   }
   private missionTableIconSource = "";
   private renderStructuredList(items: Item[]) {
-    if (this.profile.presentation === "song" && this.settings.origin !== "bestdori" && this.missionTableIconSource !== this.dataServer()) {
+    if (this.profile.presentation === "song" && !this.isProvider() && this.missionTableIconSource !== this.dataServer()) {
       this.missionTableIconSource = this.dataServer();
       this.ensureMissionIcons();
     }
@@ -4381,7 +4388,7 @@ export class CatalogScreen extends LitElement {
             `
           : undefined,
       });
-    const viewport = this.settings.origin === "bestdori" && kind === "song" && this.view === "grid"
+    const viewport = this.isProvider() && kind === "song" && this.view === "grid"
       ? this.viewportGrid.initialWindow(items.length, this.closest(".page-stage"))
       : undefined;
     const collection =
@@ -4408,7 +4415,7 @@ export class CatalogScreen extends LitElement {
               <div class=${`collection collection--${kind}`}
                 ?data-viewport-grid=${Boolean(viewport)}
                 style=${viewport ? `--viewport-grid-item-block-size:${viewport.blockSize}px` : nothing}
-              >${this.settings.origin === "bestdori" && kind === "song"
+              >${this.isProvider() && kind === "song"
                 ? repeat(items, (item) => this.itemKey(item), (item, index) => this.renderTile(item, !!viewport && index >= viewport.end))
                 : items.map((item) => this.renderTile(item))}</div>
             `;
@@ -4560,7 +4567,7 @@ export class CatalogScreen extends LitElement {
           });
     const track = (item: Item) => ({
       id: this.itemKey(item),
-      songKey: `${this.settings.origin === "bestdori" ? "gbp" : "our-notes"}:${this.itemSourceServer(item)}:${item.musicId || this.itemId(item)}`,
+      songKey: `${this.settings.origin === "sekai" ? "sekai" : this.isProvider() ? "gbp" : "our-notes"}:${this.itemSourceServer(item)}:${item.musicId || this.itemId(item)}`,
       title: this.itemTitle(item),
       titleSource: item.musicTitle || item.title,
       artistSource: item.bandName || item.artist,
@@ -4747,13 +4754,13 @@ export class CatalogScreen extends LitElement {
     this.locationStateUrl = `${location.pathname}${location.search}`;
   }
   private syncBestdoriChartPage(params: URLSearchParams) {
-    if (this.settings.origin !== "bestdori" || this.profile.presentation !== "song" || !this.settings.entityContext) return;
+    if (!this.isProvider() || this.profile.presentation !== "song" || !this.settings.entityContext) return;
     const chartPage = params.get("chart") === "1";
     if (this.settings.chartPage === chartPage) return;
     this.settings = { ...this.settings, chartPage };
     this.requestUpdate();
     if (!chartPage || !this.detailReady) return;
-    const current = () => this.isConnected && this.settings.origin === "bestdori" &&
+    const current = () => this.isConnected && this.isProvider() &&
       this.profile.presentation === "song" && this.settings.entityContext && this.settings.chartPage;
     void this.ensureChartPlayer().then(() => {
       if (current()) this.requestUpdate();
@@ -4787,7 +4794,7 @@ export class CatalogScreen extends LitElement {
   private missionIcons: Record<string,string> = {};
   private missionIconProvision?: Promise<void>;
   private ensureMissionIcons() {
-    if(this.settings.origin === "bestdori") return;
+    if(this.isProvider()) return;
     const server=this.dataServer();
     if(this.missionIconSource !== server) {
       this.missionIconRequests.cancel();
@@ -4815,7 +4822,8 @@ export class CatalogScreen extends LitElement {
           rows.find((row) => row.file);
     if (!row?.file) return "";
     const difficulty = difficultyKey(row, rows.indexOf(row));
-    const source = this.settings.origin === "bestdori" ? "gbp" : this.itemSourceServer(item);
+    if (this.settings.origin === "sekai") return "";
+    const source = this.isProvider() ? "gbp" : this.itemSourceServer(item);
     return `${SONOLUS_SERVER_LINK}/levels/${encodeURIComponent(releaseChartLevelName(source, String(Number(item.musicId || 0)), difficulty))}`;
   }
   private chartPageTitle(item: Item) {
@@ -4838,12 +4846,12 @@ export class CatalogScreen extends LitElement {
     const server = this.itemSourceServer(item);
     const locale = this.settings.locale as Locale;
     const target = new URL(
-      this.settings.origin === "bestdori"
-        ? this.entityLink(id, this.detailDifficulty) || `/${locale}/community/songs-bestdori/`
+      this.isProvider()
+        ? this.entityLink(id, this.detailDifficulty) || this.providerCollection()
         : chartPath({ server, locale, id }),
       location.href,
     );
-    if (this.settings.origin === "bestdori") target.searchParams.set("chart", "1");
+    if (this.isProvider()) target.searchParams.set("chart", "1");
     // The child returns to this complete canonical song URL. Its own return
     // query therefore remains intact and takes the user back to the filtered
     // catalogue with the captured scroll snapshot.
@@ -4976,7 +4984,7 @@ export class CatalogScreen extends LitElement {
     return html`
       <span class="detail-header-actions">
         ${
-          this.settings.origin !== "bestdori"
+          !this.isProvider()
             ? html`
                 <a
                   class="icon-button"
@@ -5051,6 +5059,23 @@ export class CatalogScreen extends LitElement {
       </span>
     `;
   }
+  /** Sekai scores are SUS files; the player reads them through the Sekai plugin. */
+  private renderChartPlayer(item: Item, chart: Item, label: string) {
+    const sekai = this.settings.origin === "sekai";
+    return html`
+      <chart-simulator
+        source=${String(chart.file)}
+        chart-format=${sekai ? "sus" : ""}
+        offset-ms=${sekai ? Number(item.chartOffsetMs || 0) : 0}
+        audio-url=${String(item.musicUrl || "")}
+        band-id=${Number(item.bandId || 1)}
+        label=${label}
+        locale=${this.settings.locale}
+        server=${this.dataServer()}
+        .mode=${this.chartMode}
+      ></chart-simulator>
+    `;
+  }
   private renderChartPage(item: Item) {
     const chart = this.chartRow(item);
     if (!chart.file)
@@ -5061,15 +5086,7 @@ export class CatalogScreen extends LitElement {
       `;
     return html`
       <section class="chart-page" aria-label=${this.chartPageTitle(item)}>
-        <chart-simulator
-          source=${String(chart.file)}
-          audio-url=${String(item.musicUrl || "")}
-          band-id=${Number(item.bandId || 1)}
-          label=${this.chartPageTitle(item)}
-          locale=${this.settings.locale}
-          server=${this.dataServer()}
-          .mode=${this.chartMode}
-        ></chart-simulator>
+        ${this.renderChartPlayer(item, chart, this.chartPageTitle(item))}
       </section>
     `;
   }
@@ -5405,7 +5422,7 @@ export class CatalogScreen extends LitElement {
     return parts.length === 3 && parts[0] === this.settings.locale && parts[1] === "catalog" && resourceKindForCollection(parts[2]) === kind;
   }
   private detailCommentTarget(item: Item): { type: string; id: string } | null {
-    if (this.settings.origin === "bestdori" || this.settings.chartPage || !["jp", "intl"].includes(this.dataServer()) || !this.isCommentCataloguePage(item)) return null;
+    if (this.isProvider() || this.settings.chartPage || !["jp", "intl"].includes(this.dataServer()) || !this.isCommentCataloguePage(item)) return null;
     const decimal = (value: unknown) => {
       const text = typeof value === "number" && Number.isSafeInteger(value) ? String(value) : value;
       return typeof text === "string" && /^[1-9]\d{0,15}$/u.test(text) && Number.isSafeInteger(Number(text)) ? text : null;
@@ -5670,6 +5687,7 @@ export class CatalogScreen extends LitElement {
                       : undefined,
                     gekisou: songGekisou,
                     metaView: this.metaView,
+                    scoring: this.settings.origin !== "sekai",
                     difficulty,
                     selectedDifficulty: this.detailDifficulty,
                     locale: this.settings.locale,
@@ -5913,15 +5931,7 @@ export class CatalogScreen extends LitElement {
                     })}
                   </span>
                 </header>
-                <chart-simulator
-                  source=${String(chart.file)}
-                  audio-url=${String(item.musicUrl || "")}
-                  band-id=${Number(item.bandId || 1)}
-                  label=${this.itemTitle(item)}
-                  locale=${this.settings.locale}
-                  server=${this.dataServer()}
-                  .mode=${this.chartMode}
-                ></chart-simulator>
+                ${this.renderChartPlayer(item, chart, this.itemTitle(item))}
               </aside>
             `
           : nothing
@@ -5942,8 +5952,15 @@ export class CatalogScreen extends LitElement {
   }
   private renderSourceReference(item: Item) {
     const href = item.sourceUrl;
-    if (this.settings.origin !== "bestdori" || typeof href !== "string" || !href.startsWith("https://bestdori.com/"))
-      return nothing;
+    const source =
+      typeof href !== "string" || !this.isProvider()
+        ? ""
+        : href.startsWith("https://bestdori.com/")
+          ? "Bestdori"
+          : href.startsWith("https://sekai.best/")
+            ? "Sekai Viewer"
+            : "";
+    if (!source) return nothing;
     return html`
       <section class="detail-section">
         ${renderDetailSectionHeading(this.label("source", "Source"), "details")}
@@ -5951,7 +5968,7 @@ export class CatalogScreen extends LitElement {
           <li>
             <a class="detail-object" href=${href} target="_blank" rel="noopener noreferrer">
               ${icon("open_in_new", 24)}
-              <span class="detail-object__copy"><strong class="detail-object__title">Bestdori</strong></span>
+              <span class="detail-object__copy"><strong class="detail-object__title">${source}</strong></span>
             </a>
           </li>
         </ul>

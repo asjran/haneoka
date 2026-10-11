@@ -234,7 +234,10 @@ const sections: NavSection[] = [
     id: "sekai",
     label: "navigation.projectSekai",
     collapsible: true,
-    items: [{ route: "/community/sekai", icon: "library_music", label: "community.page.sekai.title" }],
+    items: [
+      { route: "/community/sekai/songs", icon: "library_music", label: "community.page.sekai.title" },
+      { route: "/community/sekai/stories", icon: "auto_stories", label: "community.page.sekai.storiesTitle" },
+    ],
   },
 ];
 

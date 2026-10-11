@@ -6,9 +6,11 @@ import "../../styles/difficulty-picker.css";
 
 type Row = Record<string, unknown>;
 const NAMES = ["easy", "normal", "hard", "expert", "master"];
+/** Sixth charts: BanG Dream's SPECIAL and Project Sekai's APPEND share MASTER's colour. */
+const EXTRA = ["special", "append"];
 export function difficultyKey(row: Row, index = 0): string {
   const value = String(row.difficultyName || row.difficulty || "").toLowerCase();
-  return NAMES.includes(value) || value === "special" ? value : NAMES[Number(value) || index] || "master";
+  return NAMES.includes(value) || EXTRA.includes(value) ? value : NAMES[Number(value) || index] || "master";
 }
 export function difficultyPicker(options: {
   rows: Row[];
@@ -39,7 +41,7 @@ export function difficultyPicker(options: {
             tabindex=${selected || (!keys.includes(options.selected) && index === 0) ? 0 : -1}
             aria-label=${`${key.toUpperCase()} ${level}`}
             title=${`${key.toUpperCase()} ${level}`}
-            style=${`--chart-color:var(--md-extended-color-difficulty-${key === "special" ? "master" : key})`}
+            style=${`--chart-color:var(--md-extended-color-difficulty-${EXTRA.includes(key) ? "master" : key})`}
             @click=${() => select(key)}
           >
             <small>${key.toUpperCase()}</small>

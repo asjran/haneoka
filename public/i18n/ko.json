@@ -3483,26 +3483,7 @@
       "description": "커뮤니티 데이터는 필요할 때 불러옵니다.",
       "sekai": {
         "title": "프로세카 악곡",
-        "search": "악곡 검색",
-        "songs": "악곡",
-        "unit": "유닛",
-        "allUnits": "모든 유닛",
-        "notFound": "악곡을 찾을 수 없습니다",
-        "noAudio": "이 악곡의 음원이 없습니다",
-        "chartError": "채보를 불러오지 못했습니다",
-        "play": "재생",
-        "pause": "일시정지",
-        "position": "재생 위치",
-        "lyricist": "작사",
-        "composer": "작곡",
-        "arranger": "편곡",
-        "published": "추가일",
-        "chart": "채보",
-        "difficulty": "난이도",
-        "level": "레벨",
-        "notes": "노트 수",
-        "vocal": "보컬 버전",
-        "details": "상세"
+        "storiesTitle": "프로세카 이벤트 스토리"
       }
     }
   },

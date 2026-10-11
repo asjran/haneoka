@@ -240,6 +240,7 @@ export class CatalogTable extends LitElement {
       ] || COLUMNS.item;
     const visibleColumns = columns.filter((entry) =>
       (!entry.key.startsWith("gekisouPhase") || c.settings.origin !== "bestdori") &&
+      (c.settings.origin !== "sekai" || !["sonolus", "attribute"].includes(entry.key)) &&
       (entry.key !== "nativeScore" || c.hasNativeMetaReference()));
     const metricLabels: Record<string, [string, string]> = {
       time: ["metaTime", "Song Duration"], eff: ["metaEff", "Efficiency"], bpm: ["metaBpm", "Beats per Minute"],
@@ -496,7 +497,7 @@ export class CatalogTable extends LitElement {
         return wrap(html`
           <span
             class="difficulty-picker difficulty-picker--static"
-            style=${`--chart-color:var(--md-extended-color-difficulty-${name === "special" ? "master" : name})`}
+            style=${`--chart-color:var(--md-extended-color-difficulty-${name === "special" || name === "append" ? "master" : name})`}
           >
             <span>
               <small>${name.toUpperCase()}</small>

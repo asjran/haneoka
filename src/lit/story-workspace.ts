@@ -132,7 +132,8 @@ type ReleaseMode = "event" | "band" | "link" | "birthday" | "home" | "afterlive"
 /** Sections the Bestdori worker serves. */
 type BestdoriMode = "event" | "band" | "main" | "afterlive" | "card";
 type StoryMode = ReleaseMode | BestdoriMode;
-type Origin = "release" | "bestdori";
+/** "bestdori" and "sekai" are worker providers that project another game's data into the same records. */
+type Origin = "release" | "bestdori" | "sekai";
 type ViewMode = CollectionView;
 
 const nativeSpeakerNameJoiner = Object.freeze({
@@ -159,7 +160,7 @@ interface FacetDefinition {
   single?: boolean;
 }
 
-const BESTDORI_REGIONS: Record<string, string> = { "zh-TW": "tw", "zh-CN": "cn", ko: "kr", en: "en" };
+const PROVIDER_REGIONS: Record<string, string> = { "zh-TW": "tw", "zh-CN": "cn", ko: "kr", en: "en" };
 /** Query keys the screen round-trips, independent of what the data offers. */
 const FACET_KEYS = [
   "chapter",
@@ -480,7 +481,7 @@ export class StoryWorkspace extends LitElement {
     const locale = preferredLocale(this.locale);
     if (locale === this.locale) return;
     this.locale = locale;
-    if (this.isBestdori()) void this.load();
+    if (this.isProvider()) void this.load();
   };
   connectedCallback() {
     super.connectedCallback();
@@ -556,15 +557,16 @@ export class StoryWorkspace extends LitElement {
 
   /* ---------------------------------------------------------------- source */
 
-  private isBestdori() {
-    return this.origin === "bestdori";
+  private isProvider() {
+    return this.origin !== "release";
   }
   /** Card "stories" are a card collection; their detail is a card, not a scenario. */
   private isCardSection() {
-    return this.isBestdori() && this.mode === "card";
+    return this.origin === "bestdori" && this.mode === "card";
   }
-  private bestdoriBase() {
-    return `/api/v1/garupa/bestdori/${BESTDORI_REGIONS[this.locale] || "jp"}`;
+  private providerBase() {
+    const region = PROVIDER_REGIONS[this.locale] || "jp";
+    return this.origin === "sekai" ? `/api/v1/sekai/${region}` : `/api/v1/garupa/bestdori/${region}`;
   }
   private text(value: unknown) {
     return localizedText(value, this.locale);
@@ -618,7 +620,7 @@ export class StoryWorkspace extends LitElement {
     // A canonical story can open independently of its collection indexes.
     if (this.entityId) void this.openStory(this.entityId);
     try {
-      if (this.isBestdori()) await this.loadBestdori(signal);
+      if (this.isProvider()) await this.loadBestdori(signal);
       else await this.loadRelease(signal);
       if (!active()) return;
       this.ensureRailSelection();
@@ -699,13 +701,18 @@ export class StoryWorkspace extends LitElement {
     const resource = this.isCardSection() ? "cards" : `stories/${this.mode}`;
     const [items, bands, characters] = await Promise.all([
       fetchJson<JsonRecord | JsonRecord[]>(
-        `${this.bestdoriBase()}/${resource}?lang=${encodeURIComponent(this.locale)}&projection=${BESTDORI_CATALOG_VERSION}`,
+        `${this.providerBase()}/${resource}?lang=${encodeURIComponent(this.locale)}&projection=${BESTDORI_CATALOG_VERSION}`,
         { signal },
       ),
-      fetchJson<JsonRecord | JsonRecord[]>(`${this.bestdoriBase()}/bands`, { signal }).catch(() => ({}) as JsonRecord),
-      fetchJson<JsonRecord | JsonRecord[]>(`${this.bestdoriBase()}/characters`, { signal }).catch(
-        () => ({}) as JsonRecord,
-      ),
+      // Sekai stories carry no cast index; only Bestdori has bands and characters to facet by.
+      this.origin === "bestdori"
+        ? fetchJson<JsonRecord | JsonRecord[]>(`${this.providerBase()}/bands`, { signal }).catch(() => ({}) as JsonRecord)
+        : {},
+      this.origin === "bestdori"
+        ? fetchJson<JsonRecord | JsonRecord[]>(`${this.providerBase()}/characters`, { signal }).catch(
+            () => ({}) as JsonRecord,
+          )
+        : {},
     ]);
     if (!this.isConnected || !this.catalogRequests.current(signal)) return;
     const records = (Array.isArray(items) ? items : recordValues(items)).filter(
@@ -777,7 +784,7 @@ export class StoryWorkspace extends LitElement {
     return event ? this.releaseValue(event) : 0;
   }
   private relevantChapters(): JsonRecord[] {
-    if (this.isBestdori())
+    if (this.isProvider())
       return this.mode === "event"
         ? [...this.chapters].sort(
             (a, b) =>
@@ -823,7 +830,7 @@ export class StoryWorkspace extends LitElement {
       );
   }
   private chapterOf(episode: JsonRecord) {
-    if (this.isBestdori())
+    if (this.isProvider())
       return this.chapters.find(
         (item) => String(item.chapterId) === String(episode.chapterId ?? episode.chapterKey ?? episode.eventId ?? ""),
       );
@@ -902,7 +909,7 @@ export class StoryWorkspace extends LitElement {
     return seconds ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "";
   }
   private episodeTitleValue(episode: JsonRecord) {
-    const sourceLocale = this.isBestdori()
+    const sourceLocale = this.isProvider()
       ? ({ jp: "ja", en: "en", tw: "zh-TW", cn: "zh-CN", kr: "ko" } as Record<string, string>)[
           String(episode.sourceServer)
         ]
@@ -954,7 +961,7 @@ export class StoryWorkspace extends LitElement {
         `;
       return undefined;
     }
-    if (this.isBestdori() && this.mode !== "afterlive")
+    if (this.isProvider() && this.mode !== "afterlive")
       return html`
         <img
           class="story-thumbnail"
@@ -1269,7 +1276,7 @@ export class StoryWorkspace extends LitElement {
     if (!sorted) return list;
     const direction = this.order === "asc" ? 1 : -1;
     return list.sort((a, b) => {
-      if (this.isBestdori() && this.mode === "event" && this.sort === "id") {
+      if (this.isProvider() && this.mode === "event" && this.sort === "id") {
         const chapter =
           Number(b.chapterSort || 0) - Number(a.chapterSort || 0) || Number(b.chapterId) - Number(a.chapterId);
         return chapter || direction * (Number(a.episodeNumber || 0) - Number(b.episodeNumber || 0));
@@ -1329,7 +1336,7 @@ export class StoryWorkspace extends LitElement {
     void this.openScenario(id, source);
   }
   private async openScenario(id: string, source?: JsonRecord) {
-    if (!this.isBestdori() && id !== this.entityId) {
+    if (!this.isProvider() && id !== this.entityId) {
       openDetailLocation(
         entityHref({
           server:
@@ -1373,8 +1380,8 @@ export class StoryWorkspace extends LitElement {
     this.detailLoading = true;
     this.sync();
     try {
-      const url = this.isBestdori()
-        ? `${this.bestdoriBase()}/stories/${encodeURIComponent(id)}?lang=${encodeURIComponent(this.locale)}`
+      const url = this.isProvider()
+        ? `${this.providerBase()}/stories/${encodeURIComponent(id)}?lang=${encodeURIComponent(this.locale)}`
         : catalogUrl("stories", id);
       const detail = await fetchJson<JsonRecord>(url, { signal });
       if (this.detailRequests.current(signal)) this.detailEpisode = { ...(known || {}), ...detail };
@@ -1409,7 +1416,7 @@ export class StoryWorkspace extends LitElement {
     this.detailCard = item;
     try {
       const detail = await fetchJson<JsonRecord>(
-        `${this.bestdoriBase()}/cards/${encodeURIComponent(String(item.cardId || ""))}?lang=${encodeURIComponent(this.locale)}`,
+        `${this.providerBase()}/cards/${encodeURIComponent(String(item.cardId || ""))}?lang=${encodeURIComponent(this.locale)}`,
         { signal },
       );
       if (this.detailRequests.current(signal)) this.detailCard = detail;
@@ -1480,7 +1487,7 @@ export class StoryWorkspace extends LitElement {
     const next = sequence[index + 1];
     if (!next) return;
     const id = this.episodeId(next);
-    if (this.entityId && !this.isBestdori()) {
+    if (this.entityId && !this.isProvider()) {
       openDetailLocation(
         entityHref({
           server: readReleaseServer(),
@@ -1769,7 +1776,7 @@ export class StoryWorkspace extends LitElement {
         image: this.episodeImage(episode),
         imageFallback: String(chapter?.banner || ""),
         media: this.episodeMedia(episode),
-        fit: this.isBestdori() && !this.isCardSection() ? "fill" : this.isCardSection() ? "contain" : "cover",
+        fit: this.isProvider() && !this.isCardSection() ? "fill" : this.isCardSection() ? "contain" : "cover",
         natural: this.origin === "release" && !["home", "afterlive"].includes(this.mode),
         onOpen: () => void this.openStory(id, episode),
         serverMark: catalogServerMark(this.unionStories?.entries.get(episode), this.locale),
@@ -2102,7 +2109,7 @@ export class StoryWorkspace extends LitElement {
             card: this.detailCard,
             detail: null,
             view: "text",
-            providerBase: this.bestdoriBase(),
+            providerBase: this.providerBase(),
             // uiText returns the key itself when it has no entry, which would
             // print "close" as a button label; the caller's fallback wins.
             label: (key, fallback) => {
@@ -2253,7 +2260,7 @@ export class StoryWorkspace extends LitElement {
                     ? html`
                         <vega-story-stage
                           .story=${episode}
-                          .providerBase=${this.isBestdori() ? this.bestdoriBase() : ""}
+                          .providerBase=${this.isProvider() ? this.providerBase() : ""}
                           server=${this.dataServer()}
                           .locale=${this.locale}
                           @open-text=${() => {
@@ -2534,7 +2541,7 @@ export class StoryWorkspace extends LitElement {
   }
   private transcriptSpeakerNames(command: JsonRecord) {
     const body = resolveLocalizedText(command.text, this.locale);
-    const locale = !this.isBestdori() && body.text ? body.locale : this.locale;
+    const locale = !this.isProvider() && body.text ? body.locale : this.locale;
     const resolve = (value: unknown) => resolveLocalizedText(value, locale);
     const authoredNames = Array.isArray(command.targetTextNames) ? command.targetTextNames : [];
     const targets = (Array.isArray(command.targets) ? command.targets : []) as JsonRecord[];
@@ -2574,7 +2581,7 @@ export class StoryWorkspace extends LitElement {
     const targets = (Array.isArray(command.targets) ? command.targets : []) as JsonRecord[];
     const runtime = this.detailEpisode?.runtime as JsonRecord | undefined;
     const speaker = resolveRelationshipText(names, locale, {
-      separator: this.isBestdori() ? undefined : (runtime?.displayNameJoiner ?? nativeSpeakerNameJoiner),
+      separator: this.isProvider() ? undefined : (runtime?.displayNameJoiner ?? nativeSpeakerNameJoiner),
     });
     const status = Number(command.targetStatus);
     if (status === 2) return { ...speaker, text: "", content: nothing };
@@ -2599,7 +2606,7 @@ export class StoryWorkspace extends LitElement {
       const target = aligned && index % 2 === 0 ? members[index / 2]?.target : undefined;
       const id = Number(target?.characterId);
       const href =
-        !this.isBestdori() && isReleaseServer(server) && Number.isSafeInteger(id) && id > 0 && this.character(id)
+        !this.isProvider() && isReleaseServer(server) && Number.isSafeInteger(id) && id > 0 && this.character(id)
           ? entityHref({ server, locale: this.locale as Locale, kind: "characters", id: String(id) })
           : "";
       // Preserve the authored separator without adding template whitespace.

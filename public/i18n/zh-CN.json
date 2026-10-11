@@ -3483,26 +3483,7 @@
       "description": "社区数据按需加载。",
       "sekai": {
         "title": "世界计划乐曲",
-        "search": "搜索乐曲",
-        "songs": "乐曲",
-        "unit": "组合",
-        "allUnits": "全部组合",
-        "notFound": "找不到这首乐曲",
-        "noAudio": "这首乐曲没有音源",
-        "chartError": "谱面加载失败",
-        "play": "播放",
-        "pause": "暂停",
-        "position": "播放位置",
-        "lyricist": "作词",
-        "composer": "作曲",
-        "arranger": "编曲",
-        "published": "上线日期",
-        "chart": "谱面",
-        "difficulty": "难度",
-        "level": "等级",
-        "notes": "音符数",
-        "vocal": "演唱版本",
-        "details": "详情"
+        "storiesTitle": "世界计划活动故事"
       }
     }
   },

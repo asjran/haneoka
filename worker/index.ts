@@ -17,6 +17,7 @@ import {
   loadBestdoriSonolusChartText,
 } from "./bestdori";
 import { handleGameRecordsApi } from "./game-records";
+import { handleSekaiApi } from "./sekai";
 import { handleStampFontsRequest } from "./stamp-fonts";
 import { handleChartImageRequest } from "./chart-image";
 import { rasterizeChartSvg } from "./chart-image-rasterizer";
@@ -3513,6 +3514,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (gameRecords) return gameRecords;
   const bestdori = await handleGarupaBestdoriApi(ctx, request, url, env.BESTDORI_UPSTREAM_BASE);
   if (bestdori) return bestdori;
+  const sekai = await handleSekaiApi(ctx, request, url);
+  if (sekai) return sekai;
   const garupaPlaylists = await handleGarupaPlaylistApi(env, ctx, request, url);
   if (garupaPlaylists) return garupaPlaylists;
   const releaseRegistry = await handleReleaseRegistryApi(env, ctx, request, url.pathname);

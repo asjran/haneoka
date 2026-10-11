@@ -69,6 +69,7 @@ export const LABEL_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ["details", "common.actions.details"],
   ["difficulty", "catalog.songs.fields.difficulty"],
   ["metaR", "catalog.analysis.fields.metaR"],
+  ["metaOfficialLevel", "catalog.analysis.fields.metaOfficialLevel"],
   ["metaTime", "catalog.analysis.fields.metaTime"],
   ["metaScore", "catalog.analysis.fields.metaScore"],
   ["metaNativeScore", "catalog.analysis.fields.metaNativeScore"],
@@ -268,7 +269,7 @@ export interface CatalogConfigOptions {
   /** Render a canonical song's chart as its own child page. */
   chartPage?: boolean;
   aspectRatio?: string;
-  origin?: "release" | "bestdori";
+  origin?: "release" | "bestdori" | "sekai";
   nativeMetaReference?: unknown;
 }
 
