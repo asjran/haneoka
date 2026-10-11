@@ -230,8 +230,26 @@ const gameAccounts = async (request: Request, env: Env, url: URL): Promise<Respo
   return json({ accounts: await listGameAccounts(env, userId) });
 };
 
+/** Android App Links: haneoka.org addresses open in the app signed with this key. */
+const ASSET_LINKS = [
+  {
+    relation: ["delegate_permission/common.handle_all_urls"],
+    target: {
+      namespace: "android_app",
+      package_name: "org.haneoka.haneoka",
+      sha256_cert_fingerprints: [
+        "46:2F:06:D2:7A:14:59:EF:AC:35:89:6F:C2:E4:46:1B:C8:20:F9:93:76:89:5F:C6:28:54:22:CF:6F:57:5F:80",
+      ],
+    },
+  },
+];
+
 export const handleAppAccountRequest = async (request: Request, env: Env): Promise<Response | null> => {
   const url = new URL(request.url);
+  if (url.pathname === "/.well-known/assetlinks.json")
+    return new Response(JSON.stringify(ASSET_LINKS), {
+      headers: { "Cache-Control": "public, max-age=3600", "Content-Type": "application/json" },
+    });
   if (url.pathname === AUTHORIZE_PATH) return authorize(request, env);
   if (url.pathname === TOKEN_PATH) return token(request, env);
   if (url.pathname === GAME_ACCOUNTS_PATH || url.pathname.startsWith(`${GAME_ACCOUNTS_PATH}/`))
