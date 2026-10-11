@@ -24,7 +24,7 @@ const MASTER_ORIGIN = "https://sekai-world.github.io";
 const ASSET_ORIGIN = "https://storage.sekai.best";
 export const SEKAI_API_PREFIX = "/api/v1/sekai";
 /** Bump when a projection changes so cached responses are not reused. */
-const RESPONSE_VERSION = "2";
+const RESPONSE_VERSION = "3";
 const JSON_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.catalog);
 const MEDIA_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.media);
 const CORS: Readonly<Record<string, string>> = {
@@ -34,7 +34,7 @@ const CORS: Readonly<Record<string, string>> = {
   "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag",
 };
 const MEDIA_PATH =
-  /^(?:music\/(?:jacket|long|music_score)|home\/banner|event_story|scenario\/background|sound\/scenario\/(?:voice|bgm))\/[\w./ -]+\.(?:webp|png|mp3|txt)$/;
+  /^(?:music\/(?:jacket|long|music_score)|home\/banner|event_story|scenario\/background|sound\/scenario\/(?:voice|bgm|se))\/[\w./ -]+\.(?:webp|png|mp3|txt)$/;
 
 const DIFFICULTIES = ["easy", "normal", "hard", "expert", "master", "append"] as const;
 /** The game's unit tags, in its own order, with the units' official names. */
@@ -296,7 +296,10 @@ const character = (value: unknown): { characterId?: number } =>
  * reads, with capitalised keys, `Character2dId`/`FacialName` in place of
  * `characterId`/`expressionName`, and its own asset layout.
  */
-export const sekaiScenarioBase = (source: Obj): BestdoriScenarioBase => {
+export const sekaiScenarioBase = (
+  source: Obj,
+  effects: ReadonlyMap<string, string> = new Map(),
+): BestdoriScenarioBase => {
   const asset = (path: string) => `/assets/jp/${path}`;
   const rows = (key: string) => (camel(source[key] ?? []) as Obj[]) ?? [];
   const background = (name: unknown) => asset(`scenario/background/${String(name)}/${String(name)}.webp`);
@@ -351,7 +354,14 @@ export const sekaiScenarioBase = (source: Obj): BestdoriScenarioBase => {
       })),
       whenFinishCloseWindow: Number(talk.whenFinishCloseWindow),
     })),
-    soundData: rows("SoundData").map((sound) => ({ bgm: bgm(sound.bgm), volume: Number(sound.volume) })),
+    soundData: rows("SoundData").map((sound) => {
+      const effect = effects.get(String(sound.se));
+      return {
+        bgm: bgm(sound.bgm),
+        volume: Number(sound.volume),
+        ...(effect ? { se: asset(effect), seBundleName: "BESTDORI##URL" } : {}),
+      };
+    }),
     specialEffectData: rows("SpecialEffectData").map((effect) =>
       effect.effectType === 7
         ? { effectType: 7, stringVal: "BESTDORI##URL", stringValSub: background(effect.stringVal) }
@@ -362,6 +372,33 @@ export const sekaiScenarioBase = (source: Obj): BestdoriScenarioBase => {
           },
     ),
   };
+};
+
+/**
+ * An event's own effects sit beside its scenarios; the rest are in the shared
+ * pack. The scenario does not say which, and a few names exist in neither, so
+ * each is checked before the player is told to load it.
+ */
+const soundEffects = async (scenario: Obj, bundle: string): Promise<Map<string, string>> => {
+  const names = [...new Set(((scenario.SoundData as Obj[]) ?? []).map((sound) => String(sound.Se ?? "")))].filter(
+    Boolean,
+  );
+  const found = await Promise.all(
+    names.map(async (name) => {
+      for (const path of [
+        `sound/scenario/se/se_pack00001/${name}.mp3`,
+        `event_story/${bundle}/scenario_se/${name}.mp3`,
+      ]) {
+        const response = await fetch(`${ASSET_ORIGIN}/${SOURCES.jp.assets}/${encodeURI(path)}`, {
+          method: "HEAD",
+          cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
+        });
+        if (response.ok) return [name, path] as const;
+      }
+      return undefined;
+    }),
+  );
+  return new Map(found.filter((entry) => entry !== undefined));
 };
 
 const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> => {
@@ -381,8 +418,9 @@ const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> =
       cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
     });
     if (!response.ok) continue;
+    const scenario = (await response.json()) as Obj;
     const { story } = convertBestdoriScenario(
-      { Base: sekaiScenarioBase((await response.json()) as Obj) },
+      { Base: sekaiScenarioBase(scenario, await soundEffects(scenario, String(resolved.story.assetbundleName))) },
       {
         server,
         voiceBundle: `sound/scenario/voice/${scenarioId}/`,
