@@ -179,6 +179,9 @@ importers:
       '@haneoka/cassiopeia-plugin-our-notes':
         specifier: workspace:*
         version: link:.dependencies/cassiopeia-plugin-our-notes
+      '@haneoka/cassiopeia-plugin-sekai':
+        specifier: workspace:*
+        version: link:.dependencies/cassiopeia-plugin-sekai
       '@haneoka/cassiopeia-renderer-three':
         specifier: workspace:*
         version: link:.dependencies/cassiopeia-renderer-three
@@ -191,6 +194,9 @@ importers:
       '@haneoka/design-tokens':
         specifier: workspace:*
         version: link:.dependencies/design-tokens
+      '@haneoka/embed-core':
+        specifier: workspace:*
+        version: link:packages/embed-core
       '@haneoka/i18n':
         specifier: workspace:*
         version: link:packages/i18n

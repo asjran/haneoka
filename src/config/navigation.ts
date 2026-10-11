@@ -229,6 +229,13 @@ const sections: NavSection[] = [
       })),
     ],
   },
+  /** Project Sekai songs from Sekai Viewer's data, charts shown with Cassiopeia. */
+  {
+    id: "sekai",
+    label: "navigation.projectSekai",
+    collapsible: true,
+    items: [{ route: "/community/sekai", icon: "library_music", label: "community.page.sekai.title" }],
+  },
 ];
 
 // The library list is flat on purpose: collection and game entries are part

@@ -258,7 +258,8 @@
     "battle": "對戰",
     "media": "媒體",
     "games": "遊戲",
-    "gbpArchive": "GBP 資料"
+    "gbpArchive": "GBP 資料",
+    "projectSekai": "世界計畫"
   },
   "settings": {
     "labels": {
@@ -3479,7 +3480,30 @@
       },
       "draftNotSaved": "草稿未儲存",
       "stickersUnavailable": "無法載入貼圖，請重試。",
-      "description": "社群資料按需載入。"
+      "description": "社群資料按需載入。",
+      "sekai": {
+        "title": "世界計畫樂曲",
+        "search": "搜尋樂曲",
+        "songs": "樂曲",
+        "unit": "組合",
+        "allUnits": "全部組合",
+        "notFound": "找不到這首樂曲",
+        "noAudio": "這首樂曲沒有音源",
+        "chartError": "譜面載入失敗",
+        "play": "播放",
+        "pause": "暫停",
+        "position": "播放位置",
+        "lyricist": "作詞",
+        "composer": "作曲",
+        "arranger": "編曲",
+        "published": "上線日期",
+        "chart": "譜面",
+        "difficulty": "難度",
+        "level": "等級",
+        "notes": "音符數",
+        "vocal": "演唱版本",
+        "details": "詳情"
+      }
     }
   },
   "legal": {

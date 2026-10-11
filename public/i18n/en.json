@@ -258,7 +258,8 @@
     "battle": "Battle",
     "media": "Media",
     "games": "Games",
-    "gbpArchive": "GBP archive"
+    "gbpArchive": "GBP archive",
+    "projectSekai": "Project Sekai"
   },
   "settings": {
     "labels": {
@@ -3479,7 +3480,30 @@
       },
       "draftNotSaved": "Draft not saved",
       "stickersUnavailable": "Stickers could not be loaded. Try again.",
-      "description": "Community data is loaded on demand."
+      "description": "Community data is loaded on demand.",
+      "sekai": {
+        "title": "Project Sekai songs",
+        "search": "Search songs",
+        "songs": "Songs",
+        "unit": "Unit",
+        "allUnits": "All units",
+        "notFound": "Song not found",
+        "noAudio": "No audio for this song",
+        "chartError": "The chart could not be loaded",
+        "play": "Play",
+        "pause": "Pause",
+        "position": "Position",
+        "lyricist": "Lyrics",
+        "composer": "Music",
+        "arranger": "Arrangement",
+        "published": "Added",
+        "chart": "Chart",
+        "difficulty": "Difficulty",
+        "level": "Level",
+        "notes": "Notes",
+        "vocal": "Vocal version",
+        "details": "Details"
+      }
     }
   },
   "legal": {

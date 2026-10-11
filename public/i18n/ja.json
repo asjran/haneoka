@@ -258,7 +258,8 @@
     "battle": "バトル",
     "media": "メディア",
     "games": "ゲーム",
-    "gbpArchive": "ガルパ資料"
+    "gbpArchive": "ガルパ資料",
+    "projectSekai": "プロジェクトセカイ"
   },
   "settings": {
     "labels": {
@@ -3479,7 +3480,30 @@
       },
       "draftNotSaved": "下書き未保存",
       "stickersUnavailable": "スタンプを読み込めませんでした。もう一度お試しください。",
-      "description": "コミュニティのデータは必要に応じて読み込みます。"
+      "description": "コミュニティのデータは必要に応じて読み込みます。",
+      "sekai": {
+        "title": "プロセカ楽曲",
+        "search": "楽曲を検索",
+        "songs": "楽曲",
+        "unit": "ユニット",
+        "allUnits": "すべてのユニット",
+        "notFound": "楽曲が見つかりません",
+        "noAudio": "この楽曲の音源がありません",
+        "chartError": "譜面を読み込めませんでした",
+        "play": "再生",
+        "pause": "一時停止",
+        "position": "再生位置",
+        "lyricist": "作詞",
+        "composer": "作曲",
+        "arranger": "編曲",
+        "published": "追加日",
+        "chart": "譜面",
+        "difficulty": "難易度",
+        "level": "レベル",
+        "notes": "ノーツ数",
+        "vocal": "ボーカルバージョン",
+        "details": "詳細"
+      }
     }
   },
   "legal": {
