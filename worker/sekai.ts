@@ -24,7 +24,7 @@ const MASTER_ORIGIN = "https://sekai-world.github.io";
 const ASSET_ORIGIN = "https://storage.sekai.best";
 export const SEKAI_API_PREFIX = "/api/v1/sekai";
 /** Bump when a projection changes so cached responses are not reused. */
-const RESPONSE_VERSION = "1";
+const RESPONSE_VERSION = "2";
 const JSON_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.catalog);
 const MEDIA_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.media);
 const CORS: Readonly<Record<string, string>> = {
@@ -49,6 +49,9 @@ const UNITS: readonly (readonly [string, string])[] = [
 ];
 const BACKGROUND_ASPECT = 2048 / 1261;
 const BACKGROUND_STAGE_REF = "sekai:background";
+/** Model size and vertical placement on the 1280×720 stage. */
+const LIVE2D_SCALE = 1.9;
+const LIVE2D_OFFSET_Y = -60;
 
 const media = (region: SekaiRegion, path: string) => `${SEKAI_API_PREFIX}/${region}/media/${path}`;
 
@@ -74,7 +77,8 @@ const byId = (rows: Obj[], key = "id") => new Map(rows.map((row) => [Number(row[
 
 const serveJson = async (request: Request, ctx: ExecutionContext, producer: () => Promise<unknown>) => {
   const key = new URL(request.url);
-  key.search = `?_cv=${RESPONSE_VERSION}`;
+  const ids = key.searchParams.getAll("id").sort();
+  key.search = `?_cv=${RESPONSE_VERSION}${ids.map((id) => `&id=${encodeURIComponent(id)}`).join("")}`;
   if (request.method === "GET") {
     const hit = await caches.default.match(new Request(key));
     if (hit) return hit;
@@ -96,8 +100,8 @@ const serveJson = async (request: Request, ctx: ExecutionContext, producer: () =
   return response;
 };
 
-const proxyMedia = async (request: Request, region: SekaiRegion, path: string) => {
-  const upstream = new Request(`${ASSET_ORIGIN}/${SOURCES[region].assets}/${encodeURI(path)}`, {
+const proxyMedia = async (request: Request, bucket: string, path: string) => {
+  const upstream = new Request(`${ASSET_ORIGIN}/${bucket}/${encodeURI(path)}`, {
     method: request.method,
   });
   for (const header of ["range", "if-range", "if-none-match"]) {
@@ -282,10 +286,15 @@ const camel = (value: unknown): unknown =>
       ? Object.fromEntries(Object.entries(value).map(([key, entry]) => [lowerFirst(key), camel(entry)]))
       : value;
 
+/** Keeps a Sekai Character2dId clear of BanG Dream's character ids, which the converter gives icons. */
+const CHARACTER_ID_BASE = 1_000_000;
+const character = (value: unknown): { characterId?: number } =>
+  Number(value) > 0 ? { characterId: CHARACTER_ID_BASE + Number(value) } : {};
+
 /**
  * The game's scenario asset is the same structure the Bestdori converter
- * reads, with capitalised keys and its own asset layout. Characters are left
- * out until the models are served, so a line keeps its name, text and voice.
+ * reads, with capitalised keys, `Character2dId`/`FacialName` in place of
+ * `characterId`/`expressionName`, and its own asset layout.
  */
 export const sekaiScenarioBase = (source: Obj): BestdoriScenarioBase => {
   const asset = (path: string) => `/assets/jp/${path}`;
@@ -299,19 +308,44 @@ export const sekaiScenarioBase = (source: Obj): BestdoriScenarioBase => {
     ...(source.FirstBackground
       ? { firstBackground: background(source.FirstBackground), firstBackgroundBundleName: "BESTDORI##URL" }
       : {}),
-    // Snippets that only pose a character (2 layout, 4 motion) have nothing to act on.
-    snippets: rows("Snippets")
-      .filter((snippet) => snippet.action !== 2 && snippet.action !== 4)
-      .map((snippet) => ({
-        actionType: Number(snippet.action),
-        progressType: Number(snippet.progressBehavior),
-        referenceIndex: Number(snippet.referenceIndex),
-        delay: Number(snippet.delay),
-      })),
+    appearCharacters: rows("AppearCharacters").map((entry) => ({
+      ...character(entry.character2dId),
+      costumeType: String(entry.costumeType ?? ""),
+    })),
+    layoutData: rows("LayoutData").map((layout) => ({
+      type: Number(layout.type),
+      ...character(layout.character2dId),
+      costumeType: String(layout.costumeType ?? ""),
+      motionName: String(layout.motionName ?? ""),
+      expressionName: String(layout.facialName ?? ""),
+      sideFrom: Number(layout.sideFrom),
+      sideFromOffsetX: Number(layout.sideFromOffsetX),
+      sideTo: Number(layout.sideTo),
+      sideToOffsetX: Number(layout.sideToOffsetX),
+      depthType: Number(layout.depthType),
+      moveSpeedType: Number(layout.moveSpeedType),
+    })),
+    snippets: rows("Snippets").map((snippet) => ({
+      actionType: Number(snippet.action),
+      progressType: Number(snippet.progressBehavior),
+      referenceIndex: Number(snippet.referenceIndex),
+      delay: Number(snippet.delay),
+    })),
     talkData: rows("TalkData").map((talk) => ({
+      talkCharacters: ((talk.talkCharacters as Obj[]) ?? []).map((entry) => ({
+        ...character(entry.character2dId),
+      })),
       windowDisplayName: String(talk.windowDisplayName ?? ""),
       body: String(talk.body ?? ""),
+      lipSyncMode: Number(talk.lipSync),
+      motions: ((talk.motions as Obj[]) ?? []).map((motion) => ({
+        ...character(motion.character2dId),
+        motionName: String(motion.motionName ?? ""),
+        expressionName: String(motion.facialName ?? ""),
+        timingSyncValue: Number(motion.timingSyncValue),
+      })),
       voices: ((talk.voices as Obj[]) ?? []).map((voice) => ({
+        ...character(voice.character2dId),
         voiceId: String(voice.voiceId),
         volume: Number(voice.volume),
       })),
@@ -370,6 +404,170 @@ const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> =
   throw new Error(`sekai story ${storyId} is unavailable`);
 };
 
+/* ----------------------------------------------------------------- live2d */
+
+const LIVE2D_BUCKET = "sekai-live2d-assets";
+const LIVE2D_PATH = /^live2d\/(?:model|motion)\/[\w./ -]+\.(?:json|moc3|png|webp)$/;
+const live2dFile = (path: string) => `${SEKAI_API_PREFIX}/jp/live2d-file/${path}`;
+const live2dJson = async <T>(path: string): Promise<T> => {
+  const response = await fetch(`${ASSET_ORIGIN}/${LIVE2D_BUCKET}/${path}`, {
+    cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
+  });
+  if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+  return (await response.json()) as T;
+};
+const live2dFolders = async (prefix: string): Promise<string[]> => {
+  const response = await fetch(
+    `${ASSET_ORIGIN}/${LIVE2D_BUCKET}/?list-type=2&delimiter=/&prefix=${encodeURIComponent(prefix)}`,
+    { cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true } },
+  );
+  if (!response.ok) return [];
+  return [...(await response.text()).matchAll(/<Prefix>([^<]+)<\/Prefix>/g)]
+    .map((match) => match[1]!)
+    .filter((folder) => folder !== prefix);
+};
+
+interface Live2dModel {
+  modelName: string;
+  modelBase: string;
+  modelPath: string;
+  modelFile: string;
+}
+interface MotionData {
+  motions?: string[];
+  expressions?: string[];
+}
+
+/** A character's poses and facials are shared by all of their costumes. */
+const motionBase = async (model: Live2dModel, models: Live2dModel[]): Promise<string | undefined> => {
+  const parent = model.modelPath.slice(0, model.modelPath.lastIndexOf("/") + 1);
+  const folders = await live2dFolders(`live2d/motion/${parent}`);
+  const own = folders.find((folder) => folder.endsWith(`/${model.modelBase}_motion_base/`));
+  if (own) return own;
+  if (folders.length === 1 && parent.split("/").length > 3) return folders[0];
+  // A side costume ("v2_19ena_school_back") borrows the main character's set.
+  const character = /^(?:v2_)?(\d\d)([a-z]+?)(?:_|$)/.exec(model.modelBase);
+  if (!character) return undefined;
+  const folder = `/main/${character[1]}_${character[2]}/`;
+  const version = model.modelPath.split("/")[0];
+  const main =
+    models.find((entry) => entry.modelPath.startsWith(`${version}${folder}`)) ??
+    models.find((entry) => entry.modelPath.includes(folder));
+  return main && main !== model ? motionBase(main, models) : undefined;
+};
+
+interface Live2dCostume {
+  folder: string;
+  model: Live2dModel;
+  motions: { name: string; file: string }[];
+  expressions: { name: string; file: string }[];
+}
+const live2dCostume = async (id: string): Promise<Live2dCostume | undefined> => {
+  const models = await live2dJson<Live2dModel[]>("live2d/model_list.json");
+  // Later rows are later revisions of the same costume.
+  const model = models.filter((entry) => entry.modelBase === id).at(-1);
+  if (!model) return undefined;
+  const folder = `live2d/model/${model.modelPath}`;
+  const base = await motionBase(model, models);
+  const data = (path: string) => live2dJson<MotionData>(path).catch((): MotionData => ({}));
+  const [shared, own] = await Promise.all([
+    base ? data(`${base}BuildMotionData.json`) : ({} as MotionData),
+    data(`${folder}/motions/BuildMotionData.json`),
+  ]);
+  return {
+    folder,
+    model,
+    motions: [
+      ...(own.motions ?? []).map((name) => ({ name, file: live2dFile(`${folder}/motions/${name}.motion3.json`) })),
+      ...(shared.motions ?? []).map((name) => ({ name, file: live2dFile(`${base}motion/${name}.motion3.json`) })),
+    ],
+    // The game stores a facial as a one-pose motion; the player wants an expression.
+    expressions: (shared.expressions ?? []).map((name) => ({
+      name,
+      file: `${SEKAI_API_PREFIX}/jp/live2d-expression/${base}facial/${name}.exp3.json`,
+    })),
+  };
+};
+
+/**
+ * The published manifest names only the mesh, textures and physics. The
+ * player reads its motion and expression catalogue from the manifest, so the
+ * character's shared set is written into it.
+ */
+const live2dManifest = async (id: string): Promise<Obj> => {
+  const costume = await live2dCostume(id);
+  if (!costume) throw new Error(`unknown sekai costume: ${id}`);
+  const source = await live2dJson<{ FileReferences: Record<string, unknown>; Groups?: Obj[] }>(
+    `${costume.folder}/${costume.model.modelFile}`,
+  );
+  const file = (name: unknown) => live2dFile(`${costume.folder}/${String(name)}`);
+  const references = source.FileReferences;
+  return {
+    ...source,
+    FileReferences: {
+      Moc: file(references.Moc),
+      Textures: (references.Textures as string[]).map(file),
+      ...(references.Physics ? { Physics: file(references.Physics) } : {}),
+      Motions: { "": costume.motions.map((motion) => ({ File: motion.file })) },
+      Expressions: costume.expressions.map((expression) => ({ Name: expression.name, File: expression.file })),
+    },
+    Groups: (source.Groups ?? []).map((group) =>
+      group.Name === "LipSync" && !(group.Ids as string[]).length ? { ...group, Ids: ["ParamMouthOpenY"] } : group,
+    ),
+  };
+};
+
+const live2dEntries = async (ids: string[]): Promise<Obj> => {
+  const items: Obj = {};
+  const missing: string[] = [];
+  await Promise.all(
+    ids.map(async (id) => {
+      const costume = await live2dCostume(id);
+      if (!costume) {
+        missing.push(id);
+        return;
+      }
+      items[id] = {
+        live2dKey: id,
+        profile: {
+          basePosition: { x: 0, y: 0, z: 0 },
+          baseScale: 1,
+          placement: {
+            anchor: "stage",
+            referenceWidth: 1280,
+            referenceHeight: 720,
+            fit: "height",
+            scale: LIVE2D_SCALE,
+            align: [0.5, 0.5],
+            offset: [0, LIVE2D_OFFSET_Y],
+          },
+          presentationFadeInSeconds: -1,
+          playDefaultMotionBeforePresentation: false,
+          preservePresentationOnHide: true,
+        },
+        runtime: {
+          model: `${SEKAI_API_PREFIX}/jp/live2d-model/${id}.model3.json`,
+          motions: costume.motions.map(({ name, file }) => ({ name, runtime: file })),
+          expressions: costume.expressions.map(({ name, file }) => ({ name, runtime: file })),
+        },
+      };
+    }),
+  );
+  return { items, missing };
+};
+
+const facialExpression = async (path: string): Promise<Obj> => {
+  const motion = await live2dJson<{ Curves?: { Target: string; Id: string; Segments: number[] }[] }>(
+    path.replace(/\.exp3\.json$/, ".motion3.json"),
+  );
+  return {
+    Type: "Live2D Expression",
+    Parameters: (motion.Curves ?? [])
+      .filter((curve) => curve.Target === "Parameter")
+      .map((curve) => ({ Id: curve.Id, Value: curve.Segments[1] ?? 0, Blend: "Overwrite" })),
+  };
+};
+
 /* ------------------------------------------------------------------ routes */
 
 export async function handleSekaiApi(ctx: ExecutionContext, request: Request, url: URL): Promise<Response | null> {
@@ -382,6 +580,10 @@ export async function handleSekaiApi(ctx: ExecutionContext, request: Request, ur
   // The catalogue asks every provider for these; Sekai has neither a cast index nor score metadata.
   if (tail === "characters" || tail === "song-meta") return serveJson(request, ctx, async () => ({}));
   if (tail === "stories/event") return serveJson(request, ctx, () => storyList(region));
+  if (tail === "live2d") {
+    const ids = [...new Set(url.searchParams.getAll("id"))].filter((id) => /^[\w-]+$/.test(id)).slice(0, 64);
+    return serveJson(request, ctx, () => live2dEntries(ids));
+  }
   let match: RegExpMatchArray | null;
   if ((match = /^songs\/(\d+)$/.exec(tail))) {
     const id = match[1]!;
@@ -395,6 +597,22 @@ export async function handleSekaiApi(ctx: ExecutionContext, request: Request, ur
     const storyId = match[1]!;
     return serveJson(request, ctx, () => storyDetail(region, storyId));
   }
+  if ((match = /^live2d-model\/([\w-]+)\.model3\.json$/.exec(tail))) {
+    const id = match[1]!;
+    return serveJson(request, ctx, () => live2dManifest(id));
+  }
+  if ((match = /^live2d-(file|expression)\/(.+)$/.exec(tail))) {
+    let path: string;
+    try {
+      path = decodeURIComponent(match[2]!);
+    } catch {
+      return null;
+    }
+    if (path.includes("..") || !LIVE2D_PATH.test(path)) return null;
+    return match[1] === "file"
+      ? proxyMedia(request, LIVE2D_BUCKET, path)
+      : serveJson(request, ctx, () => facialExpression(path));
+  }
   if ((match = /^media\/(.+)$/.exec(tail))) {
     // A few voice files carry a trailing space in their name, so the path arrives encoded.
     let path: string;
@@ -404,7 +622,7 @@ export async function handleSekaiApi(ctx: ExecutionContext, request: Request, ur
       return null;
     }
     if (path.includes("..") || !MEDIA_PATH.test(path)) return null;
-    return proxyMedia(request, region, path);
+    return proxyMedia(request, SOURCES[region].assets, path);
   }
   return null;
 }
