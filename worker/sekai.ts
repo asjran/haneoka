@@ -24,7 +24,7 @@ const MASTER_ORIGIN = "https://sekai-world.github.io";
 const ASSET_ORIGIN = "https://storage.sekai.best";
 export const SEKAI_API_PREFIX = "/api/v1/sekai";
 /** Bump when a projection changes so cached responses are not reused. */
-const RESPONSE_VERSION = "3";
+const RESPONSE_VERSION = "4";
 const JSON_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.catalog);
 const MEDIA_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.media);
 const CORS: Readonly<Record<string, string>> = {
@@ -34,7 +34,7 @@ const CORS: Readonly<Record<string, string>> = {
   "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag",
 };
 const MEDIA_PATH =
-  /^(?:music\/(?:jacket|long|music_score)|home\/banner|event_story|scenario\/background|sound\/scenario\/(?:voice|bgm|se))\/[\w./ -]+\.(?:webp|png|mp3|txt)$/;
+  /^(?:music\/(?:jacket|long|music_score)|home\/banner|event_story|story\/(?:chapter_image|episode_image)|scenario\/background|sound\/scenario\/(?:voice|bgm|se))\/[\w./ -]+\.(?:webp|png|mp3|txt)$/;
 
 const DIFFICULTIES = ["easy", "normal", "hard", "expert", "master", "append"] as const;
 /** The game's unit tags, in its own order, with the units' official names. */
@@ -379,16 +379,14 @@ export const sekaiScenarioBase = (
  * pack. The scenario does not say which, and a few names exist in neither, so
  * each is checked before the player is told to load it.
  */
-const soundEffects = async (scenario: Obj, bundle: string): Promise<Map<string, string>> => {
+const soundEffects = async (scenario: Obj, own: string): Promise<Map<string, string>> => {
   const names = [...new Set(((scenario.SoundData as Obj[]) ?? []).map((sound) => String(sound.Se ?? "")))].filter(
     Boolean,
   );
   const found = await Promise.all(
     names.map(async (name) => {
-      for (const path of [
-        `sound/scenario/se/se_pack00001/${name}.mp3`,
-        `event_story/${bundle}/scenario_se/${name}.mp3`,
-      ]) {
+      const paths = [`sound/scenario/se/se_pack00001/${name}.mp3`, ...(own ? [`${own}/${name}.mp3`] : [])];
+      for (const path of paths) {
         const response = await fetch(`${ASSET_ORIGIN}/${SOURCES.jp.assets}/${encodeURI(path)}`, {
           method: "HEAD",
           cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
@@ -401,18 +399,117 @@ const soundEffects = async (scenario: Obj, bundle: string): Promise<Map<string, 
   return new Map(found.filter((entry) => entry !== undefined));
 };
 
-const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> => {
-  const match = /^event\.(\d+)-(\d+)$/.exec(storyId);
-  if (!match) throw new Error(`unknown sekai story: ${storyId}`);
-  const resolved = (await resolveEvents(region)).find(({ story }) => Number(story.eventId) === Number(match[1]));
-  const episode = (resolved?.story.eventStoryEpisodes as Obj[] | undefined)?.find(
-    (entry) => Number(entry.episodeNo) === Number(match[2]),
+/** Unit story keys in the game's order, with the units' official names. */
+const STORY_UNITS: Readonly<Record<string, string>> = {
+  piapro: "VIRTUAL SINGER",
+  light_sound: "Leo/need",
+  idol: "MORE MORE JUMP！",
+  street: "Vivid BAD SQUAD",
+  theme_park: "ワンダーランズ×ショウタイム",
+  school_refusal: "25時、ナイトコードで。",
+};
+
+interface UnitEpisode {
+  server: SekaiRegion;
+  unit: Obj;
+  chapter: Obj;
+  episode: Obj;
+}
+const unitEpisodes = async (region: SekaiRegion): Promise<UnitEpisode[]> => {
+  const [units, local] = await Promise.all([master("jp", "unitStories"), regional(region, "unitStories")]);
+  const localEpisodes = new Map(
+    local.flatMap((unit) =>
+      (unit.chapters as Obj[]).flatMap((chapter) =>
+        (chapter.episodes as Obj[]).map((episode) => [String(episode.scenarioId), episode] as const),
+      ),
+    ),
   );
-  if (!resolved || !episode) throw new Error(`unknown sekai story: ${storyId}`);
-  const scenarioId = String(episode.scenarioId);
-  const path = `event_story/${String(resolved.story.assetbundleName)}/scenario/${scenarioId}.asset`;
+  return units.flatMap((unit) =>
+    (unit.chapters as Obj[]).flatMap((chapter) =>
+      (chapter.episodes as Obj[]).map((episode) => {
+        const translated = localEpisodes.get(String(episode.scenarioId));
+        return { server: translated ? region : "jp", unit, chapter, episode: translated ?? episode };
+      }),
+    ),
+  );
+};
+
+const unitStoryList = async (region: SekaiRegion): Promise<Obj> =>
+  Object.fromEntries(
+    (await unitEpisodes(region)).map(({ server, unit, chapter, episode }) => {
+      // Numbered ids keep a unit's episodes in reading order wherever ids are sorted.
+      const storyId = `main.${String(unit.unit)}-${Number(episode.episodeNo)}`;
+      const bundle = String(chapter.assetbundleName);
+      const banner = media("jp", `story/chapter_image/chapter${Number(chapter.chapterNo)}/${bundle}.webp`);
+      const name = STORY_UNITS[String(unit.unit)] ?? String(unit.unit);
+      return [
+        storyId,
+        {
+          storyId,
+          storyKey: storyId,
+          scenarioId: String(episode.scenarioId),
+          episodeNumber: Number(episode.episodeNo),
+          chapterId: Number(chapter.id),
+          chapterKey: `sekai:unit:${String(unit.unit)}`,
+          chapterName: name,
+          chapterSort: Number(unit.seq),
+          storySort: Number(unit.seq) * 1000 + Number(episode.episodeNo),
+          title: String(episode.title),
+          sourceServer: server,
+          image: banner,
+          thumbnail: banner,
+          episodeImage: media("jp", `story/episode_image/${bundle}/${String(episode.assetbundleName)}.webp`),
+        },
+      ];
+    }),
+  );
+
+interface ScenarioSource {
+  server: SekaiRegion;
+  scenarioId: string;
+  path: string;
+  /** Where an event keeps its own sound effects. */
+  effects: string;
+}
+const scenarioSource = async (region: SekaiRegion, storyId: string): Promise<ScenarioSource | undefined> => {
+  let match: RegExpMatchArray | null;
+  if ((match = /^event\.(\d+)-(\d+)$/.exec(storyId))) {
+    const resolved = (await resolveEvents(region)).find(({ story }) => Number(story.eventId) === Number(match![1]));
+    const episode = (resolved?.story.eventStoryEpisodes as Obj[] | undefined)?.find(
+      (entry) => Number(entry.episodeNo) === Number(match![2]),
+    );
+    if (!resolved || !episode) return undefined;
+    const bundle = String(resolved.story.assetbundleName);
+    const scenarioId = String(episode.scenarioId);
+    return {
+      server: resolved.server,
+      scenarioId,
+      path: `event_story/${bundle}/scenario/${scenarioId}.asset`,
+      effects: `event_story/${bundle}/scenario_se`,
+    };
+  }
+  if ((match = /^main\.([a-z_]+)-(\d+)$/.exec(storyId))) {
+    const found = (await unitEpisodes(region)).find(
+      ({ unit, episode }) => unit.unit === match![1] && Number(episode.episodeNo) === Number(match![2]),
+    );
+    if (!found) return undefined;
+    const scenarioId = String(found.episode.scenarioId);
+    return {
+      server: found.server,
+      scenarioId,
+      path: `scenario/unitstory/${String(found.chapter.assetbundleName)}/${scenarioId}.asset`,
+      effects: "",
+    };
+  }
+  return undefined;
+};
+
+const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> => {
+  const source = await scenarioSource(region, storyId);
+  if (!source) throw new Error(`unknown sekai story: ${storyId}`);
+  const { scenarioId, path } = source;
   // A regional server may list an episode before its text is uploaded.
-  const servers = resolved.server === "jp" ? (["jp"] as const) : ([resolved.server, "jp"] as const);
+  const servers = source.server === "jp" ? (["jp"] as const) : ([source.server, "jp"] as const);
   for (const server of servers) {
     const response = await fetch(`${ASSET_ORIGIN}/${SOURCES[server].assets}/${path}`, {
       cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
@@ -420,7 +517,7 @@ const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> =
     if (!response.ok) continue;
     const scenario = (await response.json()) as Obj;
     const { story } = convertBestdoriScenario(
-      { Base: sekaiScenarioBase(scenario, await soundEffects(scenario, String(resolved.story.assetbundleName))) },
+      { Base: sekaiScenarioBase(scenario, await soundEffects(scenario, source.effects)) },
       {
         server,
         voiceBundle: `sound/scenario/voice/${scenarioId}/`,
@@ -618,6 +715,7 @@ export async function handleSekaiApi(ctx: ExecutionContext, request: Request, ur
   // The catalogue asks every provider for these; Sekai has neither a cast index nor score metadata.
   if (tail === "characters" || tail === "song-meta") return serveJson(request, ctx, async () => ({}));
   if (tail === "stories/event") return serveJson(request, ctx, () => storyList(region));
+  if (tail === "stories/main") return serveJson(request, ctx, () => unitStoryList(region));
   if (tail === "live2d") {
     const ids = [...new Set(url.searchParams.getAll("id"))].filter((id) => /^[\w-]+$/.test(id)).slice(0, 64);
     return serveJson(request, ctx, () => live2dEntries(ids));
@@ -631,7 +729,7 @@ export async function handleSekaiApi(ctx: ExecutionContext, request: Request, ur
       return song;
     });
   }
-  if ((match = /^stories\/(event\.\d+-\d+)$/.exec(tail))) {
+  if ((match = /^stories\/((?:event|main)\.[\w-]+)$/.exec(tail))) {
     const storyId = match[1]!;
     return serveJson(request, ctx, () => storyDetail(region, storyId));
   }

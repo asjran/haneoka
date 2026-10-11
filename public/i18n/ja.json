@@ -3483,7 +3483,8 @@
       "description": "コミュニティのデータは必要に応じて読み込みます。",
       "sekai": {
         "title": "プロセカ楽曲",
-        "storiesTitle": "プロセカ イベントストーリー"
+        "storiesTitle": "プロセカ イベントストーリー",
+        "mainStoriesTitle": "プロセカ メインストーリー"
       }
     }
   },

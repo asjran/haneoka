@@ -3483,7 +3483,8 @@
       "description": "社区数据按需加载。",
       "sekai": {
         "title": "世界计划乐曲",
-        "storiesTitle": "世界计划活动故事"
+        "storiesTitle": "世界计划活动故事",
+        "mainStoriesTitle": "世界计划主线故事"
       }
     }
   },

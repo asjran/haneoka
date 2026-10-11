@@ -3483,7 +3483,8 @@
       "description": "社群資料按需載入。",
       "sekai": {
         "title": "世界計畫樂曲",
-        "storiesTitle": "世界計畫活動故事"
+        "storiesTitle": "世界計畫活動故事",
+        "mainStoriesTitle": "世界計畫主線故事"
       }
     }
   },
