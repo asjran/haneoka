@@ -24,6 +24,7 @@ const { locale, route, title, titleKey, server, entity } = Astro.props;
 const shellTitle = entity?.title ?? title;
 const shellTitleKey = entity ? undefined : titleKey;
 const itemActive = (target: string) => target === "/community" ? ["/community", "/community/feeds"].includes(route) : isRouteActive(target, route);
+const sectionActive = (section: { items: { route: string }[] }) => section.items.some((item) => itemActive(item.route));
 const navigationServer = server === "intl-test" ? "intl" : server ?? "intl";
 const navigationHref = (target: string) => {
   if (target === "/") return `/${navigationServer}/${locale}/`;
@@ -138,12 +139,26 @@ const inInformation = route === "/about" || informationPages.some((item) => item
                   <div class="nav__tree-inner">
                     {destination.sections.map((section) => (
                       <section class="nav__section" aria-labelledby={destination.sections.length > 1 ? `nav-section-${section.id}` : undefined}>
-                        {destination.sections.length > 1 && (
+                        {destination.sections.length > 1 && !section.collapsible && (
                           <h2 class="nav__headline" id={`nav-section-${section.id}`}>
                             <I18nText keyName={section.label} fallback={section.id} locale={locale} />
                           </h2>
                         )}
-                        <ul class="nav__items" role="list">
+                        {section.collapsible && (
+                          <h2 class="nav__headline nav__headline--toggle" id={`nav-section-${section.id}`}>
+                            <button
+                              class="nav__section-toggle"
+                              type="button"
+                              data-nav-section-toggle={section.id}
+                              aria-expanded={sectionActive(section) ? "true" : "false"}
+                              aria-controls={`nav-section-items-${section.id}`}
+                            >
+                              <span><I18nText keyName={section.label} fallback={section.id} locale={locale} /></span>
+                              <Icon name="expand_more" size={20} />
+                            </button>
+                          </h2>
+                        )}
+                        <ul class="nav__items" role="list" id={`nav-section-items-${section.id}`} hidden={section.collapsible && !sectionActive(section)}>
                           {section.items.map((item) => {
                             const children = item.children || [];
                             const forums = destination.id === "community" && item.route === "/community/forums";
@@ -450,6 +465,24 @@ const inInformation = route === "/about" || informationPages.some((item) => item
       toggle.addEventListener("click", () => {
         const open = !item.hasAttribute("data-open");
         setOpen(item, open);
+        opened[id] = open;
+        try {
+          localStorage.setItem(OPEN_KEY, JSON.stringify(opened));
+        } catch {}
+      });
+    });
+    host.querySelectorAll<HTMLElement>("[data-nav-section-toggle]").forEach((toggle) => {
+      const id = `section:${toggle.dataset.navSectionToggle}`;
+      const items = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+      const set = (open: boolean) => {
+        toggle.setAttribute("aria-expanded", String(open));
+        items.hidden = !open;
+      };
+      // A section holding the current page stays open whatever was stored.
+      if (id in opened && !items.querySelector("[aria-current]")) set(opened[id] === true);
+      toggle.addEventListener("click", () => {
+        const open = toggle.getAttribute("aria-expanded") !== "true";
+        set(open);
         opened[id] = open;
         try {
           localStorage.setItem(OPEN_KEY, JSON.stringify(opened));

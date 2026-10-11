@@ -321,6 +321,38 @@
 .nav__section:first-child > .nav__headline {
   padding-top: 8px;
 }
+.nav__headline--toggle {
+  padding: 8px 12px 0 var(--nav-rail-icon-x);
+}
+.nav__section:first-child > .nav__headline--toggle {
+  padding-top: 0;
+}
+.nav__headline--toggle > .nav__section-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  color: inherit;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.nav__headline--toggle > .nav__section-toggle:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.nav__headline--toggle > .nav__section-toggle > .material-icon {
+  flex: none;
+  transition: rotate var(--motion-spatial);
+}
+.nav__headline--toggle > .nav__section-toggle[aria-expanded="true"] > .material-icon {
+  rotate: 180deg;
+}
 .nav__items {
   --nav-depth: 1;
   gap: 2px;
