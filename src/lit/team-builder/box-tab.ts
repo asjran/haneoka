@@ -149,10 +149,6 @@ export function renderBoxTab(host: TeamBuilder): TemplateResult {
             ],
             onSelect: (show) => set({ show }),
           })}
-          <md-outlined-text-field class="tb-search" type="search" label=${host.common("common.actions.search", "Search")} .value=${live(f.query)}
-            @input=${(event: Event) => set({ query: (event.target as HTMLInputElement).value })}>
-            <span slot="leading-icon">${icon("search", 20)}</span>
-          </md-outlined-text-field>
           ${iconButton({
             icon: "filter_list",
             label: host.t("filters", "Filters"),

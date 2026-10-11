@@ -16,7 +16,8 @@ import type { EngineRequest, EngineResponse, Goal, TeamEvaluation } from "../lib
 import { BoxStore, type BoxSnapshot } from "../lib/team-builder/sync/box-store";
 import { engineInputs, readBox, type BoxView } from "../lib/team-builder/sync/box-view";
 import type { BoxValue } from "../lib/team-builder/sync/box-doc";
-import { rovingKeydown } from "./ui/controls";
+import { iconButton, rovingKeydown } from "./ui/controls";
+import { clearAppBarActions, setAppBarActions, setAppBarSearch } from "../lib/app-bar";
 import { LazyImages } from "./ui/lazy-images";
 import { icon } from "./ui/icon";
 import { DEFAULT_SETTINGS, type BoxFilters, type BuildSettings, type Tab } from "./team-builder/types";
@@ -43,6 +44,8 @@ const uiLabelPaths: Readonly<Record<string, string>> = {
 
 
 const SETTINGS_KEY = "pref.build";
+const SYNC_OWNER = "team-builder-sync";
+const SEARCH_OWNER = "team-builder-search";
 export interface ManualTeam {
   members: (number | null)[];
   snaps: (number | null)[];
@@ -112,6 +115,9 @@ export class TeamBuilder extends LitElement {
   }
   disconnectedCallback() {
     super.disconnectedCallback();
+    clearAppBarActions(SYNC_OWNER);
+    this.releaseSearch?.();
+    this.releaseSearch = undefined;
     this.dataController?.abort();
     this.visualsController?.abort();
     this.images.disconnect();
@@ -141,7 +147,9 @@ export class TeamBuilder extends LitElement {
         <button class="button button--text" type="button" @click=${() => void this.loadCatalogMetadata()}>${this.common("common.actions.retry", "Retry")}</button></div>`;
     return nothing;
   }
+  private releaseSearch?: () => void;
   protected updated() {
+    this.syncAppBar();
     if (this.error !== this.errorShown) {
       this.errorShown = this.error;
       if (this.error) snackbar(this.error, { error: true, durationMs: 8000 });
@@ -429,24 +437,39 @@ export class TeamBuilder extends LitElement {
       </nav>
     `;
   }
-  private renderSync(): TemplateResult {
+  /** Sync status lives in the app bar; the box search uses the app-bar search field. */
+  private syncAppBar() {
     const snapshot = this.snapshot;
-    if (!snapshot) return html``;
-    const map: Record<string, { icon: string; label: string }> = {
-      local: { icon: "save", label: this.t("syncLocal", "Saved on this device · sign in to sync") },
-      syncing: { icon: "sync", label: this.t("syncing", "Syncing…") },
-      pending: { icon: "schedule", label: this.t("syncPending", "Saving…") },
-      synced: { icon: "cloud_done", label: this.t("synced", "Synced") },
-      offline: { icon: "cloud_off", label: this.t("syncOffline", "Offline · changes are kept and sent later") },
-      "signed-out": { icon: "no_accounts", label: this.t("syncSignedOut", "Sign in again to sync") },
-      error: { icon: "error", label: this.t("syncError", "Sync paused") },
-    };
-    const { icon: name, label } = map[snapshot.status] ?? map.local!;
-    return html`
-      <button class=${`tb-sync tb-sync--${snapshot.status}`} type="button" title=${label} @click=${() => void this.store?.refresh()}>
-        ${icon(name, 18)}<span>${label}</span>
-      </button>
-    `;
+    if (snapshot) {
+      const map: Record<string, { icon: string; label: string }> = {
+        local: { icon: "save", label: this.t("syncLocal", "Saved on this device · sign in to sync") },
+        syncing: { icon: "sync", label: this.t("syncing", "Syncing…") },
+        pending: { icon: "schedule", label: this.t("syncPending", "Saving…") },
+        synced: { icon: "cloud_done", label: this.t("synced", "Synced") },
+        offline: { icon: "cloud_off", label: this.t("syncOffline", "Offline · changes are kept and sent later") },
+        "signed-out": { icon: "no_accounts", label: this.t("syncSignedOut", "Sign in again to sync") },
+        error: { icon: "error", label: this.t("syncError", "Sync paused") },
+      };
+      const { icon: name, label } = map[snapshot.status] ?? map.local!;
+      setAppBarActions(
+        SYNC_OWNER,
+        html`<span class=${`tb-sync tb-sync--${snapshot.status}`}>${iconButton({ icon: name, label, onClick: () => void this.store?.refresh() })}</span>`,
+        this,
+      );
+    } else clearAppBarActions(SYNC_OWNER);
+    if (this.tab === "box" && this.data && !this.releaseSearch)
+      this.releaseSearch = setAppBarSearch(SEARCH_OWNER, {
+        value: this.filters.query,
+        label: this.common("common.actions.search", "Search"),
+        onInput: (query) => {
+          this.filters = { ...this.filters, query };
+          this.requestUpdate();
+        },
+      });
+    else if (this.tab !== "box" && this.releaseSearch) {
+      this.releaseSearch();
+      this.releaseSearch = undefined;
+    }
   }
   render(): TemplateResult {
     if (!this.data || !this.catalog || !this.view) {
@@ -466,7 +489,6 @@ export class TeamBuilder extends LitElement {
       <div class="team-builder tb">
         <header class="tb-header">
           ${this.renderTabs()}
-          ${this.renderSync()}
         </header>
         <section id="tb-panel" class="tb-tabpanel" role="tabpanel" tabindex="-1">${panel}</section>
         ${renderCardEditor(this)}
