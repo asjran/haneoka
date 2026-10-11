@@ -889,7 +889,11 @@
         "eventSong": "活動樂曲",
         "storyEpisode": "劇情章節",
         "goal": "目標"
-      }
+      },
+      "pointBonus": "積分加成",
+      "itemBonusInput": "道具加成",
+      "liveBoost": "LIVE BOOST",
+      "challengePoints": "挑戰點（CP）"
     },
     "bands": {
       "names": {

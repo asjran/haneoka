@@ -1139,9 +1139,9 @@ function renderRotatingOverview(c: Controller, item: Item) {
           rankingFields.some(([field]) => typeof item[field] === "boolean")
             ? html`
                 <div class="spec-list__wide">
-                  <dt>${c.label("eventAvailableRankings", "Rankings")}</dt>
+                  <dt>${eventText(c, "eventAvailableRankings", "Rankings")}</dt>
                   <dd>
-                    ${activeRankings.length ? activeRankings.map(([, key, fallback]) => c.label(key, fallback)).join(" · ") : c.label("eventRankingOff", "No rankings")}
+                    ${activeRankings.length ? activeRankings.map(([, key, fallback]) => c.label(key, fallback)).join(" · ") : eventText(c, "eventRankingOff", "No rankings")}
                   </dd>
                 </div>
               `
@@ -1151,7 +1151,7 @@ function renderRotatingOverview(c: Controller, item: Item) {
           eventItem
             ? html`
                 <div class="spec-list__wide">
-                  <dt>${c.label("eventItem", "Event item")}</dt>
+                  <dt>${eventText(c, "eventItem", "Event item")}</dt>
                   <dd>
                     <ul class="detail-object-list">
                       ${eventRewardRow(c, eventItem, false)}
@@ -1180,7 +1180,7 @@ function renderEventSong(c: Controller, item: Item) {
   const song = item.song as Item;
   return html`
     <section class="detail-section">
-      ${renderDetailSectionHeading(c.label("eventSong", "Event song"), "songs")}
+      ${renderDetailSectionHeading(eventText(c, "eventSong", "Event song"), "songs")}
       <div class="collection collection--song">
         ${tile({ ...c.songTileOptions(song), href: canonicalHref(c, String(song.href || "")) || undefined })}
       </div>
@@ -1204,7 +1204,7 @@ function renderEventPickups(c: Controller, item: Item) {
   if (!cards.length) return nothing;
   return html`
     <section class="detail-section">
-      ${renderDetailSectionHeading(c.label("eventRewardCards", "Event reward cards"), "cards", { count: cards.length })}${renderEventCardGrid(c, cards)}
+      ${renderDetailSectionHeading(eventText(c, "eventRewardCards", "Event reward cards"), "cards", { count: cards.length })}${renderEventCardGrid(c, cards)}
     </section>
   `;
 }
@@ -1214,7 +1214,7 @@ function renderEventRecruitments(c: Controller, item: Item) {
   if (!recruitments.length) return nothing;
   return html`
     <section class="detail-section">
-      ${renderDetailSectionHeading(c.label("eventRecruitments", "Related recruitments"), "content", { count: recruitments.length })}
+      ${renderDetailSectionHeading(eventText(c, "eventRecruitments", "Related recruitments"), "content", { count: recruitments.length })}
       <div class="collection collection--system">
         ${recruitments.map((gacha) => {
           const title = c.localized(gacha.title);
@@ -1246,7 +1246,7 @@ function renderEventStory(c: Controller, item: Item) {
   ] as const;
   return html`
     <section class="detail-section">
-      ${renderDetailSectionHeading(c.label("eventStory", "Event story"), "stories", { count: episodes.length })}
+      ${renderDetailSectionHeading(eventText(c, "eventStory", "Event story"), "stories", { count: episodes.length })}
       ${
         story.banner || story.image
           ? html`
@@ -1357,7 +1357,7 @@ function renderEventRewards(c: Controller, item: Item) {
   }
   return html`
     <section class="detail-section">
-      ${renderDetailSectionHeading(c.label("eventRewards", "Event rewards"), "rewards")}
+      ${renderDetailSectionHeading(eventText(c, "eventRewards", "Event rewards"), "rewards")}
       ${[...tables].map(([table, rows]) => {
         const tiers = new Map<string, Item[]>();
         for (const row of rows) {
@@ -1394,21 +1394,64 @@ function renderEventRewards(c: Controller, item: Item) {
   `;
 }
 
+/** Points per play: the game's integer order, as in the team builder's event objective. */
+const playPoints = (kind: string, value: number, rate: number, bonus: number) =>
+  kind === "challenge"
+    ? Math.trunc(Math.imul(Math.imul(value, rate), (bonus + 10000) | 0) / 10000)
+    : Math.trunc(Math.imul(Math.imul((bonus + 10000) | 0, rate), value) / 10000);
+const bonusInput = (c: Controller, key: "pointBonus" | "itemBonus", label: string) => html`
+  <md-outlined-text-field
+    type="number"
+    label=${label}
+    suffix-text="%"
+    min="0"
+    step="0.01"
+    .value=${String(c.eventCalc[key] / 100)}
+    @input=${(event: Event) => {
+      const value = Number((event.target as HTMLInputElement).value);
+      c.eventCalc = { ...c.eventCalc, [key]: Number.isFinite(value) && value > 0 ? Math.round(value * 100) : 0 };
+      c.requestUpdate();
+    }}
+  ></md-outlined-text-field>
+`;
+
 function renderEventRankings(c: Controller, item: Item) {
   const rows = eventRows(item.rankings);
   if (!rows.length) return nothing;
+  const boosts = (item.boosts && typeof item.boosts === "object" ? item.boosts : {}) as Record<string, Item[] | undefined>;
+  const itemId = Number((item.eventItem as Item | undefined)?.resourceId ?? 0);
+  const calc = c.eventCalc as { pointBonus: number; itemBonus: number; live: number; challenge: number };
   return html`
     <section class="detail-section">
-      ${renderDetailSectionHeading(c.label("eventLiveRewards", "Live rewards"), "rewards")}
+      ${renderDetailSectionHeading(eventText(c, "eventLiveRewards", "Live rewards"), "rewards")}
+      ${boosts.live?.length ? html`<div class="event-calc">
+        ${bonusInput(c, "pointBonus", eventText(c, "eventPointBonus", "Point bonus"))}
+        ${bonusInput(c, "itemBonus", eventText(c, "eventItemBonusInput", "Item bonus"))}
+      </div>` : nothing}
       <div class="detail-columns">
         ${["live", "challenge"].map((kind) => {
           const entries = rows.filter((row) => row.kind === kind);
           if (!entries.length) return nothing;
+          const table = eventRows(boosts[kind]);
+          const levels = kind === "live" ? [0, ...table.map((row) => Number(row.consumed))] : table.map((row) => Number(row.consumed));
+          const chosen = levels.includes(calc[kind as "live" | "challenge"]) ? calc[kind as "live" | "challenge"] : levels[0] ?? 0;
+          const boost = table.find((row) => Number(row.consumed) === chosen);
+          const pointRate = Number(boost?.pointRate ?? 1), rewardRate = Number(boost?.rewardRate ?? 1);
           return html`
             <div class="stack stack--tight">
               <h4 class="md-title-small md-on-surface-variant">
                 ${c.label(kind === "live" ? "liveRanking" : "challengeRanking", kind === "live" ? "Live" : "Challenge live")}
               </h4>
+              ${levels.length > 1 ? renderLevelSwitch(
+                kind === "live" ? eventText(c, "eventLiveBoost", "LIVE BOOST") : eventText(c, "eventChallengePoints", "Challenge points"),
+                levels,
+                chosen,
+                (value) => {
+                  c.eventCalc = { ...c.eventCalc, [kind]: value };
+                  c.requestUpdate();
+                },
+                (value) => eventNumber(c, value),
+              ) : nothing}
               <ul class="song-reward-list">
                 ${entries.map(
                   (row) => html`
@@ -1420,7 +1463,7 @@ function renderEventRankings(c: Controller, item: Item) {
                         decoding="async"
                       />
                       <span class="song-reward-list__condition">
-                        <strong>${eventPoints(c, row.pointValue)}</strong>
+                        <strong>${eventPoints(c, table.length ? playPoints(kind, Number(row.pointValue ?? 0), pointRate, calc.pointBonus) : row.pointValue)}</strong>
                       </span>
                       <div class="stack stack--tight">
                         ${eventRows(row.rewards).map((row) => {
@@ -1435,7 +1478,9 @@ function renderEventRankings(c: Controller, item: Item) {
                             }
                             <span lang=${c.localizedLanguage(reward.name) || nothing}>
                               ${c.localized(reward.name)}
-                              <b>×${eventNumber(c, reward.count ?? row.resourceCount ?? 1)}</b>
+                              <b>×${eventNumber(c, table.length && Number(row.resourceId) === itemId
+                                ? Math.trunc(Math.imul(Math.imul(Number(row.resourceCount ?? 1), (calc.itemBonus + 10000) | 0), rewardRate) / 10000)
+                                : reward.count ?? row.resourceCount ?? 1)}</b>
                             </span>
                           `;
                           const href = canonicalHref(c, String(reward.href || ""));
@@ -1491,9 +1536,9 @@ function renderEventEffects(c: Controller, item: Item) {
   };
   return html`
     <section class="detail-section">
-      ${renderDetailSectionHeading(c.label("eventEffects", "Event bonuses"), "effects", { count: groups.size })}
+      ${renderDetailSectionHeading(eventText(c, "eventEffects", "Event bonuses"), "effects", { count: groups.size })}
       ${renderLevelSwitch(
-        c.label("eventBonusRank", "Card rank"),
+        eventText(c, "eventBonusRank", "Card rank"),
         levels,
         rank,
         (value) => {
@@ -1539,7 +1584,7 @@ function renderEventEffects(c: Controller, item: Item) {
                             ),
                           ],
                         }
-                      : { name: [c.label("eventAnyCard", "All cards")] };
+                      : { name: [eventText(c, "eventAnyCard", "All cards")] };
                   return html`
                     <div>
                       <dt>
@@ -1550,13 +1595,13 @@ function renderEventEffects(c: Controller, item: Item) {
                       <dd class="cluster">
                         <span class="stack stack--tight">
                           <small class="md-label-medium md-on-surface-variant">
-                            ${c.label("eventParameterBonus", "Parameters")}
+                            ${eventText(c, "eventParameterBonus", "Parameters")}
                           </small>
                           <strong>${percent(group.find((row) => bonusType(row) === type - 2))}</strong>
                         </span>
                         <span class="stack stack--tight">
                           <small class="md-label-medium md-on-surface-variant">
-                            ${c.label("eventItemBonus", "Event items")}
+                            ${eventText(c, "eventItemBonus", "Event items")}
                           </small>
                           <strong>${percent(group.find((row) => bonusType(row) === 2))}</strong>
                         </span>
@@ -1592,7 +1637,7 @@ function renderEventMissions(c: Controller, item: Item) {
         ${missions.map(
           (mission) => html`
             <div>
-              <dt>${c.plainGameText(mission.description) || c.label("eventMission", "Event mission")}</dt>
+              <dt>${c.plainGameText(mission.description) || eventText(c, "eventMission", "Event mission")}</dt>
               <dd>
                 <ul class="detail-object-list">
                   ${eventRows(mission.rewards).map((reward) => eventRewardRow(c, reward))}
@@ -1630,7 +1675,7 @@ export function renderGameSystemDetail(c: Controller, item: Item) {
           !eventRows(item.missions).length
             ? html`
                 <p class="detail-copy">
-                  ${c.label("eventDetailsUnavailable", "No linked event details are available in this release.")}
+                  ${eventText(c, "eventDetailsUnavailable", "No linked event details are available in this release.")}
                 </p>
               `
             : nothing

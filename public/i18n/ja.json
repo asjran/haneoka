@@ -889,7 +889,11 @@
         "eventSong": "イベント楽曲",
         "storyEpisode": "ストーリー",
         "goal": "目標"
-      }
+      },
+      "pointBonus": "ポイントボーナス",
+      "itemBonusInput": "アイテムボーナス",
+      "liveBoost": "LIVE BOOST",
+      "challengePoints": "チャレンジポイント"
     },
     "bands": {
       "names": {

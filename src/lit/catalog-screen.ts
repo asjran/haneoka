@@ -758,6 +758,7 @@ export class CatalogScreen extends LitElement {
   declare sim: import("./game-system-detail").GachaSimState | null;
   declare gachaOption: string;
   eventBonusRank = 5;
+  eventCalc = { pointBonus: 0, itemBonus: 0, live: 0, challenge: 200 };
   /** Real-time FX session for the open shop detail; owned here like sim. */
   declare fx: import("./game-system-detail").ShopFxState | null;
   private paneFocus = new PaneFocus();

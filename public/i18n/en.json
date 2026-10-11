@@ -889,7 +889,11 @@
         "eventSong": "Event song",
         "storyEpisode": "Story episode",
         "goal": "Goal"
-      }
+      },
+      "pointBonus": "Point bonus",
+      "itemBonusInput": "Item bonus",
+      "liveBoost": "LIVE BOOST",
+      "challengePoints": "Challenge points"
     },
     "bands": {
       "names": {

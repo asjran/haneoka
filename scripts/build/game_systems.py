@@ -776,6 +776,24 @@ def _events(
 ) -> dict[str, Any]:
     entries: dict[str, Any] = {}
     gacha = documents.get("gacha") or _gacha(data, documents, resource_types, stamp)
+    boosts = {
+        "live": [
+            {
+                "consumed": _number(row, "_consumedLiveBoostCount"),
+                "pointRate": _number(row, "_eventPointRate"),
+                "rewardRate": _number(row, "_liveMusicRewardRate"),
+            }
+            for row in sorted(data.rows("MasterLiveMusicBoostBonus"), key=lambda row: _number(row, "_consumedLiveBoostCount"))
+        ],
+        "challenge": [
+            {
+                "consumed": _number(row, "_consumedChallengePointCount"),
+                "pointRate": _number(row, "_eventPointRate"),
+                "rewardRate": _number(row, "_liveMusicRewardRate"),
+            }
+            for row in sorted(data.rows("MasterChallengeMusicBoostBonus"), key=lambda row: _number(row, "_consumedChallengePointCount"))
+        ],
+    }
     for row in data.rows("MasterEvent"):
         identity = _number(row, "_id")
         if not identity:
@@ -833,6 +851,7 @@ def _events(
             bonusNote=data.text("ui_event_bonus_item_num_truncate_message"),
             missions=support["missions"],
             rankings=support["rankings"],
+            boosts=boosts,
             support=support["support"],
             sourceTables=[
                 "MasterEvent",
@@ -842,6 +861,8 @@ def _events(
                 "MasterGachaPrize",
                 "MasterStoryEpisode",
                 "MasterStoryReward",
+                "MasterLiveMusicBoostBonus",
+                "MasterChallengeMusicBoostBonus",
                 *support["sourceTables"],
             ],
         )

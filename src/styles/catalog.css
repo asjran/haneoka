@@ -186,6 +186,12 @@
     color: var(--md-sys-color-on-surface-variant);
     font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) / var(--md-sys-typescale-title-small-line-height) var(--app-font);
   }
+  .event-calc {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+    gap: var(--md-sys-spacing-3);
+    margin-block-end: var(--md-sys-spacing-3);
+  }
   .song-reward-list {
     display: grid;
     gap: 0;
