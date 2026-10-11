@@ -444,6 +444,9 @@ importers:
       esbuild:
         specifier: 0.21.5
         version: 0.21.5
+      prettier:
+        specifier: 3.7.4
+        version: 3.7.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
