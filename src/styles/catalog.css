@@ -455,33 +455,6 @@
    sits above the detail pane it was opened from. */
   .chart-detail-layer {
     z-index: var(--md-sys-z-index-overlay-dialog);
-    grid-template-rows: 56px minmax(0, 1fr);
-  }
-  .chart-detail-layer[data-story-fullscreen="true"] {
-    grid-template-rows: minmax(0, 1fr);
-  }
-  .chart-detail-layer > header {
-    min-width: 0;
-    gap: 4px;
-    background: var(--md-sys-color-surface);
-  }
-  .chart-detail-layer > header > strong {
-    flex: 1 1 auto;
-  }
-  .chart-detail-mode {
-    display: inline-flex;
-    margin-left: auto;
-    flex: 0 0 auto;
-  }
-  @media (pointer: coarse) {
-    .chart-detail-mode > .segmented--icon,
-    .chart-detail-mode > .segmented--icon > button {
-      min-height: var(--md-comp-control-height-touch);
-    }
-    .chart-detail-mode > .segmented--icon > button {
-      width: var(--md-comp-control-height-touch);
-      min-width: var(--md-comp-control-height-touch);
-    }
   }
   chart-simulator,
   .chart-runtime {

@@ -1,12 +1,14 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { trapFocus } from "../../lib/overlay";
-import { iconButton } from "./controls";
+import { icon } from "./icon";
+import { appBarTakeover } from "../../lib/app-bar-takeover";
 
 /**
  * Detail pane.
  *
- * A full-screen surface at every size (Material's full-screen dialog): its
- * own top app bar with a back action, focus contained, Escape closes. The
+ * A full-screen surface at every size (Material's full-screen dialog): the
+ * shell's app bar carries its Back, title and actions while it is open,
+ * focus is contained and Escape closes. The
  * detail is a destination rather than a preview beside the list, so it never
  * competes with the collection for width.
  */
@@ -30,14 +32,13 @@ export interface PaneOptions {
   /** id used for aria-labelledby wiring. */
   id?: string;
   style?: string;
-  /** Canonical entity routes use the shell app bar for title/back/navigation. */
+  /** Canonical entity pages already own the shell's app bar. */
   hideHeader?: boolean;
   /** Render a canonical entity as normal page flow instead of a modal dialog. */
   page?: boolean;
 }
 
 export function renderPane(options: PaneOptions): TemplateResult {
-  const headingId = `${options.id || "detail"}-title`;
   const classes = [
     "sheet",
     "sheet--detail",
@@ -48,30 +49,6 @@ export function renderPane(options: PaneOptions): TemplateResult {
     .filter(Boolean)
     .join(" ");
   const content = html`
-    ${
-      options.hideHeader
-        ? nothing
-        : html`
-            <header class="sheet__header">
-              ${iconButton({
-                label: options.backLabel,
-                icon: "arrow_back",
-                onClick: options.onClose,
-              })}
-              <span class="sheet__title" id=${headingId}>
-                <strong lang=${options.titleLanguage || nothing}>${options.title}</strong>
-                ${
-                  options.subtitle
-                    ? html`
-                        <small>${options.subtitle}</small>
-                      `
-                    : nothing
-                }
-              </span>
-              <span class="sheet__actions">${options.leading ?? nothing}${options.actions ?? nothing}</span>
-            </header>
-          `
-    }
     <div class="sheet__body">${options.body}</div>
     ${
       options.footer
@@ -99,8 +76,26 @@ export function renderPane(options: PaneOptions): TemplateResult {
           class=${classes}
           role="dialog"
           aria-modal="true"
-          aria-labelledby=${options.hideHeader ? nothing : headingId}
-          aria-label=${options.hideHeader ? options.title : nothing}
+          aria-label=${typeof options.title === "string" ? options.title : nothing}
+          ${appBarTakeover(
+            options.open && !options.hideHeader
+              ? {
+                  title: typeof options.title === "string" ? options.title : "",
+                  titleLanguage: options.titleLanguage,
+                  backLabel: options.backLabel,
+                  onBack: options.onClose,
+                  identity:
+                    options.leading || options.subtitle
+                      ? html`${options.leading ?? nothing}${
+                          options.subtitle
+                            ? html`<div class="browse__crumbs">${icon("chevron_right", 20)}<span>${options.subtitle}</span></div>`
+                            : nothing
+                        }`
+                      : nothing,
+                  actions: options.actions ? html`${options.actions}` : nothing,
+                }
+              : null,
+          )}
           ?inert=${!options.open}
           tabindex="-1"
           data-detail-pane

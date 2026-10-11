@@ -115,15 +115,6 @@
   max-width: var(--content-max);
   margin-inline: auto;
 }
-/* Its header stays with the reader as the body scrolls: the back action has
- * to be reachable from the bottom of a two-thousand-row table. */
-.sheet--detail > .sheet__header {
-  position: sticky;
-  z-index: var(--md-sys-z-index-local-sticky);
-  top: 0;
-  background: var(--md-sys-color-surface);
-  box-shadow: 0 1px 0 var(--md-sys-color-outline-variant);
-}
 
 /* Bottom sheet: compact windows, or anything that is a list of choices. */
 .sheet--bottom {
@@ -270,26 +261,10 @@
   inset: var(--shell-overlay-inset);
   display: grid;
   min-width: 0;
-  grid-template-rows: var(--top-bar-height) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   border-radius: var(--shell-overlay-radius);
   background: var(--md-sys-color-surface);
-}
-.pane-layer > header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  padding-inline: 8px 16px;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-}
-.pane-layer > header > strong {
-  min-width: 0;
-  overflow: hidden;
-  font: var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size) /
-    var(--md-sys-typescale-title-medium-line-height) var(--app-font);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .pane-layer:focus-visible {
   outline-offset: -3px;

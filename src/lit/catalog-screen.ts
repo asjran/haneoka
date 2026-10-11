@@ -69,6 +69,7 @@ import {
   setAppBarIdentity,
   setAppBarSearch,
 } from "../lib/app-bar";
+import { appBarTakeover } from "../lib/app-bar-takeover";
 import { RequestScope } from "../lib/request-scope";
 import { LitElement, html, nothing } from "lit";
 import { clientText } from "../i18n/client";
@@ -5901,24 +5902,19 @@ export class CatalogScreen extends LitElement {
                 aria-modal="true"
                 aria-label=${this.label("chart", "Chart")}
                 tabindex="-1"
-              >
-                <header>
-                  <button class="icon-button" @click=${() => (this.chartOpen = false)}>
-                    <svg class="material-icon" width="24" height="24"><use href="/icons.svg#close"></use></svg>
-                  </button>
-                  <strong>
-                    ${this.itemTitle(item)} — ${String(chart.difficultyName || "").toUpperCase()}
-                    ${chart.displayLevel || ""}
-                  </strong>
-                  <button
-                    class="icon-button chart-detail-download"
-                    @click=${() => void this.downloadChartImage(item)}
-                    aria-label=${this.label("downloadChart", "Download chart image")}
-                    title=${this.label("downloadChart", "Download chart image")}
-                  >
-                    <svg class="material-icon" width="20" height="20"><use href="/icons.svg#download"></use></svg>
-                  </button>
-                  <span class="chart-detail-mode">
+                ${appBarTakeover({
+                  title: `${this.itemTitle(item)} — ${String(chart.difficultyName || "").toUpperCase()} ${chart.displayLevel || ""}`.trim(),
+                  backLabel: this.label("close", "Close"),
+                  onBack: () => (this.chartOpen = false),
+                  actions: html`
+                    <button
+                      class="icon-button"
+                      @click=${() => void this.downloadChartImage(item)}
+                      aria-label=${this.label("downloadChart", "Download chart image")}
+                      title=${this.label("downloadChart", "Download chart image")}
+                    >
+                      ${icon("download", 24)}
+                    </button>
                     ${segmented({
                       label: this.label("view", "View"),
                       value: this.chartMode,
@@ -5929,8 +5925,9 @@ export class CatalogScreen extends LitElement {
                       ],
                       onSelect: (mode) => (this.chartMode = mode),
                     })}
-                  </span>
-                </header>
+                  `,
+                })}
+              >
                 ${this.renderChartPlayer(item, chart, this.itemTitle(item))}
               </aside>
             `
