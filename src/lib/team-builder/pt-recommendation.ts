@@ -142,6 +142,8 @@ export function ptCutoff(job: PtJob, measure: PtMeasure): number | undefined {
 }
 const chartComplete = (task: PtTask) =>
   (task.status === "complete" || task.status === "empty") && task.result?.proven === true;
+/** The cutoff a later song must strictly beat: equal rewards rank by song. */
+const cutoffWithMargin = (cutoff: number) => cutoff + Math.max(1, Math.abs(cutoff)) * 1e-9;
 const chartExcluded = (task: PtTask, cutoff: number | undefined) => {
   const excluded = task.result?.excludedBelow;
   return (
@@ -150,7 +152,8 @@ const chartExcluded = (task: PtTask, cutoff: number | undefined) => {
     excluded !== undefined &&
     Number.isFinite(excluded) &&
     cutoff !== undefined &&
-    excluded <= cutoff &&
+    // The proof bound is the cutoff the chart ran under, which carries the tie margin.
+    excluded <= cutoffWithMargin(cutoff) &&
     task.result?.hits.length === 0 &&
     task.result.proven === false
   );
@@ -246,7 +249,7 @@ export class PtRunner {
           const cutoff = scope === "top-five" && task.route === "live" ? ptCutoff(job, task.measure) : undefined;
           // Tasks run in song order and equal rewards rank by song, so a later song only enters the top five by
           // beating the fifth reward: a tie is pruned at the root instead of searched to proof.
-          if (cutoff !== undefined) request.rewardCutoff = cutoff + Math.max(1, Math.abs(cutoff)) * 1e-9;
+          if (cutoff !== undefined) request.rewardCutoff = cutoffWithMargin(cutoff);
           if (task.route === "challenge") {
             request.goal.consumption = job.cycle!.consumption;
             delete request.goal.gekiso;
