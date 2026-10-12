@@ -18,6 +18,8 @@ import { createAuth, getAuthSession } from "./auth";
  */
 const AUTHORIZE_PATH = "/api/v1/account/app/authorize";
 const TOKEN_PATH = "/api/v1/account/app/token";
+const OAUTH_PATH = "/api/v1/account/app/oauth";
+const OAUTH_RETURN_PATH = "/api/v1/account/app/oauth/return";
 const GAME_ACCOUNTS_PATH = "/api/v1/account/game-accounts";
 const CODE_TTL_MS = 2 * 60 * 1000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -78,15 +80,78 @@ const authorize = async (request: Request, env: Env): Promise<Response> => {
   const body = await readJson(request);
   const challenge = typeof body?.challenge === "string" ? body.challenge : "";
   if (!/^[A-Za-z0-9\-_]{43}$/u.test(challenge)) return error(400, "invalid_challenge", "A S256 code challenge is required");
+  return json({ code: await issueCode(env, session.user.id, challenge), callback: CALLBACK });
+};
+
+/** A one-time code for [userId], redeemable once with the verifier of [challenge]. */
+const issueCode = async (env: Env, userId: string, challenge: string): Promise<string> => {
   const code = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const now = Date.now();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM app_auth_code WHERE expires_at < ?").bind(now),
     env.DB.prepare(
       "INSERT INTO app_auth_code (code_hash, user_id, challenge, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-    ).bind(await sha256(code), session.user.id, challenge, now, now + CODE_TTL_MS),
+    ).bind(await sha256(code), userId, challenge, now, now + CODE_TTL_MS),
   ]);
-  return json({ code, callback: CALLBACK });
+  return code;
+};
+
+/** The app's callback: its scheme, or a desktop build's loopback listener (RFC 8252). */
+const appCallback = (requested: string | null): string =>
+  requested && /^http:\/\/(?:localhost|127\.0\.0\.1):\d{4,5}\/auth$/u.test(requested) ? requested : CALLBACK;
+
+const redirect = (location: string, cookies: readonly string[] = []): Response => {
+  const headers = new Headers({ Location: location, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+  for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+  return new Response(null, { status: 302, headers });
+};
+
+/**
+ * Provider sign-in for the app, with no page in between: the browser goes from here straight to the provider
+ * (carrying the OAuth state cookie this response sets), back through the provider callback, and then to
+ * [oauthReturn], which hands the app a one-time code.
+ */
+const oauthStart = async (request: Request, env: Env, url: URL): Promise<Response> => {
+  if (request.method !== "GET") return error(405, "method_not_allowed", "Method not allowed");
+  const provider = url.searchParams.get("provider") || "";
+  const challenge = url.searchParams.get("challenge") || "";
+  const state = url.searchParams.get("state") || "";
+  if (!/^[a-z]{2,16}$/u.test(provider) || !/^[A-Za-z0-9\-_]{43}$/u.test(challenge) || !/^[A-Za-z0-9\-_]{1,128}$/u.test(state))
+    return error(400, "invalid_request", "provider, challenge and state are required");
+  const back = new URLSearchParams({ challenge, state });
+  const requested = url.searchParams.get("redirect");
+  if (requested) back.set("redirect", requested);
+  const returnPath = `${OAUTH_RETURN_PATH}?${back}`;
+  const started = await createAuth(request, env).handler(
+    new Request(new URL("/api/auth/sign-in/social", url), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: url.origin,
+        "User-Agent": request.headers.get("User-Agent") || "Haneoka app",
+        ...(request.headers.get("CF-Connecting-IP") ? { "CF-Connecting-IP": request.headers.get("CF-Connecting-IP")! } : {}),
+      },
+      body: JSON.stringify({ provider, callbackURL: returnPath, errorCallbackURL: `${returnPath}&failed=1` }),
+    }),
+  );
+  const target = started.ok ? ((await started.json()) as { url?: unknown }).url : undefined;
+  if (typeof target !== "string") return redirect(`${appCallback(requested)}?${new URLSearchParams({ error: "provider_unavailable", state })}`);
+  return redirect(target, started.headers.getSetCookie());
+};
+
+const oauthReturn = async (request: Request, env: Env, url: URL): Promise<Response> => {
+  const challenge = url.searchParams.get("challenge") || "";
+  const state = url.searchParams.get("state") || "";
+  const callback = appCallback(url.searchParams.get("redirect"));
+  const fail = (code: string) => redirect(`${callback}?${new URLSearchParams({ error: code, state })}`);
+  if (request.method !== "GET" || !/^[A-Za-z0-9\-_]{43}$/u.test(challenge)) return fail("invalid_request");
+  if (url.searchParams.get("failed")) return fail("access_denied");
+  const session = await getAuthSession(request, env, { authoritative: true });
+  if (!session?.user?.id) return fail("access_denied");
+  const code = await issueCode(env, session.user.id, challenge);
+  // The browser only carried the sign-in; the app holds its own session after the exchange.
+  const signedOut = await createAuth(request, env).api.signOut({ headers: request.headers, asResponse: true });
+  return redirect(`${callback}?${new URLSearchParams({ code, state })}`, signedOut.headers.getSetCookie());
 };
 
 const token = async (request: Request, env: Env): Promise<Response> => {
@@ -252,6 +317,8 @@ export const handleAppAccountRequest = async (request: Request, env: Env): Promi
     });
   if (url.pathname === AUTHORIZE_PATH) return authorize(request, env);
   if (url.pathname === TOKEN_PATH) return token(request, env);
+  if (url.pathname === OAUTH_PATH) return oauthStart(request, env, url);
+  if (url.pathname === OAUTH_RETURN_PATH) return oauthReturn(request, env, url);
   if (url.pathname === GAME_ACCOUNTS_PATH || url.pathname.startsWith(`${GAME_ACCOUNTS_PATH}/`))
     return gameAccounts(request, env, url);
   return null;
