@@ -638,7 +638,8 @@
         "effectsByLevel": "Effects by level",
         "artworkCard": "Artwork card",
         "unlockConditions": "Unlock conditions",
-        "gekisouSupportSkill": "Gekiso support skill"
+        "gekisouSupportSkill": "Gekiso support skill",
+        "cardMovieGacha": "Gacha movie"
       },
       "costs": {
         "mode": "Material calculation",

@@ -638,7 +638,8 @@
         "effectsByLevel": "레벨별 효과",
         "artworkCard": "일러스트 카드",
         "unlockConditions": "해금 조건",
-        "gekisouSupportSkill": "격주 서포트 스킬"
+        "gekisouSupportSkill": "격주 서포트 스킬",
+        "cardMovieGacha": "가챠 연출"
       },
       "costs": {
         "mode": "재료 계산",

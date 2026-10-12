@@ -638,7 +638,8 @@
         "effectsByLevel": "レベル別効果",
         "artworkCard": "イラストのカード",
         "unlockConditions": "解放条件",
-        "gekisouSupportSkill": "撃奏サポートスキル"
+        "gekisouSupportSkill": "撃奏サポートスキル",
+        "cardMovieGacha": "ガチャ演出"
       },
       "costs": {
         "mode": "素材計算",

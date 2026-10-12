@@ -638,7 +638,8 @@
         "effectsByLevel": "各级效果",
         "artworkCard": "图片来源卡牌",
         "unlockConditions": "解锁条件",
-        "gekisouSupportSkill": "激奏支援技能"
+        "gekisouSupportSkill": "激奏支援技能",
+        "cardMovieGacha": "抽卡演出"
       },
       "costs": {
         "mode": "材料计算",

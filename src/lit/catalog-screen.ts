@@ -217,6 +217,7 @@ const uiLabelPaths: Readonly<Record<string, string>> = {
   "missions": "navigation.missions",
   "model": "media.models.labels.model",
   "musicType": "catalog.songs.fields.musicType",
+  "cardMovieGacha": "catalog.cards.fields.cardMovieGacha",
   "mv": "catalog.songs.fields.mv",
   "n": "catalog.analysis.fields.n",
   "no": "common.states.no",
