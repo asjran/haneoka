@@ -11,6 +11,8 @@ import { fetchCatalogVisuals } from "../lib/catalog-visuals";
 import { fetchCrossServerTeamBuilderData } from "../lib/team-builder/data/cross-server";
 import type { TeamBuilderData } from "../lib/team-builder/data";
 import { compileFromTeamData, type EngineMaster } from "../lib/team-builder/engine/master";
+import { maxMemberGrowth, maxSnapGrowth } from "../lib/team-builder/engine/box";
+import { clock } from "../lib/team-builder/engine/execution";
 import { EngineClient } from "../lib/team-builder/engine/client";
 import type { EngineRequest, EngineResponse, Goal, TeamEvaluation } from "../lib/team-builder/engine/api";
 import { BoxStore, type BoxSnapshot } from "../lib/team-builder/sync/box-store";
@@ -149,6 +151,7 @@ export class TeamBuilder extends LitElement {
   }
   private releaseSearch?: () => void;
   protected updated() {
+    if (this.activeContext && this.activeContext !== this.calculationContext()) this.engine?.cancel();
     this.syncAppBar();
     if (this.error !== this.errorShown) {
       this.errorShown = this.error;
@@ -245,6 +248,10 @@ export class TeamBuilder extends LitElement {
       this.view = readBox(snapshot.entries);
       const stored = this.view.prefs[SETTINGS_KEY.slice(5)];
       if (stored && typeof stored === "object") this.settings = { ...DEFAULT_SETTINGS, ...(stored as Partial<BuildSettings>) };
+      if (this.settings.goal === "event" || this.settings.goal === "plan") {
+        this.settings = { ...this.settings, rewardMode: this.settings.goal, goal: "score" };
+        if (ownerChanged) this.tab = "pt";
+      }
     }
     this.requestUpdate();
     void this.pt.restore();
@@ -278,8 +285,8 @@ export class TeamBuilder extends LitElement {
     const base =
       s.scope === "theoretical"
         ? {
-            members: [...this.master.members.values()].map((card) => ({ key: `m${card.id}`, cardId: card.id, level: null, awake: null, rank: null, liveSkillLevel: null, gekisoSkillLevel: null })),
-            snaps: [...this.master.snaps.values()].map((card) => ({ key: `s${card.id}`, cardId: card.id, level: null, rank: null })),
+            members: [...this.master.members.values()].map((card) => ({ key: `m${card.id}`, cardId: card.id, ...maxMemberGrowth(this.master!, card) })),
+            snaps: [...this.master.snaps.values()].map((card) => ({ key: `s${card.id}`, cardId: card.id, ...maxSnapGrowth(this.master!, card) })),
           }
         : engineInputs(this.view);
     const master = this.master;
@@ -299,8 +306,12 @@ export class TeamBuilder extends LitElement {
     };
     return { members: base.members.filter((row) => memberOk(row.cardId)), snaps: base.snaps.filter((row) => snapOk(row.cardId)) };
   }
+  get searchSettings(): BuildSettings {
+    const goal = this.tab === "pt" && this.settings.rewardMode !== "recommendation" ? this.settings.rewardMode : this.settings.goal;
+    return { ...this.settings, goal };
+  }
   goal(): Goal | null {
-    const s = this.settings;
+    const s = this.searchSettings;
     const play = s.playMode === "ap" ? { great: 0, good: 0, bad: 0, miss: 0 } : { great: s.great / 100, good: s.good / 100, bad: 0, miss: s.miss / 100, missEvery: s.missEvery || 0 };
     const challengeId = s.challengeRules && s.eventId !== null ? s.eventId : null;
     switch (s.goal) {
@@ -325,6 +336,7 @@ export class TeamBuilder extends LitElement {
         return {
           kind: "event",
           measure: s.measure,
+          ranking: s.fullRanking ? undefined : "primary",
           route: s.route,
           eventId: s.eventId,
           songs: s.route === "skip" ? [] : s.songs,
@@ -348,16 +360,16 @@ export class TeamBuilder extends LitElement {
         };
     }
   }
-  request(): EngineRequest | null {
-    const goal = this.goal();
+  request(goal = this.goal()): EngineRequest | null {
     if (!goal || !this.view) return null;
     const cards = this.engineCards();
     const s = this.settings;
     const theoretical = s.scope === "theoretical";
+    const trial = goal.kind === "event" && goal.ranking === "pt-only";
     const memberKeys = new Set(cards.members.map((row) => row.key));
     const snapKeys = new Set(cards.snaps.map((row) => row.key));
     const locked = (kind: "m" | "s") =>
-      theoretical ? [] : [...(kind === "m" ? this.view!.members : this.view!.snaps).values()].filter((row) => row.use && row.lock).map((row) => `${kind}${row.cardId}`);
+      theoretical ? [] : [...(kind === "m" ? this.view!.members : this.view!.snaps).values()].filter((row) => row.lock && (trial || row.use)).map((row) => `${kind}${row.cardId}`);
     return {
       members: cards.members,
       snaps: cards.snaps,
@@ -365,53 +377,83 @@ export class TeamBuilder extends LitElement {
       unknownPolicy: theoretical ? "max" : s.unknownPolicy,
       goal,
       constraints: {
-        requiredMembers: locked("m").filter((key) => memberKeys.has(key)),
+        requiredMembers: locked("m").filter((key) => trial || memberKeys.has(key)),
         excludedMembers: [],
-        requiredSnaps: locked("s").filter((key) => snapKeys.has(key)),
+        requiredSnaps: locked("s").filter((key) => trial || snapKeys.has(key)),
         excludedSnaps: [],
-        leader: s.leader !== null && memberKeys.has(`m${s.leader}`) ? `m${s.leader}` : null,
-        bindings: s.bindings.filter(([member]) => memberKeys.has(`m${member}`)).map(([member, snap]) => [`m${member}`, snap === null ? null : `s${snap}`]),
+        leader: s.leader !== null && (trial || memberKeys.has(`m${s.leader}`)) ? `m${s.leader}` : null,
+        bindings: s.bindings.filter(([member]) => trial || memberKeys.has(`m${member}`)).map(([member, snap]) => [`m${member}`, snap === null ? null : `s${snap}`]),
         noSnaps: s.noSnaps,
-        minBonusPercent: s.minBonus,
+        minBonusPercent: goal.kind === "event" || goal.kind === "plan" ? s.minBonus : null,
       },
       k: s.k,
       timeLimitMs: s.timeLimit ? s.timeLimit * 1000 : null,
     };
   }
-  async run() {
+  private activeContext = "";
+  private runGeneration = 0;
+  calculationContext() {
+    return JSON.stringify([this.snapshot?.owner, this.loadedServer, this.data?.identity, this.data?.crossServer?.identities, this.request()]);
+  }
+  async run(verify = false) {
+    const started = clock();
     const request = this.request();
     if (!request || !this.engine || this.running) return;
-    const settings = { ...this.settings };
+    const contextKey = this.calculationContext();
+    const generation = ++this.runGeneration;
+    const settings = this.searchSettings;
+    request.contextKey = contextKey;
+    if (verify) {
+      request.timeLimitMs = null;
+      if (!this.stale) {
+        request.seeds = this.results?.results.flatMap(result => result.hits);
+        if (request.goal.kind !== "plan") request.completed = this.results?.results.filter(result => result.proven);
+      }
+    }
+    request.deadline = request.timeLimitMs === null ? Infinity : started + request.timeLimitMs;
+    this.activeContext = contextKey;
     this.running = true;
     this.error = "";
     this.progress = { done: 0, total: 1, started: performance.now() };
     this.expanded = new Set();
     this.compare = [];
     this.requestUpdate();
+    const accept = (response: EngineResponse) => {
+      if (generation !== this.runGeneration || contextKey !== this.calculationContext()) return;
+      if (response.stopReason === "error") this.error = this.t("searchFailed", "The search failed: {reason}", { reason: response.error ?? "engine-error" });
+      this.results = response;
+      this.resultsFor = contextKey;
+      this.resultSettings = settings;
+      this.requestUpdate();
+    };
     const loading = beginLoading(this.t("searching", "Searching teams"));
     try {
-      this.results = await this.engine.run(request, (done, total) => {
+      accept(await this.engine.run(request, (done, total) => {
+        if (contextKey !== this.calculationContext()) return;
         this.progress = { ...this.progress!, done, total };
         this.requestUpdate();
-      });
-      this.resultsFor = JSON.stringify(request);
-      this.resultSettings = settings;
+      }, snapshot => {
+        if (snapshot.contextKey === contextKey) accept(snapshot.response);
+      }));
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError")) this.error = this.t("searchFailed", "The search failed: {reason}", { reason: error instanceof Error ? error.message : String(error) });
+      if (contextKey === this.calculationContext() && !(error instanceof DOMException && error.name === "AbortError")) this.error = this.t("searchFailed", "The search failed: {reason}", { reason: error instanceof Error ? error.message : String(error) });
     } finally {
       loading.finish();
-      this.running = false;
-      this.progress = null;
-      this.requestUpdate();
-      void this.updateComplete.then(() => this.querySelector<HTMLElement>(".tb-results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      if (generation === this.runGeneration) {
+        this.activeContext = "";
+        this.running = false;
+        this.progress = null;
+        this.requestUpdate();
+      }
     }
   }
+
   cancel() {
     if (this.pt.running) this.pt.stop();
     else this.engine?.cancel();
   }
   get stale() {
-    return !!this.results && this.resultsFor !== JSON.stringify(this.request());
+    return !!this.results && this.resultsFor !== this.calculationContext();
   }
 
   private renderTabs(): TemplateResult {

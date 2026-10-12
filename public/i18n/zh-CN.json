@@ -1350,6 +1350,13 @@
   },
   "tools": {
     "teamBuilder": {
+      "rewardSearch": "奖励配队",
+      "improvementBound": "可提升上限 {percent}%",
+      "recommendation": "推荐",
+      "continueOptimal": "继续验证最优",
+      "noCandidate": "尚无推荐结果",
+      "cpCycle": "长期 CP 折算",
+      "fullRanking": "完整奖励排序",
       "title": "配队工具 · Beta",
       "library": "卡库",
       "members": "成员",
@@ -2124,7 +2131,7 @@
       "worstOrder": "最差顺序",
       "bestScore": "单次最高分",
       "comparison": "对比",
-      "proven": "已证明最优",
+      "proven": "已验证最优",
       "unproven": "已达时间上限：目前找到的最佳结果",
       "resultMeta": "{ms} 毫秒 · 精确模拟了 {exact} 支队伍",
       "staleResults": "自本次搜索以来条件已更改。",

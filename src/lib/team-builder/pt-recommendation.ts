@@ -1,15 +1,17 @@
 /** Local reward jobs. A completed or certified-excluded chart is the smallest resumable unit. */
 import type { EngineHit, EngineRequest, EngineResponse, SongRef, SongResult } from "./engine/api";
+import { clock, remaining, type RewardCutoff } from "./engine/execution";
+import type { EngineSnapshot } from "./engine/protocol";
 import { cpExchange } from "./engine/pt-value";
 
-export const PT_VERSION = "solo-cp-rewards-v2";
+export const PT_VERSION = "reward-deadline-v3";
 export type PtMeasure = "points" | "items";
-export type PtScope = "top-five" | "all";
+export type PtScope = "top-one" | "top-five" | "all";
 export interface PtCycleInput {
   songs: SongRef[];
   consumption: number;
 }
-export type PtStatus = "queued" | "running" | "complete" | "empty" | "pruned" | "failed";
+export type PtStatus = "partial" | "queued" | "running" | "complete" | "empty" | "pruned" | "failed";
 export interface PtTask {
   route: "live" | "challenge";
   measure: PtMeasure;
@@ -93,8 +95,8 @@ export async function createPtJob(
         })),
       ),
     );
-  if (cycle) add("challenge", ["points", "items"], cycle.songs);
-  add("live", cycle ? ["points", "items"] : [request.goal.measure], request.goal.songs);
+  if (cycle) add("challenge", [request.goal.measure], cycle.songs);
+  add("live", [request.goal.measure], request.goal.songs);
   return {
     ...structuredClone(context),
     version: PT_VERSION,
@@ -102,7 +104,7 @@ export async function createPtJob(
     fingerprint: await ptFingerprint(request, context.dataFingerprint, context.owner, cycle),
     request: structuredClone(request),
     cycle: structuredClone(cycle),
-    scope: "top-five",
+    scope: "top-one",
     createdAt: Date.now(),
     updatedAt: Date.now(),
     tasks,
@@ -117,7 +119,7 @@ const compareHit = (a: EngineHit, b: EngineHit) =>
 export function ptSongRanking(job: PtJob, measure: PtMeasure = "points", route: PtTask["route"] = "live"): EngineHit[] {
   const songs = new Map<number, EngineHit>();
   for (const task of job.tasks) {
-    if (task.status !== "complete" || task.measure !== measure || task.route !== route) continue;
+    if (task.measure !== measure || task.route !== route) continue;
     for (const hit of task.result?.hits ?? []) {
       if (!hit.song || !hit.event || !Number.isFinite(hit.event.mean)) continue;
       const previous = songs.get(hit.song.songId);
@@ -135,40 +137,29 @@ export function ptChallengeBest(job: PtJob, measure: PtMeasure): EngineHit | nul
     return null;
   return ptSongRanking(job, measure, "challenge")[0] ?? null;
 }
-/** A threshold only exists after five different songs have exact, legal solutions. */
 export function ptCutoff(job: PtJob, measure: PtMeasure): number | undefined {
-  const ranking = ptSongRanking(job, measure);
-  return ranking.length >= 5 ? ranking[4]!.key : undefined;
+  return ptSongRanking(job, measure)[(job.scope === "top-one" ? 1 : 5) - 1]?.key;
+}
+export function ptTaskCutoff(job: PtJob, task: PtTask): RewardCutoff | undefined {
+  if (job.scope === "all" || task.route !== "live") return;
+  const last = ptSongRanking(job, task.measure)[(job.scope === "top-one" ? 1 : 5) - 1];
+  if (!last) return;
+  const later = task.song.songId > last.song!.songId || (task.song.songId === last.song!.songId && task.song.difficulty >= last.song!.difficulty);
+  return { key: last.key, comparison: later ? "gt" : "gte", contextKey: job.fingerprint, ranking: "reward-song-difficulty-v1" };
 }
 const chartComplete = (task: PtTask) =>
   (task.status === "complete" || task.status === "empty") && task.result?.proven === true;
-/** The cutoff a later song must strictly beat: equal rewards rank by song. */
-const cutoffWithMargin = (cutoff: number) => cutoff + Math.max(1, Math.abs(cutoff)) * 1e-9;
-const chartExcluded = (task: PtTask, cutoff: number | undefined) => {
-  const excluded = task.result?.excludedBelow;
-  return (
-    task.route === "live" &&
-    task.status === "pruned" &&
-    excluded !== undefined &&
-    Number.isFinite(excluded) &&
-    cutoff !== undefined &&
-    // The proof bound is the cutoff the chart ran under, which carries the tie margin.
-    excluded <= cutoffWithMargin(cutoff) &&
-    task.result?.hits.length === 0 &&
-    task.result.proven === false
-  );
-};
+export function chartExcluded(job: PtJob, task: PtTask): boolean {
+  const proof = task.result?.exclusion;
+  const cutoff = ptTaskCutoff(job, task);
+  return !!proof && !!cutoff && task.status === "pruned" && proof.contextKey === job.fingerprint && proof.ranking === cutoff.ranking &&
+    (proof.key < cutoff.key || (proof.key === cutoff.key && (proof.comparison === "gte" || cutoff.comparison === "gt")));
+}
 export const ptAllComplete = (job: PtJob) => job.tasks.length > 0 && job.tasks.every(chartComplete);
-export const ptComplete = (job: PtJob) => {
-  if (!job.tasks.length) return false;
-  const cutoffs = { points: ptCutoff(job, "points"), items: ptCutoff(job, "items") };
-  return job.tasks.every(
-    (task) => chartComplete(task) || (job.scope === "top-five" && chartExcluded(task, cutoffs[task.measure])),
-  );
-};
+export const ptComplete = (job: PtJob) => job.tasks.length > 0 && job.tasks.every(task => chartComplete(task) || chartExcluded(job, task));
 
 export interface PtEngine {
-  run(request: EngineRequest, progress?: (done: number, total: number) => void): Promise<EngineResponse>;
+  run(request: EngineRequest, progress?: (done: number, total: number) => void, snapshot?: (value: EngineSnapshot) => void): Promise<EngineResponse>;
   cancel(): void;
 }
 export interface PtJobStore {
@@ -188,18 +179,16 @@ export class PtRunner {
     this.stopped = true;
     this.engine.cancel();
   }
-  async run(job: PtJob, scope: PtScope = job.scope ?? "all"): Promise<void> {
+  async run(job: PtJob, scope: PtScope = job.scope ?? "top-one", deadline = clock() + 3000): Promise<void> {
     if (this.running) throw new Error("pt-busy");
     this.running = true;
     this.stopped = false;
     job.scope = scope;
-    // The page redraws at most four times a second and the resumable checkpoint is written at most once a second;
-    // both are written once more at the end.
     let savedAt = 0;
     let shownAt = 0;
     const publish = async (force = false) => {
       job.updatedAt = Date.now();
-      if (force || job.updatedAt - shownAt >= 250) {
+      if (force || job.updatedAt - shownAt >= 100) {
         shownAt = job.updatedAt;
         this.changed(job);
       }
@@ -212,11 +201,9 @@ export class PtRunner {
       }
     };
     try {
-      const cutoffs = { points: ptCutoff(job, "points"), items: ptCutoff(job, "items") };
       for (const task of job.tasks)
-        if (!chartComplete(task) && !(scope === "top-five" && chartExcluded(task, cutoffs[task.measure]))) {
+        if (!chartComplete(task) && !chartExcluded(job, task)) {
           task.status = "queued";
-          task.result = null;
           task.error = "";
         }
       await publish();
@@ -229,8 +216,8 @@ export class PtRunner {
       );
       /** Runs one task; false once the run was stopped. */
       const step = async (task: PtTask): Promise<boolean> => {
-        if (this.stopped) return false;
-        if (chartComplete(task) || (scope === "top-five" && task.status === "pruned")) return true;
+        if (this.stopped || !remaining(deadline)) return false;
+        if (chartComplete(task) || chartExcluded(job, task)) return true;
         const challenge = job.cycle && task.route === "live" ? ptChallengeBest(job, task.measure) : null;
         if (job.cycle && task.route === "live" && !challenge) return true;
         task.status = "running";
@@ -246,10 +233,10 @@ export class PtRunner {
           request.goal.route = task.route;
           request.goal.measure = task.measure;
           delete request.rewardCutoff;
-          const cutoff = scope === "top-five" && task.route === "live" ? ptCutoff(job, task.measure) : undefined;
-          // Tasks run in song order and equal rewards rank by song, so a later song only enters the top five by
-          // beating the fifth reward: a tie is pruned at the root instead of searched to proof.
-          if (cutoff !== undefined) request.rewardCutoff = cutoffWithMargin(cutoff);
+          request.cutoff = ptTaskCutoff(job, task);
+          request.deadline = deadline;
+          request.contextKey = job.fingerprint;
+          request.seeds = task.result?.hits ?? [];
           if (task.route === "challenge") {
             request.goal.consumption = job.cycle!.consumption;
             delete request.goal.gekiso;
@@ -260,22 +247,27 @@ export class PtRunner {
               challenge.event!.orders!,
               job.cycle!.consumption,
             );
-          const response = await this.engine.run(request);
-          if (this.stopped) {
-            task.status = "queued";
-            return false;
-          }
-          const result = response.results.find((r) => r.song && chartKey(r.song) === chartKey(task.song));
-          if (!result) throw new Error("pt-incomplete");
-          if (result.excludedBelow !== undefined) {
+          const previous = task.result?.hits ?? [];
+          const accept = (response: EngineResponse) => {
+            const result = response.results.find(r => r.song && chartKey(r.song) === chartKey(task.song));
+            if (!result) return;
+            if (!result.hits.length && !result.proven) result.hits = task.result?.hits.length ? task.result.hits : previous;
+            if (result.exclusion && result.hits.length && result.hits[0]!.key >= result.exclusion.key) {
+              result.proven = true;
+              result.bound = null;
+              delete result.exclusion;
+            }
             task.result = result;
-            task.status = "pruned";
-            await publish();
-            return true;
-          }
-          if (!result.proven) throw new Error("pt-incomplete");
-          task.result = result;
-          task.status = result.hits.length ? "complete" : "empty";
+            if (response.stopReason === "error") { task.status = "failed"; task.error = response.error ?? "engine-error"; return; }
+            task.status = result.exclusion ? "pruned" : result.proven ? (result.hits.length ? "complete" : "empty") : "partial";
+          };
+          const response = await this.engine.run(request, undefined, snapshot => {
+            if (snapshot.contextKey !== job.fingerprint) return;
+            const first = !job.tasks.some(entry => entry.result?.hits.length) && snapshot.response.overall.length > 0;
+            accept(snapshot.response);
+            void publish(first);
+          });
+          accept(response);
         } catch (error) {
           if (this.stopped) {
             task.status = "queued";
@@ -287,19 +279,7 @@ export class PtRunner {
         await publish();
         return true;
       };
-      // Points and medals rank separately, so their song sequences run side by side. Within one, two live songs are
-      // in flight: each starts under the cutoff of songs that started before it, so pruning stays valid.
-      const lane = async (measure: PtMeasure) => {
-        const own = tasks.filter((task) => task.measure === measure);
-        for (const task of own.filter((entry) => entry.route === "challenge")) if (!(await step(task))) return;
-        const live = own.filter((entry) => entry.route === "live");
-        let next = 0;
-        const runner = async () => {
-          while (next < live.length && !this.stopped) if (!(await step(live[next++]!))) return;
-        };
-        await Promise.all([runner(), runner()]);
-      };
-      await Promise.all((["points", "items"] as const).map(lane));
+      for (const task of tasks) if (!(await step(task))) break;
     } finally {
       for (const task of job.tasks) if (task.status === "running") task.status = "queued";
       this.running = false;

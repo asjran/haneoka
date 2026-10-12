@@ -5,7 +5,7 @@ import type { EngineHit, EngineResponse, Goal, PlanSummary, SongResult } from ".
 
 const songKey = (hit: EngineHit) => (hit.song ? `${hit.song.songId}:${hit.song.difficulty}` : "-");
 /** Higher key first; equal keys (an event reward tie) prefer the higher mean score. */
-export const compareHits = (a: EngineHit, b: EngineHit) => b.key - a.key || (b.score?.mean ?? 0) - (a.score?.mean ?? 0);
+export const compareHits = (a: EngineHit, b: EngineHit) => b.key - a.key || (a.song?.songId ?? 0) - (b.song?.songId ?? 0) || (a.song?.difficulty ?? 0) - (b.song?.difficulty ?? 0) || (b.score?.mean ?? 0) - (a.score?.mean ?? 0);
 const setKey = (hit: EngineHit) => `${songKey(hit)}|${[...hit.members].sort().join(",")}`;
 
 function topDistinct(hits: readonly EngineHit[], k: number): EngineHit[] {
@@ -26,11 +26,14 @@ export function mergeShardResponses(responses: readonly EngineResponse[], k: num
     const floors = parts.map((part) => part.floor).filter((floor): floor is number => floor !== undefined);
     const hits = topDistinct(parts.flatMap((part) => part.hits), k);
     const exclusions = parts.flatMap((part) => part.excludedBelow === undefined ? [] : [part.excludedBelow]);
-    const allExhausted = parts.every((part) => part.proven || part.excludedBelow !== undefined);
+    const allExhausted = parts.every((part) => part.proven || part.excludedBelow !== undefined || part.exclusion !== undefined);
     const excludedBelow = allExhausted && !hits.length && exclusions.length ? Math.max(...exclusions) : undefined;
-    const proven = allExhausted && excludedBelow === undefined &&
-      parts.every((part) => part.excludedBelow === undefined || (hits.length >= k && hits[k - 1]!.key >= part.excludedBelow));
+    const exclusion = allExhausted && !hits.length ? parts.find(part => part.exclusion)?.exclusion : undefined;
+    const proven = !exclusion && allExhausted && excludedBelow === undefined &&
+      parts.every((part) => (part.exclusion === undefined || (hits.length >= k && hits[k - 1]!.key >= part.exclusion.key)) &&
+        (part.excludedBelow === undefined || (hits.length >= k && hits[k - 1]!.key >= part.excludedBelow)));
     return {
+      ...(exclusion ? { exclusion } : {}),
       ...(floors.length ? { floor: Math.max(...floors) } : {}),
       ...(excludedBelow === undefined ? {} : { excludedBelow }),
       song: result.song,
@@ -56,7 +59,7 @@ export function mergeShardResponses(responses: readonly EngineResponse[], k: num
   const overall = results
     .flatMap((result) => result.hits)
     .sort(compareHits)
-    .slice(0, Math.max(k, 3));
+    .slice(0, k);
   return { results, overall, unknownCards: first.unknownCards, elapsedMs };
 }
 

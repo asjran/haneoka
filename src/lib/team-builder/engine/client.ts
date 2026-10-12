@@ -1,16 +1,29 @@
 /** Main-thread handle on the engine Worker. Cancelling replaces the Worker, so a long search never blocks. */
 import type { TeamBuilderData } from "../data";
 import type { EngineRequest, EngineResponse, SongRef, TeamEvaluation, Timeline } from "./api";
-import type { EngineCall, EngineReply, EvaluateRequest, ExplainRequest } from "./protocol";
-import { aspirationHeld, compareHits, mergeShardResponses, planSummary } from "./merge";
+import type { EngineCall, EngineReply, EvaluateRequest, ExplainRequest, EngineSnapshot, StopReason } from "./protocol";
+import { clock, deadlineOf, remaining, emptyResponse, completeResponse, requestSongs } from "./execution";
+import { aspirationHeld, compareHits, mergeShardResponses } from "./merge";
 
-type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; progress?: (done: number, total: number) => void };
+type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; progress?: (done: number, total: number) => void; snapshot?: (value: EngineSnapshot) => void };
 
 /** One engine Worker: compiles the release once, then serves calls. */
 class EngineWorker {
   private worker: Worker | null = null;
   private ready: Promise<void> | null = null;
   private nextId = 1;
+  private phase: "initializationMs" | "networkMs" | "computationMs" | null = null;
+  private phaseAt = 0;
+  private readonly times = { initializationMs: 0, networkMs: 0, computationMs: 0 };
+  private setPhase(phase: typeof this.phase) {
+    const now = clock();
+    if (this.phase) this.times[this.phase] += now - this.phaseAt;
+    this.phaseAt = now;
+    this.phase = phase;
+  }
+  timing() {
+    return { ...this.times, ...(this.phase ? { [this.phase]: this.times[this.phase] + clock() - this.phaseAt } : {}) };
+  }
   private readonly pending = new Map<number, Pending>();
   constructor(
     private readonly data: TeamBuilderData,
@@ -18,14 +31,18 @@ class EngineWorker {
   ) {}
   private spawn(): Promise<void> {
     if (this.ready) return this.ready;
+    this.setPhase("initializationMs");
     const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: this.name });
     this.worker = worker;
     worker.onmessage = (event: MessageEvent<EngineReply>) => {
       const reply = event.data;
       const pending = this.pending.get(reply.id);
       if (!pending) return;
-      if (reply.type === "progress") pending.progress?.(reply.done, reply.total);
+      if (reply.type === "phase") this.setPhase(reply.phase === "network" ? "networkMs" : "computationMs");
+      else if (reply.type === "progress") pending.progress?.(reply.done, reply.total);
+      else if (reply.type === "snapshot") pending.snapshot?.(reply.snapshot);
       else {
+        this.setPhase(null);
         this.pending.delete(reply.id);
         if (reply.type === "error") pending.reject(new Error(reply.message));
         else pending.resolve(reply.type === "result" ? reply.result : undefined);
@@ -39,16 +56,17 @@ class EngineWorker {
     this.ready = this.call({ type: "init", id: 0, data: this.data }) as Promise<void>;
     return this.ready;
   }
-  private call(message: EngineCall, progress?: Pending["progress"]): Promise<unknown> {
+  private call(message: EngineCall, progress?: Pending["progress"], snapshot?: Pending["snapshot"]): Promise<unknown> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, progress });
+      this.pending.set(id, { resolve, reject, progress, snapshot });
       this.worker!.postMessage({ ...message, id });
     });
   }
-  async send<T>(message: EngineCall, progress?: Pending["progress"]): Promise<T> {
+  async send<T>(message: EngineCall, progress?: Pending["progress"], snapshot?: Pending["snapshot"]): Promise<T> {
     await this.spawn();
-    return (await this.call(message, progress)) as T;
+    if (message.type === "run") this.setPhase("computationMs");
+    return (await this.call(message, progress, snapshot)) as T;
   }
   /** Calls in flight; 0 when idle. */
   get load() {
@@ -58,8 +76,8 @@ class EngineWorker {
     return this.ready !== null;
   }
   /** Starts the Worker and compiles the release ahead of the first call. */
-  warm() {
-    void this.spawn().catch(() => {});
+  warm(): Promise<void> {
+    return this.spawn().catch(() => {});
   }
   cancel() {
     for (const pending of this.pending.values()) pending.reject(new DOMException("Cancelled", "AbortError"));
@@ -67,6 +85,7 @@ class EngineWorker {
     this.reset();
   }
   private reset() {
+    this.setPhase(null);
     this.worker?.terminate();
     this.worker = null;
     this.ready = null;
@@ -95,164 +114,215 @@ const SHARDS_PER_WORKER = 4;
  * replaces every Worker, so a long search never blocks. */
 export class EngineClient {
   private readonly pool: EngineWorker[];
+  private readonly dataIdentity: string;
   constructor(data: TeamBuilderData) {
+    this.dataIdentity = JSON.stringify([data.identity, data.crossServer?.identities]);
     this.pool = Array.from({ length: poolSize() }, (_, index) => new EngineWorker(data, `team-engine-${index + 1}`));
   }
   /** Warm one Worker; the others compile lazily only if a search actually fans out. */
   warm() {
-    this.pool[0]?.warm();
+    // The others compile once the first is ready, so the first search can use every Worker.
+    void this.pool[0]?.warm().then(() => { for (const worker of this.pool.slice(1)) void worker.warm(); });
   }
   /** The idlest Worker, preferring one that has already compiled the release. */
   private idlest() {
     return [...this.pool].sort((a, b) => a.load - b.load || Number(b.started) - Number(a.started))[0]!;
   }
-  async run(request: EngineRequest, progress?: Pending["progress"]): Promise<EngineResponse> {
-    const parallel = this.pool.length > 1 && request.members.length >= PARALLEL_MIN_MEMBERS;
-    if (!parallel) return this.idlest().send<EngineResponse>({ type: "run", id: 0, request }, progress);
-    const goal = request.goal;
-    const songs = goal.kind === "score" || goal.kind === "gekiso" || goal.kind === "event" ? goal.songs : [];
-    return songs.length > 1 ? this.songs(request, songs, progress) : this.song(request, progress);
+  private queue: Promise<unknown> = Promise.resolve();
+  private activeStop: ((reason: StopReason) => void) | null = null;
+  private generation = 0;
+
+  run(request: EngineRequest, progress?: Pending["progress"], snapshot?: Pending["snapshot"]): Promise<EngineResponse> {
+    const started = clock();
+    const generation = this.generation;
+    const task = { ...request, deadline: deadlineOf(request), requestId: request.requestId ?? crypto.randomUUID(), contextKey: request.contextKey ?? JSON.stringify([this.dataIdentity, request]) };
+    let expired = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const waiting = new Promise<EngineResponse>(resolve => {
+      if (Number.isFinite(task.deadline)) timer = setTimeout(() => {
+        expired = true;
+        const response = { ...emptyResponse(task), stopReason: "budget" as const, elapsedMs: clock() - started };
+        snapshot?.({ requestId: task.requestId, contextKey: task.contextKey, response, stopReason: "budget", coverage: { completed: 0, total: response.results.length } });
+        resolve(response);
+      }, remaining(task.deadline));
+    });
+    const queued = this.queue.then(() => {
+      clearTimeout(timer);
+      if (expired || generation !== this.generation) return { ...emptyResponse(task), stopReason: expired ? "budget" as const : "cancelled" as const };
+      return this.execute(task, started, progress, snapshot);
+    });
+    this.queue = queued.catch(() => {});
+    return Promise.race([queued, waiting]).finally(() => clearTimeout(timer));
   }
-  /** Many songs are searched one song at a time. A Worker keeps a song's chart, seeds and contexts only while that
-   * song is current, so shards that each walked the whole list would redo every song's preparation once per shard. */
-  private async songs(request: EngineRequest, songs: readonly SongRef[], progress?: Pending["progress"]): Promise<EngineResponse> {
-    const started = performance.now();
-    const end = request.timeLimitMs == null ? Infinity : started + request.timeLimitMs;
-    const responses: (EngineResponse | undefined)[] = songs.map(() => undefined);
-    const of = (index: number, extra: Partial<EngineRequest> = {}): EngineRequest => ({ ...request, ...extra, goal: { ...request.goal, songs: [songs[index]!] } as EngineRequest["goal"] });
-    let done = 0;
-    const report = () => progress?.(done, songs.length);
-    const hard: { index: number; floor?: number }[] = [];
-    if (request.goal.kind === "gekiso") {
-      // Every shard would repeat the song's seeding pass, which is most of a Gekiso search: songs run whole, side by side.
-      let next = 0;
-      const worker = async (engine: EngineWorker) => {
-        while (next < songs.length) {
-          const index = next++;
-          const limit = end === Infinity ? null : Math.max(250, (end - performance.now()) / (songs.length - done));
-          responses[index] = await engine.send<EngineResponse>({ type: "run", id: 0, request: of(index, { timeLimitMs: limit }) });
-          done++;
-          report();
-        }
-      };
-      await Promise.all(this.pool.map(worker));
-    } else if (request.noFloor) hard.push(...songs.map((_, index) => ({ index })));
-    // Most songs prove their ranking within the quick window: every Worker takes songs off one list.
-    else {
-      let next = 0;
-      const worker = async (engine: EngineWorker) => {
-        while (next < songs.length) {
-          const index = next++;
-          const quick = await engine.send<EngineResponse>({ type: "run", id: 0, request: of(index, { timeLimitMs: Math.min(QUICK_MS, Math.max(250, (end - performance.now()) / (songs.length - done))) }) });
-          const result = quick.results[0]!;
-          if (result.proven || result.excludedBelow !== undefined) {
-            responses[index] = quick;
-            done++;
-            report();
-          } else hard.push({ index, floor: result.hits.length >= request.k ? result.hits[request.k - 1]!.key : undefined });
-        }
-      };
-      await Promise.all(this.pool.map(worker));
+
+  private async execute(request: EngineRequest, started: number, progress?: Pending["progress"], snapshot?: Pending["snapshot"]): Promise<EngineResponse> {
+    const before = this.pool.map(worker => worker.timing());
+    let latest = emptyResponse(request);
+    if (request.seeds?.length) {
+      for (const result of latest.results) result.hits = request.seeds.filter(hit => hit.song?.songId === result.song?.songId && hit.song?.difficulty === result.song?.difficulty).slice(0, request.k);
+      latest.overall = latest.results.flatMap(result => result.hits).sort(compareHits).slice(0, request.k);
     }
-    for (const { index, floor } of hard.sort((a, b) => a.index - b.index)) {
-      const song = songs[index]!;
-      const limit = end === Infinity ? null : Math.max(250, (end - performance.now()) / (songs.length - done));
-      responses[index] = await this.fan(of(index, { timeLimitMs: limit }), floor === undefined ? {} : { [`${song.songId}:${song.difficulty}`]: floor }, progress, done, songs.length);
-      done++;
-      report();
-    }
-    const results = responses.flatMap((response) => response!.results);
-    return {
-      results,
-      overall: results.flatMap((result) => result.hits).sort(compareHits).slice(0, Math.max(request.k, 3)),
-      unknownCards: responses[0]!.unknownCards,
-      elapsedMs: performance.now() - started,
-    };
-  }
-  private async song(request: EngineRequest, progress?: Pending["progress"]): Promise<EngineResponse> {
-    const started = performance.now();
-    // Most searches prove their ranking in well under a second on one Worker; only those that don't fan out, and
-    // the teams found so far give every shard its starting floor.
-    const initial: Record<string, number> = {};
-    // Gekisou seeding alone outlasts the quick window, so it fans out at once.
-    if (!request.noFloor && request.goal.kind !== "gekiso") {
-      const quick = await this.idlest().send<EngineResponse>({
-        type: "run",
-        id: 0,
-        request: { ...request, timeLimitMs: Math.min(request.timeLimitMs ?? Infinity, QUICK_MS) },
-      });
-      if (quick.results.every((result) => result.proven || result.excludedBelow !== undefined)) return quick;
-      if (request.goal.kind !== "plan")
-        for (const result of quick.results)
-          if (result.song && result.hits.length >= request.k) initial[`${result.song.songId}:${result.song.difficulty}`] = result.hits[request.k - 1]!.key;
-    }
-    if (request.goal.kind === "plan") return this.plan(request, request.goal, started, progress);
-    const merged = await this.fan(request, initial, progress);
-    merged.elapsedMs = performance.now() - started;
-    return merged;
-  }
-  /** The sharded search of one request; a floor that admitted fewer than k teams is searched again without it. */
-  private async fan(request: EngineRequest, initial: Record<string, number>, progress?: Pending["progress"], offset = 0, total = 1): Promise<EngineResponse> {
-    const merged = await this.sharded(request, initial, progress, offset, total);
-    if (aspirationHeld(merged, request.k) || request.noFloor) return merged;
-    return this.sharded({ ...request, noFloor: true }, {}, progress, offset, total);
-  }
-  /** Leader shards are many and small, handed to whichever Worker is free: subtree sizes vary widely, and each new
-   * task starts from the best k-th key found so far. */
-  private async sharded(request: EngineRequest, initial: Record<string, number>, progress?: Pending["progress"], offset = 0, total = 1): Promise<EngineResponse> {
-    const count = this.pool.length * SHARDS_PER_WORKER;
-    const responses: EngineResponse[] = [];
-    let next = 0;
-    const floors = (): Record<string, number> => {
-      if (!responses.length) return initial;
-      const merged = mergeShardResponses(responses, request.k, 0);
-      const out: Record<string, number> = { ...initial };
-      for (const result of merged.results)
-        if (result.song && result.hits.length >= request.k) {
-          const key = `${result.song.songId}:${result.song.difficulty}`;
-          out[key] = Math.max(out[key] ?? -Infinity, result.hits[request.k - 1]!.key);
+    let stopped = false;
+    let lastShown = -Infinity;
+    const publish = (response: EngineResponse, force = false) => {
+      if (stopped) return;
+      const hadCandidate = latest.overall.length > 0;
+      for (const result of response.results) {
+        const previous = latest.results.find(part => part.song?.songId === result.song?.songId && part.song?.difficulty === result.song?.difficulty);
+        if (previous && !result.proven) {
+          const seen = new Set<string>();
+          result.hits = [...result.hits, ...previous.hits].sort(compareHits).filter(hit => {
+            const key = [...hit.members].sort().join(",");
+            if (seen.has(key)) return false;
+            seen.add(key); return true;
+          }).slice(0, request.k);
         }
-      return out;
-    };
-    const worker = async (engine: EngineWorker) => {
-      while (next < count) {
-        const index = next++;
-        responses.push(await engine.send<EngineResponse>({ type: "run", id: 0, request: { ...request, shard: { index, count }, floors: floors() } }));
-        progress?.(offset + responses.length / count, total);
       }
+      response.overall = response.results.flatMap(result => result.hits).sort(compareHits).slice(0, request.k);
+      latest = response;
+      latest.timing = this.pool.reduce((total, worker, index) => {
+        const timing = worker.timing();
+        for (const field of ["initializationMs", "networkMs", "computationMs"] as const) total[field] += timing[field] - before[index]![field];
+        return total;
+      }, { initializationMs: 0, networkMs: 0, computationMs: 0, wallMs: clock() - started });
+      latest.elapsedMs = clock() - started;
+      if (!force && (hadCandidate || !latest.overall.length) && clock() - lastShown < 100) return;
+      lastShown = clock();
+      snapshot?.({ requestId: request.requestId!, contextKey: request.contextKey!, response: latest, stopReason: latest.stopReason,
+        coverage: { completed: latest.results.filter(result => result.proven || result.exclusion).length, total: latest.results.length } });
     };
-    await Promise.all(this.pool.map(worker));
-    return mergeShardResponses(responses, request.k, 0);
+    let stop!: (reason: StopReason) => void;
+    const interrupted = new Promise<EngineResponse>(resolve => {
+      stop = reason => {
+        if (stopped) return;
+        publish({ ...latest, stopReason: reason }, true);
+        stopped = true;
+        for (const worker of this.pool) worker.cancel();
+        resolve(latest);
+      };
+    });
+    this.activeStop = stop;
+    const deadline = request.deadline!;
+    const timer = Number.isFinite(deadline) ? setTimeout(() => stop("budget"), remaining(deadline)) : undefined;
+    const accept = (value: EngineSnapshot) => {
+      if (!stopped && value.requestId === request.requestId && value.contextKey === request.contextKey) publish(value.response);
+    };
+    const work = async (): Promise<EngineResponse> => {
+      if (!remaining(deadline)) { stop("budget"); return latest; }
+      if (completeResponse(latest)) return latest;
+      const parallel = this.pool.length > 1 && request.members.length >= PARALLEL_MIN_MEMBERS && request.goal.kind !== "plan";
+      if (!parallel) return this.idlest().send<EngineResponse>({ type: "run", id: 0, request }, progress, accept);
+      const songs = requestSongs(request);
+      if (songs.length > 1 && songs.every((song): song is SongRef => song !== null)) {
+        // Songs run whole, side by side: a Worker keeps only the current song's chart, seeds and contexts, and
+        // shards that each walked the whole list would prepare every song once per shard. Each song gets an even
+        // share of the time left, so every song has teams when the deadline arrives.
+        const same = (song: SongRef) => (hit: { song: SongRef | null }) => hit.song?.songId === song.songId && hit.song?.difficulty === song.difficulty;
+        const parts = latest.results.map(result => result);
+        const merged = (): EngineResponse => ({ ...latest, results: [...parts], overall: [], elapsedMs: clock() - started });
+        let next = 0, done = 0;
+        const runSong = async (engine: EngineWorker) => {
+          while (!stopped && remaining(deadline) > 0 && next < songs.length) {
+            const index = next++;
+            const song = songs[index]!;
+            if (parts[index]!.proven) { progress?.(++done / songs.length, 1); continue; }
+            const share = remaining(deadline) * this.pool.length / (songs.length - index);
+            const part: EngineRequest = {
+              ...request,
+              goal: { ...request.goal, songs: [song] } as EngineRequest["goal"],
+              deadline: Math.min(deadline, clock() + share),
+              seeds: request.seeds?.filter(same(song)),
+              completed: request.completed?.filter(same(song)),
+            };
+            const response = await engine.send<EngineResponse>({ type: "run", id: 0, request: part }, undefined, value => {
+              if (stopped || value.contextKey !== request.contextKey || value.requestId !== request.requestId) return;
+              parts[index] = value.response.results[0] ?? parts[index]!;
+              publish(merged());
+            });
+            if (stopped) return;
+            parts[index] = response.results[0] ?? parts[index]!;
+            publish(merged());
+            progress?.(++done / songs.length, 1);
+          }
+        };
+        await Promise.all(this.pool.map(runSong));
+        return merged();
+      }
+      let seeds = request.seeds ?? [];
+      const gekiso = request.goal.kind === "gekiso";
+      if (gekiso) {
+        // One Worker seeds; every shard starts from its teams instead of seeding again.
+        const seeding = await this.idlest().send<EngineResponse>({ type: "run", id: 0, request: { ...request, seedOnly: true } }, progress, accept);
+        publish(seeding);
+        seeds = seeding.results.flatMap(result => result.hits);
+      } else if (!request.noFloor) {
+        const quick = await this.idlest().send<EngineResponse>({ type: "run", id: 0, request: { ...request, deadline: Math.min(deadline, clock() + QUICK_MS) } }, progress, accept);
+        publish(quick);
+        if (completeResponse(quick)) return quick;
+        seeds = quick.results.flatMap(result => result.hits);
+      }
+      const count = this.pool.length * SHARDS_PER_WORKER;
+      const responses = Array.from({ length: count }, () => emptyResponse(request));
+      for (const response of responses) for (const result of response.results)
+        result.hits = seeds.filter(hit => hit.song?.songId === result.song?.songId && hit.song?.difficulty === result.song?.difficulty).slice(0, request.k);
+      let next = 0, done = 0;
+      const merge = () => mergeShardResponses(responses, request.k, clock() - started);
+      const runShard = async (engine: EngineWorker) => {
+        while (!stopped && remaining(deadline) > 0 && next < count) {
+          const index = next++;
+          const current = merge();
+          const floors = Object.fromEntries(current.results.filter(result => result.song && result.hits.length >= request.k).map(result => [`${result.song!.songId}:${result.song!.difficulty}`, result.hits[request.k - 1]!.key]));
+          const response = await engine.send<EngineResponse>({ type: "run", id: 0, request: { ...request, seeds, ...(gekiso ? { seeded: true } : {}), shard: { index, count }, floors } }, undefined, value => {
+            if (stopped || value.contextKey !== request.contextKey || value.requestId !== request.requestId) return;
+            responses[index] = value.response;
+            publish(merge());
+          });
+          if (stopped) return;
+          responses[index] = response;
+          publish(merge());
+          progress?.(++done / count, 1);
+        }
+      };
+      await Promise.all(this.pool.map(runShard));
+      const merged = merge();
+      if (!aspirationHeld(merged, request.k) && !request.noFloor && remaining(deadline))
+        return this.idlest().send<EngineResponse>({ type: "run", id: 0, request: { ...request, seeds: merged.overall, noFloor: true } }, progress, accept);
+      return merged;
+    };
+    try {
+      const response = await Promise.race([work(), interrupted]);
+      if (!stopped) publish({ ...response, stopReason: completeResponse(response) ? "complete" : "budget" }, true);
+      return latest;
+    } catch (error) {
+      if (stopped) return latest;
+      latest.error = error instanceof Error ? error.message : String(error);
+      stop("error");
+      if (latest.overall.length) return latest;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      if (this.activeStop === stop) this.activeStop = null;
+    }
   }
-  /** A plan's normal lives are priced by the best challenge live, so the stages run one after the other, each
-   * over the pool. */
-  private async plan(request: EngineRequest, goal: Extract<EngineRequest["goal"], { kind: "plan" }>, started: number, progress?: Pending["progress"]): Promise<EngineResponse> {
-    const challengeRequest: EngineRequest = {
-      ...request,
-      goal: { kind: "event", measure: "points", route: "challenge", eventId: goal.eventId, songs: goal.challengeSongs, consumption: goal.challengePointsPerLive, play: goal.play },
-    };
-    let challenge = await this.sharded(challengeRequest, {}, progress, 0, 2);
-    if (!aspirationHeld(challenge, request.k)) challenge = await this.sharded({ ...challengeRequest, noFloor: true }, {}, progress, 0, 2);
-    const bestChallenge = challenge.overall[0] ?? null;
-    const pointsPerChallenge = bestChallenge?.event?.mean ?? 0;
-    const normal = await this.sharded({ ...request, goal: { ...goal, challengePointsPerPlay: pointsPerChallenge } }, {}, progress, 1, 2);
-    const bestNormal = normal.results.flatMap((result) => result.hits).sort(compareHits)[0] ?? null;
-    return {
-      plan: planSummary(goal, bestNormal, bestChallenge, pointsPerChallenge),
-      results: [...challenge.results, ...normal.results],
-      overall: [...(bestNormal ? [bestNormal] : []), ...(bestChallenge ? [bestChallenge] : [])],
-      unknownCards: normal.unknownCards,
-      elapsedMs: performance.now() - started,
-    };
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const generation = this.generation;
+    const queued = this.queue.then(() => {
+      if (generation !== this.generation) throw new DOMException("Cancelled", "AbortError");
+      return work();
+    });
+    this.queue = queued.catch(() => {});
+    return queued;
   }
   evaluate(request: EvaluateRequest) {
-    return this.pool[0]!.send<TeamEvaluation[]>({ type: "evaluate", id: 0, request });
+    return this.enqueue(() => this.pool[0]!.send<TeamEvaluation[]>({ type: "evaluate", id: 0, request }));
   }
   explain(request: ExplainRequest) {
-    return this.pool[0]!.send<Timeline>({ type: "explain", id: 0, request });
+    return this.enqueue(() => this.pool[0]!.send<Timeline>({ type: "explain", id: 0, request }));
   }
   /** Stops everything in flight; the next call starts fresh Workers. */
   cancel() {
+    this.generation++;
+    this.activeStop?.("cancelled");
     for (const worker of this.pool) worker.cancel();
   }
   dispose() {

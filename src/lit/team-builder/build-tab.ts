@@ -14,12 +14,11 @@ import { renderResults } from "./results";
 import { SCORE_GOALS, scoreText } from "./score-goal";
 import type { BuildSettings, GoalKind } from "./types";
 import type { TeamBuilder } from "../team-builder";
+import { ptField } from "./pt-fields";
 
 const GOALS = [
   { id: "score", icon: "music_note" },
   { id: "gekiso", icon: "local_fire_department" },
-  { id: "event", icon: "emoji_events" },
-  { id: "plan", icon: "cycle" },
   { id: "power", icon: "bolt" },
   { id: "potential", icon: "auto_awesome" },
 ] as const;
@@ -91,7 +90,7 @@ function songList(
 }
 
 function eventSection(host: TeamBuilder): TemplateResult {
-  const s = host.settings;
+  const s = host.searchSettings;
   const catalog = host.catalog!;
   const events = catalog.events();
   const set = (patch: Partial<BuildSettings>) => host.updateSettings(patch);
@@ -169,7 +168,7 @@ function eventSection(host: TeamBuilder): TemplateResult {
 }
 
 function playSection(host: TeamBuilder): TemplateResult {
-  const s = host.settings;
+  const s = host.searchSettings;
   const set = (patch: Partial<BuildSettings>) => host.updateSettings(patch);
   const slider = (label: string, key: "great" | "good" | "miss", max: number) => html`
     <div class="tb-field">
@@ -252,8 +251,9 @@ function playSection(host: TeamBuilder): TemplateResult {
   `;
 }
 
-function candidates(host: TeamBuilder): TemplateResult {
-  const s = host.settings;
+export function renderCandidates(host: TeamBuilder): TemplateResult {
+  const s = host.searchSettings;
+  const activity = host.tab === "pt";
   const catalog = host.catalog!;
   const view = host.view!;
   const set = (patch: Partial<BuildSettings>) => host.updateSettings(patch);
@@ -263,7 +263,7 @@ function candidates(host: TeamBuilder): TemplateResult {
   const required =
     [...view.members.values()].filter((row) => row.use && row.lock).length +
     [...view.snaps.values()].filter((row) => row.use && row.lock).length;
-  const ownedMembers = [...view.members.values()].filter((row) => row.use).map((row) => row.cardId);
+  const ownedMembers = cards.members.map(row => row.cardId);
   const bands = Object.keys(catalog.data.bands)
     .map(Number)
     .filter((id) => catalog.bandName(id));
@@ -279,7 +279,7 @@ function candidates(host: TeamBuilder): TemplateResult {
         onSelect: (scope) => set({ scope }),
       })}
       ${
-        s.scope === "box"
+        s.scope === "box" && !(activity && s.rewardMode === "recommendation")
           ? html`
               <div class="tb-field">
                 <span class="tb-field__label">${host.t("unknownPolicy", "Growth not entered")}</span>
@@ -352,9 +352,9 @@ function candidates(host: TeamBuilder): TemplateResult {
         <span>${host.t("noSnaps", "No snaps")}</span>
       </label>
       ${
-        s.goal === "event" || s.goal === "plan"
+        activity
           ? html`
-              <md-outlined-text-field
+              ${ptField(host, "minBonus", html`<md-outlined-text-field
                 type="number"
                 min="0"
                 step="5"
@@ -364,11 +364,17 @@ function candidates(host: TeamBuilder): TemplateResult {
               const raw = (e.target as HTMLInputElement).value;
               set({ minBonus: raw === "" ? null : Math.max(0, Number(raw)) });
             }}
-              ></md-outlined-text-field>
+              ></md-outlined-text-field>`)}
             `
           : nothing
       }
-      <div class="row row--wrap">
+      ${s.bindings.length ? html`<ul class="pt-bindings">
+        ${s.bindings.map(([member, snap], index) => html`<li>
+          <span>${catalog.cardName("members", member)} → ${snap === null ? host.t("noSnap", "No snap") : catalog.cardName("snaps", snap)}</span>
+          ${iconButton({ icon: "close", label: host.common("common.actions.remove", "Remove"), onClick: () => set({ bindings: s.bindings.filter((_, at) => at !== index) }) })}
+        </li>`)}
+      </ul>` : nothing}
+      ${activity && s.rewardMode === "recommendation" ? nothing : html`<div class="row row--wrap">
         <md-outlined-select
           label=${host.t("resultCount", "Results")}
           .value=${String(s.k)}
@@ -388,7 +394,7 @@ function candidates(host: TeamBuilder): TemplateResult {
           set({ timeLimit: v || null });
         }}
         >
-          ${[0, 5, 15, 60].map(
+          ${[3, 5, 15, 60, 0].map(
             (limit) => html`
               <md-select-option value=${String(limit)}>
                 <div slot="headline">${limit ? `${limit} s` : host.t("noLimit", "Until proven")}</div>
@@ -396,7 +402,7 @@ function candidates(host: TeamBuilder): TemplateResult {
             `,
           )}
         </md-outlined-select>
-      </div>
+      </div>`}
     </div>
   `;
   return accordion({
@@ -405,7 +411,7 @@ function candidates(host: TeamBuilder): TemplateResult {
     leading: icon("tune", 20),
     label: host.t("candidates", "Cards and limits"),
     supportingText: `${host.t("candidateSummary", "{members} members · {snaps} snaps", { members: cards.members.length, snaps: cards.snaps.length })}${required ? ` · ${host.t("requiredCount", "{count} required", { count: required })}` : ""}`,
-    content,
+    content: activity ? ptField(host, "constraints", content) : content,
     expanded: host.expanded.has("candidates"),
     onExpandedChange: (expanded) => {
       if (expanded) host.expanded.add("candidates");
@@ -415,8 +421,8 @@ function candidates(host: TeamBuilder): TemplateResult {
   });
 }
 
-export function renderBuildTab(host: TeamBuilder): TemplateResult {
-  const s = host.settings;
+export function renderBuildTab(host: TeamBuilder, leading?: TemplateResult): TemplateResult {
+  const s = host.searchSettings;
   const set = (patch: Partial<BuildSettings>) => host.updateSettings(patch);
   const cards = host.engineCards();
   const goal = host.goal();
@@ -437,7 +443,8 @@ export function renderBuildTab(host: TeamBuilder): TemplateResult {
   return html`
     <div class="tb-build">
       <div class="tb-config stack">
-        <section class="surface stack">
+        ${leading ?? nothing}
+        ${host.tab === "build" ? html`<section class="surface stack">
           ${sectionHeading({ icon: "flag", label: host.t("goal", "Goal") })}
           <div
             class="tb-goals"
@@ -527,7 +534,7 @@ export function renderBuildTab(host: TeamBuilder): TemplateResult {
                 `
               : nothing
           }
-        </section>
+        </section>` : nothing}
         ${
           s.goal === "event"
             ? html`
@@ -545,6 +552,9 @@ export function renderBuildTab(host: TeamBuilder): TemplateResult {
                 onSelect: (route) =>
                   set({ route, measure: route !== "live" && s.measure === "challenge-points" ? "points" : s.measure }),
               })}
+                  <label class="tb-check"><md-checkbox touch-target="wrapper" .checked=${s.fullRanking}
+                    @change=${(e: Event) => set({ fullRanking: (e.target as HTMLInputElement).checked })}></md-checkbox>
+                    <span>${host.t("fullRanking", "Full reward ranking")}</span></label>
                   ${segmented({
                 label: host.t("measure", "Maximize"),
                 value: s.measure,
@@ -620,7 +630,7 @@ export function renderBuildTab(host: TeamBuilder): TemplateResult {
               `
             : nothing
         }
-        ${candidates(host)}
+        ${renderCandidates(host)}
         <div class="tb-run">
           ${
             host.running

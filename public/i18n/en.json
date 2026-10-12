@@ -1350,6 +1350,13 @@
   },
   "tools": {
     "teamBuilder": {
+      "rewardSearch": "Reward team search",
+      "improvementBound": "Up to {percent}% improvement",
+      "recommendation": "Recommendation",
+      "continueOptimal": "Continue verifying optimality",
+      "noCandidate": "No recommendation yet",
+      "cpCycle": "Long-term CP conversion",
+      "fullRanking": "Full reward ranking",
       "title": "Team builder · Beta",
       "library": "Card library",
       "members": "Members",
@@ -2124,7 +2131,7 @@
       "worstOrder": "Worst order",
       "bestScore": "Best-order score",
       "comparison": "Comparison",
-      "proven": "Proven optimal",
+      "proven": "Verified optimal",
       "unproven": "Time limit reached: best found so far",
       "resultMeta": "{ms} ms · {exact} teams simulated exactly",
       "staleResults": "Conditions changed since this search.",

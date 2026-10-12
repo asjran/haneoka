@@ -4,6 +4,9 @@ import type { Criterion } from "../../lib/team-builder/engine/objectives";
 export type Tab = "build" | "box" | "account" | "teams" | "pt";
 export type GoalKind = "score" | "gekiso" | "power" | "event" | "potential" | "plan";
 export interface BuildSettings {
+  rewardMode: "recommendation" | "event" | "plan";
+  fullRanking: boolean;
+  ptCycle: boolean;
   ptMode: "solo" | "gekiso";
   ptJust: number;
   ptLuckSamples: number;
@@ -48,6 +51,9 @@ export interface BuildSettings {
   gekisoRank: number;
 }
 export const DEFAULT_SETTINGS: BuildSettings = {
+  rewardMode: "recommendation",
+  fullRanking: false,
+  ptCycle: false,
   ptMode: "solo",
   ptJust: 25,
   ptLuckSamples: 32,
@@ -71,7 +77,7 @@ export const DEFAULT_SETTINGS: BuildSettings = {
   planBoostsPerLive: 3,
   planStartingCp: 0,
   planChallengeSongs: [],
-  k: 5,
+  k: 1,
   unknownPolicy: "max",
   scope: "box",
   leader: null,

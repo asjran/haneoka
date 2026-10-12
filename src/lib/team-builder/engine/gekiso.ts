@@ -130,8 +130,18 @@ export interface GekisoContext {
   up: Float64Array;
   /** Expected luck factor. */
   luck: Float64Array;
-  /** Lottery runs averaged: 1 deterministic, 0 the exact nominal expectation (luck DP). */
+  /** Lottery runs averaged after settlement: 1 deterministic, 0 independent nominal draws (luck DP). */
   seeds: number;
+  /** Replayable trajectories for settlement; retain only one draw's note arrays at a time. */
+  draws?: () => Iterable<GekisoContext>;
+  nominal?: {
+    /** Joint flags: neither, rush bonus, rush-reading skill, both. */
+    probabilities: readonly Float64Array[];
+    noteUp: Float32Array;
+    rushUp: number;
+    rushFactor: number;
+    rankRemainder: (range: number, outcomes: Float64Array, cache: Map<string, number>) => number;
+  };
 }
 
 /** Performers reduced to their Gekisou parts: what every member order shares. */
@@ -221,10 +231,22 @@ export function gekisoContext(master: EngineMaster, chart: GekisoChart, deck: re
     up[i]! /= runs.length;
     luck[i]! /= runs.length;
   }
-  return { judgement, gk, up, luck, seeds: runs.length };
+  return {
+    judgement, gk, up, luck, seeds: runs.length,
+    ...(runs.length > 1 ? { draws: function* () {
+      for (const seed of runs) yield gekisoContext(master, chart, deck, [seed]);
+    } } : {}),
+  };
 }
 
-const luckCurves = new WeakMap<GekisoChart, Map<string, ReturnType<typeof luckCurve>>>();
+interface RecordedLuck {
+  curve: ReturnType<typeof luckCurve>;
+  record: LuckRecord;
+  frames: LivePlay["frames"];
+  misses: MissRule[];
+}
+const luckCurves = new WeakMap<GekisoChart, Map<string, RecordedLuck>>();
+const simulatedFrames = new WeakMap<GekisoChart, LivePlay["frames"]>();
 /** The exact nominal luck expectation: one lottery-free run records the live, the luck DP propagates the lottery. */
 function expectedContext(master: EngineMaster, chart: GekisoChart, deck: readonly Performer[]): GekisoContext {
   const n = chart.notes.length;
@@ -253,7 +275,8 @@ function expectedContext(master: EngineMaster, chart: GekisoChart, deck: readonl
   };
   const { frames, dt } = chart.play;
   // The record is indexed from the first simulated frame.
-  const simulated = frames.slice(chart.span[0], chart.span[1]);
+  let simulated = simulatedFrames.get(chart);
+  if (!simulated) simulatedFrames.set(chart, (simulated = frames.slice(chart.span[0], chart.span[1])));
   for (let k = 0; k < simulated.length; k++) model.frame(simulated[k]!.timeMs, simulated[k]!.judged, dt[chart.span[0] + k]!);
   const { rush, misses } = luckReaders(master, reduced);
   const luckRanges = chart.setup.missions.slice(0, Math.min(3, chart.full.fevers.length)).flatMap((m, r) => (m === M_LUCK ? [r] : []));
@@ -262,15 +285,21 @@ function expectedContext(master: EngineMaster, chart: GekisoChart, deck: readonl
     record.actions,
     misses,
     record.notes.map((n) => [n.frame, n.judgement, n.speed, n.buff]),
-    record.frames.map((frame) => frame.states.join("") + frame.playing),
+    record.frames.map((frame) => frame.id),
   ]);
   let curves = luckCurves.get(chart);
   if (!curves) luckCurves.set(chart, (curves = new Map()));
-  let curve = curves.get(signature);
-  if (!curve) curves.set(signature, (curve = luckCurve(master.live.gekiso, record, simulated, luckRanges, misses)));
+  let recorded = curves.get(signature);
+  if (!recorded && curves.size >= 1024) curves.clear();
+  if (!recorded) curves.set(signature, (recorded = {
+    curve: luckCurve(master.live.gekiso, record, simulated, luckRanges, misses), record, frames: simulated, misses,
+  }));
+  const lottery = recorded;
+  const curve = lottery.curve;
   const bonus = Math.min(100 + master.live.gekiso.rushPercent, 200) / 100 - 1;
   const up = new Float64Array(n);
   const luck = new Float64Array(n);
+  const probabilities = Array.from({ length: 4 }, () => new Float64Array(n));
   for (let i = 0; i < n; i++) {
     const id = chart.notes[i]!.id;
     const pr = curve.rush.get(id) ?? 0,
@@ -278,9 +307,66 @@ function expectedContext(master: EngineMaster, chart: GekisoChart, deck: readonl
       both = curve.both.get(id) ?? 0;
     luck[i] = 1 + bonus * pr;
     up[i] = noteUp[i]! * luck[i]! + rush * (ps + bonus * both);
+    probabilities[0]![i] = Math.max(0, 1 - pr - ps + both);
+    probabilities[1]![i] = Math.max(0, pr - both);
+    probabilities[2]![i] = Math.max(0, ps - both);
+    probabilities[3]![i] = Math.max(0, both);
   }
-  return { judgement, gk, up, luck, seeds: 0 };
+  const rankRemainder = (range: number, outcomes: Float64Array, remainderCache: Map<string, number>) => {
+    // E[floor(S*p/100)] = E[S]*p/100 - E[(S*p)%100]/100. Only S modulo 100/gcd(p,100)
+    // must join the lottery state; independent per-note residues would lose the shared draw history.
+    const percent = chart.rangePercent[range]!;
+    let divisor = 100, numerator = percent;
+    while (numerator) [divisor, numerator] = [numerator, divisor % numerator];
+    const modulus = 100 / divisor;
+    if (modulus === 1) return 0;
+    const first = lottery.record.frames.findIndex(frame => frame.states[range] === 3);
+    let last = lottery.record.frames.findIndex((frame, k) => k > first && frame.states[range] === 8);
+    if (last < 0) last = lottery.record.frames.length - 1;
+    const observed = new Set(lottery.frames.slice(first, last + 1).flatMap(frame => frame.judged.map(note => note.noteId)));
+    let initial = 0;
+    const signature: number[] = [range];
+    chart.notes.forEach((note, i) => {
+      if (chart.rangeOf[i] !== range) return;
+      if (!observed.has(note.id)) initial = (initial + outcomes[4 * i]!) % modulus;
+      for (let mask = 0; mask < 4; mask++) signature.push(outcomes[4 * i + mask]! % modulus);
+    });
+    const key = signature.join(',');
+    const cached = remainderCache.get(key);
+    if (cached !== undefined) return cached;
+    const residues = new Float64Array(modulus);
+    luckCurve(master.live.gekiso, lottery.record, lottery.frames, [range], lottery.misses, {
+      modulus, initial, residues,
+      noteScore: (id, running, reading) => {
+        const i = index.get(id);
+        return i !== undefined && chart.rangeOf[i] === range ? outcomes[4 * i + Number(running) + 2 * Number(reading)]! : 0;
+      },
+    });
+    const value = residues.reduce((sum, probability, residue) => sum + probability * ((residue * percent) % 100) / 100, 0);
+    remainderCache.set(key, value);
+    return value;
+  };
+  return { judgement, gk, up, luck, seeds: 0, nominal: { probabilities, noteUp, rushUp: rush, rushFactor: f(1 + bonus), rankRemainder } };
 }
+
+/** A support whose only Luck-mission effects are score-ups read while rush is on: it never changes the lottery or the
+ * recorded live, so given any deck's lottery it adds `rush × (P(skill) + bonus × P(both))` per note. Returns its
+ * rush factor, or null when it does anything else. */
+export function rushOnlyFactor(master: EngineMaster, p: Performer): number | null {
+  let only = true;
+  for (const [id, level] of p.gekisouSupportSkills) {
+    const skill = master.gekisoSupportSkills.get(id);
+    if (!skill || (skill.missionType !== M_LUCK && skill.missionType !== 4)) continue;
+    for (const row of skill.effects) if (row.level === level && row.type !== 2000) only = false;
+  }
+  if (!only) return null;
+  const { rush, misses } = luckReaders(master, [{ ...p, missionOnly: p.missionOnly || 1 }]);
+  return misses.length ? null : rush;
+}
+
+/** How far an unsettled score can lie above the settled one: one point for each Luck range's rank remainder. */
+export const settleSlack = (chart: GekisoChart) =>
+  chart.rangePercent.filter((_, r) => chart.setup.missions[r] === M_LUCK).length;
 
 /** Per-order scores: live skills and snap skills on top of the shared Gekisou context, plus rank bonuses. */
 export function scoreOrdersGekiso(
@@ -290,7 +376,19 @@ export function scoreOrdersGekiso(
   power: number,
   slots: readonly SlotSkill[],
   debug?: (order: number, note: number, score: number, live: number) => void,
+  /** False leaves out the Luck ranges' rank remainders, each in [0, 1): an upper bound within
+   * [settleSlack](chart) of the settled score, for every order. */
+  settle = true,
 ): OrderScores {
+  if (ctx.draws) {
+    const scores = new Float64Array(ORDERS.length);
+    for (const draw of ctx.draws()) {
+      const result = scoreOrdersGekiso(master, chart, draw, power, slots, debug, settle);
+      result.scores.forEach((value, order) => { scores[order]! += value / ctx.seeds; });
+    }
+    return summarizeOrders(power, scores);
+  }
+  if (ctx.seeds !== 1 && !ctx.nominal) throw new Error("Gekisou expectation requires outcome probabilities or individual draws");
   const n = chart.notes.length;
   const t = f(f(master.live.adjustment * power) * chart.difficultyFactor);
   const count = chart.full.convertedCount;
@@ -305,7 +403,9 @@ export function scoreOrdersGekiso(
     noteA[i] = f(chart.noteFrac[i]! * t);
     comboFactor[i] = f(ctx.gk[i]! * chart.comboFactor[i]!);
   }
-  const deterministic = ctx.seeds === 1;
+  const nominal = ctx.nominal;
+  const outcomes = nominal ? new Float64Array(n * 4) : null;
+  const remainders = new Map<string, number>();
   const ranges = chart.rangePercent.length;
   const scores = new Float64Array(ORDERS.length);
   const rangeScore = new Float64Array(ranges);
@@ -365,22 +465,38 @@ export function scoreOrdersGekiso(
       }
       const c = f(f(chart.judgeFrac[judgement]! * noteA[i]!) * comboFactor[i]!);
       const live = f(factor + channel[judgement]!);
-      let x: number;
-      if (deterministic) {
+      let x = 0;
+      if (nominal && outcomes) {
+        for (let mask = 0; mask < 4; mask++) {
+          const up = f(f(nominal.noteUp[i]! + (mask & 2 ? nominal.rushUp : 0)) + live);
+          let value = Math.floor(f(f(f(mask & 1 ? nominal.rushFactor : 1) * f(c * up)) / count));
+          if (life <= 0) value = Math.floor(f(onus * value));
+          outcomes[4 * i + mask] = value;
+          x += nominal.probabilities[mask]![i]! * value;
+        }
+      } else {
         const up = f(f(ctx.up[i]! / ctx.luck[i]!) + live);
         x = Math.floor(f(f(f(ctx.luck[i]!) * f(c * up)) / count));
-      } else x = Math.floor((c * (ctx.up[i]! + ctx.luck[i]! * live)) / count);
-      if (life <= 0) x = Math.floor(f(onus * x));
+        if (life <= 0) x = Math.floor(f(onus * x));
+      }
       debug?.(orderIndex, i, x, live);
       score += x;
       const r = chart.rangeOf[i]!;
       if (r >= 0) rangeScore[r]! += x;
       if (damage[judgement]) life = Math.max(0, life - damage[judgement]!);
     }
-    for (let r = 0; r < ranges; r++) score += Math.floor((rangeScore[r]! * chart.rangePercent[r]!) / 100);
+    for (let r = 0; r < ranges; r++) {
+      if (nominal && outcomes && chart.setup.missions[r] === M_LUCK) {
+        score += rangeScore[r]! * chart.rangePercent[r]! / 100 - (settle ? nominal.rankRemainder(r, outcomes, remainders) : 0);
+      } else score += Math.floor((rangeScore[r]! * chart.rangePercent[r]!) / 100);
+    }
     scores[orderIndex] = score;
   }
   restoreOrderScores(scores, orderPlan);
+  return summarizeOrders(power, scores);
+}
+
+function summarizeOrders(power: number, scores: Float64Array): OrderScores {
   let min = Infinity,
     max = -Infinity,
     minOrder = 0,
@@ -392,4 +508,20 @@ export function scoreOrdersGekiso(
     if (value > max) [max, maxOrder] = [value, index];
   });
   return { power, scores, mean: total / scores.length, min, max, minOrder, maxOrder };
+}
+
+/** Exact order scores on the game's own frame loop: every member order of the deck (by slot, leader first) played
+ * through the whole live. The closed-form `scoreOrdersGekiso` stays within a few 1e-5 of these; ranking ties and the
+ * reported scores are settled here. Lottery-free charts only: a Luck range's draw has no single outcome. */
+export function fullOrdersGekiso(master: EngineMaster, chart: GekisoChart, deck: readonly Performer[], power: number, skillTargetMusicType: number): OrderScores {
+  if (chart.luck) throw new Error("full Gekisou scores need a lottery-free chart");
+  const scores = new Float64Array(ORDERS.length);
+  const { frames, dt } = chart.play;
+  const params = { skillTargetMusicType, power, level: chart.full.level, convertedCount: chart.full.convertedCount, musicLengthMs: chart.musicLengthMs, assist: 1 };
+  ORDERS.forEach((order, index) => {
+    const model = new LiveModel(master, order.map((slot) => deck[slot]!), chart.full.notes, chart.full.events, params, chart.setup, 0);
+    for (let k = 0; k < frames.length; k++) model.frame(frames[k]!.timeMs, frames[k]!.judged, dt[k]!);
+    scores[index] = model.score.score;
+  });
+  return summarizeOrders(power, scores);
 }

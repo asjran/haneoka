@@ -1350,6 +1350,13 @@
   },
   "tools": {
     "teamBuilder": {
+      "rewardSearch": "報酬編成",
+      "improvementBound": "改善上限 {percent}%",
+      "recommendation": "おすすめ",
+      "continueOptimal": "最適性の検証を続ける",
+      "noCandidate": "候補はまだありません",
+      "cpCycle": "CP の長期換算",
+      "fullRanking": "報酬の詳細順位",
       "title": "編成シミュレーター · Beta",
       "library": "カード所持状況",
       "members": "メンバー",
@@ -2124,7 +2131,7 @@
       "worstOrder": "最悪の順",
       "bestScore": "最高スコア",
       "comparison": "比較",
-      "proven": "最適と証明済み",
+      "proven": "最適性を検証済み",
       "unproven": "時間制限に達しました：現時点で最良の結果",
       "resultMeta": "{ms} ms · {exact} 編成を厳密にシミュレート",
       "staleResults": "この検索の後に条件が変わりました。",

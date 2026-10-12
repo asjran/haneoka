@@ -42,6 +42,14 @@ export interface LuckCurve {
   both: Map<number, number>;
 }
 
+/** Settlement of one selected luck range; residues retain the history that per-note marginals discard. */
+export interface LuckSettlement {
+  modulus: number;
+  initial: number;
+  noteScore: (id: number, bonus: boolean, skill: boolean) => number;
+  residues: Float64Array;
+}
+
 /** A lottery state packed into an integer: gauge (8 bits), lots (3), next + 1 (3), rush (3), minimum (2), then flags
  * missUsed, prevMiss, frameLot, frameMiss, bonus (rush luck running), skill and skillPrev (the rush checker as asked
  * this frame and the frame before). */
@@ -57,7 +65,6 @@ const G = 1,
   BONUS = 1 << 23,
   SKILL = 1 << 24,
   SKILL_PREV = 1 << 25;
-const gaugeOf = (s: number) => s & 0xff;
 const lotsOf = (s: number) => (s >>> 8) & 7;
 const nextOf = (s: number) => ((s >>> 11) & 7) - 1;
 const rushOf = (s: number) => (s >>> 14) & 7;
@@ -67,12 +74,84 @@ const pack = (gauge: number, lots: number, next: number, rush: number, minimum: 
 const FLAGS = MISS_USED | PREV_MISS | FRAME_LOT | FRAME_MISS | BONUS | SKILL | SKILL_PREV;
 const flagsOf = (s: number) => s & FLAGS;
 
+const ROW = 1 << 18;
+const HIGH = ROW - 1;
+
+/** A distribution over lottery states as rows of gauge vectors: a row per state without its gauge (and, when settling,
+ * with the score residue above it), insertion ordered. Every lottery step but the gauge itself acts on whole rows. */
+class Rows {
+  keys: number[] = [];
+  vecs: Float64Array[] = [];
+  /** Each row's nonzero gauge values lie in [lo, hi). */
+  lo: number[] = [];
+  hi: number[] = [];
+  /** Row index + 1 by key: a table over lottery states alone, a map once residues join the key. */
+  private readonly table: Int32Array | null;
+  private readonly map: Map<number, number> | null;
+  constructor(
+    private readonly width: number,
+    private readonly pool: Float64Array[],
+    wide: boolean,
+  ) {
+    this.table = wide ? null : new Int32Array(ROW);
+    this.map = wide ? new Map() : null;
+  }
+  private find(key: number) {
+    return this.table ? this.table[key]! - 1 : (this.map!.get(key) ?? -1);
+  }
+  private put(key: number, vec: Float64Array, lo: number, hi: number) {
+    if (this.table) this.table[key] = this.keys.length + 1;
+    else this.map!.set(key, this.keys.length);
+    this.keys.push(key);
+    this.vecs.push(vec);
+    this.lo.push(lo);
+    this.hi.push(hi);
+    return this.keys.length - 1;
+  }
+  /** The row's index, created empty if missing. */
+  at(key: number) {
+    const i = this.find(key);
+    return i >= 0 ? i : this.put(key, this.pool.pop() ?? new Float64Array(this.width), this.width, 0);
+  }
+  /** Marks gauge values [lo, hi) of row i as written. */
+  touch(i: number, lo: number, hi: number) {
+    if (lo < this.lo[i]!) this.lo[i] = lo;
+    if (hi > this.hi[i]!) this.hi[i] = hi;
+  }
+  /** Takes the vector over, or adds it into the row already there and returns it to the pool. */
+  adopt(key: number, vec: Float64Array, lo: number, hi: number) {
+    const i = this.find(key);
+    if (i < 0) {
+      this.put(key, vec, lo, hi);
+      return;
+    }
+    const into = this.vecs[i]!;
+    for (let g = lo; g < hi; g++) into[g]! += vec[g]!;
+    this.touch(i, lo, hi);
+    this.free(vec, lo, hi);
+  }
+  free(vec: Float64Array, lo: number, hi: number) {
+    if (hi > lo) vec.fill(0, lo, hi);
+    this.pool.push(vec);
+  }
+  /** Forgets every row; their vectors were freed or adopted elsewhere. */
+  reset() {
+    if (this.table) for (const key of this.keys) this.table[key] = 0;
+    else this.map!.clear();
+    this.keys.length = 0;
+    this.vecs.length = 0;
+    this.lo.length = 0;
+    this.hi.length = 0;
+  }
+}
+
 export function luckCurve(
   tables: GekisouTables,
   record: LuckRecord,
   frames: readonly { timeMs: number; judged: readonly { noteId: number; timeMs: number }[] }[],
   luckRanges: readonly number[],
   missRules: readonly MissRule[],
+  settlement?: LuckSettlement,
 ): LuckCurve {
   // Lottery tables.
   const base = { good: [] as Item[], great: [] as Item[], perfect: [] as Item[], hold: [] as Item[] };
@@ -96,10 +175,10 @@ export function luckCurve(
     const total = items.reduce((sum, [w]) => sum + w, 0);
     return merge(items.map(([w, v]) => [w / total, v]));
   };
-  const drawCache = new Map<string, [number, number][]>();
+  const drawCache = new Map<number, [number, number][]>();
   /** One bonus draw of a lot type at a lot buff (percent) with a guaranteed minimum result. */
   const draw = (type: number, buffPercent: number, minimum: number): [number, number][] => {
-    const key = `${type},${buffPercent},${minimum}`;
+    const key = (buffPercent * 8 + type) * 4 + minimum;
     let value = drawCache.get(key);
     if (value) return value;
     const items = lots[type] ?? [];
@@ -137,31 +216,72 @@ export function luckCurve(
 
   const curve: LuckCurve = { rush: new Map(), skill: new Map(), both: new Map() };
   const gaugeMaxOf = (rush: number) => (rush > 0 ? tables.gaugeMaxRush : tables.gaugeMax);
-  /** Gauge addition with overflow into lots at the state's gauge maximum. */
-  const addGauge = (s: number, v: number) => {
-    const max = gaugeMaxOf(rushOf(s));
-    const g = (gaugeOf(s) + v) | 0;
-    if (max > g) return pack(g, lotsOf(s), nextOf(s), rushOf(s), minimumOf(s), flagsOf(s));
-    return pack(g % max, lotsOf(s) + Math.trunc(g / max), nextOf(s), rushOf(s), minimumOf(s), flagsOf(s));
+  const width = Math.max(tables.gaugeMax, tables.gaugeMaxRush);
+  const pool: Float64Array[] = [];
+  let dist = new Rows(width, pool, !!settlement);
+  let spare = new Rows(width, pool, !!settlement);
+  let steadyAt = -1;
+  /** One-to-one changes of the non-gauge state wait here and apply to the keys the next step reads. */
+  let pending: ((s: number) => number) | null = null;
+  const keyAt = (i: number) => {
+    const key = dist.keys[i]!;
+    if (!pending) return key;
+    const high = key & HIGH;
+    return key - high + (pending(high << 8) >>> 8);
   };
-  let dist = new Map<number, number>();
-  const push = (out: Map<number, number>, s: number, p: number) => {
-    if (p > 0) out.set(s, (out.get(s) ?? 0) + p);
-  };
-  let spare = new Map<number, number>();
-  const map = (fn: (s: number, p: number, out: Map<number, number>) => void) => {
+  /** One step over every row; `step` returns true when it kept the row's vector. */
+  const pass = (step: (key: number, vec: Float64Array, lo: number, hi: number, out: Rows) => boolean | void) => {
+    const from = dist;
     const out = spare;
-    out.clear();
-    for (const [s, p] of dist) fn(s, p, out);
-    spare = dist;
+    for (let i = 0; i < from.keys.length; i++)
+      if (!step(keyAt(i), from.vecs[i]!, from.lo[i]!, from.hi[i]!, out)) out.free(from.vecs[i]!, from.lo[i]!, from.hi[i]!);
+    pending = null;
+    from.reset();
+    spare = from;
     dist = out;
-    if (dist.size > peak) peak = dist.size;
-    steps++;
+    steadyAt = -1;
   };
-  let peak = 0,
-    steps = 0;
-  /** Consumes one lot: the drawn result, the rush bonus, the next draw (every guarantee lasts one draw). */
-  const consume = (s: number, p: number, buff: number, out: Map<number, number>) => {
+  const axpy = (out: Rows, key: number, vec: Float64Array, scale: number, lo: number, hi: number) => {
+    if (!(scale > 0)) return;
+    const i = out.at(key);
+    const into = out.vecs[i]!;
+    for (let g = lo; g < hi; g++) into[g]! += vec[g]! * scale;
+    out.touch(i, lo, hi);
+  };
+  /** Gauge addition with overflow into lots at the row's gauge maximum. */
+  const shift = (out: Rows, key: number, vec: Float64Array, scale: number, add: number, lo: number, hi: number) => {
+    if (!(scale > 0)) return;
+    const high = key & HIGH;
+    const max = gaugeMaxOf(rushOf(high << 8));
+    const lots = high & 7;
+    // Gauge values that overflow e times form one block: it lands in the row with e more lots.
+    for (let e = Math.trunc((lo + add) / max); ; e++) {
+      const a = Math.max(lo, e * max - add),
+        b = Math.min(hi, (e + 1) * max - add);
+      if (a >= hi) break;
+      if (b <= a) continue;
+      const i = out.at(e === 0 ? key : key - lots + Math.min(lots + e, 7));
+      const into = out.vecs[i]!;
+      const offset = add - e * max;
+      for (let g = a; g < b; g++) into[g + offset]! += vec[g]! * scale;
+      out.touch(i, a + offset, b + offset);
+    }
+  };
+  const unary = (fn: (s: number) => number) => {
+    const before = pending;
+    pending = before ? (s) => fn(before(s)) : fn;
+    steadyAt = -1;
+  };
+  /** Per row (and buff): the rows one consumed lot leads to, their probabilities and the gauge maximum a rush start
+   * converts the gauge at (0 when the maximum stays). */
+  const lotCache = new Map<number, Map<number, number[]>>();
+  const lotRows = (high: number, buff: number) => {
+    let byRow = lotCache.get(buff);
+    if (!byRow) lotCache.set(buff, (byRow = new Map()));
+    let out = byRow.get(high);
+    if (out) return out;
+    out = [];
+    const s = high << 8;
     const lots = lotsOf(s) - 1;
     let minimum = minimumOf(s);
     let first: [number, number][];
@@ -176,17 +296,74 @@ export function luckCurve(
       const before = gaugeMaxOf(rush);
       rush = result >= 0 && result < CRITICAL ? 0 : result === CRITICAL ? Math.min(rush + 1, 4) : rush;
       const after = gaugeMaxOf(rush);
-      let gauge = gaugeOf(s),
-        lotCount = lots;
-      if (before !== after && after >= 1 && gauge > after) {
-        lotCount += Math.trunc(gauge / after);
-        gauge %= after;
-      }
       flags |= FRAME_LOT;
       if (result === 0) flags |= FRAME_MISS;
       const type = rush < 4 ? LOT_TYPE_BY_RUSH[rush]! : 1;
-      for (const [pr, value] of draw(type, buff, minimum)) push(out, pack(gauge, lotCount, value, rush, 0, flags), p * pn * pr);
+      for (const [pr, value] of draw(type, buff, minimum))
+        out.push(pack(0, lots, value, rush, 0, flags) >>> 8, pn * pr, before !== after && after >= 1 ? after : 0);
     }
+    byRow.set(high, out);
+    return out;
+  };
+  /** Consumes one lot: the drawn result, the rush bonus, the next draw (every guarantee lasts one draw). */
+  const consume = (out: Rows, key: number, vec: Float64Array, lo: number, hi: number, buff: number) => {
+    const high = key & HIGH;
+    const residuePart = key - high;
+    const next = lotRows(high, buff);
+    for (let k = 0; k < next.length; k += 3) {
+      const to = residuePart + next[k]!,
+        q = next[k + 1]!,
+        after = next[k + 2]!;
+      if (!after || hi <= after + 1) {
+        axpy(out, to, vec, q, lo, hi);
+        continue;
+      }
+      const lots = to & 7;
+      if (lo <= after) axpy(out, to, vec, q, lo, after + 1);
+      for (let g = Math.max(lo, after + 1); g < hi; g++) {
+        const x = vec[g]!;
+        if (x === 0) continue;
+        const i = out.at(to - lots + Math.min(lots + Math.trunc(g / after), 7));
+        out.vecs[i]![g % after]! += x * q;
+        out.touch(i, g % after, (g % after) + 1);
+      }
+    }
+  };
+  const total = (vec: Float64Array, lo: number, hi: number) => {
+    let sum = 0;
+    for (let g = lo; g < hi; g++) sum += vec[g]!;
+    return sum;
+  };
+  const missHit = (high: number) => ((high << 8) & (PREV_MISS | MISS_USED)) === PREV_MISS;
+  /** Skills that fill the gauge after a Miss, once per range. */
+  const missPass = () => {
+    if (!dist.keys.some((_, i) => missHit(keyAt(i) & HIGH))) return;
+    for (const rule of missRules)
+      pass((key, vec, lo, hi, out) => {
+        const high = key & HIGH;
+        if (!missHit(high)) {
+          out.adopt(key, vec, lo, hi);
+          return true;
+        }
+        const g = (gaugeMaxOf(rushOf(high << 8)) * rule.value) | 0;
+        shift(out, key, vec, rule.chance, floorToI32(f(f(g) / 10000)), lo, hi);
+        axpy(out, key, vec, 1 - rule.chance, lo, hi);
+      });
+    unary((s) => (((s & (PREV_MISS | MISS_USED)) === PREV_MISS ? s | MISS_USED : s)));
+  };
+  const pendingLots = (high: number) => {
+    const s = high << 8;
+    return lotsOf(s) > 0 && !(s & FRAME_LOT);
+  };
+  const consumePending = (buff: number) => {
+    if (!dist.keys.some((_, i) => pendingLots(keyAt(i) & HIGH))) return;
+    pass((key, vec, lo, hi, out) => {
+      if (!pendingLots(key & HIGH)) {
+        out.adopt(key, vec, lo, hi);
+        return true;
+      }
+      consume(out, key, vec, lo, hi, buff);
+    });
   };
   const basePointCache = new Map<number, [number, number][]>();
   const notesByFrame = new Map<number, LuckRecord["notes"]>();
@@ -200,104 +377,109 @@ export function luckCurve(
     if (first < 0) continue;
     let last = record.frames.findIndex((frame, k) => k > first && frame.states[range] === S_FINISH);
     if (last < 0) last = record.frames.length - 1;
-    dist = new Map([[pack(0, 0, INVALID, 0, 0, 0), 1]]);
-    spare = new Map();
+    dist.vecs.forEach((vec, i) => dist.free(vec, dist.lo[i]!, dist.hi[i]!));
+    dist.reset();
+    pending = null;
+    const start = dist.at((settlement?.initial ?? 0) * ROW + (pack(0, 0, INVALID, 0, 0, 0) >>> 8));
+    dist.vecs[start]![0] = 1;
+    dist.touch(start, 0, 1);
+    steadyAt = -1;
     for (let k = first; k <= last; k++) {
       const frame = record.frames[k]!;
       const t = frames[k]!.timeMs;
       const state = frame.states[range]!;
       const changed = frame.updates.includes(range);
       const finishing = changed && state === S_FINISH;
+      const playing = frame.playing === range;
       for (const action of record.actions) {
         if (action.frame !== k || action.range !== range) continue;
-        map((s, p, out) => {
+        pass((key, vec, lo, hi, out) => {
+          const high = key & HIGH,
+            s = high << 8;
           if (action.type === 11005) {
             const result = action.value - 2 >= 0 && action.value - 2 <= 2 ? action.value - 1 : 0;
-            push(out, pack(gaugeOf(s), lotsOf(s), nextOf(s), rushOf(s), Math.max(minimumOf(s), result), flagsOf(s)), p * action.chance);
+            axpy(out, key - high + (pack(0, lotsOf(s), nextOf(s), rushOf(s), Math.max(minimumOf(s), result), flagsOf(s)) >>> 8), vec, action.chance, lo, hi);
           } else {
             const g = (gaugeMaxOf(rushOf(s)) * action.value) | 0;
-            push(out, addGauge(s, floorToI32(f(f(g) / 10000))), p * action.chance);
+            shift(out, key, vec, action.chance, floorToI32(f(f(g) / 10000)), lo, hi);
           }
-          push(out, s, p * (1 - action.chance));
+          axpy(out, key, vec, 1 - action.chance, lo, hi);
         });
       }
-      const gateOpen = changed || frame.playing === range;
+      const gateOpen = changed || playing;
       const luckNotes = (notesByFrame.get(k) ?? []).filter((n) => n.range === range);
       const judged = frames[k]?.judged ?? [];
-      if (!luckNotes.length && !judged.length) {
-        // A frame without notes: Miss gauge, rush checker, pending lot, finish and frame end in one pass.
-        const pendingBuff = 0;
-        map((s0, p0, out) => {
-          let branches: [number, number][] = [[s0, p0]];
-          if (missRules.length && gateOpen && s0 & PREV_MISS && !(s0 & MISS_USED)) {
-            for (const rule of missRules)
-              branches = branches.flatMap(([b, q]): [number, number][] => {
-                const g = (gaugeMaxOf(rushOf(b)) * rule.value) | 0;
-                return [
-                  [addGauge(b, floorToI32(f(f(g) / 10000))), q * rule.chance],
-                  [b, q * (1 - rule.chance)],
-                ];
-              });
-            branches = branches.map(([b, q]) => [b | MISS_USED, q]);
-          }
-          const tail = (s: number, p: number) => {
-            if (finishing) s &= ~BONUS;
-            let next = s & ~(PREV_MISS | FRAME_MISS | FRAME_LOT);
-            if (s & FRAME_MISS) next |= PREV_MISS;
-            if (changed && state === S_COMPLETE) next &= ~MISS_USED;
-            push(out, next, p);
-          };
-          for (const [b, q] of branches) {
-            let skill = (b & SKILL) !== 0;
-            if (frame.playing === range) skill = rushOf(b) !== 0;
-            if (changed && (state === S_COMPLETE || state === S_FINISH)) skill = false;
-            let s = b & ~(SKILL | SKILL_PREV);
-            if (b & SKILL) s |= SKILL_PREV;
-            if (skill) s |= SKILL;
-            if (state === S_PLAYING && lotsOf(s) > 0 && !(s & FRAME_LOT)) {
-              const tmp = new Map<number, number>();
-              consume(s, q, pendingBuff, tmp);
-              for (const [c, cq] of tmp) tail(c, cq);
-            } else tail(s, q);
-          }
-        });
-        continue;
-      }
-      if (missRules.length && gateOpen)
-        map((s, p, out) => {
-          if (!(s & PREV_MISS) || s & MISS_USED) return push(out, s, p);
-          let branches: [number, number][] = [[s, p]];
-          for (const rule of missRules)
-            branches = branches.flatMap(([b, q]): [number, number][] => {
-              const g = (gaugeMaxOf(rushOf(b)) * rule.value) | 0;
-              return [
-                [addGauge(b, floorToI32(f(f(g) / 10000))), q * rule.chance],
-                [b, q * (1 - rule.chance)],
-              ];
-            });
-          for (const [b, q] of branches) push(out, b | MISS_USED, q);
-        });
-      // The rush checker is asked in the skill phase; a score-up it starts or ends files at the frame time.
-      map((s, p, out) => {
+      const skillStep = (s: number) => {
         let skill = (s & SKILL) !== 0;
-        if (frame.playing === range) skill = rushOf(s) !== 0;
+        if (playing) skill = rushOf(s) !== 0;
         if (changed && (state === S_COMPLETE || state === S_FINISH)) skill = false;
         let next = s & ~(SKILL | SKILL_PREV);
         if (s & SKILL) next |= SKILL_PREV;
         if (skill) next |= SKILL;
-        push(out, next, p);
-      });
+        return next;
+      };
+      // Frame end: this frame's Miss feeds the next frame's skills.
+      const end = (s: number) => {
+        let next = s & ~(PREV_MISS | FRAME_MISS | FRAME_LOT);
+        if (s & FRAME_MISS) next |= PREV_MISS;
+        if (changed && state === S_COMPLETE) next &= ~MISS_USED;
+        return next;
+      };
+      if (!luckNotes.length && !judged.length) {
+        // Once every state is settled (no pending lot or Miss, the rush checker steady), an empty frame is the identity.
+        if (!changed) {
+          const at = state * 2 + Number(playing);
+          if (steadyAt === at) continue;
+          const missGate = missRules.length > 0 && playing;
+          const steady = dist.keys.every((_, i) => {
+            const s = (keyAt(i) & HIGH) << 8;
+            const skill = (s & SKILL) !== 0;
+            return (
+              !(s & (PREV_MISS | FRAME_MISS | FRAME_LOT)) &&
+              skill === ((s & SKILL_PREV) !== 0) &&
+              (!playing || skill === (rushOf(s) !== 0)) &&
+              !(missGate && !(s & MISS_USED) && s & PREV_MISS) &&
+              !(state === S_PLAYING && lotsOf(s) > 0)
+            );
+          });
+          if (steady) {
+            steadyAt = at;
+            continue;
+          }
+        }
+        if (missRules.length && gateOpen) missPass();
+        unary(skillStep);
+        if (state === S_PLAYING) consumePending(0);
+        unary(finishing ? (s) => end(s & ~BONUS) : end);
+        continue;
+      }
+      if (missRules.length && gateOpen) missPass();
+      // The rush checker is asked in the skill phase; a score-up it starts or ends files at the frame time.
+      unary(skillStep);
       // The frame's notes in chart time order: luck notes draw and consume lots, every judged note reads the state.
       // Commands filed at the frame time (the pending lot, the finish's rush disable, score-ups) reach only notes at or
       // after it.
       const observe = (id: number, atFrameTime: boolean) => {
+        const skillBit = atFrameTime ? SKILL : SKILL_PREV;
+        if (settlement) {
+          pass((key, vec, lo, hi, out) => {
+            const high = key & HIGH,
+              s = high << 8;
+            const residue = ((key >>> 18) + settlement.noteScore(id, !!(s & BONUS), !!(s & skillBit))) % settlement.modulus;
+            out.adopt(residue * ROW + high, vec, lo, hi);
+            return true;
+          });
+          return;
+        }
         let r = 0,
           sk = 0,
           both = 0;
-        const skillBit = atFrameTime ? SKILL : SKILL_PREV;
-        for (const [s, p] of dist) {
+        for (let i = 0; i < dist.keys.length; i++) {
+          const s = (keyAt(i) & HIGH) << 8;
           const bonus = (s & BONUS) !== 0,
             skill = (s & skillBit) !== 0;
+          if (!bonus && !skill) continue;
+          const p = total(dist.vecs[i]!, dist.lo[i]!, dist.hi[i]!);
           if (bonus) r += p;
           if (skill) sk += p;
           if (bonus && skill) both += p;
@@ -310,14 +492,17 @@ export function luckCurve(
         const key = n.op * 1000 + n.judgement * 100 + Math.round(n.speed * 10);
         let points = basePointCache.get(key);
         if (!points) basePointCache.set(key, (points = basePoints(n.op, n.judgement).map(([p, v]) => [p, floorToI32(f(f(n.speed + 1) * f(v)))])));
-        const consumes = state <= S_END;
-        map((s, p, out) => {
-          for (const [pb, add] of points!) {
-            const next = addGauge(s, add);
-            if (consumes && lotsOf(next) > 0) consume(next, p * pb, n.buff, out);
-            else push(out, next, p * pb);
-          }
+        pass((key, vec, lo, hi, out) => {
+          for (const [pb, add] of points!) shift(out, key, vec, pb, add, lo, hi);
         });
+        if (state <= S_END)
+          pass((key, vec, lo, hi, out) => {
+            if ((key & 7) === 0) {
+              out.adopt(key, vec, lo, hi);
+              return true;
+            }
+            consume(out, key, vec, lo, hi, n.buff);
+          });
       };
       const times = [...new Set([...luckNotes.map((n) => n.timeMs), ...judged.map((n) => n.timeMs)])].sort((a, b) => a - b);
       for (const time of times) {
@@ -326,20 +511,12 @@ export function luckCurve(
         for (const n of judged) if (n.timeMs === time) observe(n.noteId, false);
       }
       for (const n of luckNotes) if (n.timeMs >= t) luckNote(n);
-      if (state === S_PLAYING) {
-        const buff = luckNotes.find((n) => n.timeMs >= t)?.buff ?? luckNotes.at(-1)?.buff ?? 0;
-        map((s, p, out) => (lotsOf(s) > 0 && !(s & FRAME_LOT) ? consume(s, p, buff, out) : push(out, s, p)));
-      }
-      if (finishing) map((s, p, out) => push(out, s & ~BONUS, p));
+      if (state === S_PLAYING) consumePending(luckNotes.find((n) => n.timeMs >= t)?.buff ?? luckNotes.at(-1)?.buff ?? 0);
+      if (finishing) unary((s) => s & ~BONUS);
       for (const n of judged) if (n.timeMs >= t) observe(n.noteId, true);
-      // Frame end: this frame's Miss feeds the next frame's skills.
-      map((s, p, out) => {
-        let next = s & ~(PREV_MISS | FRAME_MISS | FRAME_LOT);
-        if (s & FRAME_MISS) next |= PREV_MISS;
-        if (changed && state === S_COMPLETE) next &= ~MISS_USED;
-        push(out, next, p);
-      });
+      unary(end);
     }
+    if (settlement) for (let i = 0; i < dist.keys.length; i++) settlement.residues[dist.keys[i]! >>> 18]! += total(dist.vecs[i]!, dist.lo[i]!, dist.hi[i]!);
   }
   return curve;
 }

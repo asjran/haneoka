@@ -25,15 +25,19 @@ export const SCORE_GOALS = {
   },
 } as const;
 
-export const resultSettings = (host: TeamBuilder): BuildSettings => host.resultSettings ?? host.settings;
+export const resultSettings = (host: TeamBuilder): BuildSettings => {
+  if (host.tab === "pt" && host.settings.rewardMode === "recommendation") {
+    const goal = host.pt.job?.request.goal;
+    return { ...host.settings, goal: "event", route: "live", measure: goal?.kind === "event" ? goal.measure : host.pt.measure,
+      songs: goal?.kind === "event" ? goal.songs : host.settings.songs };
+  }
+  return host.resultSettings ?? host.searchSettings;
+};
 
 export function scoreText(host: TeamBuilder, message: readonly [string, string]): string {
   return host.t(message[0], message[1]);
 }
 
 export function scoreProof(host: TeamBuilder, proven: boolean): string {
-  const settings = resultSettings(host);
-  if (settings.goal === "score" || settings.goal === "gekiso")
-    return scoreText(host, SCORE_GOALS[settings.criterion][proven ? "proven" : "unproven"]);
-  return proven ? host.t("proven", "Proven optimal") : host.t("unproven", "Time limit reached: best found so far");
+  return proven ? host.t("proven", "Proven optimal") : host.t("recommendation", "Recommendation");
 }

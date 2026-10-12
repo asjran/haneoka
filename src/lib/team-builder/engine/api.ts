@@ -18,9 +18,10 @@ import {
 } from "./objectives";
 import { memberEventPercent, snapEventPercent, teamPower, type MemberState, type MusicView, type PlayerState, type SnapState } from "./power";
 import { resolveBox, type MemberInput, type SnapInput, type UnknownPolicy } from "./box";
-import { searchTeams, type Constraints, type ObjectiveAdapter, type SearchOutput, type Team } from "./search";
+import { searchTeams, type Constraints, type ObjectiveAdapter, type SearchOutput, type SearchHit, type Team } from "./search";
 import { resolveSlotSkill, windowMs } from "./skills";
-import { gekisoChart, type GekisoChart } from "./gekiso";
+import { fullOrdersGekiso, gekisoChart, type GekisoChart } from "./gekiso";
+import { performer } from "./full/deck";
 import { gekisoSearch } from "./gekiso-objective";
 import { compareHits, planSummary } from "./merge";
 import { validatePtChart, validatePtRequest } from "./pt-eligibility";
@@ -31,6 +32,8 @@ import type { GekisoJustSummary } from "./gekiso-just";
 import { gekisoRewardObjective } from "./gekiso-reward-objective";
 import { GekisoScoreCache } from "./gekiso-score-cache";
 import { GekisoContextCache } from "./gekiso-context-cache";
+import { deadlineOf, remaining, requestSongs, pendingSong, acceptsReward, excludesBound, type RewardCutoff } from "./execution";
+import type { EngineSnapshot, StopReason } from "./protocol";
 import { isLiveBoostCost } from "./boosts";
 
 export interface SongRef {
@@ -68,8 +71,8 @@ export type Goal =
       /** Boosts per normal live (0–10) or challenge points per challenge live. */
       consumption: number;
       play: PlayModel;
-      /** Local recommendation trial: strict inputs, AP solo/challenge lives, reward-only ordering. */
-      ranking?: "pt-only";
+      /** Primary-reward ordering; pt-only additionally validates the strict solo/challenge input contract. */
+      ranking?: "pt-only" | "primary";
       /** Best challenge payout per CP for this objective. Only the solo trial uses this value. */
       cpExchange?: CpExchange;
       /** Non-challenge Gekisou rewards, using per-outcome settlement. Absent means solo. */
@@ -110,14 +113,23 @@ export interface EngineRequest {
   constraints: ConstraintInput;
   k: number;
   timeLimitMs: number | null;
+  deadline?: number;
+  requestId?: string;
+  contextKey?: string;
+  seeds?: EngineHit[];
+  completed?: SongResult[];
   /** Parallel search shard (see SearchInput.shard); merged by the client. */
   shard?: { index: number; count: number };
   /** Disables the aspiration floor (the rerun after a sharded aspiration fell short). */
   noFloor?: boolean;
+  /** Gekiso: only the shard-independent seeding, whose teams then seed every shard (`seeded`). */
+  seedOnly?: boolean;
+  seeded?: boolean;
   /** Known lower bounds on each song's k-th key (`songId:difficulty`), from teams other shards already found. */
   floors?: Record<string, number>;
   /** Other songs' Top-K key. Only a pt-only k=1 request may prove this song strictly below the cutoff. */
   rewardCutoff?: number;
+  cutoff?: RewardCutoff;
 }
 export interface HitScore {
   mean: number;
@@ -159,6 +171,7 @@ export interface SongResult {
   floor?: number;
   /** Exhaustive proof that no team in this scope reaches this key. Not a completed single-song optimum. */
   excludedBelow?: number;
+  exclusion?: RewardCutoff;
 }
 export interface PlanSummary {
   normal: EngineHit | null;
@@ -172,6 +185,10 @@ export interface PlanSummary {
   perBoost: number;
 }
 export interface EngineResponse {
+  stopReason?: StopReason;
+  error?: string;
+  /** Phase durations sum work across Workers; wallMs includes queueing and all phases. */
+  timing?: { initializationMs: number; networkMs: number; computationMs: number; wallMs: number };
   plan?: PlanSummary;
   results: SongResult[];
   /** Best (song, team) pairs over every song, distinct by song + member set. */
@@ -341,8 +358,16 @@ const scoreCaps = new Map<string, number>();
 const prepFingerprint = (request: EngineRequest) =>
   JSON.stringify([request.goal, request.members, request.snaps, request.player, request.unknownPolicy, request.constraints, request.k]);
 
-export async function runEngine(master: EngineMaster, charts: ChartCache, request: EngineRequest, onProgress?: (done: number, total: number) => void): Promise<EngineResponse> {
+/** How far the closed-form Gekisou scores may stray from the whole-live simulation, relative. Measured within 4e-6
+ * over every order of the best teams of Combo and Just charts; the margin keeps a wide reserve. */
+export const GEKISO_CLOSED_FORM_MARGIN = 3e-5;
+
+export async function runEngine(master: EngineMaster, charts: ChartCache, request: EngineRequest, onProgress?: (done: number, total: number) => void, onSnapshot?: (snapshot: EngineSnapshot) => void): Promise<EngineResponse> {
   const started = performance.now();
+  const deadline = deadlineOf(request);
+  request = { ...request, deadline };
+  const primaryOnly = request.goal.kind === "event" && !!request.goal.ranking;
+  if (request.cutoff && (!primaryOnly || request.k !== 1 || request.cutoff.contextKey !== request.contextKey || !Number.isFinite(request.cutoff.key))) throw new Error("invalid-reward-cutoff");
   const ptTrial = request.goal.kind === "event" && request.goal.ranking === "pt-only";
   if (request.rewardCutoff !== undefined && (!ptTrial || request.k !== 1 || !Number.isFinite(request.rewardCutoff)))
     throw new Error("invalid-reward-cutoff");
@@ -369,11 +394,43 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
     event: null,
     potential: null,
   });
-  const run = <Detail,>(objective: ObjectiveAdapter<Detail>, music: MusicView | null, powerEffects: readonly EventEffectRow[], k = request.k, seeds?: readonly Team[], shard: EngineRequest["shard"] | null = request.shard, limitMs?: number, floor?: number) =>
+  const targets = new Set<unknown>();
+  let currentSong: SongRef | null = null;
+  let currentChart: CompiledChart | null = null;
+  let lastSnapshot = -Infinity;
+  const snapshotHit = (hit: SearchHit<unknown>): EngineHit => {
+    const base = toHit(currentSong, hit.team, hit.power, hit.slotPowers, hit.key);
+    if (goal.kind === "power") return base;
+    const detail = hit.detail as Partial<EventDetail> & { potential?: number; area?: number; just?: GekisoJustSummary; luckSamples?: number; sampled?: boolean; observations?: number; cpSum?: number };
+    if (detail.scores && currentChart) base.score = scoreSummary(detail as LiveDetail, currentChart, hit.team, members, goal.kind === "gekiso" || (goal.kind === "event" && !!goal.gekiso));
+    if (detail.potential !== undefined) base.potential = { value: detail.potential, area: detail.area! };
+    if (goal.kind === "event") base.event = {
+      mean: (detail.mean ?? 0) / (goal.cpExchange?.denominator ?? 1), bonusPercent: (detail.bonus ?? 0) / 100,
+      challengePoints: detail.challengePoints ?? (detail.observations ? detail.cpSum! / detail.observations : 0),
+      perPlayMin: detail.directMin ?? detail.mean ?? 0, perPlayMax: detail.directMax ?? detail.mean ?? 0,
+      rewardSum: detail.rewardSum, comparisonSum: detail.comparisonSum, orders: detail.observations ?? ORDERS.length,
+      directMean: detail.rewardSum === undefined ? undefined : detail.rewardSum / (detail.observations ?? ORDERS.length),
+    };
+    if (detail.just) base.gekiso = { just: detail.just, luckSamples: detail.luckSamples!, sampled: detail.sampled!, rank: 1 };
+    return base;
+  };
+  const publish = (hits: readonly SearchHit<unknown>[]) => {
+    if (!onSnapshot || performance.now() - lastSnapshot < 100 || !hits.length) return;
+    lastSnapshot = performance.now();
+    const all = requestSongs(request).map(song => results.find(result => result.song?.songId === song?.songId && result.song?.difficulty === song?.difficulty) ?? pendingSong(song));
+    const index = results.length;
+    all[index] = { ...pendingSong(currentSong), hits: hits.map(snapshotHit) };
+    const response: EngineResponse = { results: all, overall: all.flatMap(result => result.hits).sort(compareHits).slice(0, request.k), unknownCards: box.unknown, elapsedMs: performance.now() - started };
+    onSnapshot({ requestId: request.requestId ?? "", contextKey: request.contextKey ?? "", response, coverage: { completed: results.filter(result => result.proven || result.exclusion).length, total: all.length } });
+  };
+  const savedSeeds = (request.seeds ?? []).map(hit => ({ members: hit.members.map(key => members.findIndex(member => member.key === key)), snaps: hit.snaps.map(key => key === null ? -1 : snaps.findIndex(snap => snap.key === key)) }));
+  const run = <Detail,>(objective: ObjectiveAdapter<Detail>, music: MusicView | null, powerEffects: readonly EventEffectRow[], k = request.k, seeds?: readonly Team[], shard: EngineRequest["shard"] | null = request.shard, limitMs?: number, floor?: number, onCandidate?: (hits: readonly SearchHit<Detail>[]) => void) =>
     searchTeams({
       floor,
+      floorExclusive: targets.has(objective) && request.cutoff?.comparison === "gt" && floor === request.cutoff.key,
       shard: shard ?? undefined,
-      seeds,
+      seeds: [...savedSeeds, ...(seeds ?? [])],
+      onCandidate: onCandidate ?? (targets.has(objective) ? publish : undefined),
       // Gekisou rewards also read support-skill effects the four dominance values do not carry.
       disableSnapDominance: ptTrial && request.goal.kind === "event" && !!request.goal.gekiso,
       master,
@@ -384,7 +441,7 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
       objective,
       constraints,
       k,
-      timeLimitMs: limitMs ?? songBudget(),
+      timeLimitMs: Math.min(limitMs ?? Infinity, songBudget(), remaining(deadline)),
       memberPowerPercent: powerEffects.length ? (member) => memberEventPercent(powerEffects, member) : undefined,
       snapPowerPercent: powerEffects.length ? (snap) => snapEventPercent(powerEffects, snap) : undefined,
     });
@@ -392,18 +449,21 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
    * threshold, which a shard alone would only reach after searching its own strong leaders. */
   const PROBE_MS = 300;
   const seeded = <Detail,>(objective: ObjectiveAdapter<Detail>, music: MusicView | null, powerEffects: readonly EventEffectRow[], seeds?: readonly Team[]) => {
+    targets.add(objective);
     if (!request.shard || request.shard.count < 2) return run(objective, music, powerEffects, request.k, seeds);
     const probe = run(objective, music, powerEffects, request.k, seeds, null, PROBE_MS);
     return run(objective, music, powerEffects, request.k, [...(seeds ?? []), ...probe.hits.map((hit) => hit.team)]);
   };
-  if (goal.kind === "plan") return runPlan(master, charts, request, goal, started, onProgress);
+  if (goal.kind === "plan") return runPlan(master, charts, request, goal, started, onProgress, onSnapshot);
   const songs: (SongRef | null)[] =
     goal.kind === "power" ? [goal.song] : goal.kind === "potential" ? [null] : goal.kind === "event" && goal.route === "skip" && !goal.songs.length ? [null] : goal.songs;
-  // A time limit the user chose is shared out over the songs still to search; without one, searches run to proof.
-  const budgetEnd = request.timeLimitMs == null ? Infinity : started + request.timeLimitMs;
   let songsLeft = songs.length;
-  const songBudget = () => (budgetEnd === Infinity ? Infinity : Math.max(250, (budgetEnd - performance.now()) / Math.max(1, songsLeft)));
+  const songBudget = () => remaining(deadline) / Math.max(1, songsLeft);
   for (const [index, song] of songs.entries()) {
+    const completed = request.completed?.find(result => result.proven && result.song?.songId === song?.songId && result.song?.difficulty === song?.difficulty);
+    if (completed) { results.push(completed); continue; }
+    if (!remaining(deadline)) { results.push(...songs.slice(index).map(song => request.completed?.find(result => result.proven && result.song?.songId === song?.songId && result.song?.difficulty === song?.difficulty) ?? pendingSong(song))); break; }
+    currentSong = song;
     if (ptTrial && song) {
       const source = await charts.source(song);
       validatePtChart(master, song, source);
@@ -416,9 +476,13 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
     const music = song ? musicView(master, song.songId, challengeId) : null;
     const powerEffects = challengeId !== null ? (master.events.get(challengeId)?.effects ?? []) : [];
     const chart = song && goal.kind !== "power" ? await charts.chart(song) : null;
+    currentChart = chart;
     const live = chart ? charts.live(chart) : null;
+    if (!remaining(deadline)) { results.push(...songs.slice(index).map(pendingSong)); break; }
     if (goal.kind === "power") {
-      const out = run(powerObjective(), music, powerEffects);
+      const objective = powerObjective();
+      targets.add(objective);
+      const out = run(objective, music, powerEffects);
       results.push({
         song,
         proven: out.proven,
@@ -435,7 +499,7 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
     } else if (goal.kind === "score") {
       const objective = liveScoreObjective({ ...shared, live: live!, play: goal.play }, goal.criterion);
       // Loose-bound plays start from the best all-Perfect teams, scored exactly under the real play.
-      const seeds = objective.hard ? run(liveScoreObjective({ ...shared, live: live!, play: AP }, goal.criterion), music, powerEffects, Math.max(20, request.k * 3)).hits.map((hit) => hit.team) : undefined;
+      const seeds = objective.hard ? run(liveScoreObjective({ ...shared, live: live!, play: AP }, goal.criterion), music, powerEffects, Math.max(20, request.k * 3), undefined, null, Math.min(150, songBudget() / 4)).hits.map((hit) => hit.team) : undefined;
       const out = seeded(objective, music, powerEffects, seeds);
       results.push({
         song,
@@ -446,7 +510,15 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
       });
     } else if (goal.kind === "gekiso") {
       const gekiso = await charts.gekiso(song!, goal.accuracy, goal.rank);
-      const out = gekisoSearch({
+      // The search ranks on the closed form, within a few 1e-5 of the game's own scores. Every team that could still
+      // reach the top k after that difference is scored on the whole-live simulation, which decides the ranking.
+      const exactRanking = !gekiso.luck && goal.seeds <= 1 && !request.seedOnly;
+      const margin = (key: number) => Math.max(1, Math.abs(key)) * GEKISO_CLOSED_FORM_MARGIN;
+      let extra = exactRanking ? 4 : 0;
+      const known = song ? request.floors?.[`${song.songId}:${song.difficulty}`] : undefined;
+      const search = () => gekisoSearch({
+        onCandidate: publish,
+        initialTeams: savedSeeds,
         master,
         player,
         members,
@@ -457,11 +529,31 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
         seeds: Array.from({ length: Math.max(0, goal.seeds) }, (_, i) => i),
         criterion: goal.criterion,
         constraints,
-        k: request.k,
+        k: request.k + extra,
         timeLimitMs: songBudget(),
         shard: request.shard,
-        floor: song ? request.floors?.[`${song.songId}:${song.difficulty}`] : undefined,
+        // Other shards' keys are whole-live scores: closed-form keys within the margin below may still pass them.
+        floor: known === undefined ? undefined : exactRanking ? known - 2 * margin(known) : known,
+        seedOnly: request.seedOnly,
+        seeded: request.seeded,
       });
+      let out = search();
+      if (exactRanking) {
+        // More teams within the margin than the search returned: widen until the last one falls outside it.
+        while (out.proven && out.hits.length === request.k + extra && out.hits.length >= request.k &&
+          out.hits.at(-1)!.key >= out.hits[request.k - 1]!.key - 2 * margin(out.hits[request.k - 1]!.key)) {
+          extra *= 2;
+          out = search();
+        }
+        const kth = out.hits[Math.min(request.k, out.hits.length) - 1]?.key ?? -Infinity;
+        const finalists = out.hits.filter((hit) => hit.key >= kth - 2 * margin(kth)).map((hit) => {
+          const deck = hit.team.members.map((member, slot) => performer(master, members[member]!, hit.team.snaps[slot]! >= 0 ? snaps[hit.team.snaps[slot]!]! : null));
+          const scores = fullOrdersGekiso(master, gekiso, deck, hit.power, music?.musicType ?? 0);
+          const key = goal.criterion === "min" ? scores.min : goal.criterion === "max" ? scores.max : scores.mean;
+          return { ...hit, key, detail: { ...hit.detail, scores } };
+        });
+        out = { ...out, hits: finalists.sort((a, b) => b.key - a.key).slice(0, request.k) };
+      }
       results.push({
         song,
         proven: out.proven,
@@ -475,10 +567,11 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
       const gekiso = await charts.gekiso(song, { great: 0, just: goal.gekiso.just }, 1);
       const measure = goal.measure === "items" ? "items" : "points";
       const adapter = gekisoRewardObjective({ ...shared, chart, gekiso, route, measure, options: goal.gekiso, exchange: goal.cpExchange, scoreCache: charts.gekisoScores, contextCache: charts.gekisoContexts });
+      targets.add(adapter);
       // Bonus-oriented seeds only improve traversal order. The main search is uncapped and uses safe reward bounds.
       const seeds = run(eventBonusSurrogate(shared, route.effects, measure), music, [], request.k, undefined, null, 100).hits.map(hit => hit.team);
       const known = request.floors?.[`${song.songId}:${song.difficulty}`];
-      const searchFloor = Math.max(known ?? -Infinity, request.rewardCutoff ?? -Infinity);
+      const searchFloor = request.cutoff?.key ?? Math.max(known ?? -Infinity, request.rewardCutoff ?? -Infinity);
       const out = run(adapter, music, [], request.k, seeds, undefined, undefined, Number.isFinite(searchFloor) ? searchFloor : undefined);
       results.push({ song, proven: out.proven, bound: out.bound, stats: out.stats, hits: out.hits.map(hit => {
         const d = hit.detail;
@@ -510,6 +603,12 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
           continue;
         }
       }
+      const early = eventObjective(chart && goal.route !== "skip" ? { ...shared, live: live!, play: goal.play, chart } : { ...shared, chart: null }, route, measure, master.params.skipRank, 0, Infinity, goal.ranking ?? "legacy", goal.cpExchange);
+      const earlySeeds: Team[] = [];
+      if (goal.measure !== "challenge-points") {
+        targets.add(early);
+        earlySeeds.push(...run(early, music, powerEffects, request.k, undefined, null, Math.min(40, songBudget() / 8)).hits.map(hit => hit.team));
+      }
       // A fast best-order score search proves the highest score any team reaches; event bounds cap ranks at it.
       let scoreCap = Infinity;
       if (chart && goal.route !== "skip") {
@@ -527,6 +626,7 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
       const objective = eventObjective(chart && goal.route !== "skip" ? { ...shared, live: live!, play: goal.play, chart } : { ...shared, chart: null }, route, measure, master.params.skipRank, 0, scoreCap, goal.ranking ?? "legacy", goal.cpExchange);
       let adapter: ObjectiveAdapter<unknown> = objective as ObjectiveAdapter<unknown>;
       if (goal.measure === "challenge-points" && chart) adapter = challengePointObjective(liveScoreObjective({ ...shared, live: live!, play: goal.play }, "mean"), chart, route);
+      targets.add(adapter);
       let out: SearchOutput<unknown>;
       let floor: number | undefined;
       const known = song ? request.floors?.[`${song.songId}:${song.difficulty}`] : undefined;
@@ -536,7 +636,7 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
         const prepKey = `${prepFingerprint(request)}|${song?.songId}:${song?.difficulty}`;
         let prep = eventPrep.get(prepKey);
         if (!prep) {
-          const seeds: Team[] = [];
+          const seeds: Team[] = [...earlySeeds];
           for (const weight of [2 ** 24, 64, 32, 16, 8, 4, 2])
             // Seeds only steer the start: each sweep stops at 100 ms (the main search below still runs to proof).
             seeds.push(...run(eventBonusSurrogate(shared, route.effects, measure, weight), music, powerEffects, request.k, undefined, null, 100).hits.map((hit) => hit.team));
@@ -546,26 +646,27 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
           if (eventPrep.size > 64) eventPrep.clear();
           eventPrep.set(prepKey, prep);
         }
-        const seeds = prep.seeds;
+        const seeds = [...earlySeeds, ...prep.seeds];
         floor = !request.noFloor ? prep.aspiration : undefined;
-        const searchFloor = Math.max(floor ?? -Infinity, known ?? -Infinity, request.rewardCutoff ?? -Infinity);
+        const searchFloor = request.cutoff?.key ?? Math.max(floor ?? -Infinity, known ?? -Infinity, request.rewardCutoff ?? -Infinity);
         out = run(adapter, music, powerEffects, request.k, seeds, undefined, undefined, Number.isFinite(searchFloor) ? searchFloor : undefined);
         const enough = out.hits.filter((hit) => floor === undefined || hit.key >= floor).length >= request.k;
-        if (!enough && request.rewardCutoff === undefined && !(request.shard && request.shard.count > 1)) {
+        if (!enough && request.cutoff === undefined && request.rewardCutoff === undefined && !(request.shard && request.shard.count > 1)) {
           out = run(adapter, music, powerEffects, request.k, seeds);
           floor = undefined;
         }
-      } else out = seeded(adapter, music, powerEffects);
+      } else out = seeded(adapter, music, powerEffects, earlySeeds);
       // Teams tied at one reward (other reward included) are ordered by mean score. One key cannot carry that order
       // exactly, so each tied reward among the results gets its own search over the teams that reach exactly it.
-      if (out.hits.length && chart && goal.route !== "skip" && goal.measure !== "challenge-points" && goal.ranking !== "pt-only") {
+      if (out.hits.length && chart && goal.route !== "skip" && goal.measure !== "challenge-points" && !primaryOnly) {
         const ordered: typeof out.hits = [];
         let proven = out.proven;
         let bound = out.bound;
         for (const key of [...new Set(out.hits.map((hit) => hit.key))].sort((a, b) => b - a)) {
           if (ordered.length >= request.k) break;
           const group = out.hits.filter((hit) => hit.key === key);
-          const tie = run(eventScoreTieObjective({ ...shared, live: live!, play: goal.play, chart }, objective, key, ordered.map(hit => hit.team)), music, powerEffects, request.k - ordered.length, group.map((hit) => hit.team), undefined, undefined, 0);
+          const tie = run(eventScoreTieObjective({ ...shared, live: live!, play: goal.play, chart }, objective, key, ordered.map(hit => hit.team)), music, powerEffects, request.k - ordered.length, group.map((hit) => hit.team), undefined, undefined, 0,
+            hits => publish([...ordered, ...hits.filter(hit => hit.key >= 0).map(hit => ({ ...hit, key }))]));
           if (!tie.proven) {
             proven = false;
             bound = Math.max(bound ?? -Infinity, key);
@@ -612,7 +713,9 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
         }),
       });
     } else {
-      const out = run(potentialObjective(shared, goal.windowSeconds), null, []);
+      const objective = potentialObjective(shared, goal.windowSeconds);
+      targets.add(objective);
+      const out = run(objective, null, []);
       results.push({
         song: null,
         proven: out.proven,
@@ -620,6 +723,15 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
         stats: out.stats,
         hits: out.hits.map((hit) => ({ ...toHit(null, hit.team, hit.power, hit.slotPowers, hit.key), potential: { value: hit.detail.potential, area: hit.detail.area } })),
       });
+    }
+    if (request.cutoff) {
+      const result = results[results.length - 1]!;
+      result.hits = result.hits.filter(hit => acceptsReward(hit.key, request.cutoff!));
+      if (!result.hits.length && (result.proven || (result.bound !== null && excludesBound(result.bound, request.cutoff)))) {
+        result.exclusion = request.cutoff;
+        result.proven = false;
+        delete result.floor;
+      }
     }
     if (request.rewardCutoff !== undefined) {
       const result = results[results.length - 1]!;
@@ -636,8 +748,8 @@ export async function runEngine(master: EngineMaster, charts: ChartCache, reques
   const overall = results
     .flatMap((result) => result.hits)
     .sort(compareHits)
-    .slice(0, Math.max(request.k, 3));
-  return { results, overall, unknownCards: box.unknown, elapsedMs: performance.now() - started };
+    .slice(0, request.k);
+  return { results, overall, unknownCards: box.unknown, elapsedMs: performance.now() - started, stopReason: results.every(result => result.proven || result.exclusion || result.excludedBelow !== undefined) ? "complete" : "budget" };
 }
 
 /** Normal-live challenge points per play: CP(rank) × rate, mean over orders; ties prefer score. */
@@ -788,13 +900,12 @@ async function runPlan(
   goal: Extract<Goal, { kind: "plan" }>,
   started: number,
   onProgress?: (done: number, total: number) => void,
+  onSnapshot?: (snapshot: EngineSnapshot) => void,
 ): Promise<EngineResponse> {
   const total = goal.challengeSongs.length + goal.normalSongs.length;
   let done = 0;
   const step = (inner: number) => onProgress?.(done + inner, total);
-  // A chosen time limit covers both stages, shared in proportion to their song counts.
-  const budget = request.timeLimitMs ?? null;
-  const budgetEnd = budget === null ? Infinity : started + budget;
+  const budgetEnd = deadlineOf(request);
   // Challenge stage first: its best points per challenge point prices what normal lives earn.
   const challenge: Pick<EngineResponse, "results" | "overall" | "unknownCards"> =
     goal.challengePointsPerPlay !== undefined
@@ -804,11 +915,12 @@ async function runPlan(
     charts,
     {
       ...request,
-      timeLimitMs: budget === null ? null : (budget * goal.challengeSongs.length) / Math.max(1, total),
       goal: { kind: "event", measure: "points", route: "challenge", eventId: goal.eventId, songs: goal.challengeSongs, consumption: goal.challengePointsPerLive, play: goal.play },
     },
     step,
+    snapshot => onSnapshot?.({ ...snapshot, response: { ...snapshot.response, results: [...snapshot.response.results, ...goal.normalSongs.map(pendingSong)] }, coverage: { completed: snapshot.coverage.completed, total } }),
   );
+  if (goal.challengePointsPerPlay === undefined && !challenge.results.every(result => result.proven)) return { ...challenge, results: [...challenge.results, ...goal.normalSongs.map(pendingSong)], elapsedMs: performance.now() - started, stopReason: "budget" };
   done += goal.challengeSongs.length;
   const bestChallenge = challenge.overall[0] ?? null;
   const pointsPerChallenge = goal.challengePointsPerPlay ?? bestChallenge?.event?.mean ?? 0;
@@ -819,39 +931,49 @@ async function runPlan(
   const shared = { master, members: box.members, snaps: box.snaps };
   const route = eventRoute(master, goal.eventId, "live", goal.boostsPerLive);
   const normalResults: SongResult[] = [];
+  let lastSnapshot = -Infinity;
   for (const [index, song] of goal.normalSongs.entries()) {
+    if (!remaining(budgetEnd)) { normalResults.push(...goal.normalSongs.slice(index).map(pendingSong)); break; }
     step(index);
     const chart = await charts.chart(song);
     const live = charts.live(chart);
     const music = musicView(master, song.songId, null);
-    const songBudget = budgetEnd === Infinity ? Infinity : Math.max(250, (budgetEnd - performance.now()) / Math.max(1, goal.normalSongs.length - index));
+    const songBudget = budgetEnd === Infinity ? Infinity : remaining(budgetEnd) / Math.max(1, goal.normalSongs.length - index);
     const best = searchTeams({ master, player, members: box.members, snaps: box.snaps, music, objective: scoreCapObjective({ ...shared, live, play: goal.play }), constraints, k: 1, timeLimitMs: songBudget / 4 });
     const top = best.hits[0]?.key ?? Infinity;
     const scoreCap = best.proven ? top : Math.max(top, best.bound ?? Infinity);
     const objective = eventObjective({ ...shared, live, play: goal.play, chart }, route, "points", master.params.skipRank, weight, scoreCap);
-    const out = searchTeams({ master, player, members: box.members, snaps: box.snaps, music, objective, constraints, k: request.k, timeLimitMs: songBudget, shard: request.shard });
+    const planHit = (hit: SearchHit<unknown>): EngineHit => {
+      const detail = hit.detail as EventDetail;
+      const pointsOnly = detail.perOrder ? detail.perOrder.reduce((sum, value) => sum + value, 0) / detail.perOrder.length : 0;
+      return {
+        song,
+        members: hit.team.members.map((i) => box.members[i]!.key),
+        snaps: hit.team.snaps.map((j) => (j < 0 ? null : box.snaps[j]!.key)),
+        power: hit.power,
+        slotPowers: hit.slotPowers,
+        key: hit.key,
+        score: detail.scores ? scoreSummary(detail, chart, hit.team, box.members) : null,
+        skipScore: null,
+        // perOrder includes the challenge-point weight; report plain points per play.
+        event: { mean: pointsOnly - weight * detail.challengePoints, bonusPercent: detail.bonus / 100, challengePoints: detail.challengePoints, perPlayMin: 0, perPlayMax: 0 },
+        potential: null,
+      };
+    };
+    const candidate = (hits: readonly SearchHit<unknown>[]) => {
+      if (performance.now() - lastSnapshot < 100) return;
+      lastSnapshot = performance.now();
+      const results = [...challenge.results, ...normalResults, { ...pendingSong(song), hits: hits.map(planHit) }, ...goal.normalSongs.slice(index + 1).map(pendingSong)];
+      onSnapshot?.({ requestId: request.requestId ?? "", contextKey: request.contextKey ?? "", coverage: { completed: results.filter(result => result.proven).length, total },
+        response: { results, overall: results.flatMap(result => result.hits).sort(compareHits).slice(0, request.k), unknownCards: box.unknown, elapsedMs: performance.now() - started } });
+    };
+    const out = searchTeams({ master, player, members: box.members, snaps: box.snaps, music, objective, constraints, k: request.k, onCandidate: onSnapshot ? candidate : undefined, timeLimitMs: Math.min(songBudget, remaining(budgetEnd)), shard: request.shard });
     normalResults.push({
       song,
       proven: out.proven,
       bound: out.bound,
       stats: out.stats,
-      hits: out.hits.map((hit) => {
-        const detail = hit.detail as EventDetail;
-        const pointsOnly = detail.perOrder ? detail.perOrder.reduce((sum, value) => sum + value, 0) / detail.perOrder.length : 0;
-        return {
-          song,
-          members: hit.team.members.map((i) => box.members[i]!.key),
-          snaps: hit.team.snaps.map((j) => (j < 0 ? null : box.snaps[j]!.key)),
-          power: hit.power,
-          slotPowers: hit.slotPowers,
-          key: hit.key,
-          score: detail.scores ? scoreSummary(detail, chart, hit.team, box.members) : null,
-          skipScore: null,
-          // perOrder includes the challenge-point weight; report plain points per play.
-          event: { mean: pointsOnly - weight * detail.challengePoints, bonusPercent: detail.bonus / 100, challengePoints: detail.challengePoints, perPlayMin: 0, perPlayMax: 0 },
-          potential: null,
-        };
-      }),
+      hits: out.hits.map(planHit),
     });
   }
   const bestNormal = normalResults.flatMap((result) => result.hits).sort(compareHits)[0] ?? null;

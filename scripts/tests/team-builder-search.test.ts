@@ -1,7 +1,10 @@
+import "./team-builder-execution.test";
+import "./team-builder-gekiso-expectation.test";
+import "./team-builder-gekiso-cold-start.test";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compileFromMasterTables, type EventEffectRow, type Song, type SkillEffectRow } from "../../src/lib/team-builder/engine/master";
-import { searchTeams, NO_CONSTRAINTS, type SearchInput, type SearchHit, type Team } from "../../src/lib/team-builder/engine/search";
+import { searchTeams, NO_CONSTRAINTS, type SearchInput, type SearchHit, type Team, type ObjectiveAdapter } from "../../src/lib/team-builder/engine/search";
 import { teamPower, type MemberState, type SnapState, type PlayerState } from "../../src/lib/team-builder/engine/power";
 import { eventObjective, eventScoreTieObjective, liveScoreObjective, scoreCapObjective, type EventRoute, type EventDetail } from "../../src/lib/team-builder/engine/objectives";
 import { mergeShardResponses } from "../../src/lib/team-builder/engine/merge";
@@ -28,6 +31,23 @@ function fixture(n = 7, s = 2) {
     characterMemory: new Map(), musicMemory: new Map() };
   return { master, members, snaps, player, music: null };
 }
+
+test("member traversal hints keep the exhaustive constrained Top-K", () => {
+  const data = fixture(7, 2);
+  const constraints = { ...NO_CONSTRAINTS, requiredMembers: [1], excludedMembers: [6], requiredSnaps: [0], bindings: new Map([[0, 0]]) };
+  for (const direction of [-1, 1]) {
+    const objective: ObjectiveAdapter<null> = {
+      skill: () => [0, 0], memberBonus: () => 0, snapBonus: () => 0,
+      bound: totals => totals.power, interval: (_team, totals) => [totals.power, totals.power],
+      exact: (_team, power) => ({ key: power, detail: null }), preferMember: member => direction * member,
+    };
+    const input: SearchInput<null> = { ...data, constraints, objective, k: 3, disableSnapDominance: true };
+    const expected = exhaustive(input).slice(0, input.k).map(hit => hit.key);
+    const result = searchTeams(input);
+    assert.equal(result.proven, true);
+    assert.deepEqual(result.hits.map(hit => hit.key), expected);
+  }
+});
 
 /** Independent full enumeration, with no bounds, dominance, seed or candidate trimming. */
 function exhaustive<D>(input: SearchInput<D>, compare = (a: SearchHit<D>, b: SearchHit<D>) => b.key - a.key): SearchHit<D>[] {
@@ -263,6 +283,28 @@ test("the real engine entry ranks event results by reward, other reward, then me
   assert.equal(actual.results[0]!.proven, true);
   assert.deepEqual(actual.overall.map(hit => [hit.key, hit.score!.mean]), expected.map(hit => [hit.key, (hit.detail as EventDetail).scores.mean]));
   assert.equal(new Set(actual.overall.map(hit => [...hit.members].sort().join(","))).size, 3);
+  const primaryRequest: EngineRequest = { ...request, k: 1, goal: { ...request.goal as Extract<EngineRequest["goal"], { kind: "event" }>, ranking: "primary" } };
+  const primary = await runEngine(master, cache, primaryRequest);
+  const primaryExpected = exhaustive({ ...data, objective: eventObjective(data, rewards, "points", 2, 0, Infinity, "primary"), k: 1 });
+  assert.equal(primary.overall[0]!.key, primaryExpected[0]!.key);
+  const cutoff = { key: primary.overall[0]!.key, contextKey: "test", ranking: "reward-song-difficulty-v1" as const, comparison: "gt" as const };
+  const excluded = await runEngine(master, cache, { ...primaryRequest, contextKey: "test", cutoff });
+  assert.deepEqual(excluded.results[0]!.exclusion, cutoff);
+  const tied = await runEngine(master, cache, { ...primaryRequest, contextKey: "test", cutoff: { ...cutoff, comparison: "gte" } });
+  assert.equal(tied.overall[0]!.key, cutoff.key);
+  const expired = await runEngine(master, new ChartCache(master, async () => { throw Error("must not load charts"); }), { ...primaryRequest, deadline: 0 });
+  assert.equal(expired.overall.length, 0);
+  assert.equal(expired.results[0]!.proven, false);
+  const resumed = await runEngine(master, new ChartCache(master, async () => { throw Error("completed chart must not reload"); }), { ...primaryRequest, completed: primary.results });
+  assert.equal(resumed.overall[0]!.key, cutoff.key);
+  let powerCandidate: EngineHit | undefined;
+  const power = await runEngine(master, cache, { ...request, goal: { kind: "power", song: null, challengeEventId: null }, k: 1 }, undefined,
+    snapshot => { powerCandidate = snapshot.response.overall[0]; });
+  assert.ok(powerCandidate);
+  assert.equal(powerCandidate.key, powerCandidate.power);
+  assert.equal(power.results[0]!.proven, true);
+
+
 });
 
 test("merging equal-reward duplicates always keeps the higher mean score", () => {

@@ -1350,6 +1350,13 @@
   },
   "tools": {
     "teamBuilder": {
+      "rewardSearch": "보상 팀 편성",
+      "improvementBound": "최대 {percent}% 향상",
+      "recommendation": "추천",
+      "continueOptimal": "최적 검증 계속",
+      "noCandidate": "아직 추천 없음",
+      "cpCycle": "CP 장기 환산",
+      "fullRanking": "보상 전체 순위",
       "title": "팀 편성 · Beta",
       "library": "보유 카드",
       "members": "멤버",
@@ -2124,7 +2131,7 @@
       "worstOrder": "최악 순서",
       "bestScore": "최고 점수",
       "comparison": "비교",
-      "proven": "최적 증명됨",
+      "proven": "최적 검증 완료",
       "unproven": "시간 제한 도달: 지금까지 찾은 최선의 결과",
       "resultMeta": "{ms} ms · {exact}개 팀 정밀 시뮬레이션",
       "staleResults": "이 검색 이후 조건이 바뀌었습니다.",

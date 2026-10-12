@@ -58,9 +58,23 @@ export interface LuckRecord {
   /** Range-start luck actions as they execute: 11003 gauge add (value) or 11005 guarantee (value, limit). */
   actions: { frame: number; range: number; type: number; value: number; limit: number; chance: number }[];
   /** Per frame: each range's state after the before-update, the ranges that changed, the playing range. */
-  frames: { states: number[]; updates: number[]; playing: number }[];
+  frames: { states: number[]; updates: number[]; playing: number; /** Distinct within a Worker. */ id: number }[];
   /** Judged range-target notes of luck ranges: frame, range, note type, converted judgement, time, gauge speed, lot buff. */
   notes: { frame: number; range: number; op: number; judgement: number; timeMs: number; speed: number; buff: number }[];
+}
+type RecordedFrame = LuckRecord["frames"][number];
+/** Recorded frames repeat across frames and decks: each distinct one is kept once, so a Worker holding hundreds of
+ * recordings holds a few hundred frames, not millions. */
+const recordedFrames = new Map<string, RecordedFrame>();
+let nextFrame = 0;
+function recordedFrame(states: number[], updates: readonly number[], playing: number): RecordedFrame {
+  const key = `${states.join(",")}/${updates.join(",")}/${playing}`;
+  let frame = recordedFrames.get(key);
+  if (!frame) {
+    if (recordedFrames.size >= 4096) recordedFrames.clear();
+    recordedFrames.set(key, (frame = { states, updates: [...updates], playing, id: nextFrame++ }));
+  }
+  return frame;
 }
 export interface GekisouSetup {
   fevers: readonly (readonly [number, number])[];
@@ -208,7 +222,7 @@ interface GekisouLive {
 
 export class LiveModel {
   private readonly notes = new Map<number, LiveNote>();
-  private readonly fired: boolean[];
+  private readonly byTime: number[];
   private readonly random: LiveRandom;
   readonly life: LifeController;
   private readonly combo: ComboCounter;
@@ -248,7 +262,7 @@ export class LiveModel {
     private readonly record: LuckRecord | null = null,
   ) {
     for (const n of notes) this.notes.set(n.id, n);
-    this.fired = events.map(() => false);
+    this.byTime = events.map((_, i) => i).sort((a, b) => events[a]![1] - events[b]![1] || a - b);
     this.random = new LiveRandom(seed);
     const live = master.live;
     if (setup) {
@@ -417,22 +431,16 @@ export class LiveModel {
       this.gk.feverUpdates = this.gk.fever.update(t);
       this.gk.ctrl.beforeUpdate(dt, t, this.gk.feverUpdates, this.score.score, this.env());
       if (this.record)
-        this.record.frames.push({
-          states: this.gk.ctrl.states.map((s) => s.state),
-          updates: [...this.gk.ctrl.stateUpdates],
-          playing: this.gk.ctrl.currentPlayingIndex,
-        });
+        this.record.frames.push(recordedFrame(this.gk.ctrl.states.map((s) => s.state), this.gk.ctrl.stateUpdates, this.gk.ctrl.currentPlayingIndex));
     }
     this.frameEvents.length = 0;
-    if (this.firedCount < this.events.length)
-      for (let i = 0; i < this.events.length; i++) {
-        const [index, evT] = this.events[i]!;
-        if (!this.fired[i] && evT <= t) {
-          this.fired[i] = true;
-          this.firedCount++;
-          this.frameEvents.push([index, evT]);
-        }
-      }
+    // Events due by now, in event order: a pointer over the events sorted by time.
+    if (this.firedCount < this.events.length && this.events[this.byTime[this.firedCount]!]![1] <= t) {
+      const due: number[] = [];
+      while (this.firedCount < this.events.length && this.events[this.byTime[this.firedCount]!]![1] <= t) due.push(this.byTime[this.firedCount++]!);
+      if (due.length > 1) due.sort((a, b) => a - b);
+      for (const i of due) this.frameEvents.push([this.events[i]![0], this.events[i]![1]]);
+    }
     this.judged.length = 0;
     const results = this.results;
     results.length = 0;

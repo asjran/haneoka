@@ -47,6 +47,8 @@ export interface ObjectiveAdapter<Detail> {
   preserveSnapOptions?: boolean;
   /** Upper bound of the key for optimistic totals. */
   bound(totals: Totals): number;
+  /** Optional tighter bound once some members are chosen (leader first), `left` members still to come. */
+  memberBound?(members: readonly number[], totals: Totals, left: number): number;
   /** Tighter bounds after the members and each snap prefix are fixed. */
   assignmentBound?(members: readonly number[], options: readonly (readonly number[])[]):
     (totals: Totals, assigned: readonly number[], from: number) => number;
@@ -61,6 +63,8 @@ export interface ObjectiveAdapter<Detail> {
   jointTargets?(limit: number): readonly { bonus: number; product: number }[];
   /** Snap ordering hint: higher first within a slot (e.g. recovery when life drains). */
   preferSnap?(member: number, snap: number): number;
+  /** Member and leader traversal hint: higher first, without excluding any member. */
+  preferMember?(member: number): number;
   /** Optional tighter upper bound for a complete team, checked before `interval`. */
   leafBound?(team: Team, totals: Totals): number;
   /** Interval containing the exact key of a complete team with exact power. */
@@ -115,14 +119,19 @@ export interface SearchInput<Detail> {
   /** Parallel search: this worker takes every `count`-th leader from `index`. Each team has one leader, so the
    * union of the shards' top-k lists (deduplicated by member set) is the exact top k. */
   shard?: { index: number; count: number };
+  /** Parallel search by member set: every shard walks every leader but assigns snaps only to the sets it owns (a
+   * set's teams all go to one shard, whichever member leads). */
+  owns?: (members: readonly number[]) => boolean;
   /** Aspiration: teams below this key are pruned. The result is exact when it still holds k teams at or above the
    * floor; otherwise the caller searches again with a lower floor. */
   floor?: number;
+  floorExclusive?: boolean;
   progress?: (done: number, total: number) => void;
   /** Keep every legal photo option when scalar dominance has not been established for the objective. */
   disableSnapDominance?: boolean;
   /** Defaults to true: evaluate competitive candidates as they arrive and retain the exact Top-K. */
   streaming?: boolean;
+  onCandidate?: (hits: readonly SearchHit<Detail>[]) => void;
 }
 export interface SearchHit<Detail> {
   team: Team;
@@ -432,7 +441,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
   const retainedKeys = new Map<string, number>();
   // Equality is prunable only after k distinct legal teams have been evaluated exactly.
   // Until then lower bounds (including seeds and other shards' floors) retain their strict comparison.
-  const cannotImprove = (upper: number) => streaming && hits.length >= k && upper <= hits[k - 1]!.key;
+  const cannotImprove = (upper: number) => (!!input.floorExclusive && upper <= input.floor!) || streaming && hits.length >= k && upper <= hits[k - 1]!.key;
   const retain = (candidate: Candidate, evaluated?: { key: number; detail: Detail }) => {
     if (!streaming) {
       candidates.push(candidate);
@@ -466,6 +475,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
     hits.splice(index, 0, hit);
     retainedKeys.set(candidate.setKey, exact.key);
     if (hits.length > k) retainedKeys.delete(setKeyOf(hits.pop()!.team));
+    input.onCandidate?.(hits);
   };
   /** Compact when the pool doubles past what survived the last compaction, keeping the work amortized linear. */
   let compactAt = 4096;
@@ -474,7 +484,9 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
   );
   // Leader order: strongest optimistic slot first, so the threshold rises early.
   const memberScore = (i: number) => bases[i]!.fixedPoints + best[i]!.power;
-  leaders.sort((a, b) => memberScore(b) - memberScore(a));
+  const preferMember = objective.preferMember;
+  const preference = (a: number, b: number) => preferMember ? preferMember(b) - preferMember(a) : 0;
+  leaders.sort((a, b) => preference(a, b) || memberScore(b) - memberScore(a));
   // Interleaved over the strength order, so every shard holds a balanced mix of strong and weak leaders.
   if (input.shard && input.shard.count > 1) {
     const { index, count } = input.shard;
@@ -485,7 +497,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
   const floor = input.floor ?? -Infinity;
   let timedOut = false;
   let unexploredBound = -Infinity;
-  const deadline = input.timeLimitMs ? started + input.timeLimitMs : Infinity;
+  const deadline = input.timeLimitMs == null ? Infinity : started + input.timeLimitMs;
   // More leader shards than eligible leaders is normal. An empty shard has no reason to re-evaluate global seeds.
   if (!leaders.length) return { hits: [], proven: true, bound: null, stats: { ...stats, elapsedMs: performance.now() - started } };
 
@@ -541,7 +553,10 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
     seedKeys.push({ seed, key });
     retain({ setKey, team: { members: [...team], snaps: [...seed.snaps] }, power, slotPowers, totals: { power, skill: weight, skillLow: weightLow, bonus }, low: key, high: key }, evaluated);
   };
-  for (const seed of input.seeds ?? []) if (seedValid(seed)) evaluateSeed(seed);
+  for (const seed of input.seeds ?? []) {
+    if (performance.now() > deadline) break;
+    if (seedValid(seed)) evaluateSeed(seed);
+  }
   for (const [leaderIndex, leader] of leaders.entries()) {
     input.progress?.(leaderIndex, leaders.length);
     if (performance.now() > deadline) timedOut = true;
@@ -575,12 +590,12 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
         break;
       }
       const ordered = (must.length ? must : list).sort(
-        (a, b) => slotPower(b) + best[b]!.power - (slotPower(a) + best[a]!.power),
+        (a, b) => preference(a, b) || slotPower(b) + best[b]!.power - (slotPower(a) + best[a]!.power),
       );
       (must.length ? forced : free).push(ordered);
     }
     if (!groups.size || forced.length > 4) continue;
-    free.sort((a, b) => slotPower(b[0]!) + best[b[0]!]!.power - (slotPower(a[0]!) + best[a[0]!]!.power));
+    free.sort((a, b) => preference(a[0]!, b[0]!) || slotPower(b[0]!) + best[b[0]!]!.power - (slotPower(a[0]!) + best[a[0]!]!.power));
     const characters = [...forced, ...free];
     const forcedCount = forced.length;
     // Per character, the optimistic slot values of its best member.
@@ -617,12 +632,18 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
       return table[Math.min(from, values.length)]![Math.min(count, 4)]!;
     };
     if (characters.length < 4) continue;
-    const leaderBound = objective.bound({
+    // The member-set bound costs more: only asked when the plain one does not prune.
+    const memberSetBound = (chosenMembers: readonly number[], totals: Totals, left: number) => {
+      const plain = objective.bound(totals);
+      if (!objective.memberBound || plain < Math.max(frontier.threshold, floor)) return plain;
+      return Math.min(plain, objective.memberBound(chosenMembers, totals, left));
+    };
+    const leaderBound = memberSetBound([leader], {
       power: leaderTotals.power + topSum(charPower, 0, 4),
       skill: leaderTotals.skill + topSum(charSkill, 0, 4),
       skillLow: 0,
       bonus: Math.min(leaderTotals.bonus + topSum(charBonus, 0, 4), memberOnlyBound(memberBonus[leader]!, 0, 4)),
-    });
+    }, 4);
     if (leaderBound < Math.max(frontier.threshold, floor) || cannotImprove(leaderBound)) continue;
     if (timedOut) {
       // Unexplored: its optimistic bound limits every team it leads.
@@ -643,7 +664,7 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
       stats.memberNodes++;
       const left = 4 - chosen.length;
       if (left === 0) {
-        assignSnaps(leader, [...chosen]);
+        if (!input.owns || input.owns([leader, ...chosen])) assignSnaps(leader, [...chosen]);
         return;
       }
       if (characters.length - index < left) return;
@@ -656,12 +677,12 @@ export function searchTeams<Detail>(input: SearchInput<Detail>): SearchOutput<De
         }
         return;
       }
-      const bound = objective.bound({
+      const bound = memberSetBound([leader, ...chosen], {
         power: power + topSum(charPower, index, left),
         skill: weight + topSum(charSkill, index, left),
         skillLow: 0,
         bonus: Math.min(bonus + topSum(charBonus, index, left), memberOnlyBound(memberPart, index, left)),
-      });
+      }, left);
       if (bound < Math.max(frontier.threshold, floor) || cannotImprove(bound)) return;
       if (constraints.minBonus !== null && bonus + topSum(charBonus, index, left) < constraints.minBonus) return;
       if (constraints.maxBonus != null && bonus - memberOptimisticSnapBonus(chosen) > constraints.maxBonus) return;

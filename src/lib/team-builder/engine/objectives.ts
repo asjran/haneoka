@@ -325,7 +325,7 @@ export function eventObjective(
   challengePointWeight = 0,
   /** A proven upper bound on any team's score in any order: rank bounds never assume a rank above it. */
   scoreCap = Infinity,
-  ranking: "legacy" | "pt-only" = "legacy",
+  ranking: "legacy" | "pt-only" | "primary" = "legacy",
   exchange?: CpExchange,
 ): ObjectiveAdapter<EventDetail | { bonus: number; mean: number }> {
   const bonusType = measure === "points" ? 0 : 1;
@@ -339,7 +339,7 @@ export function eventObjective(
   const snapBonus = (j: number) => snapEventPercent(route.effects, context.snaps[j]!, bonusType);
   // Equal rewards prefer more of the other reward (medals for points, points for medals). Its weight keeps the whole
   // term below the reward's smallest step, a 120th of one unit.
-  const TIE = ranking === "pt-only" ? 0 : 1 / 2 ** 24;
+  const TIE = ranking !== "legacy" ? 0 : 1 / 2 ** 24;
   const otherType = 1 - bonusType;
   const other = (bonus: number, rank: number) =>
     measure === "points" ? eventItems(route, bonus, rank) : eventPoints(route, bonus, rank);
@@ -387,7 +387,7 @@ export function eventObjective(
         return value(totals.bonus, rank) + TIE * other(bonus, rank);
       };
     };
-  const MAX_BONUS = ranking === "pt-only"
+  const MAX_BONUS = ranking !== "legacy"
     ? topFive(context.members.map((_, i) => memberBonus(i))) + topFive(context.snaps.map((_, i) => snapBonus(i)))
     : 1_000_000;
   if (route.kind === "skip" || !context.chart) {

@@ -1350,6 +1350,13 @@
   },
   "tools": {
     "teamBuilder": {
+      "rewardSearch": "獎勵配隊",
+      "improvementBound": "可提升上限 {percent}%",
+      "recommendation": "推薦",
+      "continueOptimal": "繼續驗證最優",
+      "noCandidate": "尚無推薦結果",
+      "cpCycle": "長期 CP 換算",
+      "fullRanking": "完整獎勵排序",
       "title": "配隊工具 · Beta",
       "library": "卡庫",
       "members": "成員",
@@ -2124,7 +2131,7 @@
       "worstOrder": "最差順序",
       "bestScore": "單次最高分",
       "comparison": "對比",
-      "proven": "已證明最優",
+      "proven": "已驗證最優",
       "unproven": "已達時間上限：目前找到的最佳結果",
       "resultMeta": "{ms} 毫秒 · 精確模擬了 {exact} 支隊伍",
       "staleResults": "自本次搜尋以來條件已變更。",
