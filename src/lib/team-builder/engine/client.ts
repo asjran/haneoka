@@ -123,8 +123,21 @@ export class EngineClient {
     let done = 0;
     const report = () => progress?.(done, songs.length);
     const hard: { index: number; floor?: number }[] = [];
+    if (request.goal.kind === "gekiso") {
+      // Every shard would repeat the song's seeding pass, which is most of a Gekiso search: songs run whole, side by side.
+      let next = 0;
+      const worker = async (engine: EngineWorker) => {
+        while (next < songs.length) {
+          const index = next++;
+          const limit = end === Infinity ? null : Math.max(250, (end - performance.now()) / (songs.length - done));
+          responses[index] = await engine.send<EngineResponse>({ type: "run", id: 0, request: of(index, { timeLimitMs: limit }) });
+          done++;
+          report();
+        }
+      };
+      await Promise.all(this.pool.map(worker));
+    } else if (request.noFloor) hard.push(...songs.map((_, index) => ({ index })));
     // Most songs prove their ranking within the quick window: every Worker takes songs off one list.
-    if (request.noFloor || request.goal.kind === "gekiso") hard.push(...songs.map((_, index) => ({ index })));
     else {
       let next = 0;
       const worker = async (engine: EngineWorker) => {
