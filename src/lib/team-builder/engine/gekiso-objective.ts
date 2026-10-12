@@ -137,8 +137,13 @@ function levelMaster(master: EngineMaster, template: SkillEffectRow, level: numb
   return { ...master, gekisoSkills: skills };
 }
 
-/** Per-Worker Gekisou contexts by chart, then level tag and lottery seeds, then deck. */
-const contextsByChart = new WeakMap<GekisoChart, Map<string, Map<string, GekisoContext>>>();
+/** Per-Worker Gekisou contexts of the chart being searched, by level tag and lottery seeds, then deck. A context
+ * holds four note-sized arrays and a search simulates thousands of decks, so only the current chart's are kept and
+ * the oldest are dropped past a fixed budget; a dropped context is simulated again when asked for. */
+const CONTEXT_BYTES = 16 * 1024 * 1024;
+const contexts = { chart: null as GekisoChart | null, byTag: new Map<string, Map<string, GekisoContext>>(), bytes: 0 };
+const contextBytes = (key: string, value: GekisoContext) =>
+  key.length * 2 + 128 + value.judgement.byteLength + value.gk.byteLength + value.up.byteLength + value.luck.byteLength;
 const levelTags = new WeakMap<EngineMaster, string>();
 /** Per-Worker memo of the seeding phase (shard-independent), keyed by chart and request. */
 const seededByChart = new WeakMap<GekisoChart, Map<string, SearchHit<GekisoDetail>[]>>();
@@ -155,8 +160,12 @@ export function gekisoSearch(input: GekisoSearchInput): SearchOutput<GekisoDetai
 
   // Contexts are kept per chart across calls: the shards of one request (and later requests on the same chart) share
   // every deck already simulated. Level masters are tagged by level, since each call builds them afresh.
-  let chartCache = contextsByChart.get(chart);
-  if (!chartCache) contextsByChart.set(chart, (chartCache = new Map()));
+  if (contexts.chart !== chart) {
+    contexts.chart = chart;
+    contexts.byTag = new Map();
+    contexts.bytes = 0;
+  }
+  const chartCache = contexts.byTag;
   const seedTag = input.seeds.join(",");
   const readAll = readAttributes(master, "all");
   const readMembers = readAttributes(master, "members");
@@ -165,8 +174,8 @@ export function gekisoSearch(input: GekisoSearchInput): SearchOutput<GekisoDetai
   const performerKeys = new WeakMap<Performer, string>();
   const contextOf = (deck: Performer[], within = master) => {
     const tag = `${within === master ? "base" : (levelTags.get(within) ?? "?")}|${seedTag}`;
-    let cache = chartCache!.get(tag);
-    if (!cache) chartCache!.set(tag, (cache = new Map()));
+    let cache = chartCache.get(tag);
+    if (!cache) chartCache.set(tag, (cache = new Map()));
     const keyed = deck.map((p) => {
       let key = performerKeys.get(p);
       if (key === undefined) {
@@ -181,6 +190,15 @@ export function gekisoSearch(input: GekisoSearchInput): SearchOutput<GekisoDetai
     if (!value) {
       const t0 = performance.now();
       cache.set(key, (value = gekisoContext(within, chart, keyed.map((item) => item.p), input.seeds)));
+      contexts.bytes += contextBytes(key, value);
+      if (contexts.bytes > CONTEXT_BYTES)
+        evict: for (const old of chartCache.values())
+          for (const [oldKey, oldValue] of old) {
+            if (oldValue === value) continue;
+            old.delete(oldKey);
+            contexts.bytes -= contextBytes(oldKey, oldValue);
+            if (contexts.bytes <= CONTEXT_BYTES * 0.75) break evict;
+          }
       timing.contexts++;
       timing.contextMs += performance.now() - t0;
     }

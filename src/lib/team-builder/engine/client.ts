@@ -1,6 +1,6 @@
 /** Main-thread handle on the engine Worker. Cancelling replaces the Worker, so a long search never blocks. */
 import type { TeamBuilderData } from "../data";
-import type { EngineRequest, EngineResponse, TeamEvaluation, Timeline } from "./api";
+import type { EngineRequest, EngineResponse, SongRef, TeamEvaluation, Timeline } from "./api";
 import type { EngineCall, EngineReply, EvaluateRequest, ExplainRequest } from "./protocol";
 import { aspirationHeld, compareHits, mergeShardResponses, planSummary } from "./merge";
 
@@ -75,10 +75,13 @@ class EngineWorker {
 
 /** How many Workers share a search: the device's cores, minus one for the page, at most eight. */
 const poolSize = () => {
-  const cores = typeof navigator !== "undefined" && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
-  // Each Worker holds its own compiled release (tens of MB): low-memory phones get fewer.
-  const memory = typeof navigator !== "undefined" ? ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8) : 8;
-  const limit = memory <= 2 ? 2 : memory <= 4 ? 4 : 8;
+  const nav = typeof navigator !== "undefined" ? (navigator as Navigator & { deviceMemory?: number }) : null;
+  const cores = nav?.hardwareConcurrency || 4;
+  // A searching Worker's heap grows to a few hundred MB, and a phone browser discards a tab long before a desktop
+  // one does. Browsers that do not report memory (Safari, Firefox) are sized by form factor alone.
+  const phone = !!nav && (/Android|iPhone|iPad|iPod|Mobile/u.test(nav.userAgent) || (nav.maxTouchPoints > 1 && /Macintosh/u.test(nav.userAgent)));
+  const memory = nav?.deviceMemory ?? (phone ? 2 : 8);
+  const limit = memory <= 2 ? 2 : memory <= 4 ? 3 : phone ? 4 : 8;
   return Math.max(1, Math.min(limit, cores - 1));
 };
 /** Below this many members a single Worker finishes before the others would compile the release. */
@@ -106,6 +109,54 @@ export class EngineClient {
   async run(request: EngineRequest, progress?: Pending["progress"]): Promise<EngineResponse> {
     const parallel = this.pool.length > 1 && request.members.length >= PARALLEL_MIN_MEMBERS;
     if (!parallel) return this.idlest().send<EngineResponse>({ type: "run", id: 0, request }, progress);
+    const goal = request.goal;
+    const songs = goal.kind === "score" || goal.kind === "gekiso" || goal.kind === "event" ? goal.songs : [];
+    return songs.length > 1 ? this.songs(request, songs, progress) : this.song(request, progress);
+  }
+  /** Many songs are searched one song at a time. A Worker keeps a song's chart, seeds and contexts only while that
+   * song is current, so shards that each walked the whole list would redo every song's preparation once per shard. */
+  private async songs(request: EngineRequest, songs: readonly SongRef[], progress?: Pending["progress"]): Promise<EngineResponse> {
+    const started = performance.now();
+    const end = request.timeLimitMs == null ? Infinity : started + request.timeLimitMs;
+    const responses: (EngineResponse | undefined)[] = songs.map(() => undefined);
+    const of = (index: number, extra: Partial<EngineRequest> = {}): EngineRequest => ({ ...request, ...extra, goal: { ...request.goal, songs: [songs[index]!] } as EngineRequest["goal"] });
+    let done = 0;
+    const report = () => progress?.(done, songs.length);
+    const hard: { index: number; floor?: number }[] = [];
+    // Most songs prove their ranking within the quick window: every Worker takes songs off one list.
+    if (request.noFloor || request.goal.kind === "gekiso") hard.push(...songs.map((_, index) => ({ index })));
+    else {
+      let next = 0;
+      const worker = async (engine: EngineWorker) => {
+        while (next < songs.length) {
+          const index = next++;
+          const quick = await engine.send<EngineResponse>({ type: "run", id: 0, request: of(index, { timeLimitMs: Math.min(QUICK_MS, Math.max(250, (end - performance.now()) / (songs.length - done))) }) });
+          const result = quick.results[0]!;
+          if (result.proven || result.excludedBelow !== undefined) {
+            responses[index] = quick;
+            done++;
+            report();
+          } else hard.push({ index, floor: result.hits.length >= request.k ? result.hits[request.k - 1]!.key : undefined });
+        }
+      };
+      await Promise.all(this.pool.map(worker));
+    }
+    for (const { index, floor } of hard.sort((a, b) => a.index - b.index)) {
+      const song = songs[index]!;
+      const limit = end === Infinity ? null : Math.max(250, (end - performance.now()) / (songs.length - done));
+      responses[index] = await this.fan(of(index, { timeLimitMs: limit }), floor === undefined ? {} : { [`${song.songId}:${song.difficulty}`]: floor }, progress, done, songs.length);
+      done++;
+      report();
+    }
+    const results = responses.flatMap((response) => response!.results);
+    return {
+      results,
+      overall: results.flatMap((result) => result.hits).sort(compareHits).slice(0, Math.max(request.k, 3)),
+      unknownCards: responses[0]!.unknownCards,
+      elapsedMs: performance.now() - started,
+    };
+  }
+  private async song(request: EngineRequest, progress?: Pending["progress"]): Promise<EngineResponse> {
     const started = performance.now();
     // Most searches prove their ranking in well under a second on one Worker; only those that don't fan out, and
     // the teams found so far give every shard its starting floor.
@@ -123,11 +174,15 @@ export class EngineClient {
           if (result.song && result.hits.length >= request.k) initial[`${result.song.songId}:${result.song.difficulty}`] = result.hits[request.k - 1]!.key;
     }
     if (request.goal.kind === "plan") return this.plan(request, request.goal, started, progress);
-    const merged = await this.sharded(request, initial, progress);
+    const merged = await this.fan(request, initial, progress);
     merged.elapsedMs = performance.now() - started;
+    return merged;
+  }
+  /** The sharded search of one request; a floor that admitted fewer than k teams is searched again without it. */
+  private async fan(request: EngineRequest, initial: Record<string, number>, progress?: Pending["progress"], offset = 0, total = 1): Promise<EngineResponse> {
+    const merged = await this.sharded(request, initial, progress, offset, total);
     if (aspirationHeld(merged, request.k) || request.noFloor) return merged;
-    // A floor admitted fewer than k teams: search again without it.
-    return this.run({ ...request, noFloor: true }, progress);
+    return this.sharded({ ...request, noFloor: true }, {}, progress, offset, total);
   }
   /** Leader shards are many and small, handed to whichever Worker is free: subtree sizes vary widely, and each new
    * task starts from the best k-th key found so far. */

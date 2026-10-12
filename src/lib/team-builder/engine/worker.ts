@@ -20,7 +20,13 @@ self.onmessage = async (event: MessageEvent<EngineCall>) => {
         const pinned = teamBuilderSourceIdentity(call.data, "songs", ref.songId);
         const difficulty = engine.songs.get(ref.songId)?.difficulties.find((row) => row.difficulty === ref.difficulty);
         if (!difficulty?.file) throw new Error("chart-file-missing");
-        const response = await fetch(pinnedSongAssetUrl(pinned, difficulty.file), { credentials: "omit" });
+        // A search over many songs fetches many charts: one dropped request must not fail all of them.
+        let response = await fetch(pinnedSongAssetUrl(pinned, difficulty.file), { credentials: "omit" }).catch(() => null);
+        for (let attempt = 1; attempt < 3 && (!response || response.status >= 500); attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+          response = await fetch(pinnedSongAssetUrl(pinned, difficulty.file), { credentials: "omit" }).catch(() => null);
+        }
+        if (!response) throw new Error("chart-network");
         if (!response.ok) throw new Error(`chart-http:${response.status}`);
         // The URL pins the release; a server that labels it must agree.
         const release = response.headers.get("x-haneoka-release-id");
