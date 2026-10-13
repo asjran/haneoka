@@ -56,8 +56,9 @@ def decode_master_version(frame: bytes) -> tuple[str, str]:
     if not fields.get(1):
         raise ValueError("Master version response is incomplete")
     version = fields[1]
-    # Servers either send the resource version as the second field or encode it
-    # as the leading path segment of the version itself.
+    # Versioned-catalog servers use field 2 or the leading path segment as
+    # their catalog generation. JP sends only a Master storage path; its
+    # leading generation is independent of the asset-version service.
     resource_version = fields.get(2) or version.partition("/")[0]
     if not resource_version:
         raise ValueError("Master version response is incomplete")
@@ -83,21 +84,25 @@ def discover_master_version(
             time.sleep(delay)
         with tempfile.TemporaryDirectory(prefix="haneoka-master-version-") as directory:
             body = Path(directory) / "response.bin"
-            response = subprocess.run(
-                [
-                    "curl", "--silent", "--show-error", "--http2", "--max-time", "30",
-                    *proxy_curl_flags(proxy),
-                    "--max-filesize", "65536", "-D", "-", "-o", str(body),
-                    "-H", "content-type: application/grpc", "-H", "te: trailers",
-                    "-H", "grpc-accept-encoding: identity", "-H", "x-platform: Android",
-                    "-A", GRPC_USER_AGENT,
-                    "--data-binary", "@-", endpoint,
-                ],
-                input=EMPTY_GRPC_FRAME,
-                capture_output=True,
-                timeout=40,
-                check=False,
-            )
+            try:
+                response = subprocess.run(
+                    [
+                        "curl", "--silent", "--show-error", "--http2", "--max-time", "30",
+                        *proxy_curl_flags(proxy),
+                        "--max-filesize", "65536", "-D", "-", "-o", str(body),
+                        "-H", "content-type: application/grpc", "-H", "te: trailers",
+                        "-H", "grpc-accept-encoding: identity", "-H", "x-platform: Android",
+                        "-A", GRPC_USER_AGENT,
+                        "--data-binary", "@-", endpoint,
+                    ],
+                    input=EMPTY_GRPC_FRAME,
+                    capture_output=True,
+                    timeout=40,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                failure = "Master version request timed out"
+                continue
             if response.returncode:
                 failure = response.stderr.decode("utf-8", "replace").strip() or f"curl exit {response.returncode}"
                 continue

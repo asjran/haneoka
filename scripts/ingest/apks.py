@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import http.client
 import ipaddress
 import itertools
 import json
@@ -17,6 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
 from dataclasses import dataclass, replace
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -56,6 +58,12 @@ PUBLIC_DNS_CACHE_SECONDS = 60
 _public_dns_cache: dict[tuple[str, int], float] = {}
 _public_dns_lock = threading.Lock()
 STREAM_CHUNK_BYTES = 1024 * 1024
+
+
+class _DownloadIntegrityError(ValueError):
+    """An invalid transfer can be retried or recovered from another node."""
+
+
 def _normalization_revision() -> str:
     """Give changed ingest logic a new immutable source key automatically."""
     directory = Path(__file__).resolve().parent
@@ -483,6 +491,7 @@ def _download_one(
     config: ServerConfig,
     *,
     expected_bytes: int = 0,
+    expected_sha256: str = "",
     unity_version: str = "",
     missing_ok: bool = False,
     quiet: bool = False,
@@ -490,6 +499,8 @@ def _download_one(
 ) -> bool:
     if expected_bytes < 0:
         raise ValueError("download expected size cannot be negative")
+    if expected_sha256 and re.fullmatch(r"[a-f0-9]{64}", expected_sha256) is None:
+        raise ValueError("download expected SHA-256 is invalid")
     output.parent.mkdir(parents=True, exist_ok=True)
     # Launch catalogs ship bundle names over 220 bytes; truncate the temp stem
     # so the pid/tid suffix stays within the 255-byte filename limit.
@@ -520,26 +531,32 @@ def _download_one(
                     try:
                         declared_bytes = int(declared_length)
                     except ValueError as error:
-                        raise ValueError("download returned an invalid Content-Length") from error
+                        raise _DownloadIntegrityError("download returned an invalid Content-Length") from error
                     if declared_bytes < 0:
-                        raise ValueError("download returned a negative Content-Length")
+                        raise _DownloadIntegrityError("download returned a negative Content-Length")
                     if expected_bytes and declared_bytes != expected_bytes:
-                        raise ValueError(
+                        raise _DownloadIntegrityError(
                             f"download Content-Length mismatch: expected {expected_bytes}, got {declared_bytes}"
                         )
                 actual_bytes = 0
                 for chunk in iter(lambda: source.read(STREAM_CHUNK_BYTES), b""):
                     actual_bytes += len(chunk)
                     if expected_bytes and actual_bytes > expected_bytes:
-                        raise ValueError(
+                        raise _DownloadIntegrityError(
                             f"download size mismatch: expected {expected_bytes}, "
                             f"received more than declared"
                         )
                     stream.write(chunk)
             if expected_bytes and actual_bytes != expected_bytes:
-                failure = ValueError(
+                failure = _DownloadIntegrityError(
                     f"download size mismatch: expected {expected_bytes}, got {actual_bytes}"
                 )
+            elif declared_length is not None and actual_bytes != declared_bytes:
+                failure = _DownloadIntegrityError(
+                    f"download Content-Length mismatch: declared {declared_bytes}, got {actual_bytes}"
+                )
+            elif expected_sha256 and sha256_file(temporary) != expected_sha256:
+                failure = _DownloadIntegrityError("download SHA-256 mismatch")
             else:
                 failure = None
                 break
@@ -553,7 +570,7 @@ def _download_one(
                 if not quiet:
                     sys.stderr.write(f"warning: {error.code} for {url}, skipping (missing_ok)\n")
                 return False
-            if error.code in {400, 401}:
+            if error.code in {400, 401, 408, 429}:
                 temporary.unlink(missing_ok=True)
                 if attempt < 4:
                     time.sleep(2**attempt)
@@ -562,7 +579,10 @@ def _download_one(
                 hint = f"; configure {AUTHORIZATION_ENVIRONMENT}" if error.code == 401 else ""
                 temporary.unlink(missing_ok=True)
                 raise RuntimeError(f"download failed: {error.code} {url}{hint}") from error
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+        except (
+            urllib.error.URLError, TimeoutError, ConnectionError,
+            http.client.IncompleteRead, gzip.BadGzipFile, zlib.error, EOFError, _DownloadIntegrityError,
+        ) as error:
             failure = error
         except BaseException:
             temporary.unlink(missing_ok=True)
@@ -1077,6 +1097,7 @@ def _materialize_master(
             _download(
                 f"{resolution.remote_root}/{entry['name']}", target, master_config,
                 expected_bytes=entry["size"], authorization=authorization,
+                expected_sha256=entry["hash"],
             )
         if target.stat().st_size != entry["size"] or sha256_file(target) != entry["hash"]:
             raise ValueError(f"Master table integrity mismatch: {entry['name']}")
@@ -1092,15 +1113,25 @@ def _source_id(version_code: str, package_sha: str, catalog_identity_sha: str, m
     return f"v{version_code}-{package_sha[:12]}-{catalog_identity_sha[:12]}{master}-{_normalization_revision()}"
 
 
-def _assert_master_not_ahead(master: MasterResolution | None, server_version: dict[str, str] | None) -> None:
-    """Asset catalogs and Master data roll out independently.
+def _validate_master_catalog_versions(
+    config: ServerConfig,
+    master: MasterResolution | None,
+    server_version: dict[str, str] | None,
+) -> None:
+    """Compare generations only for catalogs selected by Master version.
 
-    A Master lagging behind the live catalog still forms a complete source
-    (every table it references is already shipped); a Master ahead of the
-    catalog references assets the ingest has not seen, so that generation
-    must wait for the catalog and retry.
+    Runtime asset-version services select catalogs independently. JP's
+    Master response contains a storage path, whose leading generation is
+    not a minimum asset version. Both identities remain part of the source.
     """
     if not master or not server_version:
+        return
+    if config.version_endpoint or config.version_catalog_path:
+        if master.resource_version != server_version["version"]:
+            sys.stderr.write(
+                f"master: independent generation {master.resource_version}; "
+                f"asset service selected catalog {server_version['version']}\n"
+            )
         return
     if resource_version_key(master.resource_version) > resource_version_key(server_version["version"]):
         raise ValueError(
@@ -1127,7 +1158,7 @@ def probe_source_identity(
         master = _resolve_master(
             config, scratch, resolution.authorization, resolution.master_version
         )
-        _assert_master_not_ahead(master, resolution.server_version)
+        _validate_master_catalog_versions(config, master, resolution.server_version)
         identity = _catalog_identity(resolution.catalog_sha, list(resolution.extra_files))
         source_id = _source_id(version_code, package_sha, identity, master.identity if master else "")
         return {
@@ -1201,7 +1232,7 @@ def ingest_package(
         master = _resolve_master(
             config, scratch, discovered_authorization, resolution.master_version
         )
-        _assert_master_not_ahead(master, server_version)
+        _validate_master_catalog_versions(config, master, server_version)
 
         version = package_metadata["versionCode"] or "unknown"
         catalog_identity_sha = _catalog_identity(catalog_sha, extra_catalog_files)
@@ -1409,7 +1440,12 @@ def ingest_package(
                 raise ValueError(f"artifact filename collision with different bytes: {filename}")
             else:
                 entry = reuse_index.get(filename) if reuse_index else None
-                if entry is not None and reuse_store is not None and restore_reusable(reuse_store, entry, target):
+                if (
+                    entry is not None
+                    and (not expected or entry.bytes == expected)
+                    and reuse_store is not None
+                    and restore_reusable(reuse_store, entry, target)
+                ):
                     with reuse_lock:
                         reuse_counters["restored"] += 1
                         reuse_counters["restored_bytes"] += entry.bytes

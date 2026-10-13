@@ -168,14 +168,20 @@ def discover_asset_version(
     # One stalled egress (direct or through a JP proxy node) must not fail
     # the whole ingestion; mirror the Master version lookup's short backoff.
     result = None
+    failure = ""
     for delay in (0, 3, 8):
         if delay:
             time.sleep(delay)
-        result = subprocess.run(command, input=EMPTY_GRPC_FRAME, capture_output=True, timeout=timeout + 10)
+        try:
+            result = subprocess.run(command, input=EMPTY_GRPC_FRAME, capture_output=True, timeout=timeout + 10)
+        except subprocess.TimeoutExpired:
+            failure = "asset version request timed out"
+            continue
         if result.returncode == 0:
             break
+        failure = result.stderr.decode("utf-8", "replace").strip() or f"curl exit {result.returncode}"
     if result is None or result.returncode != 0:
-        raise RuntimeError(f"version endpoint request failed: {result.stderr.decode('utf-8', 'replace').strip()}")
+        raise RuntimeError(f"version endpoint request failed after 3 attempts: {failure}")
     headers: dict[str, str] = {}
     for raw_line in result.stdout.decode("utf-8", "replace").splitlines():
         if ":" not in raw_line:

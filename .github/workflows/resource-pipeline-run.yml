@@ -263,6 +263,8 @@ jobs:
             fi
           fi
       - name: Refresh shared CDN credential secret
+        # The active build already has its credential; refresh is best effort.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.secret_writer_gh_token }}
         run: |

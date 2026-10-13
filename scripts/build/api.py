@@ -2632,8 +2632,13 @@ def _stamps(data: BuildData) -> dict[str, Any]:
             raise ValueError(f"MasterStamp has an invalid asset path: {identity}::{asset}")
         source_path = f"Assets/AddressableResources/{asset}.png"
         image = data.asset(source_path)
-        if not image and not is_test_server(data.server):
-            raise ValueError(f"MasterStamp image is absent: {identity}::{source_path}")
+        if not image:
+            if source_path in data.source_path_set and not is_test_server(data.server):
+                raise ValueError(f"MasterStamp image was not built: {identity}::{source_path}")
+            sys.stderr.write(
+                f"warning: MasterStamp image is not available in this resource catalog: "
+                f"{identity}::{source_path}\n"
+            )
         output[str(identity)] = _present(
             stampId=identity,
             name=data.text(row.get("_nameTextId"), f"Stamp {identity}"),

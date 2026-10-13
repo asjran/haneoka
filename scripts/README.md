@@ -161,6 +161,28 @@ lookup needs HTTP/2 (`curl --http2-prior-knowledge`) and its endpoint is
 operational configuration: supply it in the environment-scoped
 `RESOURCE_PIPELINE_CONFIG` secret, never in committed files.
 
+JP's asset and Master services publish independent generations. The Master
+service returns a storage path such as `1.0.0.500/<hash>`; its leading version
+does not declare a minimum asset catalog version. The pipeline uses the
+catalog selected by the asset service together with the verified live Master
+manifest, including both content identities in the source id. Thus a Master
+update can build while the asset catalog remains at `1.0.0.400`. Versioned
+catalog servers such as Intl continue to select the exact catalog announced
+by Master. Asset and Master version request timeouts share the existing
+three-attempt retry budget.
+
+Master can announce stamps before the selected resource catalog ships their
+images. These records retain their metadata and report `assetAvailability`
+instead of blocking the release. If the catalog includes the image but the
+extractor failed to produce it, production builds still fail.
+
+Download size/hash mismatches, truncated HTTP/gzip bodies, and HTTP 408/429
+responses use the bounded retry budget and announced mirrors. Live Master
+table downloads verify SHA-256 before accepting a transfer. Reuse candidates
+whose size differs from the current catalog are skipped in favor of a fresh
+download. Refreshing the shared CDN credential secret is best effort because
+the active build already resolved its credential.
+
 The international server keeps its flat `catalog_{version}.bin` layout, so it
 still discovers new versions by probing. The CBT CDNs remain reachable: the
 international CBT CDN currently serves without authorization, while the
