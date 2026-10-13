@@ -1,4 +1,5 @@
-import { bestdoriChartToSs } from "../../../packages/bestdori/src/chart";
+import { BESTDORI_SS_LANE_BASIS, bestdoriChartToSs } from "../../../packages/bestdori/src/chart";
+import { BESTDORI_CATALOG_VERSION } from "../../../packages/bestdori/src/resources";
 import { isBestdoriServer, type BestdoriServer } from "../../../packages/bestdori/src/transport";
 import { importBestdoriChart } from "../../../packages/chart-editor/src/formats/bestdori";
 import { readBytes } from "../../../packages/embed-core/src/io";
@@ -50,6 +51,7 @@ function base(options: BestdoriCreatorOptions) {
 function route(options: BestdoriCreatorOptions, path: string) {
   const url = new URL(`${options.region}/${path}`, base(options));
   url.searchParams.set("lang", options.locale);
+  url.searchParams.set("projection", BESTDORI_CATALOG_VERSION);
   return url.href;
 }
 async function read(options: BestdoriCreatorOptions, url: string, maximum: number) {
@@ -122,7 +124,6 @@ export async function loadBestdoriCreatorSong(
     songId: string;
     difficulty: string;
     withAudio?: boolean;
-    bridgeLaneBasis?: number;
     audioOffset?: number;
   },
 ) {
@@ -148,11 +149,9 @@ export async function loadBestdoriCreatorSong(
   const chartSha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", chartRead.bytes))]
     .map((v) => v.toString(16).padStart(2, "0"))
     .join("");
-  // Seven source lanes, four bridge units per lane. Negative authored overhang remains unchanged.
-  const laneBasis = options.bridgeLaneBasis ?? 28;
   const imported = importBestdoriChart(text, {
     toSs: bestdoriChartToSs,
-    laneBasis,
+    laneBasis: BESTDORI_SS_LANE_BASIS,
     audioOffset: options.audioOffset ?? 0,
     provenance: {
       provider: "bestdori",

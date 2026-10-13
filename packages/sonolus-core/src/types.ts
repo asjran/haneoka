@@ -7,6 +7,8 @@ export interface ChartRevision {
 }
 
 export interface ChartQuery {
+  artists?: readonly string[];
+  categories?: readonly string[];
   difficulties?: readonly string[];
   maxRating?: number;
   minRating?: number;
@@ -43,9 +45,11 @@ export interface SonolusPlaylistItem extends JsonObject {
 
 export interface ChartDescriptor {
   artists: string;
+  artistFilters?: ChartFilterValue[];
   author?: string;
   bgmUrl?: string;
   coverUrl?: string;
+  categories?: ChartFilterValue[];
   tags?: JsonValue[];
   dataId: string;
   difficulty: string;
@@ -53,6 +57,11 @@ export interface ChartDescriptor {
   publishedAt: number;
   rating: number;
   songId: string;
+  title: string;
+}
+
+export interface ChartFilterValue {
+  name: string;
   title: string;
 }
 
@@ -103,6 +112,7 @@ export interface ChartRepository<T extends ChartRecord = ChartRecord> {
 }
 
 export interface CatalogProjectionOptions {
+  categoryTitle?: (category: string) => string;
   chartDataId?: (songId: string, difficulty: string, rawDifficulty: Readonly<Record<string, unknown>>) => string | null;
   levelName?: (songId: string, difficulty: string) => string;
   localeOrder?: readonly CatalogLocale[];
@@ -122,6 +132,7 @@ export interface LevelInfoOptions {
   quickSearchValues?: string;
   randomCharts?: readonly ChartRecord[];
   randomSectionTitle?: string;
+  searches?: readonly JsonObject[];
   sectionTitle?: string;
   title?: string;
 }

@@ -3,6 +3,7 @@ import { fetchJson, uiText } from "../shared/catalog";
 import { loadingState } from "../ui/state";
 import { icon } from "../ui/icon";
 import { type ChartDocument } from "@haneoka/cassiopeia";
+import { BESTDORI_CATALOG_VERSION } from "@haneoka/bestdori/resources";
 import {
   CassiopeiaRuntime,
   CASSIOPEIA_SESSION,
@@ -492,8 +493,11 @@ export class ChartSimulator extends LitElement {
     await this.updateComplete;
     try {
       signal.throwIfAborted();
+      const sourceUrl = new URL(this.source, window.location.href);
+      if (/^\/api\/v1\/garupa\/bestdori\/(?:jp|en|tw|cn|kr)\/charts\/\d+\/(?:easy|normal|hard|expert|special)$/.test(sourceUrl.pathname))
+        sourceUrl.searchParams.set("projection", BESTDORI_CATALOG_VERSION);
       const [response, assets] = await Promise.all([
-        fetch(this.source, { headers: { accept: "text/plain" }, signal }),
+        fetch(sourceUrl, { headers: { accept: "text/plain" }, signal }),
         this.runtimeAssets(signal),
       ]);
       if (!response.ok) throw new Error(`Chart ${response.status}`);

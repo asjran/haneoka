@@ -15,7 +15,7 @@ import {
 } from "@haneoka/sonolus-core";
 import { chartToLevelData } from "@haneoka/cassiopeia-plugin-sonolus";
 import { convertChartAsync } from "@haneoka/cassiopeia-plugin-sonolus";
-import { encodeSonolusLocalizedText } from "../sonolusLocalization.js";
+import { encodeSonolusLocalizedText, sonolusSongCategoryTitle } from "../sonolusLocalization.js";
 
 const DEFAULT_MAX_CACHE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_CHART_BYTES = 4 * 1024 * 1024;
@@ -192,6 +192,7 @@ export class ReleaseChartCatalogProvider implements ChartCatalogProvider {
     if (songs === null || bands === null) throw new Error("Release is missing songs or bands catalog data");
     const release = releaseChartProvenance(this.#options.release);
     const projection = projectCatalogCharts(songs, bands, {
+      categoryTitle: sonolusSongCategoryTitle,
       encodeText: encodeSonolusLocalizedText,
       ...(this.#options.localeOrder ? { localeOrder: this.#options.localeOrder } : {}),
       ...(this.#options.mediaBaseUrl ? { mediaBaseUrl: this.#options.mediaBaseUrl } : {}),

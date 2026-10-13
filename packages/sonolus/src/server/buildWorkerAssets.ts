@@ -4,13 +4,15 @@ import { buildSquareThumbnail } from "../../scripts/presentation-thumbnails.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import type {
   BackgroundItem,
   EffectItem,
   EngineItem,
+  EnginePlayData,
   LevelItem,
   ParticleItem,
+  ParticleData,
   PlaylistItem,
   ServerInfo,
   ServerItemDetails,
@@ -20,7 +22,12 @@ import type {
   SkinItem,
   Srl,
 } from "@sonolus/core";
-import { sonolusLevelName, sonolusPlaylistName, sonolusSourceRoot } from "@haneoka/sonolus-core";
+import {
+  sonolusDifficultyTitle,
+  sonolusLevelName,
+  sonolusPlaylistName,
+  sonolusSourceRoot,
+} from "@haneoka/sonolus-core";
 import {
   OUR_NOTES_LANE_SKIN_NAMES,
   OUR_NOTES_NOTE_SE_GROUP_IDS,
@@ -514,6 +521,22 @@ function requireFile(path: string) {
   return path;
 }
 
+function verifyParticleEffects(resourceDir: string, engineDir: string): void {
+  const particle = JSON.parse(
+    gunzipSync(readFileSync(requireFile(resolve(resourceDir, "particle.data")))).toString("utf8"),
+  ) as ParticleData;
+  const names = new Set(particle.effects.map((effect) => effect.name));
+  for (const facet of ["Play", "Watch", "Tutorial"]) {
+    const engine = JSON.parse(
+      gunzipSync(readFileSync(requireFile(resolve(engineDir, `Engine${facet}Data`)))).toString("utf8"),
+    ) as Pick<EnginePlayData, "particle">;
+    const missing = engine.particle.effects.filter(({ name }) => name !== "Our Notes Unused" && !names.has(name));
+    if (missing.length) {
+      throw new Error(`Particle pack is missing ${facet} effects: ${missing.map(({ name }) => name).join(", ")}`);
+    }
+  }
+}
+
 async function main() {
   // Fetching and converting every chart can fail midway. Build beside the
   // published tree so a transient upstream/network failure cannot turn a
@@ -523,6 +546,7 @@ async function main() {
 
   const resourceDir = resolve(pkg, "dist/our-notes");
   const engineDir = resolve(engineRoot, "dist");
+  verifyParticleEffects(resourceDir, engineDir);
   const bannerFile = requireFile(resolve(pkg, "assets/server-banner.png"));
   const banner = addFile(bannerFile);
   const serverBanner = addFile(buildServerBanner(root));
@@ -644,7 +668,7 @@ async function main() {
           title: text(song.musicTitle, `Music ${song.musicId}`),
           artists: artist,
           author: artist,
-          tags: [{ title: difficulty }],
+          tags: [{ title: sonolusDifficultyTitle(difficulty) }],
           cover: externalSrl(song.jacketUrl),
           bgm: externalSrl(song.musicUrl || song.audio?.playableUrl),
           data: addJson(levelData),

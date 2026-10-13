@@ -4,6 +4,7 @@ export {
   createOurNotesSonolusItemLabels,
   encodeSonolusLocalizedText,
   localizeSonolusDocument,
+  sonolusSongCategoryTitle,
   OUR_NOTES_SONOLUS_ITEM_NAMES,
 } from "./sonolusLocalization.js";
 export type {

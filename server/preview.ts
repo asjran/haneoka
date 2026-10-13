@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import https from "node:https";
+import { createHash } from "node:crypto";
 import os, { type NetworkInterfaceInfo } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -115,8 +116,8 @@ const releaseIdentitySchema = "haneoka-resource-release-identity-v1";
 const releaseIdentityFilename = "release-identity.json";
 const releaseIdentityKeys = ["releaseId", "schema", "server", "sourceId"] as const;
 const BESTDORI_PROVIDER_API_PREFIX = "/api/v1/garupa/bestdori";
-const BESTDORI_SONOLUS_LEVEL_PREFIX = "/sonolus/levels/bestdori-level-";
-const BESTDORI_SONOLUS_PLAYLIST_PREFIX = "/sonolus/playlists/bestdori-playlist-";
+const BESTDORI_SONOLUS_LEVEL_PREFIX = "/sonolus/levels/haneoka-gbp-";
+const BESTDORI_SONOLUS_PLAYLIST_PREFIX = "/sonolus/playlists/haneoka-gbp-";
 // The raw mirror is a private upstream transport for the Worker. Keeping it
 // below a provider-internal prefix means `/assets/jp/...` always remains an
 // Our Notes release URL, including when a future Our Notes server is named jp.
@@ -225,8 +226,8 @@ function json(
   res.end(res.req?.method === "HEAD" ? undefined : body);
 }
 
-function isBestdoriProviderApiRequest(url: URL): boolean {
-  return url.pathname === BESTDORI_PROVIDER_API_PREFIX || url.pathname.startsWith(`${BESTDORI_PROVIDER_API_PREFIX}/`);
+function isBestdoriProviderApiRequest(pathname: string): boolean {
+  return pathname === BESTDORI_PROVIDER_API_PREFIX || pathname.startsWith(`${BESTDORI_PROVIDER_API_PREFIX}/`);
 }
 
 function isBestdoriSonolusRequest(url: URL): boolean {
@@ -282,6 +283,7 @@ function forwardedProviderHeaders(req: IncomingMessage): Record<string, string> 
 }
 
 function isApplicationWorkerRequest(pathname: string): boolean {
+  if (isBestdoriProviderApiRequest(pathname)) return false;
   return [
     "/api/auth",
     "/api/v1/account",
@@ -306,10 +308,12 @@ function forwardedApplicationHeaders(req: IncomingMessage): Headers {
     "cookie",
     "if-match",
     "if-none-match",
+    "if-range",
     "if-unmodified-since",
     "idempotency-key",
     "origin",
     "referer",
+    "range",
     "user-agent",
     "x-captcha-response",
     "x-file-name",
@@ -984,7 +988,11 @@ function localSonolusReleases(): readonly LocalSonolusRelease[] {
 
 function localSonolusRevision(releases: readonly LocalSonolusRelease[], origin: string): string {
   if (!releases.length) throw new Error("No local Our Notes releases are available for Sonolus");
-  return `${origin}:our-notes:${releases.map((release) => `${release.server}@${release.workspace.releaseId}`).join(",")}`;
+  const engineFile = globalSonolusAssetFile("/sonolus/engines/list/page-0");
+  const engineRevision = engineFile
+    ? createHash("sha256").update(fs.readFileSync(engineFile)).digest("hex")
+    : "release";
+  return `${origin}:advanced-search:${engineRevision}:our-notes:${releases.map((release) => `${release.server}@${release.workspace.releaseId}`).join(",")}`;
 }
 
 function localSonolusCatalogProvider(releases: readonly LocalSonolusRelease[], origin: string, revision: string) {
@@ -1074,6 +1082,7 @@ function globalSonolusAssetFile(pathname: string): string | null {
 
 function localizeSonolusDocument(value: JsonValue, localOrigin: string): JsonValue {
   if (typeof value === "string") {
+    if (value.startsWith("/sonolus/")) return new URL(value, localOrigin).toString();
     return value
       .replace(/^https:\/\/sonolus\.haneoka\.org(?=\/|$)/u, localOrigin)
       .replace(/^https:\/\/haneoka\.org(?=\/|$)/u, localOrigin);
@@ -1180,6 +1189,15 @@ function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerRespons
 
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://preview.invalid");
+  url.pathname = url.pathname.replace(/^\/sonolus\/sonolus(?=\/)/u, "/sonolus");
+  if (
+    /^\/sonolus\/?$/u.test(url.pathname) ||
+    (url.pathname === "/" && !fs.existsSync(DIST) && globalSonolusAssetFile("/sonolus/info"))
+  ) {
+    res.writeHead(302, { Location: "/sonolus/info", "Cache-Control": "no-store" });
+    res.end();
+    return;
+  }
   const legacyEntityTarget =
     legacyEntityRedirectTarget(url.pathname, url.search) ??
     legacyCollectionRedirectTarget(url.pathname, url.search) ??
@@ -1302,10 +1320,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 
   if (serveCanonicalResourceDocument(req, res, url)) return;
 
-  // The transformed Garupa API belongs to a configured provider/Worker. It is
-  // never a file in a raw Bestdori mirror, even when a mirror is available for
-  // that Worker to use as its upstream.
-  if (isBestdoriProviderApiRequest(url)) {
+  if (isBestdoriProviderApiRequest(url.pathname)) {
     await proxyBestdoriProvider(req, res, url, undefined);
     return;
   }
@@ -1397,8 +1412,10 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 
     const repository = url.pathname.startsWith("/sonolus/repository/");
     const license = url.pathname.startsWith("/sonolus/licenses/");
+    const page = Math.max(0, Number.parseInt(url.searchParams.get("page") || "0", 10) || 0);
+    const assetPathname = url.pathname.endsWith("/list") ? `${url.pathname}/page-${page}` : url.pathname;
     const file =
-      globalSonolusAssetFile(url.pathname) ?? localSonolusAssetFile(canonicalRelease.workspace, url.pathname);
+      globalSonolusAssetFile(assetPathname) ?? localSonolusAssetFile(canonicalRelease.workspace, assetPathname);
     if (!file) {
       sonolusJson(req, res, 404, { message: "Not found" }, "no-store");
       return;
@@ -1576,6 +1593,10 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (file && fs.existsSync(file)) {
       // Current-release media keeps a stable URL when the pointer changes.
       sendFile(req, res, file, "public, max-age=0, must-revalidate");
+    } else if (CLOUD_DATA_ORIGIN) {
+      const mediaUrl = new URL(url);
+      if (workspace && !mediaUrl.searchParams.has("release")) mediaUrl.searchParams.set("release", workspace.releaseId);
+      await proxyApplicationWorker(req, res, mediaUrl, CLOUD_DATA_ORIGIN);
     } else {
       json(res, 404, { error: { code: "not_found", message: "Object not found" } });
     }

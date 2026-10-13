@@ -162,6 +162,21 @@ export function encodeSonolusLocalizedText(
   return `${TextFunction.Localize}:${JSON.stringify(Object.fromEntries(entries))}`;
 }
 
+const SONG_CATEGORY_LABELS: Readonly<Record<string, SonolusLocalizedLabels>> = {
+  original: { en: "Original", ja: "オリジナル", "zh-CN": "原创", "zh-TW": "原創", ko: "오리지널" },
+  virtual: { en: "Virtual", ja: "バーチャル", "zh-CN": "虚拟", "zh-TW": "虛擬歌手", ko: "버추얼" },
+  jpop: { en: "J-POP", ja: "J-POP", "zh-CN": "J-POP", "zh-TW": "J-POP", ko: "J-POP" },
+  anime: { en: "Anime", ja: "アニメ", "zh-CN": "动画", "zh-TW": "動畫", ko: "애니메이션" },
+  game: { en: "Game", ja: "ゲーム", "zh-CN": "游戏", "zh-TW": "遊戲", ko: "게임" },
+  cover: { en: "Cover", ja: "カバー", "zh-CN": "翻唱", "zh-TW": "翻唱", ko: "커버" },
+  tie_up: { en: "Tie-up", ja: "タイアップ", "zh-CN": "联动", "zh-TW": "聯動", ko: "타이업" },
+};
+
+export function sonolusSongCategoryTitle(category: string): string {
+  const labels = SONG_CATEGORY_LABELS[category];
+  return labels ? encodeSonolusLocalizedText(labels) : category;
+}
+
 const CLIENT_LABELS: Readonly<Record<string, SonolusLocalizedLabels>> = {
   "GBP Charts": { en: "GBP Charts", ja: "ガルパ譜面", "zh-CN": "GBP 谱面", "zh-TW": "GBP 譜面", ko: "GBP 채보" },
   "GBP Playlists": {

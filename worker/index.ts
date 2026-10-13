@@ -73,6 +73,7 @@ import { temporaryPublicRedirectTarget } from "../src/lib/temporary-public-routi
 import {
   createOurNotesSonolusItemLabels,
   encodeSonolusLocalizedText,
+  sonolusSongCategoryTitle,
   localizeSonolusDocument,
   parseReleaseChartDataId,
   ReleaseChartCatalogProvider,
@@ -2800,6 +2801,7 @@ function bestdoriSonolusCatalogProvider(upstreamBase: string | undefined, revisi
     async load() {
       const { bands, songs } = await loadBestdoriSonolusCatalog(upstreamBase);
       const projection = projectCatalogCharts(songs, bands, {
+        categoryTitle: sonolusSongCategoryTitle,
         encodeText: encodeSonolusLocalizedText,
         chartDataId: (songId, difficulty) => `bestdori:${songId}:${difficulty}`,
         levelName: (songId, difficulty) => sonolusLevelName("gbp", songId, difficulty),
@@ -2977,7 +2979,7 @@ async function handleSonolus(
     /^[a-f0-9]{64}$/u.test(payloadState.revision)
       ? payloadState.revision
       : "unversioned";
-  const ourNotesRevision = `identity-text-v4-search-square-thumbnails:${payloadRevision}:${ourNotesSonolusRevision(releases)}`;
+  const ourNotesRevision = `identity-text-v5-advanced-search:${payloadRevision}:${ourNotesSonolusRevision(releases)}`;
   const revision = isBestdoriCatalog
     ? `${ourNotesRevision}:${bestdoriSonolusRevision(Date.now(), env.BESTDORI_UPSTREAM_BASE)}`
     : ourNotesRevision;

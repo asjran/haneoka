@@ -109,16 +109,13 @@ export function repairBestdoriChart(input: unknown): BestdoriChartNote[] {
 }
 
 const PPQ = 480;
-// Lane centres are 4 SS units apart; every note extends one SS unit past its
-// outermost lane centre on each side, so adjacent keys overlap by 2 units.
-const LANE_POS_SCALE = 4;
-const NOTE_OVERHANG = 1;
-const LANE_POS_BASE = NOTE_OVERHANG - LANE_POS_SCALE;
-const NOTE_SIZE = LANE_POS_SCALE + NOTE_OVERHANG * 2;
+export const BESTDORI_SS_LANE_BASIS = 24;
+const LANE_POS_SCALE = 3;
+const NOTE_SIZE = 6;
 
 const finiteNumber = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 const toTick = (beat: number): number => Math.round(beat * PPQ);
-const laneToPos = (lane: number): number => LANE_POS_BASE + lane * LANE_POS_SCALE;
+const laneToPos = (lane: number): number => lane * LANE_POS_SCALE;
 
 /**
  * Return the SS left edge and width for a Bestdori directional flick.
@@ -137,9 +134,10 @@ export function bestdoriDirectionalGeometry(
   const anchorLane = finiteNumber(laneValue);
   const width = Math.max(1, finiteNumber(widthValue));
   const leftmostLane = direction === "Left" ? anchorLane - (width - 1) : anchorLane;
+  const pos = laneToPos(leftmostLane);
   return {
-    pos: laneToPos(leftmostLane),
-    size: LANE_POS_SCALE * width + NOTE_OVERHANG * 2,
+    pos,
+    size: laneToPos(leftmostLane + width - 1) + NOTE_SIZE - pos,
   };
 }
 

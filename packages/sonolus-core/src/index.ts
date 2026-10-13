@@ -1,4 +1,11 @@
-export { InMemoryChartRepository, RevisionCache, RevisionMismatchError } from "./repository.js";
+export {
+  InMemoryChartRepository,
+  matchesChartQuery,
+  parseChartQuery,
+  RevisionCache,
+  RevisionMismatchError,
+} from "./repository.js";
+export { projectChartSearch } from "./search.js";
 export {
   projectCatalogCharts,
   projectLevelDetails,
@@ -16,6 +23,7 @@ export {
   sonolusPlaylistName,
   sonolusServerFromLevelName,
   sonolusSourceRoot,
+  sonolusDifficultyTitle,
 } from "./projection.js";
 export { SonolusLevelService } from "./service.js";
 export type {
@@ -27,6 +35,7 @@ export type {
   ChartDataPayload,
   ChartDataProvider,
   ChartDescriptor,
+  ChartFilterValue,
   ChartPage,
   ChartQuery,
   ChartRecord,

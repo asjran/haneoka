@@ -36,14 +36,51 @@ export function matchesChartSearch(chart: ChartDescriptor, keywords: string, tag
     chart.songId,
     chart.title,
     chart.artists,
+    chart.artistFilters,
     chart.author,
     chart.difficulty,
     chart.tags,
+    chart.categories,
     tags,
   ])
     .normalize("NFKC")
     .toLowerCase();
   return terms.every((term) => text.includes(term));
+}
+
+export function matchesChartQuery(chart: ChartDescriptor, query: ChartQuery, tags?: unknown): boolean {
+  const selected = (values: readonly string[] | undefined, available: readonly string[]): boolean =>
+    !values?.length || values.some((value) => available.includes(value.toLowerCase()));
+  if (!selected(query.artists, chart.artistFilters?.map((value) => value.name.toLowerCase()) ?? [])) return false;
+  if (!selected(query.categories, chart.categories?.map((value) => value.name.toLowerCase()) ?? [])) return false;
+  if (!selected(query.difficulties, [chart.difficulty.toLowerCase()])) return false;
+  if (query.minRating !== undefined && Number.isFinite(query.minRating) && chart.rating < query.minRating) return false;
+  if (query.maxRating !== undefined && Number.isFinite(query.maxRating) && chart.rating > query.maxRating) return false;
+  return matchesChartSearch(chart, query.search ?? "", tags);
+}
+
+export function parseChartQuery(parameters: URLSearchParams): ChartQuery {
+  const values = (key: string): string[] =>
+    parameters
+      .getAll(key)
+      .flatMap((value) => value.split(","))
+      .filter(Boolean);
+  const rating = (key: string): number | undefined => {
+    const raw = parameters.get(key)?.trim();
+    if (!raw) return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  };
+  const minRating = rating("minRating");
+  const maxRating = rating("maxRating");
+  return {
+    artists: values("artists"),
+    categories: [...values("category"), ...values("categories")],
+    difficulties: [...values("difficulty"), ...values("difficulties")],
+    ...(minRating !== undefined ? { minRating } : {}),
+    ...(maxRating !== undefined ? { maxRating } : {}),
+    search: parameters.get("keywords") ?? parameters.get("keyword") ?? "",
+  };
 }
 
 export class RevisionMismatchError extends Error {
@@ -87,19 +124,7 @@ export class InMemoryChartRepository<T extends ChartRecord = ChartRecord> implem
 
   async query(query: ChartQuery = {}): Promise<ChartPage<T>> {
     this.#assertRevision(query.revision);
-    const search = query.search?.trim().toLocaleLowerCase() ?? "";
-    const difficulties = query.difficulties?.length
-      ? new Set(query.difficulties.map((value) => value.toLocaleLowerCase()))
-      : null;
-    const minRating = Number.isFinite(query.minRating) ? query.minRating : undefined;
-    const maxRating = Number.isFinite(query.maxRating) ? query.maxRating : undefined;
-    const filtered = this.#items.filter((chart) => {
-      if (difficulties && !difficulties.has(chart.difficulty.toLocaleLowerCase())) return false;
-      if (minRating !== undefined && chart.rating < minRating) return false;
-      if (maxRating !== undefined && chart.rating > maxRating) return false;
-      if (!search) return true;
-      return matchesChartSearch(chart, search, chart.item.tags);
-    });
+    const filtered = this.#items.filter((chart) => matchesChartQuery(chart, query, chart.item.tags));
     const size = pageSize(query.pageSize);
     const page = nonNegativeInteger(query.page, 0);
     const start = page * size;

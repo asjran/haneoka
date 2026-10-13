@@ -3,6 +3,7 @@ import type {
   CatalogProjectionOptions,
   CatalogProjectionResult,
   ChartDescriptor,
+  ChartFilterValue,
   ChartPage,
   ChartRecord,
   JsonObject,
@@ -22,6 +23,16 @@ const LOCALE_INDEX: Readonly<Record<CatalogLocale, number>> = Object.freeze({
   ko: 4,
 });
 const DIFFICULTIES = ["easy", "normal", "hard", "expert", "special", "master"] as const;
+const MUSIC_CATEGORIES = ["", "original", "virtual", "jpop", "anime", "game"] as const;
+const CATEGORY_TITLES: Readonly<Record<string, string>> = {
+  original: "Original",
+  virtual: "Virtual",
+  jpop: "J-POP",
+  anime: "Anime",
+  game: "Game",
+  cover: "Cover",
+  tie_up: "Tie-up",
+};
 const SONOLUS_NAME_PART = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/u;
 
 const randomSearch: JsonObject = Object.freeze({
@@ -210,6 +221,8 @@ function songArtists(
     );
     return encodeText(labels, locales[0] ?? "en");
   }
+  const artistName = localizedText(song.artistName, locales);
+  if (artistName) return artistName;
   const ids = new Set<string>();
   if (typeof song.bandId === "number" || typeof song.bandId === "string") ids.add(String(song.bandId));
   for (const value of [song.bandIds, song.bandIDs]) {
@@ -228,14 +241,64 @@ function songArtists(
   return "Unknown";
 }
 
-function projectedTags(base: JsonValue | undefined, difficulty: string): JsonValue[] {
+function songArtistFilters(
+  song: Record<string, unknown>,
+  bands: ReadonlyMap<string, unknown>,
+  locales: readonly CatalogLocale[],
+  encodeText: CatalogProjectionOptions["encodeText"],
+): ChartFilterValue[] {
+  const ids = new Set<string>();
+  for (const value of [song.bandIds, song.bandIDs, [song.bandId]]) {
+    if (!Array.isArray(value)) continue;
+    for (const id of value) if (typeof id === "number" || typeof id === "string") ids.add(String(id));
+  }
+  const filters = [...ids].flatMap((id) => {
+    const title = localizedText(bands.get(id), locales, encodeText);
+    return title ? [{ name: `band-${id}`, title }] : [];
+  });
+  const artist = songArtists(song, bands, locales);
+  const artistName = localizedText(song.artistName, locales, encodeText);
+  if (artistName) {
+    const bandArtist = [...ids]
+      .map((id) => localizedText(bands.get(id), locales))
+      .filter(Boolean)
+      .join(" / ");
+    if (artist !== bandArtist) {
+      return [{ name: `artist-${encodeURIComponent(String(song.artistId ?? artist))}`, title: artistName }];
+    }
+  }
+  return filters.length
+    ? filters
+    : [{ name: `artist-${encodeURIComponent(artist)}`, title: songArtists(song, bands, locales, encodeText) }];
+}
+
+function songCategories(song: Record<string, unknown>, options: CatalogProjectionOptions): ChartFilterValue[] {
+  const names = new Set<string>();
+  const categories = Array.isArray(song.musicCategories) ? song.musicCategories : [];
+  for (const category of categories) {
+    const name = typeof category === "number" ? MUSIC_CATEGORIES[category] : category;
+    if (typeof name !== "string" || !name) continue;
+    names.add(name === "normal" ? "original" : name === "anime" && typeof category === "string" ? "cover" : name);
+  }
+  return [...names].map((name) => ({ name, title: options.categoryTitle?.(name) ?? CATEGORY_TITLES[name] ?? name }));
+}
+
+export function sonolusDifficultyTitle(difficulty: string): string {
+  return difficulty.charAt(0).toUpperCase() + difficulty.slice(1).toLowerCase();
+}
+
+function projectedTags(
+  base: JsonValue | undefined,
+  difficulty: string,
+  categories: readonly ChartFilterValue[],
+): JsonValue[] {
   const tags = Array.isArray(base)
     ? base.filter((tag) => {
         if (!isObject(tag) || typeof tag.title !== "string") return true;
         return !DIFFICULTIES.includes(tag.title.toLocaleLowerCase() as (typeof DIFFICULTIES)[number]);
       })
     : [];
-  return [...tags, { title: difficulty } as JsonObject];
+  return [...tags, { title: sonolusDifficultyTitle(difficulty) }, ...categories.map(({ title }) => ({ title }))];
 }
 
 function projectedSource(value: JsonValue, source: string, previousSource: string | undefined): JsonValue {
@@ -271,7 +334,7 @@ export function projectLevelItem(
     author: metadata.author ?? metadata.artists,
     ...(metadata.sonolusBaseUrl ? { source: sonolusSourceRoot(metadata.sonolusBaseUrl) } : {}),
     data: metadata.data,
-    tags: projectedTags(metadata.tags ?? projectedBase.tags, metadata.difficulty),
+    tags: projectedTags(metadata.tags ?? projectedBase.tags, metadata.difficulty, metadata.categories ?? []),
   };
   if (cover !== undefined) result.cover = cover;
   if (bgm !== undefined) result.bgm = bgm;
@@ -298,6 +361,8 @@ export function projectCatalogCharts(
     const title = localizedText(song.musicTitle ?? song.title, locales, options.encodeText) || `Song ${songId}`;
     const author = songArtists(song, names, locales);
     const artists = options.encodeText ? songArtists(song, names, locales, options.encodeText) : author;
+    const artistFilters = songArtistFilters(song, names, locales, options.encodeText);
+    const categories = songCategories(song, options);
     const difficulties = Array.isArray(song.difficulty) ? song.difficulty : [];
     for (const [index, rawDifficulty] of difficulties.entries()) {
       if (!isObject(rawDifficulty)) continue;
@@ -314,6 +379,8 @@ export function projectCatalogCharts(
       const bgmUrl = absoluteUrl(song.musicUrl, options.mediaBaseUrl);
       const metadata = {
         artists,
+        artistFilters,
+        categories,
         ...(options.encodeText ? { author } : {}),
         dataId,
         difficulty,
@@ -338,7 +405,7 @@ export function projectLevelInfo(charts: readonly ChartRecord[], options: LevelI
   return {
     ...(options.title ? { title: options.title } : {}),
     creates: [],
-    searches: hasRandomSection ? [] : [randomSearch],
+    searches: options.searches ? [...options.searches] : hasRandomSection ? [] : [randomSearch],
     ...(options.quickSearchValues ? { quickSearchValues: options.quickSearchValues } : {}),
     sections: [
       ...(hasRandomSection
@@ -362,13 +429,13 @@ export function projectLevelInfo(charts: readonly ChartRecord[], options: LevelI
 
 export function projectLevelList(
   page: ChartPage<ChartRecord>,
-  options: Pick<LevelInfoOptions, "quickSearchValues" | "title"> = {},
+  options: Pick<LevelInfoOptions, "quickSearchValues" | "searches" | "title"> = {},
 ): JsonObject {
   return {
     ...(options.title ? { title: options.title } : {}),
     pageCount: Math.max(0, page.pageCount),
     items: page.items.map((chart) => chart.item),
-    searches: [],
+    searches: [...(options.searches ?? [])],
     ...(options.quickSearchValues ? { quickSearchValues: options.quickSearchValues } : {}),
   };
 }
@@ -472,13 +539,13 @@ export function projectPlaylistInfo(
   playlists: readonly SonolusPlaylistItem[],
   randomPlaylists: readonly SonolusPlaylistItem[],
   itemCount = 5,
-  options: Pick<LevelInfoOptions, "quickSearchValues" | "title"> = {},
+  options: Pick<LevelInfoOptions, "quickSearchValues" | "searches" | "title"> = {},
 ): JsonObject {
   const count = Math.max(1, itemCount);
   return {
     ...(options.title ? { title: options.title } : {}),
     creates: [],
-    searches: [],
+    searches: [...(options.searches ?? [])],
     ...(options.quickSearchValues ? { quickSearchValues: options.quickSearchValues } : {}),
     sections: [
       {
@@ -499,13 +566,13 @@ export function projectPlaylistInfo(
 export function projectPlaylistList(
   playlists: readonly SonolusPlaylistItem[],
   pageCount: number,
-  options: Pick<LevelInfoOptions, "quickSearchValues" | "title"> = {},
+  options: Pick<LevelInfoOptions, "quickSearchValues" | "searches" | "title"> = {},
 ): JsonObject {
   return {
     ...(options.title ? { title: options.title } : {}),
     pageCount: Math.max(0, pageCount),
     items: [...playlists],
-    searches: [],
+    searches: [...(options.searches ?? [])],
     ...(options.quickSearchValues ? { quickSearchValues: options.quickSearchValues } : {}),
   };
 }

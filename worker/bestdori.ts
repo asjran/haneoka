@@ -1445,7 +1445,7 @@ const difficultyList = (musicId: number, entry: Obj, region: BestdoriRegion): Ob
         playLevel: num(cell.playLevel),
         noteCount,
         publishedAt: timestamps(cell.publishedAt),
-        file: bestdoriApiPath(region, `charts/${musicId}/${name}`),
+        file: `${bestdoriApiPath(region, `charts/${musicId}/${name}`)}?projection=${BESTDORI_CATALOG_VERSION}`,
       },
     ];
   });

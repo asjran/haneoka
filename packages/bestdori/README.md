@@ -25,6 +25,12 @@ import { bestdoriChartToSs } from "@haneoka/bestdori/chart";
 const score = bestdoriChartToSs(await transport.getChart(songId, difficulty));
 ```
 
+The converter maps Bestdori's lanes `0..6` onto a 24-unit SS stage with
+6-unit notes starting at `0, 3, 6, 9, 12, 15, 18`. Fractional slide lanes
+scale linearly by 3; directional flicks cover the mapped span
+from their leftmost to rightmost source lane. `BESTDORI_SS_LANE_BASIS`
+exports the stage width for importers.
+
 Applications provide their own transport by implementing `BestdoriTransport`.
 
 Altair authoring support is provided by the independent

@@ -19,7 +19,7 @@ import express from "express";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
-import { sonolusLevelName, sonolusPlaylistName } from "@haneoka/sonolus-core";
+import { sonolusDifficultyTitle, sonolusLevelName, sonolusPlaylistName } from "@haneoka/sonolus-core";
 import type { Srl } from "@sonolus/core";
 import {
   Sonolus,
@@ -487,7 +487,13 @@ function main() {
       title: localizedMeta(meta, "title"),
       artists: localizedMeta(meta, "artists"),
       author: localizedMeta(meta, "artists"),
-      tags: [{ title: { ja: meta.difficulty, en: meta.difficulty } }],
+      tags: [
+        {
+          title: Object.fromEntries(
+            ["en", "ja", "ko", "zhs", "zht"].map((locale) => [locale, sonolusDifficultyTitle(meta.difficulty)]),
+          ),
+        },
+      ],
       engine: ENGINE_NAME,
       useSkin: { useDefault: true },
       useBackground: { useDefault: true },
