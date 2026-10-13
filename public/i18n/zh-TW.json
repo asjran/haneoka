@@ -1724,7 +1724,7 @@
       "resourceUnknownItems": "商店收益未確定",
       "boxImport": {
         "title": "匯入卡庫資料",
-        "chooseFiles": "選擇檔案",
+        "chooseFiles": "選擇檔案 / ZIP / iMazing",
         "paste": "貼上名單或Box文字",
         "parse": "讀取資料",
         "parsing": "正在此裝置讀取資料",
@@ -1762,7 +1762,23 @@
         "devicePermission": "請在手機上允許 USB 偵錯。",
         "deviceBusy": "其他 ADB 程式正在使用手機。",
         "deviceEmpty": "手機上沒有找到遊戲資料。",
-        "deviceFailed": "無法讀取手機。"
+        "deviceFailed": "無法讀取手機。",
+        "localSources": "檔案、備份與備份密碼均在本機處理。",
+        "saveFolder": "選擇存檔資料夾",
+        "iosBackup": "iPhone / iPad 本機備份",
+        "backupHint": "選擇 Finder、Apple Devices 或 iTunes 建立的單一備份資料夾，其中應包含 Manifest.db。",
+        "backupPassword": "備份密碼（加密備份）",
+        "chooseBackup": "選擇備份資料夾",
+        "readingBackup": "正在本機讀取 iPhone 備份",
+        "readingFolder": "正在讀取本機存檔",
+        "backupInvalid": "備份不完整或格式暫不支援。",
+        "backupWrongPassword": "備份密碼錯誤，請重新輸入並選擇備份。",
+        "backupPasswordRequired": "這是加密備份，請輸入密碼後重新選擇。",
+        "backupSelectRoot": "請選擇包含 Manifest.db 和 Manifest.plist 的單一備份資料夾，不要選擇上一層目錄。",
+        "backupNoGame": "此備份中沒有可匯入的 Our Notes 存檔。",
+        "sourceTooLarge": "所選來源超出支援的檔案大小、記錄數或記憶體限制。",
+        "sourceTimeout": "讀取逾時，請選擇單一備份或較小的存檔資料夾重試。",
+        "folderAccess": "瀏覽器無法讀取此資料夾，請檢查存取權限。"
       },
       "resourceResultsChanged": "養成或條件已變更，請重新計算以更新結果。",
       "localDraftChanged": "另一個分頁已修改卡庫。請先匯出目前輸入，再重新讀取已儲存的卡庫。",
@@ -2259,7 +2275,12 @@
       "topOrders": "前幾種順序",
       "orderRank": "排名",
       "orderGap": "與最佳差",
-      "maxLevel": "最高等級"
+      "maxLevel": "最高等級",
+      "appDownload": {
+        "title": "用 Haneoka App 一鍵匯入存檔",
+        "description": "在 App 中讀取 Our Notes 存檔，將卡片匯入配隊，或匯出檔案後在這裡匯入。",
+        "action": "下載用戶端"
+      }
     },
     "calendar": {
       "title": "日曆",
@@ -4363,5 +4384,29 @@
       "showTestServerContent": "顯示測試伺服器內容",
       "showTestServerContentHint": "在圖鑑與配隊工具中顯示測試伺服器內容。"
     }
+  },
+  "download": {
+    "title": "下載 App",
+    "hero": "一鍵匯入存檔。",
+    "intro": "匯入 Our Notes 卡片、成績與進度，一鍵將卡片同步至配隊工具。",
+    "all": "選擇你的平台",
+    "release": "版本說明",
+    "source": "原始碼",
+    "packages": "下載 Haneoka",
+    "download": "下載",
+    "universal": "通用版",
+    "installer": "安裝程式",
+    "portable": "可攜版",
+    "bundle": "應用程式套件",
+    "iosNote": "iOS 15+ · IPA 需使用 AltStore Classic、SideStore 或 Sideloadly 簽署安裝。TIPA 適用於已安裝 TrollStore 的相容裝置。",
+    "windowsNote": "Windows 10+ · 首次安裝 MSIX 或 App Installer 前，請將下方憑證匯入「本機電腦 → 受信任的人」。EXE / MSI 可能顯示未簽署提示。",
+    "macosNote": "macOS 12+ · Apple Silicon 選 ARM64，Intel 選 x64。安裝套件尚未公證，系統可能要求確認開發者。",
+    "linuxNote": "Linux · x64 基於 Ubuntu 22.04，ARM64 基於 Ubuntu 24.04。需要 GTK 3、libsecret 和 MPV；AppImage、Snap、Flatpak 已包含媒體庫。",
+    "androidNote": "Android 8+ · 不確定架構時選通用 APK。AAB 用於散布，無法如 APK 一樣直接安裝。",
+    "extras": "安裝資源",
+    "checksums": "SHA-256 校驗檔案",
+    "saveTitle": "存檔匯入方式",
+    "saveBody": "Android 可透過 Shizuku 或支援的資料夾存取方式讀取存檔；電腦連接並授權 Android 手機後即可匯入，也支援 iPhone / iPad 本機備份。標準 iOS 版可匯入從電腦匯出的存檔。",
+    "saveGuide": "瞭解存檔匯入"
   }
 }

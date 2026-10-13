@@ -1724,7 +1724,7 @@
       "resourceUnknownItems": "Shop rewards unresolved",
       "boxImport": {
         "title": "Import card data",
-        "chooseFiles": "Choose files",
+        "chooseFiles": "Choose files / ZIP / iMazing",
         "paste": "Paste a card list or Box text",
         "parse": "Read data",
         "parsing": "Reading data locally",
@@ -1762,7 +1762,23 @@
         "devicePermission": "Allow USB debugging on the phone.",
         "deviceBusy": "Another ADB program is using the phone.",
         "deviceEmpty": "No game data found on the phone.",
-        "deviceFailed": "Could not read the phone."
+        "deviceFailed": "Could not read the phone.",
+        "localSources": "Files, backups and backup passwords are processed on this device.",
+        "saveFolder": "Choose save folder",
+        "iosBackup": "iPhone / iPad backup",
+        "backupHint": "Choose one backup folder containing Manifest.db, created with Finder, Apple Devices or iTunes.",
+        "backupPassword": "Backup password (encrypted backups)",
+        "chooseBackup": "Choose backup folder",
+        "readingBackup": "Reading iPhone backup locally",
+        "readingFolder": "Reading local save files",
+        "backupInvalid": "This backup is incomplete or uses an unsupported format.",
+        "backupWrongPassword": "The backup password is incorrect. Enter it again and select the backup.",
+        "backupPasswordRequired": "This backup is encrypted. Enter its password and select it again.",
+        "backupSelectRoot": "Select one backup folder containing Manifest.db and Manifest.plist, rather than its parent folder.",
+        "backupNoGame": "This backup contains no supported Our Notes save.",
+        "sourceTooLarge": "The selected source exceeds the supported file, record or memory limit.",
+        "sourceTimeout": "Reading timed out. Select one backup or a smaller save folder and try again.",
+        "folderAccess": "The browser could not read this folder. Check its access permissions."
       },
       "resourceResultsChanged": "Training or conditions changed. Calculate again to update the results.",
       "localDraftChanged": "Your card library changed in another tab. Export your current inputs, then reload the saved library.",
@@ -2259,7 +2275,12 @@
       "topOrders": "Top orders",
       "orderRank": "Rank",
       "orderGap": "From best",
-      "maxLevel": "Max level"
+      "maxLevel": "Max level",
+      "appDownload": {
+        "title": "Import your save with Haneoka App",
+        "description": "Read your Our Notes save in the app, then send your cards to the team builder or export a file to import here.",
+        "action": "Download App"
+      }
     },
     "calendar": {
       "title": "Calendar",
@@ -4363,5 +4384,29 @@
       "showTestServerContent": "Show test server content",
       "showTestServerContentHint": "Include test server entries in catalogs and the team builder."
     }
+  },
+  "download": {
+    "title": "Download App",
+    "hero": "Import your save.",
+    "intro": "Import your Our Notes cards, scores and progress. Send your cards to the team builder in one tap.",
+    "all": "Choose your platform",
+    "release": "Release notes",
+    "source": "Source code",
+    "packages": "Download Haneoka",
+    "download": "Download",
+    "universal": "Universal",
+    "installer": "Installer",
+    "portable": "Portable",
+    "bundle": "App bundle",
+    "iosNote": "iOS 15+ · Sign the IPA with AltStore Classic, SideStore or Sideloadly. TIPA requires a compatible device with TrollStore installed.",
+    "windowsNote": "Windows 10+ · Before installing MSIX or App Installer, import the certificate below into Local Computer → Trusted People. EXE / MSI may show unsigned publisher prompts.",
+    "macosNote": "macOS 12+ · Choose ARM64 for Apple Silicon or x64 for Intel. Packages are not notarized; macOS may ask you to confirm the developer.",
+    "linuxNote": "Linux · x64 targets Ubuntu 22.04; ARM64 targets Ubuntu 24.04. GTK 3, libsecret and MPV are required; AppImage, Snap and Flatpak bundle media libraries.",
+    "androidNote": "Android 8+ · Choose the universal APK if unsure. AAB is for distribution and cannot be installed directly like an APK.",
+    "extras": "Installation resources",
+    "checksums": "SHA-256 checksums",
+    "saveTitle": "Save import options",
+    "saveBody": "Read Android saves with Shizuku or supported folder access. On desktop, connect and authorize an Android phone to import, or use a local iPhone / iPad backup. Standard iOS installations import save files exported on a computer.",
+    "saveGuide": "Explore save import"
   }
 }

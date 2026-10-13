@@ -1724,7 +1724,7 @@
       "resourceUnknownItems": "ショップ報酬は未確定",
       "boxImport": {
         "title": "カードデータを読み込む",
-        "chooseFiles": "ファイルを選択",
+        "chooseFiles": "ファイル / ZIP / iMazing を選択",
         "paste": "カード一覧またはBoxテキストを貼り付け",
         "parse": "データを読み取る",
         "parsing": "この端末でデータを読み取り中",
@@ -1762,7 +1762,23 @@
         "devicePermission": "スマートフォンでUSBデバッグを許可してください。",
         "deviceBusy": "別のADBプログラムが使用中です。",
         "deviceEmpty": "スマートフォンにゲームデータが見つかりません。",
-        "deviceFailed": "スマートフォンを読み込めませんでした。"
+        "deviceFailed": "スマートフォンを読み込めませんでした。",
+        "localSources": "ファイル、バックアップ、パスワードはこの端末内で処理します。",
+        "saveFolder": "セーブフォルダーを選択",
+        "iosBackup": "iPhone / iPad のローカルバックアップ",
+        "backupHint": "Finder、Apple Devices、iTunes で作成した、Manifest.db を含むバックアップフォルダーを1つ選択してください。",
+        "backupPassword": "バックアップのパスワード（暗号化された場合）",
+        "chooseBackup": "バックアップフォルダーを選択",
+        "readingBackup": "端末内で iPhone のバックアップを読み込み中",
+        "readingFolder": "ローカルセーブを読み込み中",
+        "backupInvalid": "バックアップが不完全か、未対応の形式です。",
+        "backupWrongPassword": "パスワードが違います。再入力してバックアップを選択してください。",
+        "backupPasswordRequired": "暗号化されたバックアップです。パスワードを入力して再選択してください。",
+        "backupSelectRoot": "親フォルダーではなく、Manifest.db と Manifest.plist を含むバックアップフォルダーを1つ選択してください。",
+        "backupNoGame": "このバックアップに対応する Our Notes のセーブがありません。",
+        "sourceTooLarge": "ファイルサイズ、件数、メモリーの上限を超えています。",
+        "sourceTimeout": "読み込みがタイムアウトしました。バックアップを1つ、または小さいセーブフォルダーを選んで再試行してください。",
+        "folderAccess": "フォルダーを読み込めません。アクセス権を確認してください。"
       },
       "resourceResultsChanged": "育成値や条件が変わりました。結果を更新するには再計算してください。",
       "localDraftChanged": "別のタブでカード一覧が変更されました。現在の入力をエクスポートしてから、保存済みの一覧を読み直してください。",
@@ -2259,7 +2275,12 @@
       "topOrders": "上位の順番",
       "orderRank": "順位",
       "orderGap": "最良との差",
-      "maxLevel": "最大レベル"
+      "maxLevel": "最大レベル",
+      "appDownload": {
+        "title": "Haneoka アプリでセーブを取り込み",
+        "description": "アプリで Our Notes のセーブを読み込み、カードを編成ツールへ。ファイルを書き出して、ここに取り込むこともできます。",
+        "action": "アプリをダウンロード"
+      }
     },
     "calendar": {
       "title": "カレンダー",
@@ -4363,5 +4384,29 @@
       "showTestServerContent": "テストサーバーの内容を表示",
       "showTestServerContentHint": "図鑑と編成ツールにテストサーバーの内容を表示します。"
     }
+  },
+  "download": {
+    "title": "アプリをダウンロード",
+    "hero": "ワンタップでセーブを取り込み。",
+    "intro": "Our Notes のカード、スコア、進捗を取り込み、ワンタップでカードを編成ツールへ。",
+    "all": "プラットフォームを選ぶ",
+    "release": "リリースノート",
+    "source": "ソースコード",
+    "packages": "Haneoka をダウンロード",
+    "download": "ダウンロード",
+    "universal": "ユニバーサル",
+    "installer": "インストーラー",
+    "portable": "ポータブル",
+    "bundle": "アプリバンドル",
+    "iosNote": "iOS 15+ · IPA は AltStore Classic、SideStore、Sideloadly で署名してインストール。TIPA には TrollStore 導入済みの対応デバイスが必要です。",
+    "windowsNote": "Windows 10+ · MSIX / App Installer は下記の証明書を「ローカルコンピューター → 信頼されたユーザー」に登録してからインストール。EXE / MSI では未署名の警告が表示される場合があります。",
+    "macosNote": "macOS 12+ · Apple Silicon は ARM64、Intel は x64。パッケージは未公証のため、開発元の確認が必要な場合があります。",
+    "linuxNote": "Linux · x64 は Ubuntu 22.04、ARM64 は Ubuntu 24.04 ベース。GTK 3、libsecret、MPV が必要です。AppImage / Snap / Flatpak はメディアライブラリを同梱。",
+    "androidNote": "Android 8+ · 迷ったらユニバーサル APK。AAB は配布用で、直接インストールできません。",
+    "extras": "インストール用リソース",
+    "checksums": "SHA-256 チェックサム",
+    "saveTitle": "セーブの取り込み方法",
+    "saveBody": "Android は Shizuku または対応するフォルダーアクセスで読み込み。PC では Android 端末の接続・認証後に取り込めるほか、iPhone / iPad のローカルバックアップにも対応。通常の iOS 版では PC で書き出したセーブファイルを取り込めます。",
+    "saveGuide": "セーブの取り込み方法"
   }
 }

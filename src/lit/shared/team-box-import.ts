@@ -1,4 +1,4 @@
-import { html, nothing } from "lit";
+import { html, nothing, type TemplateResult } from "lit";
 import "@material/web/checkbox/checkbox.js";
 import "@material/web/select/outlined-select.js";
 import "@material/web/select/select-option.js";
@@ -28,6 +28,9 @@ export interface BoxImportDialogState {
   canConfirm: boolean;
 }
 export interface BoxImportDialogActions {
+  appDownload?: TemplateResult;
+  sources?: TemplateResult;
+  sourceStatus?: string;
   screenshots?: () => void;
   android?: () => void;
   channel?: (value: string) => void;
@@ -71,7 +74,7 @@ export function renderBoxImportDialog(state: BoxImportDialogState, actions: BoxI
     <header class="sheet__header"><strong>${t("title", "Import Box")}</strong>${iconButton({ icon: "close", label: t("close", "Close"), onClick: actions.close })}</header>
     <div class="selection-pane__body">
       ${state.error ? html`<p class="team-builder__error" role="alert">${state.error}</p>` : nothing}
-      ${state.phase === "select" ? html`<div class="team-builder__fields">
+      ${state.phase === "select" ? html`${actions.appDownload ?? nothing}<div class="team-builder__fields">
         <button type="button" class="button button--outlined" @click=${actions.screenshots}>${t("screenshots", "Screenshots")}</button>
         <div class="team-builder__practice-control">${channels.length > 1 ? html`<md-outlined-select label=${t("channel", "Game channel")} .value=${state.usbChannel ?? ""} @change=${(event: Event) => actions.channel?.((event.target as HTMLInputElement).value)}>
           ${channels.map(channel => html`<md-select-option value=${channel.packageId}><span slot="headline">${t(channel.packageId.endsWith(".official") ? "channelOfficial" : "channelPlay", channel.label)}</span></md-select-option>`)}
@@ -82,8 +85,8 @@ export function renderBoxImportDialog(state: BoxImportDialogState, actions: BoxI
         <div class="team-builder__practice-control"><md-outlined-text-field type="textarea" rows="4" label=${t("paste", "Paste Box text")}></md-outlined-text-field>
           <button type="button" class="button button--outlined" @click=${(event: Event) => { const input = (event.currentTarget as HTMLElement).parentElement?.querySelector("md-outlined-text-field") as HTMLElement & { value: string };
             if (input?.value.trim()) actions.parseText(input.value); }}>${t("parse", "Read Box")}</button></div>
-      </div>` : nothing}
-      ${state.phase === "parsing" ? html`<p role="status">${t("parsing", "Reading Box")}${state.progress ? ` · ${state.progress.completed}/${state.progress.total}` : ""}</p>` : nothing}
+      </div>${actions.sources ?? nothing}` : nothing}
+      ${state.phase === "parsing" ? html`<p role="status">${actions.sourceStatus || t("parsing", "Reading Box")}${state.progress ? ` · ${state.progress.completed}/${state.progress.total}` : ""}</p>` : nothing}
       ${(state.phase === "choose" || state.phase === "review") && state.candidates.length > 1 ? html`<md-outlined-select label=${t("candidate", "Choose Box data")} .value=${state.selectedCandidateId || "choose"}
         @change=${(event: Event) => { const id = (event.target as HTMLInputElement).value; if (state.candidates.some(candidate => candidate.id === id)) actions.selectCandidate(id); }}>
         <md-select-option value="choose"><span slot="headline">${t("candidate", "Choose Box data")}</span></md-select-option>

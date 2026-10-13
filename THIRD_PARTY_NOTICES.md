@@ -143,6 +143,8 @@ This table highlights code that is directly bundled or used at runtime. It is no
 | Three.js          | `three@0.184.0`                             | MIT     | [mrdoob/three.js](https://github.com/mrdoob/three.js)                                 |
 | Spine Three.js    | `@esotericsoftware/spine-threejs@4.2.119`   | Spine   | [EsotericSoftware/spine-runtimes](https://github.com/EsotericSoftware/spine-runtimes) |
 | Better Auth       | `better-auth@1.6.23`                        | MIT     | [better-auth/better-auth](https://github.com/better-auth/better-auth)                 |
+| sql.js / SQLite WASM | `sql.js@1.14.2` | MIT / public domain | [sql-js/sql.js](https://github.com/sql-js/sql.js), [SQLite](https://sqlite.org/copyright.html) |
+| Noble Ciphers | `@noble/ciphers@2.4.0` | MIT | [paulmillr/noble-ciphers](https://github.com/paulmillr/noble-ciphers) |
 | Sonolus libraries | See the `sonolus-engine` workspace catalog. | MIT     | [Sonolus](https://github.com/Sonolus)                                                 |
 
 Run `pnpm licenses list --prod --json` after an exact install to inventory production dependency license expressions. Review its package-provided license files and notices before distributing a build; this manually maintained document concentrates on vendored, adapted, media, and presentation assets that a package-manager report cannot explain.

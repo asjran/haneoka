@@ -17,6 +17,8 @@ import { inventoryChanges } from "../../lib/team-builder/sync/legacy";
 import type { BoxView } from "../../lib/team-builder/sync/box-view";
 import { renderBoxImportDialog, type BoxImportDialogState } from "../shared/team-box-import";
 import { renderScreenshotImportDialog, type ScreenshotImportDialogState } from "../shared/team-screenshot-import";
+import { readLocalSource } from "../../lib/team-builder/save-sources/client";
+import { icon } from "../ui/icon";
 import { selectionPane } from "../ui/selection-pane";
 import type { TeamBuilder } from "../team-builder";
 import { ANDROID_CHANNELS, readAndroidFiles } from "@haneoka/game-data-exporter";
@@ -67,6 +69,7 @@ export class ImportController {
   private boxOwner: string | null | undefined;
   private loading?: LoadingReporter;
   private generation = 0;
+  private sourceStatus = "";
   private parserController: AbortController | null = null;
   private deviceController: AbortController | null = null;
   private usb: typeof import("@haneoka/game-data-exporter/webusb") | null = null;
@@ -119,6 +122,7 @@ export class ImportController {
     this.host.requestUpdate();
   }
   private async android() {
+    this.sourceStatus = "";
     if (!this.box?.usbReady || !this.box.usbChannel || !this.usb) return;
     const controller = this.deviceController = new AbortController();
     const generation = ++this.generation;
@@ -150,6 +154,10 @@ export class ImportController {
     this.host.requestUpdate();
   }
   private async parse(input: { files: readonly File[] } | { text: string }) {
+    if ("files" in input && input.files.length === 1 && /\.(zip|imazingapp)$/i.test(input.files[0]!.name)) {
+      return this.importSource((signal, progress) => readLocalSource({ archive: input.files[0]! }, "archive", "", { signal, progress }), this.text("readingFolder", "Reading local save files"));
+    }
+    this.sourceStatus = "";
     if (!this.box || !this.boxBase || !this.boxContext) return;
     const generation = ++this.generation;
     this.parserController?.abort();
@@ -187,6 +195,142 @@ export class ImportController {
       }
       this.host.requestUpdate();
     }
+  }
+  private async importSource(
+    run: (
+      signal: AbortSignal,
+      progress: (completed: number, total: number) => void,
+    ) => Promise<import("@haneoka/game-data-exporter").BoxParseResult>,
+    status: string,
+  ) {
+    if (!this.box || !this.boxBase || !this.boxContext) return;
+    const generation = ++this.generation;
+    this.parserController?.abort();
+    const controller = new AbortController();
+    this.parserController = controller;
+    this.sourceStatus = status;
+    this.box = {
+      ...this.box,
+      phase: "parsing",
+      candidates: [],
+      preview: null,
+      progress: null,
+      error: null,
+      canConfirm: false,
+    };
+    const loading = beginLoading(status, { signal: controller.signal, scope: "owner" });
+    this.host.requestUpdate();
+    try {
+      const result = await run(controller.signal, (completed, total) => {
+        if (generation !== this.generation || !this.box) return;
+        this.box = { ...this.box, progress: { completed, total } };
+        loading.update({ processedTasks: completed, totalTasks: total });
+        this.host.requestUpdate();
+      });
+      if (generation !== this.generation || !this.box) return;
+      this.box = { ...this.box, phase: "choose", candidates: result.candidates, progress: null };
+      if (result.candidates.length === 1) this.select(result.candidates[0]!.id);
+    } catch (error) {
+      if (generation !== this.generation || !this.box || controller.signal.aborted) return;
+      this.box = {
+        ...this.box,
+        phase: "select",
+        progress: null,
+        error: error instanceof BoxImportError ? error.code : "backup_invalid",
+      };
+    } finally {
+      loading.finish();
+      if (this.parserController === controller) this.parserController = null;
+      this.host.requestUpdate();
+    }
+  }
+  private folder(files: File[], kind: "folder" | "backup", password: string) {
+    if (!files.length) return;
+    void this.importSource(
+      (signal, progress) => readLocalSource({ files }, kind, password, { signal, progress }),
+      this.text(kind === "backup" ? "readingBackup" : "readingFolder", "Reading local save files"),
+    );
+  }
+  private async chooseFolder(event: Event, kind: "folder" | "backup") {
+    const generation = this.generation;
+    const button = event.currentTarget as HTMLElement;
+    const passwordField = button.closest(".tb-save-sources")?.querySelector<HTMLInputElement>("input[type=password]");
+    const password = passwordField?.value ?? "";
+    const picker = (
+      window as Window & { showDirectoryPicker?: (options: { mode: "read" }) => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker;
+    if (!picker) {
+      (button.nextElementSibling as HTMLInputElement).click();
+      return;
+    }
+    if (passwordField) passwordField.value = "";
+    try {
+      const directory = await picker.call(window, { mode: "read" });
+      if (generation !== this.generation || !this.box) return;
+      await this.importSource(
+        (signal, progress) => readLocalSource({ directory }, kind, password, { signal, progress }),
+        this.text(kind === "backup" ? "readingBackup" : "readingFolder", "Reading local save files"),
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (this.box) {
+        this.box = { ...this.box, error: "backup_folder_access" };
+        this.host.requestUpdate();
+      }
+    }
+  }
+  private renderSources(): TemplateResult {
+    const folderInput = (kind: "folder" | "backup") => html`
+      <input
+        hidden
+        type="file"
+        webkitdirectory
+        multiple
+        @change=${(event: Event) => {
+          const input = event.target as HTMLInputElement;
+          const passwordField = input
+            .closest(".tb-save-sources")
+            ?.querySelector<HTMLInputElement>("input[type=password]");
+          const password = passwordField?.value ?? "";
+          if (passwordField) passwordField.value = "";
+          this.folder([...(input.files ?? [])], kind, password);
+          input.value = "";
+        }}
+      />
+    `;
+    return html`
+      <section class="tb-save-sources">
+        <p class="team-builder__hint">
+          ${this.text("localSources", "Files and backups are read on this device. Backup passwords stay here.")}
+        </p>
+        <div class="team-builder__actions">
+          <button class="button button--outlined" type="button" @click=${(e: Event) => this.chooseFolder(e, "folder")}>
+            ${icon("folder_open", 20)}${this.text("saveFolder", "Save folder")}
+          </button>
+          ${folderInput("folder")}
+        </div>
+        <div class="tb-backup-source">
+          <strong>${this.text("iosBackup", "iPhone / iPad backup")}</strong>
+          <p class="team-builder__hint">
+            ${this.text("backupHint", "Choose the backup folder containing Manifest.db, created with Finder, Apple Devices or iTunes.")}
+          </p>
+          <label class="tb-backup-password">
+            <span>${this.text("backupPassword", "Backup password (encrypted backups)")}</span>
+            <input type="password" autocomplete="off" />
+          </label>
+          <div class="team-builder__actions">
+            <button
+              class="button button--outlined"
+              type="button"
+              @click=${(e: Event) => this.chooseFolder(e, "backup")}
+            >
+              ${icon("phone_iphone", 20)}${this.text("chooseBackup", "Choose backup folder")}
+            </button>
+            ${folderInput("backup")}
+          </div>
+        </div>
+      </section>
+    `;
   }
   private select(id: string) {
     const state = this.box;
@@ -241,6 +385,19 @@ export class ImportController {
     return this.host.t(`boxImport.${key}`, fallback, params);
   }
   private boxError(code: string) {
+    const sourceErrors: Record<string, string> = {
+      backup_invalid: "backupInvalid",
+      backup_password: "backupWrongPassword",
+      backup_password_required: "backupPasswordRequired",
+      backup_select_root: "backupSelectRoot",
+      backup_no_game: "backupNoGame",
+      backup_budget: "sourceTooLarge",
+      backup_timeout: "sourceTimeout",
+      backup_folder_access: "folderAccess",
+    };
+    if (sourceErrors[code])
+      return this.text(sourceErrors[code], "Could not read this source. Check the selection and try again.");
+
     if (code === "device_unsupported") return this.text("deviceUnsupported", "This browser cannot use USB devices.");
     if (code === "device_permission" || code === "device_auth_failed") return this.text("devicePermission", "Allow USB debugging on the phone.");
     if (code === "device_busy") return this.text("deviceBusy", "Another ADB program is using the phone.");
@@ -364,11 +521,35 @@ export class ImportController {
     downloadBlob(new Blob([JSON.stringify(inventory, null, 2)], { type: "application/json" }), `haneoka-team-box-${inventory.server}.json`);
   }
 
+  private appDownload(): TemplateResult {
+    return html`
+      <aside class="tb-app-download">
+        <div>
+          <strong>${this.host.t("appDownload.title", "Import your save with Haneoka App")}</strong>
+          <p>
+            ${this.host.t("appDownload.description", "Read your Our Notes save in the app, then send your cards to the team builder or export a file to import here.")}
+          </p>
+        </div>
+        <a
+          class="button button--tonal"
+          href=${`/${this.host.locale}/download/`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          ${icon("download", 20)}${this.host.t("appDownload.action", "Download App")}${icon("open_in_new", 18)}
+        </a>
+      </aside>
+    `;
+  }
+
   render(): TemplateResult | typeof nothing {
     const host = this.host;
     if (this.box) {
       const state = this.box;
       return renderBoxImportDialog({ ...state, serverLabel: host.data?.identity.server === "jp" ? clientText(host.locale, "settings.labels.settingsJapan", "Japan") : clientText(host.locale, "settings.labels.settingsGlobal", "Global"), error: state.error ? this.boxError(state.error) : null }, {
+        appDownload: this.appDownload(),
+        sources: this.renderSources(),
+        sourceStatus: this.sourceStatus,
         text: (key, fallback, params) => this.text(key, fallback, params),
         card: (kind, id) => host.catalog!.cardOptions(kind === "members" ? "members" : "snaps", id),
         mapName: (map, id) => host.catalog!.text(map === "bandItems" ? host.data!.bandItems[String(id)]?.name : host.data!.characters[String(id)]?.characterName) || host.t("unknown", "Unknown or not entered"),
@@ -412,6 +593,7 @@ export class ImportController {
         });
       }
       return renderScreenshotImportDialog(this.screenshot, {
+        appDownload: this.appDownload(),
         text: (key, fallback) => key.startsWith("existing") ? this.text(key, fallback) : clientText(host.locale, ["close", "cancel"].includes(key) ? key : `tools.teamBuilder.screenshotImport.${key}`, fallback),
         card: (kind, id) => host.catalog!.cardOptions(kind === "members" ? "members" : "snaps", id),
         levels: (kind, id) => practiceRanges(host.data!, kind, id).level ?? [],

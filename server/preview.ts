@@ -153,6 +153,7 @@ const mime: Readonly<Record<string, string>> = {
   ".ktx2": "image/ktx2",
   ".txt": "text/plain; charset=utf-8",
   ".bytes": "application/octet-stream",
+  ".wasm": "application/wasm",
 };
 
 function parsePort(value: string | undefined): number {

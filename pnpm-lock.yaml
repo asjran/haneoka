@@ -45,6 +45,9 @@ catalogs:
     '@lit-labs/ssr-client':
       specifier: ^1.1.8
       version: 1.1.8
+    '@noble/ciphers':
+      specifier: ^2.4.0
+      version: 2.4.0
     '@sinclair/typebox':
       specifier: 0.34.49
       version: 0.34.49
@@ -78,6 +81,9 @@ catalogs:
     '@types/node':
       specifier: 26.1.0
       version: 26.1.0
+    '@types/sql.js':
+      specifier: ^1.4.11
+      version: 1.4.11
     '@types/three':
       specifier: 0.184.1
       version: 0.184.1
@@ -120,6 +126,9 @@ catalogs:
     prettier:
       specifier: 3.9.4
       version: 3.9.4
+    sql.js:
+      specifier: ^1.14.2
+      version: 1.14.2
     three:
       specifier: 0.184.0
       version: 0.184.0
@@ -242,6 +251,9 @@ importers:
       '@material/web':
         specifier: ^2.5.0
         version: 2.5.0
+      '@noble/ciphers':
+        specifier: 'catalog:'
+        version: 2.4.0
       '@resvg/resvg-wasm':
         specifier: 2.6.2
         version: 2.6.2
@@ -293,6 +305,9 @@ importers:
       photoswipe:
         specifier: 'catalog:'
         version: 5.4.4
+      sql.js:
+        specifier: 'catalog:'
+        version: 1.14.2
       three:
         specifier: 'catalog:'
         version: 0.184.0
@@ -327,6 +342,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
+      '@types/sql.js':
+        specifier: 'catalog:'
+        version: 1.4.11
       '@types/three':
         specifier: 'catalog:'
         version: 0.184.1
@@ -2344,6 +2362,10 @@ packages:
     resolution: {integrity: sha512-Z6pjIZ/8IJcCGzb2S/0Px5J81yij85xASuk1teLNeg75bfT07MV3a/O2Mtn1I2se43k3lkVEcFaR10N4cgQcZA==}
     engines: {node: '>= 20.19.0'}
 
+  '@noble/ciphers@2.4.0':
+    resolution: {integrity: sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw==}
+    engines: {node: '>= 20.19.0'}
+
   '@noble/hashes@2.2.0':
     resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
     engines: {node: '>= 20.19.0'}
@@ -2781,6 +2803,9 @@ packages:
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
+  '@types/emscripten@1.41.6':
+    resolution: {integrity: sha512-uN+9i8bFT5CUcZfyIEYDrSueACEyKGbUs5kC/72DGlZZoinh84sJfVV0i8UOJD1asdzkvLPBRrKs41kZ8MdEXg==}
+
   '@types/esrecurse@4.3.1':
     resolution: {integrity: sha512-xJBAbDifo5hpffDBuHl0Y8ywswbiAp/Wi7Y/GtAgSlZyIABppyurxVueOPE8LUQOxdlgi6Zqce7uoEpqNTeiUw==}
 
@@ -2845,6 +2870,9 @@ packages:
 
   '@types/serve-static@1.15.10':
     resolution: {integrity: sha512-tRs1dB+g8Itk72rlSI2ZrW6vZg0YrLI81iQSTkMmOqnqCaNr/8Ek4VwWcN5vZgCYWbg/JJSGBlUaYGAOP73qBw==}
+
+  '@types/sql.js@1.4.11':
+    resolution: {integrity: sha512-QXIx38p2ZThJaK9vP5ZdqdlRe1FG9I8SmCZOS7FHfB/2qPAjZwkL7/vlfPg6N/oWHuuOaGg/P/IRwfP2W0kWVQ==}
 
   '@types/stats.js@0.17.4':
     resolution: {integrity: sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==}
@@ -4757,6 +4785,9 @@ packages:
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
 
+  sql.js@1.14.2:
+    resolution: {integrity: sha512-3ZGPovObMFrdw79zrUHbfdE/DLIsy8jdNdssmMSQuRAymedU6q84asPt0kgiqrdMYlPegDItiIMfmIXzZnYFcw==}
+
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
 
@@ -6334,6 +6365,8 @@ snapshots:
 
   '@noble/ciphers@2.2.0': {}
 
+  '@noble/ciphers@2.4.0': {}
+
   '@noble/hashes@2.2.0': {}
 
   '@opentelemetry/semantic-conventions@1.43.0': {}
@@ -6719,6 +6752,8 @@ snapshots:
   '@types/deep-eql@4.0.2':
     optional: true
 
+  '@types/emscripten@1.41.6': {}
+
   '@types/esrecurse@4.3.1': {}
 
   '@types/estree@1.0.9': {}
@@ -6793,6 +6828,11 @@ snapshots:
       '@types/http-errors': 2.0.5
       '@types/node': 26.1.0
       '@types/send': 0.17.6
+
+  '@types/sql.js@1.4.11':
+    dependencies:
+      '@types/emscripten': 1.41.6
+      '@types/node': 26.1.0
 
   '@types/stats.js@0.17.4': {}
 
@@ -9319,6 +9359,8 @@ snapshots:
     optional: true
 
   space-separated-tokens@2.0.2: {}
+
+  sql.js@1.14.2: {}
 
   stackback@0.0.2:
     optional: true

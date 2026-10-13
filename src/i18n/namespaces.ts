@@ -13,6 +13,7 @@ import { releaseServerFromPath } from "../lib/resource-route";
 /** Logical views over the semantic, authoritative public/i18n catalog. */
 export const COMMON_I18N_NAMESPACE = "common" as const;
 export const CATALOG_I18N_NAMESPACE = "catalog" as const;
+export const DOWNLOAD_I18N_NAMESPACE = "download" as const;
 export const HOME_I18N_NAMESPACE = "home" as const;
 export const CALENDAR_I18N_NAMESPACE = "calendar" as const;
 export const STORY_I18N_NAMESPACE = "story" as const;
@@ -35,6 +36,7 @@ export const I18N_NAMESPACES = [
   COMMON_I18N_NAMESPACE,
   CATALOG_I18N_NAMESPACE,
   HOME_I18N_NAMESPACE,
+  DOWNLOAD_I18N_NAMESPACE,
   CALENDAR_I18N_NAMESPACE,
   STORY_I18N_NAMESPACE,
   VOICE_I18N_NAMESPACE,
@@ -60,6 +62,7 @@ const namespaceRootKeys: Readonly<Record<MainI18nNamespace, readonly string[]>> 
   common: ["common", "navigation", "settings", "media.audio", "media.images.actions", "media.capture", "catalog.bands.names"],
   catalog: ["catalog", "editors.chart.labels.notes", "editors.chart.labels.combo"],
   home: ["home"],
+  download: ["download"],
   calendar: ["tools.calendar"],
   story: ["story"],
   voice: ["media.voice", "media.audio"],
@@ -136,6 +139,7 @@ export const featureNamespaceForRoute = (route = "/"): MainI18nNamespace => {
     : rawPathname;
   if (pathname === "/" || pathname === "") return HOME_I18N_NAMESPACE;
   if (pathname === "/calendar" || pathname.startsWith("/calendar/")) return CALENDAR_I18N_NAMESPACE;
+  if (pathname === "/download") return DOWNLOAD_I18N_NAMESPACE;
   if (pathname === "/about" || pathname === "/join" || pathname === "/terms" || pathname === "/privacy" || pathname === "/license") {
     return LEGAL_I18N_NAMESPACE;
   }

@@ -2,6 +2,7 @@
 import Base from "../layouts/Base.astro";
 import AppShell from "./AppShell.astro";
 import CatalogIndexPage from "./pages/CatalogIndexPage.astro";
+import DownloadPage from "./pages/DownloadPage.astro";
 import AboutPage from "./pages/AboutPage.astro";
 import JoinPage from "./pages/JoinPage.astro";
 import LegalPage from "./pages/LegalPage.astro";
@@ -65,6 +66,7 @@ const canonicalRoute = explicitCanonicalRoute ?? (server ? resourceCollectionHre
   seoDescriptionValues={documentDescriptionValues}
 >
   <AppShell locale={locale} route={entry.route} title={title} titleKey={entry.titleKey} server={server}>
+    {entry.kind === "download" && <DownloadPage locale={locale} />}
     {entry.kind === "index" && <CatalogIndexPage locale={locale} server={server} />}
     {entry.kind === "legal" && entry.page === "aboutPage" && <AboutPage locale={locale} />}
     {entry.kind === "legal" && entry.page === "joinPage" && <JoinPage locale={locale} />}

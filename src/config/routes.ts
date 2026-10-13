@@ -2,7 +2,7 @@ import type { Locale } from "../i18n/locales";
 import { group, t } from "../i18n/messages";
 
 export type PageKind =
-  "home" | "index" | "catalog" | "tgw-card" | "studio" | "missions" | "event-tracker" | "song-puzzle" | "stamp-maker" | "legal" | "notice";
+  "download" | "home" | "index" | "catalog" | "tgw-card" | "studio" | "missions" | "event-tracker" | "song-puzzle" | "stamp-maker" | "legal" | "notice";
 export interface RouteDefinition {
   route: string;
   kind: PageKind;
@@ -75,6 +75,7 @@ const appPages: Array<[string, string]> = [
 ];
 
 export const ROUTES: RouteDefinition[] = [
+  { route: "/download", kind: "download", key: "download", titleKey: "download.title" },
   { route: "/", kind: "home", key: "home", titleKey: "home.dashboard.overview" },
   { route: "/catalog", kind: "index", key: "catalog", titleKey: "navigation.catalog" },
   ...catalogs.map(([key, titleKey, resource]) => ({

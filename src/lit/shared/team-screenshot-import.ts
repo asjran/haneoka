@@ -1,4 +1,4 @@
-import { html, nothing } from "lit";
+import { html, nothing, type TemplateResult } from "lit";
 import "@material/web/slider/slider.js";
 import "@material/web/checkbox/checkbox.js";
 import "@material/web/select/outlined-select.js";
@@ -24,6 +24,7 @@ export interface ScreenshotImportDialogState {
   canConfirm: boolean;
 }
 export interface ScreenshotImportDialogActions {
+  appDownload?: TemplateResult;
   upload?: () => void;
   crop?: (image: number, side: keyof ScreenshotCrop, value: number) => void;
   text: (key: string, fallback: string) => string;
@@ -76,6 +77,7 @@ export function renderScreenshotImportDialog(state: ScreenshotImportDialogState,
         ${iconButton({ icon: "close", label: t("close", "Close"), onClick: actions.close })}
       </header>
       <div class="selection-pane__body">
+        ${state.phase === "select" || state.phase === "failed" ? actions.appDownload ?? nothing : nothing}
         ${state.localImages?.length ? html`<div class="team-builder__crops">${state.localImages.map((image, index) => html`<figure class="team-builder__crop">
           <div class="team-builder__crop-frame"><img src=${image.url} alt="" decoding="async" />
             <span style=${`inset:${image.crop.top}% ${image.crop.right}% ${image.crop.bottom}% ${image.crop.left}%`}></span></div>

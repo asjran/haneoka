@@ -6,6 +6,34 @@
    grids are shared with the chart-creation library; they keep their classes.
    ========================================================================== */
 @layer pages {
+  .tb-app-download {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 24px;
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .tb-app-download .button,
+  .tb-save-sources .button {
+    min-height: 48px;
+  }
+  .tb-app-download > div {
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+  .tb-app-download strong {
+    font-size: 16px;
+  }
+  .tb-app-download p {
+    margin: 8px 0 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
   team-builder {
     display: block;
     min-width: 0;
@@ -1178,5 +1206,40 @@
     .pt-form-grid {
       grid-template-columns: minmax(0, 1fr);
     }
+  }
+}
+
+@layer pages {
+  .tb-save-sources {
+    display: grid;
+    gap: 20px;
+    padding-block: 20px;
+  }
+  .tb-backup-source,
+  .tb-usb-source {
+    display: grid;
+    gap: 12px;
+    padding: 20px;
+    border-radius: 20px;
+    background: var(--md-sys-color-surface-container);
+  }
+  .tb-save-sources .team-builder__hint {
+    margin: 0;
+    line-height: 1.6;
+  }
+  .tb-backup-password {
+    display: grid;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .tb-backup-password input {
+    width: 100%;
+    min-height: 48px;
+    padding: 12px;
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: 12px;
+    background: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface);
+    font: inherit;
   }
 }

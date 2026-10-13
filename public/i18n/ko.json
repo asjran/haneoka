@@ -1724,7 +1724,7 @@
       "resourceUnknownItems": "상점 보상 미확정",
       "boxImport": {
         "title": "카드 데이터 가져오기",
-        "chooseFiles": "파일 선택",
+        "chooseFiles": "파일 / ZIP / iMazing 선택",
         "paste": "카드 목록 또는 Box 텍스트 붙여넣기",
         "parse": "데이터 읽기",
         "parsing": "이 기기에서 데이터 읽는 중",
@@ -1762,7 +1762,23 @@
         "devicePermission": "휴대폰에서 USB 디버깅을 허용하세요.",
         "deviceBusy": "다른 ADB 프로그램이 휴대폰을 사용 중입니다.",
         "deviceEmpty": "휴대폰에서 게임 데이터를 찾을 수 없습니다.",
-        "deviceFailed": "휴대폰을 읽지 못했습니다."
+        "deviceFailed": "휴대폰을 읽지 못했습니다.",
+        "localSources": "파일, 백업과 백업 비밀번호는 이 기기에서 처리됩니다.",
+        "saveFolder": "세이브 폴더 선택",
+        "iosBackup": "iPhone / iPad 로컬 백업",
+        "backupHint": "Finder, Apple Devices 또는 iTunes로 만든 Manifest.db가 포함된 백업 폴더 하나를 선택하세요.",
+        "backupPassword": "백업 비밀번호 (암호화된 백업)",
+        "chooseBackup": "백업 폴더 선택",
+        "readingBackup": "기기에서 iPhone 백업 읽는 중",
+        "readingFolder": "로컬 세이브 읽는 중",
+        "backupInvalid": "백업이 불완전하거나 지원되지 않는 형식입니다.",
+        "backupWrongPassword": "백업 비밀번호가 틀렸습니다. 다시 입력하고 백업을 선택하세요.",
+        "backupPasswordRequired": "암호화된 백업입니다. 비밀번호를 입력하고 다시 선택하세요.",
+        "backupSelectRoot": "상위 폴더가 아닌 Manifest.db와 Manifest.plist가 포함된 백업 폴더 하나를 선택하세요.",
+        "backupNoGame": "이 백업에 지원되는 Our Notes 세이브가 없습니다.",
+        "sourceTooLarge": "파일 크기, 레코드 또는 메모리 제한을 초과했습니다.",
+        "sourceTimeout": "읽기 시간이 초과되었습니다. 백업 하나 또는 더 작은 세이브 폴더로 다시 시도하세요.",
+        "folderAccess": "폴더를 읽을 수 없습니다. 접근 권한을 확인하세요."
       },
       "resourceResultsChanged": "육성 값이나 조건이 변경되었습니다. 결과를 갱신하려면 다시 계산해 주세요.",
       "localDraftChanged": "다른 탭에서 카드 목록이 변경되었습니다. 현재 입력을 내보낸 뒤 저장된 목록을 다시 불러오세요.",
@@ -2259,7 +2275,12 @@
       "topOrders": "상위 순서",
       "orderRank": "순위",
       "orderGap": "최적과 차이",
-      "maxLevel": "최대 레벨"
+      "maxLevel": "최대 레벨",
+      "appDownload": {
+        "title": "Haneoka 앱으로 세이브 가져오기",
+        "description": "앱에서 Our Notes 세이브를 읽고 카드를 팀 편성으로 보내거나, 파일로 내보낸 뒤 여기에서 가져오세요.",
+        "action": "앱 다운로드"
+      }
     },
     "calendar": {
       "title": "달력",
@@ -4363,5 +4384,29 @@
       "showTestServerContent": "테스트 서버 콘텐츠 표시",
       "showTestServerContentHint": "도감과 팀 편성 도구에 테스트 서버 콘텐츠를 표시합니다."
     }
+  },
+  "download": {
+    "title": "앱 다운로드",
+    "hero": "한 번에 세이브 가져오기.",
+    "intro": "Our Notes의 카드, 점수와 진행 상황을 가져오고 한 번에 카드를 팀 편성 도구로 보내세요.",
+    "all": "플랫폼 선택",
+    "release": "릴리스 노트",
+    "source": "소스 코드",
+    "packages": "Haneoka 다운로드",
+    "download": "다운로드",
+    "universal": "범용",
+    "installer": "설치 프로그램",
+    "portable": "포터블",
+    "bundle": "앱 번들",
+    "iosNote": "iOS 15+ · IPA는 AltStore Classic, SideStore 또는 Sideloadly로 서명 후 설치하세요. TIPA는 TrollStore가 설치된 호환 기기가 필요합니다.",
+    "windowsNote": "Windows 10+ · MSIX / App Installer 설치 전 아래 인증서를 로컬 컴퓨터 → 신뢰할 수 있는 사용자에 가져오세요. EXE / MSI는 서명되지 않은 게시자 알림이 나타날 수 있습니다.",
+    "macosNote": "macOS 12+ · Apple Silicon은 ARM64, Intel은 x64를 선택하세요. 패키지가 공증되지 않아 개발자 확인이 필요할 수 있습니다.",
+    "linuxNote": "Linux · x64는 Ubuntu 22.04, ARM64는 Ubuntu 24.04 기반입니다. GTK 3, libsecret, MPV가 필요하며 AppImage / Snap / Flatpak은 미디어 라이브러리를 포함합니다.",
+    "androidNote": "Android 8+ · 잘 모르겠다면 범용 APK를 선택하세요. AAB는 배포용이며 직접 설치할 수 없습니다.",
+    "extras": "설치 리소스",
+    "checksums": "SHA-256 체크섬",
+    "saveTitle": "세이브 가져오기 방법",
+    "saveBody": "Android는 Shizuku 또는 지원되는 폴더 접근 방식으로 세이브를 읽습니다. 데스크톱에서는 Android 기기를 연결하고 승인한 뒤 가져오거나 iPhone / iPad 로컬 백업을 사용할 수 있습니다. 일반 iOS 설치는 컴퓨터에서 내보낸 세이브 파일을 가져옵니다.",
+    "saveGuide": "세이브 가져오기 안내"
   }
 }
