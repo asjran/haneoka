@@ -255,7 +255,7 @@ test("exact-reward searches preserve weaker snaps and do not repeat a higher-rew
   assert.notDeepEqual([...next.hits[0]!.team.members].sort(), [...result.hits[0]!.team.members].sort());
 });
 
-test("the real engine entry ranks event results by reward, other reward, then mean score", async () => {
+test("the real engine entry ranks event results by reward then mean score", async () => {
   const data = liveFixture();
   const { master, chart } = data;
   master.members = new Map(data.members.map(member => [member.card.id, member.card]));
@@ -275,7 +275,7 @@ test("the real engine entry ranks event results by reward, other reward, then me
     goal: { kind: "event", measure: "points", route: "live", eventId: 1, songs: [{ songId: 1, difficulty: 3 }], consumption: 0, play: AP },
     constraints: { requiredMembers: [], excludedMembers: [], requiredSnaps: [], excludedSnaps: [], leader: null, bindings: [], noSnaps: true, minBonusPercent: null },
     k: 3, timeLimitMs: null };
-  const objective = eventObjective(data, rewards, "points", 2);
+  const objective = eventObjective(data, rewards, "points", 2, 0, Infinity, "primary");
   const compare = (a: SearchHit<EventDetail | { bonus: number; mean: number }>, b: SearchHit<EventDetail | { bonus: number; mean: number }>) =>
     b.key - a.key || (b.detail as EventDetail).scores.mean - (a.detail as EventDetail).scores.mean;
   const expected = exhaustive({ ...data, objective, k: 3 }, compare);
@@ -285,9 +285,9 @@ test("the real engine entry ranks event results by reward, other reward, then me
   assert.equal(new Set(actual.overall.map(hit => [...hit.members].sort().join(","))).size, 3);
   const primaryRequest: EngineRequest = { ...request, k: 1, goal: { ...request.goal as Extract<EngineRequest["goal"], { kind: "event" }>, ranking: "primary" } };
   const primary = await runEngine(master, cache, primaryRequest);
-  const primaryExpected = exhaustive({ ...data, objective: eventObjective(data, rewards, "points", 2, 0, Infinity, "primary"), k: 1 });
+  const primaryExpected = exhaustive({ ...data, objective: eventObjective(data, rewards, "points", 2, 0, Infinity, "primary"), k: 1 }, compare);
   assert.equal(primary.overall[0]!.key, primaryExpected[0]!.key);
-  const cutoff = { key: primary.overall[0]!.key, contextKey: "test", ranking: "reward-song-difficulty-v1" as const, comparison: "gt" as const };
+  const cutoff = { key: primary.overall[0]!.key, contextKey: "test", ranking: "reward-mean-score-v2" as const, comparison: "gt" as const };
   const excluded = await runEngine(master, cache, { ...primaryRequest, contextKey: "test", cutoff });
   assert.deepEqual(excluded.results[0]!.exclusion, cutoff);
   const tied = await runEngine(master, cache, { ...primaryRequest, contextKey: "test", cutoff: { ...cutoff, comparison: "gte" } });

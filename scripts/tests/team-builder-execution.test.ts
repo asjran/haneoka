@@ -24,7 +24,7 @@ const response = (input: EngineRequest, proven = false): EngineResponse => {
 };
 const context = { server: "intl", releaseId: "r", sourceId: "s", dataFingerprint: "data", owner: "local", assumptions: [] };
 
-test("cutoffs keep equal rewards when an earlier song or difficulty can win, independent of dispatch order", async () => {
+test("cutoffs keep equal rewards for mean-score ranking, independent of dispatch order", async () => {
   const input = request();
   if (input.goal.kind !== "event") throw Error();
   input.goal.songs = [{ songId: 2, difficulty: 4 }, { songId: 1, difficulty: 4 }, { songId: 2, difficulty: 3 }];
@@ -44,8 +44,8 @@ test("cutoffs keep equal rewards when an earlier song or difficulty can win, ind
   assert.deepEqual(ptSongRanking(job).map(item => item.song), [{ songId: 1, difficulty: 4 }, { songId: 2, difficulty: 3 }]);
   const later = job.tasks[0]!;
   const cutoff = ptTaskCutoff(job, later)!;
-  assert.equal(cutoff.comparison, "gt");
-  assert.equal(excludesBound(100, cutoff), true);
+  assert.equal(cutoff.comparison, "gte");
+  assert.equal(excludesBound(100, cutoff), false);
   later.status = "pruned";
   later.result = { ...pendingSong(later.song), exclusion: cutoff };
   assert.equal(chartExcluded(job, later), true);

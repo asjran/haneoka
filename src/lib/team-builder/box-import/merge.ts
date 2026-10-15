@@ -3,12 +3,12 @@ import type { TeamBuilderData } from "../data";
 import { BoxImportError } from "@haneoka/game-data-exporter";
 import { sameBoxContext, type BoxPreview, type BoxPracticeField, type BoxReviewContext } from "./preview";
 export interface BoxConfirmation {
-  /** updates: an existing value only changes when the import raises it. */
+  /** Existing-card fields only; account bonuses use their individual map choices. */
   existingValues?: "keep" | "overwrite" | "updates";
   cards: { key: string; include: boolean; fields?: Partial<Record<BoxPracticeField, number | "keep">> }[];
   maps: { key: string; include: boolean; value?: number | "keep" }[];
 }
-/** No persistence. Existing values/flags survive unless the user selects a supplied concrete field. */
+/** Pure merge: card defaults and individual account-bonus choices remain independent. */
 export function applyConfirmedBoxImport(
   current: InventoryV1,
   preview: BoxPreview,
@@ -67,12 +67,9 @@ export function applyConfirmedBoxImport(
       if (!existing) throw new BoxImportError("box_unconfirmed_value");
       continue;
     }
-    const policy = confirmation.existingValues ?? "keep";
-    if (choice.value === undefined && existing && policy === "keep") continue;
     const selected = choice.value ?? (proposal.values.length === 1 ? proposal.values[0] : undefined);
     if (selected === undefined || !proposal.values.includes(selected))
       throw new BoxImportError("box_conflict_required");
-    if (choice.value === undefined && existing && policy === "updates" && proposal.existing !== null && selected <= proposal.existing) continue;
     next = { ...next, [proposal.map]: { ...next[proposal.map], [String(proposal.id)]: selected } };
   }
   if (!validateInventory(next, data).valid) throw new BoxImportError("box_invalid_confirmed_inventory");

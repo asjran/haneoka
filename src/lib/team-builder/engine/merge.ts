@@ -5,7 +5,7 @@ import type { EngineHit, EngineResponse, Goal, PlanSummary, SongResult } from ".
 
 const songKey = (hit: EngineHit) => (hit.song ? `${hit.song.songId}:${hit.song.difficulty}` : "-");
 /** Higher key first; equal keys (an event reward tie) prefer the higher mean score. */
-export const compareHits = (a: EngineHit, b: EngineHit) => b.key - a.key || (a.song?.songId ?? 0) - (b.song?.songId ?? 0) || (a.song?.difficulty ?? 0) - (b.song?.difficulty ?? 0) || (b.score?.mean ?? 0) - (a.score?.mean ?? 0);
+export const compareHits = (a: EngineHit, b: EngineHit) => b.key - a.key || (b.score?.mean ?? 0) - (a.score?.mean ?? 0) || (a.song?.songId ?? 0) - (b.song?.songId ?? 0) || (a.song?.difficulty ?? 0) - (b.song?.difficulty ?? 0) || JSON.stringify([a.members, a.snaps]).localeCompare(JSON.stringify([b.members, b.snaps]));
 const setKey = (hit: EngineHit) => `${songKey(hit)}|${[...hit.members].sort().join(",")}`;
 
 function topDistinct(hits: readonly EngineHit[], k: number): EngineHit[] {

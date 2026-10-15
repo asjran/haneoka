@@ -40,6 +40,7 @@ export function gekisoRewardObjective(input: {
   exchange?: CpExchange;
   scoreCache?: GekisoScoreCache;
   contextCache?: GekisoContextCache;
+  rewardTarget?: number;
 }): ObjectiveAdapter<GekisoRewardDetail> {
   const { master, members, snaps, chart, gekiso, route, measure, options, exchange } = input;
   const bonusType = measure === "points" ? 0 : 1;
@@ -143,7 +144,7 @@ export function gekisoRewardObjective(input: {
       bonus,
       samples(),
       exchange,
-      cutoff && Number.isFinite(cutoff.key)
+      input.rewardTarget === undefined && cutoff && Number.isFinite(cutoff.key)
         ? {
             observations: runs * ORDERS.length,
             ceiling: ceiling(power, bonus, teamBound(team)),
@@ -166,7 +167,7 @@ export function gekisoRewardObjective(input: {
       maxOrder,
     };
     return {
-      key: settlement.mean,
+      key: input.rewardTarget === undefined ? settlement.mean : settlement.mean === input.rewardTarget ? summary.mean : -1,
       detail: { ...settlement, bonus, scores: summary, just: just!, luckSamples: runs, sampled: gekiso.luck },
     };
   };
@@ -176,11 +177,17 @@ export function gekisoRewardObjective(input: {
     snapBonus,
     work,
     // No empirical score bound or capped candidate shortlist participates in pruning.
-    bound: (totals) => ceiling(totals.power, totals.bonus),
-    leafBound: (team, totals) => ceiling(totals.power, totals.bonus, teamBound(team)),
+    bound: (totals) => input.rewardTarget === undefined ? ceiling(totals.power, totals.bonus)
+      : ceiling(totals.power, totals.bonus) < input.rewardTarget ? -1 : scoreCeiling.score(totals.power),
+    leafBound: (team, totals) => {
+      const bound = teamBound(team);
+      return input.rewardTarget === undefined ? ceiling(totals.power, totals.bonus, bound)
+        : ceiling(totals.power, totals.bonus, bound) < input.rewardTarget ? -1 : bound.score(totals.power);
+    },
     interval: (team, totals) => [
-      Math.min(...ranks.map((rank) => value(totals.bonus, rank))),
-      ceiling(totals.power, totals.bonus, teamBound(team)),
+      input.rewardTarget === undefined ? Math.min(...ranks.map((rank) => value(totals.bonus, rank))) : -1,
+      input.rewardTarget === undefined ? ceiling(totals.power, totals.bonus, teamBound(team))
+        : ceiling(totals.power, totals.bonus, teamBound(team)) < input.rewardTarget ? -1 : teamBound(team).score(totals.power),
     ],
     evaluate: (team, power, _slotPowers, cutoff) => evaluate(team, power, cutoff),
     exact: (team, power) => {

@@ -4,7 +4,7 @@ import { clock, remaining, type RewardCutoff } from "./engine/execution";
 import type { EngineSnapshot } from "./engine/protocol";
 import { cpExchange } from "./engine/pt-value";
 
-export const PT_VERSION = "reward-deadline-v3";
+export const PT_VERSION = "reward-mean-score-v4";
 export type PtMeasure = "points" | "items";
 export type PtScope = "top-one" | "top-five" | "all";
 export interface PtCycleInput {
@@ -113,6 +113,7 @@ export async function createPtJob(
 const chartKey = (song: SongRef) => `${song.songId}:${song.difficulty}`;
 const compareHit = (a: EngineHit, b: EngineHit) =>
   b.key - a.key ||
+  (b.score?.mean ?? 0) - (a.score?.mean ?? 0) ||
   a.song!.songId - b.song!.songId ||
   a.song!.difficulty - b.song!.difficulty ||
   canonical([a.members, a.snaps]).localeCompare(canonical([b.members, b.snaps]));
@@ -144,8 +145,7 @@ export function ptTaskCutoff(job: PtJob, task: PtTask): RewardCutoff | undefined
   if (job.scope === "all" || task.route !== "live") return;
   const last = ptSongRanking(job, task.measure)[(job.scope === "top-one" ? 1 : 5) - 1];
   if (!last) return;
-  const later = task.song.songId > last.song!.songId || (task.song.songId === last.song!.songId && task.song.difficulty >= last.song!.difficulty);
-  return { key: last.key, comparison: later ? "gt" : "gte", contextKey: job.fingerprint, ranking: "reward-song-difficulty-v1" };
+  return { key: last.key, comparison: "gte", contextKey: job.fingerprint, ranking: "reward-mean-score-v2" };
 }
 const chartComplete = (task: PtTask) =>
   (task.status === "complete" || task.status === "empty") && task.result?.proven === true;

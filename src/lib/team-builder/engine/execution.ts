@@ -22,7 +22,7 @@ export interface RewardCutoff {
   key: number;
   comparison: "gt" | "gte";
   contextKey: string;
-  ranking: "reward-song-difficulty-v1";
+  ranking: "reward-mean-score-v2";
 }
 export const acceptsReward = (key: number, cutoff: RewardCutoff) => cutoff.comparison === "gt" ? key > cutoff.key : key >= cutoff.key;
 export const excludesBound = (bound: number, cutoff: RewardCutoff) => cutoff.comparison === "gt" ? bound <= cutoff.key : bound < cutoff.key;

@@ -43,12 +43,9 @@ export function buildBoxImportReview(preview: BoxPreview, confirmation: BoxConfi
     const choice = confirmation.maps.find(value => value.key === proposal.key) ?? { key: proposal.key, include: false };
     const blocked = preview.issues.some(issue => issue.kind === proposal.map && issue.id === proposal.id);
     const existing = Object.hasOwn(preview.original[proposal.map], String(proposal.id));
-    const policy = confirmation.existingValues ?? "keep";
-    const keep = existing && (policy === "keep" ||
-      (policy === "updates" && proposal.values.length === 1 && proposal.existing !== null && proposal.values[0]! <= proposal.existing));
-    const defaultValue = keep ? proposal.existing : proposal.values.length === 1 ? proposal.values[0]! : null;
+    const defaultValue = proposal.values.length === 1 ? proposal.values[0]! : null;
     const value = choice.value === "keep" ? proposal.existing : choice.value ?? defaultValue;
-    const requiresChoice = choice.value === "keep" ? !existing : choice.value === undefined && keep ? false :
+    const requiresChoice = choice.value === "keep" ? !existing :
       value === null || !proposal.values.includes(value);
     if (choice.include) { included++; if (blocked || requiresChoice) unresolved = true; }
     return { proposal, choice, value, defaultValue, requiresChoice, blocked, existing };
@@ -80,16 +77,12 @@ export function selectAvailableBoxItems(preview: BoxPreview, confirmation: BoxCo
   };
 }
 
-/** Apply a default to reviewed existing entries without changing inclusion or new-card choices. */
+/** Apply a card default without changing inclusion or account-bonus choices. */
 export function setBoxExistingValues(preview: BoxPreview, confirmation: BoxConfirmation, existingValues: "keep" | "overwrite" | "updates"): BoxConfirmation {
   return {
     ...confirmation,
     existingValues,
     cards: confirmation.cards.map(choice => preview.cards.find(card => card.key === choice.key)?.existingInstanceId != null
       ? { ...choice, fields: undefined } : choice),
-    maps: confirmation.maps.map(choice => {
-      const map = preview.maps.find(proposal => proposal.key === choice.key);
-      return map && Object.hasOwn(preview.original[map.map], String(map.id)) ? { ...choice, value: undefined } : choice;
-    }),
   };
 }

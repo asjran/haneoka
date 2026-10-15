@@ -32,16 +32,18 @@ export function prepareSong(song: SongOption, rules: NoteRules): PreparedSong {
   let comboBonus = 0;
   let bonusIndex = 0;
   let lastTime = -Infinity;
+  let priorCombo = 0;
   let justableCount = 0;
   const nodes = song.events.map((event, index) => {
     if (!Number.isFinite(event.timeMs) || event.timeMs < lastTime) throw new RangeError("canonical-node-order");
+    if (event.timeMs !== lastTime) priorCombo = index;
     lastTime = event.timeMs;
     const percent = rules.noteScorePercents[event.operateType];
     if (typeof percent !== "number" || !Number.isFinite(percent) || percent < 0)
       throw new RangeError(`note-score-percent:${event.operateType}`);
     const weight = percent / 100;
     weightTotal += weight;
-    while (bonusIndex < bonuses.length && bonuses[bonusIndex]!.requiredCombo <= index + 1) {
+    while (bonusIndex < bonuses.length && bonuses[bonusIndex]!.requiredCombo <= priorCombo) {
       comboBonus = Math.fround(comboBonus + Math.fround(bonuses[bonusIndex++]!.bonus));
     }
     const justable = justableTypes.has(event.judgementType);

@@ -347,10 +347,63 @@ async function requestBody(req: IncomingMessage): Promise<Buffer | undefined> {
   return Buffer.concat(chunks);
 }
 
+type TeamBuilderDataHandler = (
+  request: Request,
+  readCatalog: (request: Request) => Promise<Response | null>,
+  readRuntimeMaster: (identity: { server: string; releaseId: string; sourceId: string }, sourceTable: string) => Promise<unknown | null>,
+) => Promise<Response | null>;
+let teamBuilderDataHandler: Promise<TeamBuilderDataHandler> | undefined;
+
+async function serveTeamBuilderData(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+  if (!/^\/api\/v1\/team-builder\/[^/]+\/?$/u.test(url.pathname)) return false;
+  const handler = await (teamBuilderDataHandler ??= (async () => {
+    const { build } = await import("esbuild");
+    const output = await build({
+      entryPoints: [path.join(ROOT, "worker/team-builder-data.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node24",
+      write: false,
+      logLevel: "silent",
+    });
+    const code = Buffer.from(output.outputFiles![0]!.contents).toString("base64");
+    const module = await import(`data:text/javascript;base64,${code}`);
+    return module.handleTeamBuilderData as TeamBuilderDataHandler;
+  })());
+  const host = req.socket.localAddress ?? "127.0.0.1";
+  const origin = `http://${host.includes(":") ? `[${host}]` : host}:${req.socket.localPort ?? PORT}`;
+  const target = new URL(url.pathname + url.search, origin);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  res.once("close", abort);
+  try {
+    const response = await handler(
+      new Request(target, { method: req.method ?? "GET", signal: controller.signal }),
+      (request) => fetch(request),
+      async (identity, sourceTable) => {
+        const workspace = selectedWorkspace(identity.server, identity.releaseId);
+        if (!workspace || releaseIdentity(workspace).sourceId !== identity.sourceId)
+          throw new Error("Runtime Master pin does not match the selected release");
+        const file = path.join(workspace.masterRoot, `${sourceTable}.json`);
+        return fs.existsSync(file) ? readJsonFile(file) : null;
+      },
+    );
+    if (!response) return false;
+    const body = Buffer.from(await response.arrayBuffer());
+    const headers = Object.fromEntries(response.headers);
+    if (req.method !== "HEAD") headers["content-length"] = String(body.length);
+    res.writeHead(response.status, headers);
+    res.end(req.method === "HEAD" ? undefined : body);
+    return true;
+  } finally {
+    res.off("close", abort);
+  }
+}
+
 function isCloudDataRequest(pathname: string): boolean {
   if (!CLOUD_DATA_ORIGIN) return false;
-  if (pathname.startsWith("/api/v1/team-builder/") && !WORKSPACES.size) return true;
-  const match = /^\/(?:api\/v1\/servers|assets|runtime|objects)\/([^/]+)\//u.exec(pathname);
+  const match = /^\/(?:api\/v1\/(?:servers|team-builder)|assets|runtime|objects)\/([^/]+)(?:\/|$)/u.exec(pathname);
   return Boolean(match && !WORKSPACES.has(decodeURIComponent(match[1]!)));
 }
 
@@ -1230,6 +1283,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     res.end();
     return;
   }
+  if (await serveTeamBuilderData(req, res, url)) return;
   // Sonolus "Share" links address `/{type}/{name}` on the server address and
   // land on open.sonolus.com, exactly as the production worker answers them.
   const sonolusShareTarget =

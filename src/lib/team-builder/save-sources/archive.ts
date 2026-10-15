@@ -53,13 +53,13 @@ export async function readSaveArchive(file: Blob, progress: (completed: number, 
       path.startsWith("/") ||
       path.includes(":") ||
       /[\u0000-\u001f]/.test(path) ||
-      path.split("/").some((p) => p === "." || p === "..") ||
-      names.has(path)
+      path.split("/").some((p) => p === "." || p === "..")
     )
       throw new BoxImportError("box_invalid_zip_path");
+    if (path.endsWith("/")) continue;
+    if (names.has(path)) throw new BoxImportError("box_invalid_zip_path");
     names.add(path);
     if (
-      path.endsWith("/") ||
       expanded > BOX_LIMITS.fileBytes ||
       /\.(png|jpg|jpeg|webp|mp4|mp3|ogg|bundle|plist|db)$/i.test(path) ||
       path

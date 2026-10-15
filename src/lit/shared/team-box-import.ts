@@ -127,7 +127,7 @@ export function renderBoxImportDialog(state: BoxImportDialogState, actions: BoxI
             <md-outlined-select label=${t("boxValue", "Box value")} .value=${row.choice.value === undefined ? "auto" : String(row.choice.value)}
               .displayText=${row.value === null ? row.requiresChoice ? t("chooseValue", "Choose a value") : t("unknown", "Unknown") : String(row.value)}
               @change=${(event: Event) => { const value = (event.target as HTMLInputElement).value; actions.confirmation(setBoxMap(state.confirmation, row.proposal.key, { value: value === "auto" ? undefined : value === "keep" ? "keep" : Number(value) })); }}>
-              <md-select-option value="auto"><span slot="headline">${row.defaultValue === null ? row.existing && state.confirmation.existingValues !== "overwrite" ? t("unknown", "Unknown") : t("chooseValue", "Choose a value") : String(row.defaultValue)}</span></md-select-option>
+              <md-select-option value="auto"><span slot="headline">${row.defaultValue === null ? t("chooseValue", "Choose a value") : String(row.defaultValue)}</span></md-select-option>
               ${row.existing ? html`<md-select-option value="keep"><span slot="headline">${t("keep", "Keep saved value")}: ${row.proposal.existing ?? t("unknown", "Unknown")}</span></md-select-option>` : nothing}
               ${row.proposal.values.map(value => html`<md-select-option value=${String(value)}><span slot="headline">${value}</span></md-select-option>`)}
             </md-outlined-select>
