@@ -964,16 +964,18 @@ jobs:
             > "$RUNNER_TEMP/pipeline-stages.json"
           jq -c --argjson cutoff "$(date -u -d '7 days ago' +%s)" '
             [.Contents[]? |
-              select(.Key | test("^private/resource-pipeline-stage/[0-9]+/(intl|intl-test|jp|jp-cbt|intl-cbt)/")) |
-              select((.LastModified | sub("\\+00:00$"; "Z") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff) |
-              {Key}] |
+              select(.Key | test("^private/resource-pipeline-stage/[0-9]+/(intl|intl-test|jp|jp-cbt|intl-cbt)/"))] |
+            group_by(.Key | split("/")[2:4]) |
+            map(select(all(.[]; (.LastModified | sub("\\+00:00$"; "Z") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff))) |
+            flatten | map({Key}) |
             range(0; length; 1000) as $start |
             {Objects: .[$start:$start + 1000], Quiet: true}
           ' "$RUNNER_TEMP/pipeline-stages.json" |
           while IFS= read -r batch; do
-            aws s3api delete-objects \
+            response="$(aws s3api delete-objects \
               --bucket "$PIPELINE_STAGE_BUCKET" --delete "$batch" \
-              --endpoint-url "$endpoint" --region auto
+              --endpoint-url "$endpoint" --region auto)"
+            jq -e '((.Errors // []) | length) == 0' <<< "$response" > /dev/null
           done
       - name: Remove this run's temporary objects
         if: needs.release.result == 'success'

@@ -57,10 +57,12 @@ from publish.r2 import (
     prune_releases,
     prune_sources,
     prune_upload_checkpoints,
+    prune_package_leases,
     publish_release,
     publish_source,
     restore_release_object,
 )
+from publish.stages import prune_pipeline_stages
 from publish.song_reference import publish_meta_reference
 from verify.release import verify_release
 from verify.remote import verify_remote
@@ -1210,7 +1212,7 @@ def command_publish_release(args: argparse.Namespace) -> None:
 
 def command_prune_sources(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
-    _print(prune_sources(R2Store(config, args.concurrency), config))
+    _print(prune_sources(R2Store(config, args.concurrency), config, args.dry_run, set(args.ignore_release)))
 
 
 def command_publish_meta_reference(args: argparse.Namespace) -> None:
@@ -1224,7 +1226,7 @@ def command_publish_meta_reference(args: argparse.Namespace) -> None:
 
 def command_prune_releases(args: argparse.Namespace) -> None:
     config = load_server_config(args.server)
-    _print(prune_releases(R2Store(config, args.concurrency), config))
+    _print(prune_releases(R2Store(config, args.concurrency), config, args.dry_run))
 
 
 def command_prune_uploads(args: argparse.Namespace) -> None:
@@ -1234,8 +1236,19 @@ def command_prune_uploads(args: argparse.Namespace) -> None:
             R2Store(config, args.concurrency),
             config,
             args.stale_uploading_age_hours,
+            args.dry_run,
         )
     )
+
+
+def command_prune_stages(args: argparse.Namespace) -> None:
+    config = load_server_config(args.server)
+    _print(prune_pipeline_stages(R2Store(config, args.concurrency), config, dry_run=args.dry_run, minimum_age_hours=args.minimum_age_hours, run_id=args.run_id))
+
+
+def command_prune_package_leases(args: argparse.Namespace) -> None:
+    config = load_server_config(args.server)
+    _print(prune_package_leases(R2Store(config, args.concurrency), config, dry_run=args.dry_run, stale_age_hours=args.stale_age_hours))
 
 
 def command_prune_garupa_master(args: argparse.Namespace) -> None:
@@ -1256,6 +1269,7 @@ def command_gc_r2(args: argparse.Namespace) -> None:
             R2Store(config, args.concurrency),
             args.dry_run,
             args.minimum_age_hours,
+            args.shard,
         )
     )
 
@@ -1645,6 +1659,8 @@ def parser() -> argparse.ArgumentParser:
         help="delete source manifests not referenced by a retained release",
     )
     source_prune.add_argument("--concurrency", type=int, default=64)
+    source_prune.add_argument("--dry-run", action="store_true")
+    source_prune.add_argument("--ignore-release", action="append", default=[], help="plan after this release is pruned; accepted only with --dry-run")
     source_prune.set_defaults(run=command_prune_sources)
 
     release_prune = commands.add_parser(
@@ -1652,6 +1668,7 @@ def parser() -> argparse.ArgumentParser:
         help="delete non-current R2 releases beyond the configured retention",
     )
     release_prune.add_argument("--concurrency", type=int, default=64)
+    release_prune.add_argument("--dry-run", action="store_true")
     release_prune.set_defaults(run=command_prune_releases)
 
     upload_prune = commands.add_parser(
@@ -1659,7 +1676,21 @@ def parser() -> argparse.ArgumentParser:
     )
     upload_prune.add_argument("--concurrency", type=int, default=64)
     upload_prune.add_argument("--stale-uploading-age-hours", type=int, default=168)
+    upload_prune.add_argument("--dry-run", action="store_true")
     upload_prune.set_defaults(run=command_prune_uploads)
+
+    stage_prune = commands.add_parser("prune-stages", help="prune complete stale pipeline run groups, retaining resumable stages for seven days")
+    stage_prune.add_argument("--concurrency", type=int, default=32)
+    stage_prune.add_argument("--dry-run", action="store_true")
+    stage_prune.add_argument("--minimum-age-hours", type=int, default=168)
+    stage_prune.add_argument("--run-id")
+    stage_prune.set_defaults(run=command_prune_stages)
+
+    lease_prune = commands.add_parser("prune-package-leases", help="inspect aged legacy package leases without dropping upload protection")
+    lease_prune.add_argument("--concurrency", type=int, default=32)
+    lease_prune.add_argument("--dry-run", action="store_true")
+    lease_prune.add_argument("--stale-age-hours", type=int, default=168)
+    lease_prune.set_defaults(run=command_prune_package_leases)
 
     garupa_prune = commands.add_parser(
         "prune-garupa-master",
@@ -1677,6 +1708,7 @@ def parser() -> argparse.ArgumentParser:
     r2_gc.add_argument("--dry-run", action="store_true")
     r2_gc.add_argument("--minimum-age-hours", type=int, default=24)
     r2_gc.add_argument("--concurrency", type=int, default=64)
+    r2_gc.add_argument("--shard", help="sweep one two-digit SHA-256 prefix without scanning the other 255")
     r2_gc.set_defaults(run=command_gc_r2)
     return root
 

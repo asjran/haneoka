@@ -6,36 +6,49 @@ on:
       server:
         description: Server configuration id
         required: true
-        default: jp-cbt
+        default: intl
         type: string
       apply:
-        description: Delete unreferenced metadata and CAS objects
+        description: Delete the planned unreferenced metadata and CAS objects
         required: true
         default: false
         type: boolean
       pipeline_stage_run_id:
-        description: Exact workflow run id whose private R2 staging objects should be removed
+        description: Exact completed workflow run id whose private stages should be removed
+        required: false
+        type: string
+      cas_shard:
+        description: Optional two-digit lowercase SHA-256 prefix for a bounded CAS sweep
         required: false
         type: string
   schedule:
     - cron: "16 8 * * 0"
 
+# Weekly retention remains automatic; manual apply=false is strictly read-only.
 concurrency:
-  group: resource-pipeline-${{ inputs.server || 'jp-cbt' }}
+  group: resource-storage-maintenance
   cancel-in-progress: false
 
 jobs:
   maintain:
-    name: Collect unreferenced objects
+    name: Maintain ${{ matrix.server }} resource metadata
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        server: ${{ fromJSON(github.event_name == 'schedule' && '["intl","jp"]' || format('["{0}"]', inputs.server || 'intl')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    concurrency:
+      group: resource-build-server-${{ matrix.server }}
+      cancel-in-progress: false
     environment:
-      name: resource-${{ inputs.server || 'jp-cbt' }}
+      name: resource-${{ matrix.server }}
     permissions:
       contents: read
     env:
       RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
-      RESOURCE_SERVER: ${{ inputs.server || 'jp-cbt' }}
+      RESOURCE_SERVER: ${{ matrix.server }}
       APPLY_CHANGES: ${{ github.event_name == 'schedule' || inputs.apply == true }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -43,40 +56,88 @@ jobs:
       AWS_EC2_METADATA_DISABLED: "true"
       PYTHONPATH: scripts
       PIPELINE_STAGE_RUN_ID: ${{ inputs.pipeline_stage_run_id }}
+      CAS_SHARD: ${{ inputs.cas_shard }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-resource-pipeline
-      - name: Remove selected resource-pipeline staging objects
-        if: env.PIPELINE_STAGE_RUN_ID != ''
+      - name: Plan or apply server metadata and stage cleanup
         run: |
-          if [[ ! "$PIPELINE_STAGE_RUN_ID" =~ ^[0-9]+$ ]]; then
-            echo "pipeline_stage_run_id must contain only decimal digits" >&2
+          mkdir -p "$RUNNER_TEMP/storage-maintenance"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/storage-maintenance/source-commit.txt"
+          if [[ -n "$CAS_SHARD" && ! "$CAS_SHARD" =~ ^[0-9a-f]{2}$ ]]; then
+            echo "cas_shard must be two lowercase hexadecimal characters" >&2
             exit 1
           fi
-          aws s3 rm \
-            "s3://hotdori-assets/private/resource-pipeline-stage/$PIPELINE_STAGE_RUN_ID/$RESOURCE_SERVER/" \
-            --recursive \
-            --endpoint-url "https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com" \
-            --region auto
-      - name: Verify the current release remotely
-        # Delta builds compose unchanged entries from the base release without
-        # re-verifying their bytes per run; this weekly deep pass re-checks
-        # every object the current release declares, in the store.
+          common=(--concurrency 32)
+          if [[ "$APPLY_CHANGES" != "true" ]]; then common+=(--dry-run); fi
+          stage=(prune-stages "${common[@]}")
+          if [[ -n "$PIPELINE_STAGE_RUN_ID" ]]; then stage+=(--run-id "$PIPELINE_STAGE_RUN_ID"); fi
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" "${stage[@]}" > "$RUNNER_TEMP/storage-maintenance/stages.json"
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-uploads "${common[@]}" > "$RUNNER_TEMP/storage-maintenance/uploads.json"
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-package-leases --concurrency 32 --dry-run > "$RUNNER_TEMP/storage-maintenance/package-leases.json"
+      - name: Verify the current release before applying manifest retention
+        if: env.APPLY_CHANGES == 'true'
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" verify-remote
           --concurrency 32
-      - name: Prune unreferenced manifests
+      - name: Plan or apply release and source retention
+        run: |
+          common=(--concurrency 32)
+          if [[ "$APPLY_CHANGES" != "true" ]]; then common+=(--dry-run); fi
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-releases "${common[@]}" > "$RUNNER_TEMP/storage-maintenance/releases.json"
+          source_args=()
+          if [[ "$APPLY_CHANGES" != "true" ]]; then
+            while IFS= read -r release; do source_args+=(--ignore-release "$release"); done < <(jq -r '.plannedReleases | keys[]' "$RUNNER_TEMP/storage-maintenance/releases.json")
+          fi
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-sources "${common[@]}" "${source_args[@]}" > "$RUNNER_TEMP/storage-maintenance/sources.json"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: storage-maintenance-${{ matrix.server }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/storage-maintenance
+          retention-days: 30
+          if-no-files-found: warn
+
+  collect:
+    name: Plan or apply one shared CAS sweep
+    needs: maintain
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment:
+      name: resource-${{ inputs.server || 'intl' }}
+    permissions:
+      contents: read
+    env:
+      RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
+      RESOURCE_SERVER: ${{ inputs.server || 'intl' }}
+      APPLY_CHANGES: ${{ github.event_name == 'schedule' || inputs.apply == true }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_EC2_METADATA_DISABLED: "true"
+      PYTHONPATH: scripts
+      CAS_SHARD: ${{ inputs.cas_shard }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-resource-pipeline
+      - name: Prune retained Garupa snapshots when applying
         if: env.APPLY_CHANGES == 'true'
         run: |
-          python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-releases --concurrency 64
-          python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-sources --concurrency 64
-          python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-uploads --concurrency 64
+          mkdir -p "$RUNNER_TEMP/storage-maintenance"
           python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-garupa-master \
-            --garupa-server jp --retain 3 --concurrency 64
-      - name: Collect unreferenced CAS objects
+            --garupa-server jp --retain 3 --concurrency 32 > "$RUNNER_TEMP/storage-maintenance/garupa-master.json"
+      - name: Plan or apply the shared CAS sweep
         run: |
-          arguments=(gc-r2 --concurrency 64)
-          if [[ "$APPLY_CHANGES" != "true" ]]; then
-            arguments+=(--dry-run)
-          fi
-          python scripts/pipeline.py --server "$RESOURCE_SERVER" "${arguments[@]}"
+          mkdir -p "$RUNNER_TEMP/storage-maintenance"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/storage-maintenance/source-commit.txt"
+          arguments=(gc-r2 --concurrency 32)
+          if [[ "$APPLY_CHANGES" != "true" ]]; then arguments+=(--dry-run); fi
+          if [[ -n "$CAS_SHARD" ]]; then arguments+=(--shard "$CAS_SHARD"); fi
+          python scripts/pipeline.py --server "$RESOURCE_SERVER" "${arguments[@]}" > "$RUNNER_TEMP/storage-maintenance/cas-gc.json"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: storage-maintenance-cas-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/storage-maintenance
+          retention-days: 30
+          if-no-files-found: warn

@@ -290,22 +290,7 @@ class R2Store:
                     yield candidate
 
     def delete_prefix(self, prefix: str) -> int:
-        count = 0
-        batch: list[dict[str, str]] = []
-        for item in self.iter_keys(prefix):
-            batch.append({"Key": item["Key"]})
-            if len(batch) == 1000:
-                self.client.delete_objects(
-                    Bucket=self.bucket, Delete={"Objects": batch, "Quiet": True}
-                )
-                count += len(batch)
-                batch = []
-        if batch:
-            self.client.delete_objects(
-                Bucket=self.bucket, Delete={"Objects": batch, "Quiet": True}
-            )
-            count += len(batch)
-        return count
+        return self.delete_keys(str(item["Key"]) for item in self.iter_keys(prefix))
 
     def delete_keys(self, keys: Iterable[str]) -> int:
         count = 0
@@ -313,17 +298,34 @@ class R2Store:
         for key in keys:
             batch.append({"Key": key})
             if len(batch) == 1000:
-                self.client.delete_objects(
-                    Bucket=self.bucket, Delete={"Objects": batch, "Quiet": True}
-                )
-                count += len(batch)
+                count += self._delete_batch(batch)
                 batch = []
         if batch:
-            self.client.delete_objects(
-                Bucket=self.bucket, Delete={"Objects": batch, "Quiet": True}
-            )
-            count += len(batch)
+            count += self._delete_batch(batch)
         return count
+
+    def _delete_batch(self, batch: list[dict[str, str]]) -> int:
+        pending = batch
+        transient = {"InternalError", "ServiceUnavailable", "SlowDown", "RequestTimeout", "Throttling"}
+        for attempt in range(5):
+            response = self.client.delete_objects(
+                Bucket=self.bucket, Delete={"Objects": pending, "Quiet": True}
+            )
+            errors = response.get("Errors", [])
+            if not isinstance(errors, list):
+                raise OSError("R2 deletion returned an invalid error list")
+            if not errors:
+                return len(batch)
+            keys = {item["Key"] for item in pending}
+            if any(not isinstance(error, dict) or error.get("Key") not in keys for error in errors):
+                raise OSError("R2 deletion returned an unknown object error")
+            failed = {str(error["Key"]) for error in errors}
+            if attempt == 4 or any(error.get("Code") not in transient for error in errors):
+                detail = ", ".join(f"{error['Key']}: {error.get('Code', 'unknown')}" for error in errors)
+                raise OSError(f"R2 deletion failed after {len(batch) - len(failed)} confirmed removals: {detail}")
+            pending = [{"Key": key} for key in sorted(failed)]
+            time.sleep(min(2 ** attempt, 8))
+        raise AssertionError("unreachable deletion retry state")
 
 
 def fetch_package_artifact(store: R2Store, key: str, output: Path) -> dict[str, Any]:
@@ -1102,7 +1104,7 @@ def publish_release(
     }
 
 
-def prune_releases(store: R2Store, config: ServerConfig) -> dict[str, Any]:
+def prune_releases(store: R2Store, config: ServerConfig, dry_run: bool = False) -> dict[str, Any]:
     """Retain at most the configured number of releases, including the selected one."""
 
     pointer = _current_pointer(store, config)
@@ -1172,42 +1174,74 @@ def prune_releases(store: R2Store, config: ServerConfig) -> dict[str, Any]:
         release_id
         for release_id, _, _, _ in previous[: max(0, config.release_retention - 1)]
     )
+    from publish.stages import recent_pipeline_stage_references
+    _, stage_releases, stage_plans = recent_pipeline_stage_references(store, config.id)
+    if stage_releases - {candidate[0] for candidate in candidates}:
+        raise ValueError("a resumable pipeline stage references a missing base release")
+    keep.update(stage_releases)
 
+    planned: dict[str, int] = {}
+    retained_incomplete: list[str] = []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     deleted: dict[str, int] = {}
     for release_id, prefix, _, _ in candidates:
         if release_id not in keep:
-            deleted[release_id] = store.delete_prefix(prefix)
+            if _current_pointer(store, config) != pointer:
+                raise ValueError("current release changed during maintenance")
+            if dry_run:
+                planned[release_id] = sum(1 for _ in store.iter_keys(prefix))
+            else:
+                deleted[release_id] = store.delete_prefix(prefix)
     for release_id, prefix in incomplete:
         if release_id == current:
             raise ValueError(
                 f"refusing release cleanup: selected release is incomplete: {current}"
             )
-        deleted[release_id] = store.delete_prefix(prefix)
+        items = list(store.iter_keys(prefix))
+        if any(not isinstance(item.get("LastModified"), datetime) or item["LastModified"] > cutoff for item in items):
+            retained_incomplete.append(release_id)
+            continue
+        if _current_pointer(store, config) != pointer:
+            raise ValueError("current release changed during maintenance")
+        if dry_run:
+            planned[release_id] = len(items)
+        else:
+            deleted[release_id] = store.delete_prefix(prefix)
     return {
         "schema": "haneoka-r2-release-prune-v1",
         "server": config.id,
+        "dryRun": dry_run,
         "currentReleaseId": current,
         "retainedReleaseIds": sorted(keep),
+        "retainedStageReleaseIds": sorted(stage_releases),
+        "retainedStagePlans": stage_plans,
+        "retainedRecentIncompleteReleases": sorted(retained_incomplete),
+        "plannedReleases": planned,
         "deletedReleases": deleted,
         "deletedObjects": sum(deleted.values()),
     }
 
 
-def prune_sources(store: R2Store, config: ServerConfig) -> dict[str, Any]:
+def prune_sources(store: R2Store, config: ServerConfig, dry_run: bool = False, ignored_releases: set[str] | None = None) -> dict[str, Any]:
     """Retain only source manifests referenced by retained releases."""
 
     release_root = f"servers/{config.id}/releases/"
+    ignored_releases = ignored_releases or set()
+    if ignored_releases and (not dry_run or any(not RELEASE_ID.fullmatch(value) for value in ignored_releases)):
+        raise ValueError("hypothetical release exclusions require a dry run and valid release ids")
     keep: set[str] = set()
     retained_releases: dict[str, str] = {}
+    incomplete: list[str] = []
     for prefix in store.iter_prefixes(release_root):
         release_id = prefix.removeprefix(release_root).strip("/")
         if not RELEASE_ID.fullmatch(release_id):
             continue
+        if release_id in ignored_releases:
+            continue
         manifest_key = prefix + "release.json"
         if store.head(manifest_key) is None:
-            raise ValueError(
-                f"refusing source cleanup: incomplete release prefix: {prefix}"
-            )
+            incomplete.append(prefix)
+            continue
         manifest = store.get_json(manifest_key)
         try:
             _validate_release_manifest_for_gc(
@@ -1248,17 +1282,39 @@ def prune_sources(store: R2Store, config: ServerConfig) -> dict[str, Any]:
             raise ValueError(
                 f"refusing source cleanup: invalid {source_key}: {error}"
             ) from error
+    from publish.stages import recent_pipeline_stage_references
+    stage_sources, _, stage_plans = recent_pipeline_stage_references(store, config.id)
+    keep.update(stage_sources)
 
     source_root = f"servers/{config.id}/sources/"
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    planned: dict[str, int] = {}
+    retained_recent: list[str] = []
     deleted: dict[str, int] = {}
     for prefix in store.iter_prefixes(source_root):
         source_id = prefix.removeprefix(source_root).strip("/")
         if source_id and source_id not in keep:
-            deleted[source_id] = store.delete_prefix(prefix)
+            items = list(store.iter_keys(prefix))
+            if any(not isinstance(item.get("LastModified"), datetime) or item["LastModified"] > cutoff for item in items):
+                retained_recent.append(source_id)
+                continue
+            if _current_pointer(store, config) != pointer:
+                raise ValueError("current release changed during maintenance")
+            if dry_run:
+                planned[source_id] = len(items)
+            else:
+                deleted[source_id] = store.delete_prefix(prefix)
     return {
         "schema": "haneoka-r2-source-prune-v1",
         "server": config.id,
+        "dryRun": dry_run,
+        "hypotheticallyPrunedReleases": sorted(ignored_releases),
         "retainedSourceIds": sorted(keep),
+        "retainedStageSourceIds": sorted(stage_sources),
+        "retainedStagePlans": stage_plans,
+        "retainedRecentSourceIds": sorted(retained_recent),
+        "incompleteReleasePrefixes": incomplete,
+        "plannedSources": planned,
         "deletedSources": deleted,
         "deletedObjects": sum(deleted.values()),
     }
@@ -1268,6 +1324,7 @@ def prune_upload_checkpoints(
     store: R2Store,
     config: ServerConfig,
     stale_uploading_age_hours: int = 168,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     if stale_uploading_age_hours < 24:
         raise ValueError("stale uploading checkpoint age must be at least 24 hours")
@@ -1288,25 +1345,31 @@ def prune_upload_checkpoints(
             raise ValueError(
                 f"refusing upload cleanup: invalid checkpoint {key}: {error}"
             ) from error
+        effective_updated_at = updated_at
+        if effective_updated_at is None:
+            modified = item.get("LastModified")
+            if isinstance(modified, datetime) and modified.tzinfo is not None:
+                effective_updated_at = modified
         if state == "completed":
             completed.append(key)
-        elif updated_at is None:
-            uploading.append(key)
-            legacy_uploading.append(key)
-        elif updated_at <= cutoff:
+        elif effective_updated_at is not None and effective_updated_at <= cutoff:
             stale_uploading.append(key)
         else:
             uploading.append(key)
-    deleted = store.delete_keys(completed + stale_uploading)
+            if updated_at is None:
+                legacy_uploading.append(key)
+    deleted = 0 if dry_run else store.delete_keys(completed + stale_uploading)
     return {
         "schema": "haneoka-r2-upload-prune-v1",
         "server": config.id,
+        "dryRun": dry_run,
         "completedCheckpointCount": len(completed),
         "uploadingCheckpointCount": len(uploading),
         "staleUploadingCheckpointCount": len(stale_uploading),
         "staleUploadingAgeHours": stale_uploading_age_hours,
         "retainedUploadingCheckpoints": sorted(uploading),
         "retainedLegacyUploadingCheckpoints": sorted(legacy_uploading),
+        "plannedObjects": len(completed) + len(stale_uploading),
         "deletedObjects": deleted,
     }
 
@@ -1325,6 +1388,41 @@ def prune_garupa_master_snapshots(
     from garupa_master.r2 import prune_snapshots
 
     return prune_snapshots(store, server=server, retain=retain)
+
+
+def prune_package_leases(
+    store: R2Store,
+    config: ServerConfig,
+    *,
+    dry_run: bool = True,
+    stale_age_hours: int = 168,
+) -> dict[str, Any]:
+    if stale_age_hours < 168:
+        raise ValueError("package leases must remain available for at least seven days")
+    if not dry_run:
+        raise ValueError("legacy package leases have no authoritative expiry; produce a read-only plan before migrating their upload-state contract")
+    prefix = f"{PACKAGE_LEASE_PREFIX}/{config.id}/"
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=stale_age_hours)
+    planned, retained, changed = [], [], []
+    for item in store.iter_keys(prefix):
+        key = str(item.get("Key") or "")
+        digest = key.removeprefix(prefix).removesuffix(".json")
+        cas_key(digest)
+        lease = store.get_json(key)
+        if not isinstance(lease, dict) or lease.get("schema") != PACKAGE_LEASE_SCHEMA or lease.get("server") != config.id or lease.get("sha256") != digest or key != f"{prefix}{digest}.json":
+            raise ValueError(f"invalid package lease: {key}")
+        modified = item.get("LastModified")
+        if not isinstance(modified, datetime) or modified.tzinfo is None:
+            raise ValueError(f"missing package lease modification time: {key}")
+        if modified > cutoff:
+            retained.append(key)
+            continue
+        current = store.head(key)
+        if current is None or current.get("LastModified") != modified or current.get("ETag") != item.get("ETag") or current.get("ContentLength") != item.get("Size"):
+            changed.append(key)
+            continue
+        planned.append(key)
+    return {"schema": "haneoka-r2-package-lease-prune-v1", "server": config.id, "dryRun": True, "staleAgeHours": stale_age_hours, "agedLeasesRequiringUploadState": planned, "retainedRecentLeases": retained, "retainedChangedLeases": changed, "deletedObjects": 0}
 
 
 def _manifest_identity(key: str) -> tuple[str, str, str] | None:
@@ -1584,16 +1682,21 @@ def garbage_collect_cas(
     store: R2Store,
     dry_run: bool = False,
     minimum_age_hours: int = 24,
+    shard: str | None = None,
 ) -> dict[str, Any]:
     """Collect CAS blobs only after roots and object identity are revalidated."""
 
     if minimum_age_hours < 1:
         raise ValueError("minimum CAS garbage age must be at least one hour")
+    if shard is not None and not re.fullmatch(r"[a-f0-9]{2}", shard):
+        raise ValueError("CAS sweep shard must be two lowercase hexadecimal characters")
     live, manifests, checkpoint_states, lease_keys = _collect_cas_live_roots(store)
 
     candidates: dict[str, tuple[datetime, int, str]] = {}
     cutoff = datetime.now(timezone.utc) - timedelta(hours=minimum_age_hours)
-    for item in store.iter_keys(CAS_PREFIX + "/"):
+    scanned = 0
+    for item in store.iter_keys(CAS_PREFIX + "/" + (f"{shard}/" if shard else "")):
+        scanned += 1
         key = str(item["Key"])
         modified = item.get("LastModified")
         if key in live or not isinstance(modified, datetime) or modified > cutoff:
@@ -1670,6 +1773,8 @@ def garbage_collect_cas(
         "schema": "haneoka-r2-cas-gc-v1",
         "dryRun": dry_run,
         "minimumAgeHours": minimum_age_hours,
+        "shard": shard,
+        "scannedObjects": scanned,
         "manifestCount": len(manifests),
         "checkpointCount": len(checkpoint_states),
         "uploadingCheckpointCount": sum(
@@ -1686,5 +1791,6 @@ def garbage_collect_cas(
         "missingObjects": len(missing),
         "garbageObjects": len(garbage),
         "garbageBytes": garbage_bytes,
+        "garbageKeys": garbage if dry_run else [],
         "deletedObjects": deleted,
     }

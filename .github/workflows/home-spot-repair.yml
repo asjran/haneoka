@@ -1,0 +1,67 @@
+name: Publish reviewed Home Spot repair
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_key:
+        description: Reviewed private resource-pipeline-stage bundle key
+        type: string
+        required: true
+      bundle_sha256:
+        description: Exact reviewed archive SHA256
+        type: string
+        required: true
+      producer_pin:
+        description: Exact reviewed producer commit SHA
+        type: string
+        required: true
+      publish:
+        description: Publish the validated four-file overlay and conditionally switch current
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resource-build-server-intl
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: resource-intl
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.producer_pin }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install the existing locked R2 import closure
+        run: |
+          python scripts/publish/reference_postpin.py --bootstrap "$RUNNER_TEMP/home-spot-dependencies"
+          python -m pip install --disable-pip-version-check --require-hashes \
+            --requirement "$RUNNER_TEMP/home-spot-dependencies/requirements.txt"
+      - name: Validate or publish the exact reviewed Home Spot bundle
+        env:
+          RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+          PRODUCER_PIN: ${{ inputs.producer_pin }}
+          HOME_SPOT_BUNDLE_KEY: ${{ inputs.bundle_key }}
+          HOME_SPOT_BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
+          PUBLISH: ${{ inputs.publish }}
+        run: python scripts/publish/home_spot_repair.py --output "$RUNNER_TEMP/home-spot-repair-output"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: home-spot-repair-${{ github.run_id }}
+          path: ${{ runner.temp }}/home-spot-repair-output/*.json
+          if-no-files-found: ignore
+          retention-days: 7
