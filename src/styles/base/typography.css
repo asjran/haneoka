@@ -138,10 +138,16 @@
   font: var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size) /
     var(--md-sys-typescale-body-medium-line-height) var(--app-font);
 }
-.prose a {
+/* Shared links in rendered body copy, including the editor and moderator view. */
+:is(.prose, .community-bbcode, .admin-post-body) a[href]:not(.button):not([role="button"]) {
   color: var(--md-sys-color-primary);
   text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 2px;
+}
+:is(.prose, .community-bbcode, .admin-post-body) a[href]:not(.button):not([role="button"]):is(:hover, :focus-visible) {
+  color: var(--md-sys-color-on-primary-container);
+  text-decoration-thickness: 2px;
 }
 .prose :where(code, pre) {
   font-family: var(--md-ref-typeface-code);
