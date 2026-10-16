@@ -5,7 +5,7 @@ on:
       resource:
         description: Existing catalog resource to recompile from the reviewed current pin
         type: choice
-        options: [bands, missions]
+        options: [bands, missions, runtime]
         default: bands
         required: true
       producer_pin:
@@ -29,11 +29,11 @@ concurrency:
 jobs:
   bands:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.resource == 'runtime' && 30 || 15 }}
     strategy:
       fail-fast: false
       matrix:
-        server: [intl, jp]
+        server: ${{ fromJSON(inputs.resource == 'runtime' && '["intl"]' || '["intl","jp"]') }}
     environment: resource-${{ matrix.server }}
     env:
       RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
@@ -46,8 +46,14 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install the existing small R2/compiler import closure
+        env:
+          CATALOG_PROJECTION_RESOURCE: ${{ inputs.resource }}
         run: |
-          python scripts/publish/reference_postpin.py --bootstrap "$RUNNER_TEMP/band-dependencies"
+          extra=()
+          if [ "$CATALOG_PROJECTION_RESOURCE" = runtime ]; then
+            extra=(--bootstrap-package numpy --bootstrap-package pillow)
+          fi
+          python scripts/publish/reference_postpin.py --bootstrap "$RUNNER_TEMP/band-dependencies" "${extra[@]}"
           python -m pip install --disable-pip-version-check --require-hashes \
             --requirement "$RUNNER_TEMP/band-dependencies/requirements.txt"
       - name: Prepare the selected projection and optionally switch current atomically
@@ -66,6 +72,7 @@ jobs:
           case "$CATALOG_PROJECTION_RESOURCE" in
             bands) python scripts/publish/band_descriptions.py --output "$RUNNER_TEMP/band-output" ;;
             missions) python scripts/publish/missions.py --output "$RUNNER_TEMP/band-output" ;;
+            runtime) python scripts/publish/runtime_projection.py --output "$RUNNER_TEMP/band-output" ;;
             *) exit 1 ;;
           esac
       - uses: actions/upload-artifact@v5

@@ -21,15 +21,16 @@ PYTHON_PACKAGES = {
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def bootstrap(output: Path) -> None:
+def bootstrap(output: Path, extra_packages: tuple[str, ...] = ()) -> None:
     """Project the existing exact dependencies; installing the frontend is unnecessary."""
     output.mkdir(parents=True, exist_ok=True)
     text = (ROOT / "scripts/requirements.txt").read_text()
     blocks = re.split(r"(?m)(?=^[A-Za-z0-9][A-Za-z0-9_.-]*==)", text)[1:]
     selected = {block.split("==", 1)[0].lower(): block for block in blocks}
-    if not PYTHON_PACKAGES <= selected.keys():
+    packages = PYTHON_PACKAGES | set(extra_packages)
+    if not packages <= selected.keys():
         raise ValueError("reference Python dependency missing from the locked requirements")
-    (output / "requirements.txt").write_text("\n".join(selected[name] for name in sorted(PYTHON_PACKAGES)))
+    (output / "requirements.txt").write_text("\n".join(selected[name] for name in sorted(packages)))
     catalog = (ROOT / "pnpm-workspace.yaml").read_text()
     dependencies = {}
     for package in ("esbuild", "@sonolus/core"):
@@ -181,9 +182,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bootstrap", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--bootstrap-package", action="append", choices=("numpy", "pillow"), default=[])
     options = parser.parse_args()
     if options.bootstrap:
-        bootstrap(options.bootstrap)
+        bootstrap(options.bootstrap, tuple(options.bootstrap_package))
     elif options.output:
         execute(options.output)
     else:
