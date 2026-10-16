@@ -50,6 +50,7 @@ SITUATION_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 REFLECTION_Z = np.diag((1.0, 1.0, -1.0, 1.0))
 ARRAY_BUFFER = 34962
 ELEMENT_ARRAY_BUFFER = 34963
+SPINE_SKELETON_SHADER = "Universal Render Pipeline/Spine/Skeleton"
 
 
 def _pointer(component: Any) -> Any:
@@ -324,16 +325,30 @@ class _GlbBuilder:
             "Unlit/Transparent Cutout",
             "Unlit/Transparent",
             "Universal Render Pipeline/Lit",
+            SPINE_SKELETON_SHADER,
         }:
             raise ValueError(f"unsupported Home Spot shader {shader_name!r}: {material.m_Name}")
 
         colors = _named_properties(material.m_SavedProperties.m_Colors)
         floats = _named_properties(material.m_SavedProperties.m_Floats)
         tex_envs = _named_properties(material.m_SavedProperties.m_TexEnvs)
+        spine = shader_name == SPINE_SKELETON_SHADER
+        if spine:
+            keywords = set(getattr(material, "m_ValidKeywords", []) or [])
+            keywords.update(str(getattr(material, "m_ShaderKeywords", "") or "").split())
+            # This variant premultiplies its straight-alpha texture in the
+            # fragment shader. glTF BLEND performs the same composition.
+            if float(floats.get("_StraightAlphaInput", 0)) != 1 or "_STRAIGHT_ALPHA_INPUT" not in keywords:
+                raise ValueError(f"PMA Spine texture requires conversion: {material.m_Name}")
+            if float(floats.get("_TintBlack", 0)) != 0 or "_TINT_BLACK_ON" in keywords:
+                raise ValueError(f"Spine two-color tint is unsupported: {material.m_Name}")
+            if float(floats.get("_ZWrite", 0)) != 0 or float(floats.get("_StencilComp", 8)) != 8:
+                raise ValueError(f"Spine depth/stencil state is unsupported: {material.m_Name}")
+        unlit = shader_name.startswith("Unlit/") or spine
         nonempty_textures = {
             name: value for name, value in tex_envs.items() if value and value.m_Texture
         }
-        allowed_textures = {"_MainTex"} if shader_name.startswith("Unlit/") else {"_BaseMap", "_MainTex"}
+        allowed_textures = {"_MainTex"} if unlit else {"_BaseMap", "_MainTex"}
         unexpected = sorted(set(nonempty_textures) - allowed_textures)
         if unexpected:
             raise ValueError(
@@ -341,7 +356,7 @@ class _GlbBuilder:
                 f"{material.m_Name}: {', '.join(unexpected)}"
             )
 
-        if shader_name.startswith("Unlit/"):
+        if unlit:
             base_texture = self._base_color_texture(tex_envs.get("_MainTex"), material.m_Name)
             if base_texture is None:
                 raise ValueError(f"unlit Home Spot material has no _MainTex: {material.m_Name}")
@@ -375,7 +390,8 @@ class _GlbBuilder:
             "pbrMetallicRoughness": pbr,
             "extras": {"unityShader": shader_name, "unityObjectId": str(reader.path_id)},
         }
-        cull = int(float(floats.get("_Cull", 2)))
+        # Spine's shader declares Cull Off, independently of material floats.
+        cull = 0 if spine else int(float(floats.get("_Cull", 2)))
         if cull == 0:
             value["doubleSided"] = True
         elif cull != 2:
@@ -387,7 +403,7 @@ class _GlbBuilder:
             value.update({"alphaMode": "MASK", "alphaCutoff": cutoff})
             value["extensions"] = {"KHR_materials_unlit": {}}
             self.extensions.add("KHR_materials_unlit")
-        elif shader_name == "Unlit/Transparent":
+        elif shader_name == "Unlit/Transparent" or spine:
             value["alphaMode"] = "BLEND"
             value["extensions"] = {"KHR_materials_unlit": {}}
             self.extensions.add("KHR_materials_unlit")
@@ -482,6 +498,11 @@ class _GlbBuilder:
             if not material_pointer:
                 raise ValueError(f"Mesh submesh has no material: {mesh.m_Name}:{submesh_index}")
             material_index, textured = self._material(material_pointer)
+            if self.document["materials"][material_index]["extras"]["unityShader"] == SPINE_SKELETON_SHADER and handler.m_Colors:
+                colors = np.asarray(handler.m_Colors, dtype=np.float64)
+                white = 255.0 if float(colors.max()) > 1 else 1.0
+                if colors.shape != (vertex_count, 4) or not np.all(colors == white):
+                    raise ValueError(f"Spine vertex tint requires COLOR_0 support: {mesh.m_Name}")
             if textured and "TEXCOORD_0" not in attributes:
                 raise ValueError(f"textured Mesh has no UV0: {mesh.m_Name}")
             primitives.append(

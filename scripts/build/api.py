@@ -5515,6 +5515,9 @@ def _home_spot_spine_runtime(
             ):
                 wrappers_by_animation.setdefault(animation_id, game_object)
     for pointer in scene.get("_spotSpineCharacters", []):
+        # Unity keeps null slots when a formerly animated layer becomes baked geometry.
+        if isinstance(pointer, dict) and pointer.get("m_FileID") == 0 and pointer.get("m_PathID") == 0:
+            continue
         wrapper_id = local_pointer(pointer, "Spine layer")
         wrapper = objects[wrapper_id]
         if wrapper.get("type") != "MonoBehaviour":
