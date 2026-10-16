@@ -1,3 +1,4 @@
+import { projectUiMarks } from "../lib/ui-marks.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -545,17 +546,7 @@ export class ReleaseCatalog {
     const file = releaseFile(this.releaseRoot, relative);
     if (!fs.existsSync(file)) missingFile(file, true);
     const descriptor = readObjectFile(file, "UI atlas descriptor");
-    const marks: Record<string, string> = {};
-    if (!Array.isArray(descriptor.outputs)) return marks;
-    const names =
-      /^(?:RarityIconCenter_(?:R|SR|SSR|EX|BD)|CardType-(?:Red|Blue|Green|Yellow|Purple)|sp_icon_live_music_type_(?:1|2|3|4|5|99))\.png$/u;
-    for (const output of descriptor.outputs) {
-      if (!isRecord(output) || output.type !== "Sprite" || typeof output.path !== "string") continue;
-      const filename = output.path.split("/").at(-1) || "";
-      const logical = filename.replace(/--Sprite-?-?\d+\.png$/u, ".png");
-      if (names.test(logical)) marks[logical] = output.path;
-    }
-    return marks;
+    return projectUiMarks(descriptor);
   }
 
   readView(resource: string, view: string): CatalogJson {

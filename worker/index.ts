@@ -1,3 +1,4 @@
+import { projectUiMarks } from "../src/lib/ui-marks.ts";
 import { refreshCommunityRanking, COMMUNITY_RANKING_CRON } from "./community-ranking";
 import { handleCommunityBootstrap } from "./community-bootstrap";
 import { withRequestWork } from "./request-work";
@@ -377,19 +378,7 @@ const isJsonObject = (value: JsonValue | undefined): value is JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
 const UI_MARK_SOURCE = "metadata/sources/Assets/AddressableResources/UI/Atlas/FixUiSpriteAtlas.spriteatlasv2.json";
-const UI_MARK_NAMES =
-  /^(?:RarityIconCenter_(?:R|SR|SSR|EX|BD)|CardType-(?:Red|Blue|Green|Yellow|Purple)|sp_icon_live_music_type_(?:1|2|3|4|5|99))\.png$/u;
-function projectUiMarks(value: JsonValue | null): JsonObject {
-  if (!isJsonObject(value) || !Array.isArray(value.outputs)) return {};
-  const result: Record<string, JsonValue> = {};
-  for (const output of value.outputs) {
-    if (!isJsonObject(output) || output.type !== "Sprite" || typeof output.path !== "string") continue;
-    const filename = output.path.split("/").pop() || "";
-    const logical = filename.replace(/--Sprite-?-?\d+\.png$/u, ".png");
-    if (UI_MARK_NAMES.test(logical)) result[logical] = output.path;
-  }
-  return result;
-}
+
 
 const parseJson = (text: string): JsonValue => {
   const value: unknown = JSON.parse(text);

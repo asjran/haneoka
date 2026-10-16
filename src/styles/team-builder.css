@@ -46,6 +46,12 @@
     border-radius: var(--md-sys-shape-corner-small);
     background: color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent);
   }
+  .tb-card__media:has(.card-growth) .tb-card__check {
+    inset-inline-end: calc(28.571429% + 4px);
+  }
+  .tb-card__media:has(.card-growth--support) .tb-card__check {
+    inset-inline-end: calc(19.631902% + 4px);
+  }
   .team-builder__box-review:not(:has(.collection)) {
     width: min(600px, calc(100vw - 24px));
     height: fit-content;

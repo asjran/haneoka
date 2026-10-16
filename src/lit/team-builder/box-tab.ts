@@ -78,7 +78,6 @@ function renderCard(host: TeamBuilder, row: Row): TemplateResult {
   if (!options) return html``;
   const owned = row.owned;
   const using = !!owned && owned.use;
-  const caption = owned ? catalog.growthCaption(row.kind, owned, host.settings.unknownPolicy) : host.t("notOwned", "Not owned");
   const toggle = () => {
     const p = prefix(row.kind);
     if (!owned) host.write([{ key: `${p}.${row.id}.own`, value: true }, { key: `${p}.${row.id}.use`, value: true }]);
@@ -93,7 +92,7 @@ function renderCard(host: TeamBuilder, row: Row): TemplateResult {
             host.editing = { kind: row.kind, cardId: row.id };
             host.requestUpdate();
           }}>
-          ${tileMedia({ ...options, marks: [...(options.marks ?? []), { at: "bottom-start", text: caption }] })}
+          ${tileMedia(owned ? options : { ...options, marks: [...(options.marks ?? []), { at: "bottom-start", text: host.t("notOwned", "Not owned") }] })}
         </button>
         <md-checkbox class="tb-card__check" touch-target="wrapper" aria-label=${`${checkLabel}: ${options.label}`} title=${checkLabel}
           .checked=${live(using)} @change=${toggle}></md-checkbox>

@@ -212,20 +212,6 @@
     height: 14px;
     object-fit: contain;
   }
-  .song-ranking__card-level {
-    position: absolute;
-    bottom: 2px;
-    right: 3px;
-    max-width: 100%;
-    color: #fff;
-    text-shadow:
-      0 1px 2px #000,
-      0 0 2px #000;
-    paint-order: stroke fill;
-    -webkit-text-stroke: 0.35px #000;
-    font: var(--md-sys-typescale-emphasized-label-weight) var(--md-sys-typescale-label-small-size) / var(--md-sys-typescale-label-small-line-height) var(--app-font);
-    font-variant-numeric: tabular-nums;
-  }
   .song-ranking__regions.settings-options {
     gap: 4px;
     padding: 0;
@@ -355,6 +341,7 @@
       var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height) var(--app-font);
   }
   .song-ranking__profile-favorite-art {
+    position: relative;
     display: block;
     flex: 0 0 84px;
     aspect-ratio: 3 / 4;
@@ -415,10 +402,6 @@
     .song-ranking__player-copy strong {
       font-size: 14px;
       line-height: 20px;
-    }
-    .song-ranking__card-level {
-      font-size: 11px;
-      line-height: 16px;
     }
   }
 }

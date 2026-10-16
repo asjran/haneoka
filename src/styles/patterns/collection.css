@@ -273,6 +273,77 @@
   --icon-size: 14px;
 }
 
+.card-growth {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  container-type: inline-size;
+  pointer-events: none;
+  color: #fff;
+  font: 600 var(--md-sys-typescale-label-small-size) / 1 var(--app-font);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px #000, 0 0 2px #000;
+  -webkit-text-stroke: 0.35px #000;
+  paint-order: stroke fill;
+}
+.card-growth__level {
+  position: absolute;
+  left: 3%;
+  bottom: 3%;
+  display: flex;
+  align-items: baseline;
+  gap: 0.1em;
+  font-size: clamp(9px, 14cqw, 22px);
+}
+.card-growth__level small {
+  font-size: 0.75em;
+}
+.card-growth__training {
+  position: absolute;
+  left: 3%;
+  bottom: 15%;
+  display: flex;
+  align-items: center;
+  gap: 0.15em;
+  font-size: clamp(9px, 12cqw, 18px);
+}
+.card-growth__training img {
+  width: 0.95em;
+  height: 0.95em;
+  object-fit: contain;
+}
+.card-growth__training small {
+  margin-left: 0.3em;
+  font-size: 0.75em;
+}
+.card-growth__rank {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28.571429%;
+}
+.card-growth--support .card-growth__rank {
+  width: 19.631902%;
+}
+.card-growth__rank img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.card-growth__rank strong {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: clamp(9px, 14cqw, 18px);
+}
+.tile__media--server-mark:has(.card-growth) .tile__server-mark {
+  bottom: 28%;
+}
+.tile__media:has(.card-growth) > .tile__mark--bottom-start {
+  bottom: 30%;
+}
+
 /* ---------- Tile identity ----------
    Exactly two things: a headline and a subhead. Material's card anatomy is
    headline · subhead · supporting text · actions, and a 160dp grid tile has

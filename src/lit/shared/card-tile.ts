@@ -1,6 +1,7 @@
 import { html } from "lit";
 import { icon } from "../ui/icon";
 import type { TileOptions } from "../ui/tile";
+import { cardGrowth, type CardGrowth } from "./card-growth";
 
 /** Catalogue card anatomy: native marks and character faces belong to the tile. */
 export function cardTile(options: {
@@ -16,6 +17,7 @@ export function cardTile(options: {
   rarityLabel: string;
   avatars?: ReadonlyArray<{ image: string; name: string }>;
   adornment?: unknown;
+  growth?: CardGrowth;
 }): TileOptions {
   return {
     kind: options.kind,
@@ -26,6 +28,7 @@ export function cardTile(options: {
     image: options.image,
     fit: "contain",
     placeholder: icon("image", 32),
+    mediaOverlay: options.growth ? cardGrowth(options.growth) : undefined,
     adornment:
       options.adornment ??
       html`

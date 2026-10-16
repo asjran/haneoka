@@ -66,8 +66,9 @@ export function formation(host: TeamBuilder, hit: EngineHit): TemplateResult {
         const member = cardIdOf(hit.members[index]!);
         const snapKey = hit.snaps[index];
         const snap = snapKey ? cardIdOf(snapKey) : null;
-        const memberOptions = catalog.cardOptions("members", member);
-        const snapOptions = snap !== null ? catalog.cardOptions("snaps", snap) : null;
+        const growth = resultSettings(host).scope === "theoretical" ? "maximum" : undefined;
+        const memberOptions = catalog.cardOptions("members", member, growth);
+        const snapOptions = snap !== null ? catalog.cardOptions("snaps", snap, growth) : null;
         const owned = host.view?.members.get(member);
         return html`
           <li

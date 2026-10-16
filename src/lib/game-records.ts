@@ -1,3 +1,5 @@
+import type { CardGrowthIcons } from "./ui-marks";
+
 export type GameRecordsRegion = "jp" | "tw" | "en" | "kr";
 
 export interface GameProfileCardPageDto {
@@ -133,6 +135,7 @@ export interface RankingCardArtwork {
 }
 
 export interface RankingCardCatalog {
+  growthIcons: CardGrowthIcons;
   member: Record<string, RankingCardArtwork>;
   support: Record<string, RankingCardArtwork>;
   playerLevels: Array<{ level: number; exp: number }>;

@@ -75,6 +75,7 @@ export interface TileOptions {
   /** Rendered when the resource has no artwork: a rendered 32dp icon. */
   placeholder?: unknown;
   media?: unknown;
+  mediaOverlay?: unknown;
   /** Presentation hook, e.g. "song" → `.tile--song`. */
   kind?: string;
   id?: string;
@@ -200,6 +201,7 @@ export function tileMedia(options: TileOptions): TemplateResult {
             `
           : nothing,
       )}
+      ${options.mediaOverlay ?? nothing}
       ${options.serverMark?.image
         ? html`<span class="tile__server-mark" title=${options.serverMark.label}>
             <img src=${options.serverMark.image} alt=${options.serverMark.label} width="18" height="18" decoding="async" />

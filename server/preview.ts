@@ -1,3 +1,4 @@
+import { projectUiMarks } from "../src/lib/ui-marks.ts";
 import fs from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import https from "node:https";
@@ -1720,18 +1721,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         "sources/Assets/AddressableResources/UI/Atlas/FixUiSpriteAtlas.spriteatlasv2.json",
       );
       const descriptor = JSON.parse(fs.readFileSync(file, "utf8")) as JsonObject;
-      const projected: Record<string, JsonValue> = {};
-      for (const value of Array.isArray(descriptor.outputs) ? descriptor.outputs : []) {
-        if (!isJsonObject(value) || value.type !== "Sprite" || typeof value.path !== "string") continue;
-        const filename = value.path.split("/").pop() || "";
-        const logical = filename.replace(/--Sprite-?-?\d+\.png$/u, ".png");
-        if (
-          /^(?:RarityIconCenter_(?:R|SR|SSR|EX|BD)|CardType-(?:Red|Blue|Green|Yellow|Purple)|sp_icon_live_music_type_(?:1|2|3|4|5|99))\.png$/u.test(
-            logical,
-          )
-        )
-          projected[logical] = value.path;
-      }
+      const projected = projectUiMarks(descriptor);
       json(res, 200, projected, "public, max-age=0, must-revalidate", releaseResponseHeaders(workspace));
       return;
     }

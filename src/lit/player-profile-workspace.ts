@@ -549,6 +549,11 @@ export class PlayerProfileWorkspace extends GameRecordsCardsElement {
                                       <a class="song-ranking__profile-favorite-card state-layer" href=${cardHref}>
                                         <span class="song-ranking__profile-favorite-art">
                                           ${this.profileMedia(cardName, artwork?.image || "")}
+                                          ${artwork ? this.renderCardProgress(artwork, {
+                                            level: favoriteLevelDisplay,
+                                            training: favorite?.awakeCount ?? null,
+                                            rank: favorite?.cardRank ?? null,
+                                          }) : nothing}
                                         </span>
                                         <strong>${cardName}</strong>
                                       </a>

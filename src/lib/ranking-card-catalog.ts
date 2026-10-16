@@ -1,14 +1,20 @@
 import { entityGraph } from "./entity-graph";
-import { asRecord } from "./static-catalog-source";
+import { asRecord, fetchStaticCatalog } from "./static-catalog-source";
 import type { ReleaseServer } from "./release-server";
 import type { RankingCardArtwork, RankingCardCatalog } from "./game-records";
+import { cardGrowthIcons, projectUiMarks } from "./ui-marks";
 
 /** Compact card art and progression tables shared by the song-ranking documents. */
 export async function rankingCardCatalog(server: ReleaseServer): Promise<RankingCardCatalog> {
   const source = server === "jp" || server === "jp-cbt" ? "jp" : "intl";
   const graph = await entityGraph(source);
+  let marks = graph.marks;
+  if (!marks["CardRank5.png"] || !marks["snaplimit_5.png"] || !marks["SpecialTraining.png"]) {
+    const atlas = await fetchStaticCatalog("sources/Assets/AddressableResources/UI/Atlas/FixUiSpriteAtlas.spriteatlasv2", source, graph.release);
+    marks = { ...marks, ...projectUiMarks(atlas) };
+  }
   const mark = (name: string) =>
-    graph.marks[name] ? `/runtime/${source}/${graph.marks[name].replace(/^runtime\//u, "")}` : "";
+    marks[name] ? `/runtime/${source}/${marks[name].replace(/^runtime\//u, "")}` : "";
   const attributeColors: Record<number, string> = { 1: "Red", 2: "Blue", 3: "Green", 4: "Yellow", 5: "Purple" };
   const rarityNames: Record<number, string> = { 2: "R", 3: "SR", 4: "SSR", 10: "EX" };
   const cards = (support: boolean): Record<string, RankingCardArtwork> =>
@@ -40,6 +46,7 @@ export async function rankingCardCatalog(server: ReleaseServer): Promise<Ranking
     return groups;
   };
   return {
+    growthIcons: cardGrowthIcons(mark),
     member: cards(false),
     support: cards(true),
     levels: { member: levels(false), support: levels(true) },

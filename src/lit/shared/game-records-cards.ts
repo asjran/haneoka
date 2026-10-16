@@ -12,6 +12,8 @@ import type {
   SongRankingRowDto,
 } from "../../lib/game-records";
 import { loadingIndicator } from "../ui/loading-indicator";
+import { cardGrowth } from "./card-growth";
+import { cardGrowthIcons } from "../../lib/ui-marks";
 type RankingEntry = SongRankingRowDto;
 /** Card artwork and native progression shared by rankings and the independent public player view. */
 export abstract class GameRecordsCardsElement extends LitElement {
@@ -133,15 +135,10 @@ export abstract class GameRecordsCardsElement extends LitElement {
               `
             : nothing
         }
-        ${
-          level != null
-            ? html`
-                <span class="song-ranking__card-level">
-                  ${this.label("cardLevel", "Lv. {level}").replace("{level}", String(level))}
-                </span>
-              `
-            : nothing
-        }
+        ${artwork ? this.renderCardProgress(artwork, {
+          level, training: support ? undefined : card.memberAwakeCount,
+          rank: support ? card.supportRank : card.memberRank,
+        }, support) : nothing}
       </span>
     `;
     return artwork
@@ -158,5 +155,19 @@ export abstract class GameRecordsCardsElement extends LitElement {
       : html`
           <span class="song-ranking__card" aria-label=${name}>${body}</span>
         `;
+  }
+
+  protected renderCardProgress(
+    artwork: RankingCardArtwork,
+    values: { level: number | null; training?: number | null; rank: number | null },
+    support = false,
+  ) {
+    return cardGrowth({
+      ...values,
+      kind: support ? "support" : "member",
+      icons: this.cardCatalogs[artwork.server]?.growthIcons ?? cardGrowthIcons(() => ""),
+      trainingLabel: clientText(this.locale, "catalog.cards.fields.training", "Training"),
+      rankLabel: clientText(this.locale, "catalog.cards.fields.awakening", "Awakening"),
+    });
   }
 }

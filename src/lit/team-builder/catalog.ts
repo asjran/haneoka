@@ -9,9 +9,11 @@ import type { EngineMaster } from "../../lib/team-builder/engine/master";
 import { maxMemberGrowth, maxSnapGrowth } from "../../lib/team-builder/engine/box";
 import { memberLevelCap, snapLevelCap } from "../../lib/team-builder/engine/power";
 import type { fetchCatalogVisuals } from "../../lib/catalog-visuals";
-import type { OwnedMember, OwnedSnap } from "../../lib/team-builder/sync/box-view";
+import type { OwnedMember } from "../../lib/team-builder/sync/box-view";
 import { cardRarityName } from "../shared/rarity-icon";
 import { cardTile } from "../shared/card-tile";
+import { cardGrowthIcons } from "../../lib/ui-marks";
+import type { CardGrowth } from "../shared/card-growth";
 import { liveMusicTypeMark, songTile } from "../shared/song-tile";
 import { difficultyKey } from "../ui/difficulty-picker";
 import type { TileOptions } from "../ui/tile";
@@ -113,7 +115,7 @@ export class Catalog {
     return { id, cardType: card.attribute, rarity: card.rarity, stat: card.statMax, images: {thumbnail: card.image}, ...metadata, resolvedSkills };
   }
   /** Catalogue tile of a card, with its native frame ratio. */
-  cardOptions(kind: "members" | "snaps", id: number): TileOptions | null {
+  cardOptions(kind: "members" | "snaps", id: number, growth?: "maximum"): TileOptions | null {
     const card = kind === "members" ? this.member(id) : this.snap(id);
     if (!card) return null;
     const rarity = cardRarityName(card.rarity);
@@ -134,24 +136,34 @@ export class Catalog {
         attributeLabel: attribute,
         rarityIcon: this.rarityIcon(card.rarity),
         rarityLabel: rarity,
+        growth: this.cardGrowth(kind, id, growth),
       }),
       serverMark: this.serverMark(kind === "members" ? "members" : "snapshots", id),
       aspectRatio: kind === "members" ? "3 / 4" : "16 / 9",
     };
   }
-  /** Short growth caption: Lv · training · awakening · skill. */
-  growthCaption(kind: "members" | "snaps", owned: OwnedMember | OwnedSnap | undefined, policy: "max" | "min") {
-    if (!owned) return "";
-    const t = this.host.t.bind(this.host);
-    const unknown = (value: number | null) => (value === null ? (policy === "max" ? "★" : "?") : String(value));
-    if (kind === "members") {
-      const row = owned as OwnedMember;
-      const cap = this.memberLimits(row.cardId, row.awake)?.levelCap;
-      return [`Lv${unknown(row.level === null || cap === undefined ? row.level : Math.min(row.level, cap))}`, `${t("trainingShort", "T")}${unknown(row.awake)}`, `${t("rankShort", "A")}${unknown(row.rank)}`, `${t("skillShort", "SL")}${unknown(row.skill)}`].join(" ");
-    }
-    const row = owned as OwnedSnap;
-    const cap = this.snapLimits(row.cardId, row.rank)?.levelCap;
-    return [`Lv${unknown(row.level === null || cap === undefined ? row.level : Math.min(row.level, cap))}`, `${t("rankShort", "A")}${unknown(row.rank)}`].join(" ");
+  cardGrowth(kind: "members" | "snaps", id: number, growth?: "maximum"): CardGrowth | undefined {
+    const owned = kind === "members" ? this.host.view?.members.get(id) : this.host.view?.snaps.get(id);
+    const limits = kind === "members"
+      ? this.memberLimits(id, growth === "maximum" ? null : (owned as OwnedMember | undefined)?.awake ?? null)
+      : this.snapLimits(id, growth === "maximum" ? null : owned?.rank ?? null);
+    if (!limits || (!owned && growth !== "maximum")) return undefined;
+    const row = growth === "maximum"
+      ? { level: limits.level, rank: limits.rank, awake: "awake" in limits ? limits.awake : undefined, skill: "liveSkillLevel" in limits ? limits.liveSkillLevel : undefined }
+      : owned!;
+    return {
+      kind: kind === "members" ? "member" : "support",
+      icons: cardGrowthIcons((name) => this.visuals?.marks.get(name) ?? ""),
+      level: row.level === null ? null : Math.min(row.level, limits.levelCap),
+      rank: row.rank,
+      training: kind === "members" ? (row as OwnedMember).awake : undefined,
+      skill: kind === "members" ? (row as OwnedMember).skill : undefined,
+      unknown: this.host.settings.unknownPolicy === "max" ? "★" : "?",
+      trainingLabel: this.host.t("training", "Training"),
+      rankLabel: this.host.t("awakening", "Awakening"),
+      skillLabel: this.host.t("liveSkill", "Live skill"),
+      skillShortLabel: this.host.t("skillShort", "SL"),
+    };
   }
   memberLimits(id: number, awake: number | null) {
     const card = this.master.members.get(id);
