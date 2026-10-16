@@ -603,11 +603,13 @@ def serialize_unity_effect(
         raise ValueError(f"ADV effect root Transform is missing: {source_path}::{root_id}")
 
     transform_ids: set[str] = set()
+    transform_order: list[str] = []
 
     def collect(transform_id: str) -> None:
         if transform_id in transform_ids:
             return
         transform_ids.add(transform_id)
+        transform_order.append(transform_id)
         raw = _record(transforms[transform_id].get("data"))
         for pointer in raw.get("m_Children", []):
             child = _pointer_id(pointer)
@@ -799,7 +801,7 @@ def serialize_unity_effect(
             serialize_mesh({"m_FileID": 0, "m_PathID": object_id})
 
     nodes = []
-    for transform_id in transform_ids:
+    for transform_id in transform_order:
         transform = transforms[transform_id]
         raw = _record(transform.get("data"))
         game_object_id = _pointer_id(raw.get("m_GameObject"))

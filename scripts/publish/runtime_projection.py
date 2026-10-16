@@ -346,14 +346,6 @@ def main():
         candidate_sha = hashlib.sha256((Path(directory) / "release.json").read_bytes()).hexdigest()
         expected_id = projection.get("candidateReleaseId")
         expected_sha = projection.get("candidateManifestSha256")
-        if mode == "true" and expected_id is None and expected_sha is None:
-            raise ValueError("runtime publication requires its reviewed candidate identity")
-        if expected_id is not None and (re.fullmatch(r"r-[a-f0-9]{20}", expected_id) is None
-                or expected_id != prepared["manifest"]["releaseId"]):
-            raise ValueError("runtime candidate release differs from review")
-        if expected_sha is not None and (re.fullmatch(r"[a-f0-9]{64}", expected_sha) is None
-                or expected_sha != candidate_sha):
-            raise ValueError("runtime candidate manifest digest differs from review")
         receipt = {"schema": "haneoka-current-runtime-publication-v1", "producerPin": pin,
                    "server": config.id, "sourceId": prepared["sourceId"],
                    "baseReleaseId": prepared["pointer"]["releaseId"],
@@ -361,7 +353,25 @@ def main():
                    "changedEntries": prepared["changedEntries"], "reusedEntries": prepared["reusedEntryCount"],
                    "statistics": prepared["statistics"], "inputs": prepared["inputs"],
                    "published": False, "noOp": prepared["noOp"]}
+        domains = {}
+        for resource in RESOURCES:
+            entries = [row for row in prepared["manifest"]["entries"]
+                       if row["path"].startswith(f"api/v1/catalog/{resource}/")]
+            domains[resource] = {
+                "entryCount": len(entries),
+                "sha256": hashlib.sha256(stable_json(entries).encode()).hexdigest(),
+            }
+        receipt["candidateDomains"] = domains
+        write_json(args.output / "candidate-release.json", prepared["manifest"], pretty=True)
         write_json(args.output / "publication-receipt.json", receipt, pretty=True)
+        if mode == "true" and expected_id is None and expected_sha is None:
+            raise ValueError("runtime publication requires its reviewed candidate identity")
+        if expected_id is not None and (re.fullmatch(r"r-[a-f0-9]{20}", expected_id) is None
+                or expected_id != prepared["manifest"]["releaseId"]):
+            raise ValueError(f"runtime candidate release differs from review: expected={expected_id}, actual={receipt['releaseId']}")
+        if expected_sha is not None and (re.fullmatch(r"[a-f0-9]{64}", expected_sha) is None
+                or expected_sha != candidate_sha):
+            raise ValueError(f"runtime candidate manifest digest differs from review: expected={expected_sha}, actual={candidate_sha}")
         if mode == "true" and not prepared["noOp"]:
             receipt["pointer"] = publish(store, config, prepared, Path(directory))
             receipt["published"] = True
