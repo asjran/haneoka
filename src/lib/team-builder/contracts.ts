@@ -1,3 +1,5 @@
+import type { ReleaseIdentity, EvidenceGap, PowerStats, TeamAssignment } from "./model.ts";
+export type { ReleaseIdentity, NativeRuleDomain, NativeRuleEvidence, EvidenceGap, PowerStats, TeamAssignment } from "./model.ts";
 import type { TeamBuilderData } from "./data.ts";
 import type { InventoryV1 } from "./inventory.ts";
 import type { NativeGekisoPlans, NativeGekisoSongPlan } from "./solver/native-gekiso-evaluation.ts";
@@ -5,43 +7,10 @@ import type { ResourcePlannerPreparationInput, ResourcePlannerProgress, Resource
 import type { ResourceStagePreparationProgress } from "./solver/native-challenge-stage-adapter.ts";
 import type { NativePracticalPreparationInput, NativePracticalProgress, NativePracticalResult } from "./solver/native-practical-search.ts";
 import type { NativeGekisoRankingScenario } from "./solver/native-gekiso-ranking-scenario.ts";
-/** Serializable inputs shared by the inventory adapter, solver worker and UI. */
-export interface ReleaseIdentity {
-  server: string;
-  releaseId: string;
-  /** Source producer's related-method/ABI/selected-patch audit, independent of resource release. */
-  nativeRuleEvidence?: NativeRuleEvidence;
-}
-export type NativeRuleDomain =
-  "normal-score" | "personal-solo" | "ordinary-event-points" | "snapshot-equip" | "challenge-context";
-export interface NativeRuleEvidence {
-  schema: "haneoka-native-rule-evidence-v1";
-  sourceId: string;
-  /** Hashes identify the audited rule inputs; package version is provenance, not the rule selector. */
-  nativeFiles: { il2cpp: string; metadata: string; loader: string };
-  selectedPatches: { address: string; sha256: string | null }[];
-  patchSelection: "complete" | "unresolved";
-  domains: Partial<
-    Record<
-      NativeRuleDomain,
-      {
-        profile: string;
-        methodFingerprint: string;
-        abiFingerprint: string;
-        callGraph: "reviewed" | "unresolved";
-        patchCoverage: "disjoint" | "equivalent" | "unresolved";
-      }
-    >
-  >;
-}
 export type Objective = "score" | "ss-ratio" | "ss-surplus" | "event-points" | "event-items" | "base-score";
 export type PlayMode = "normal" | "gekiso" | "multi" | "battle";
 export type SkillOrderCriterion = "nominal-mean" | "worst-ap" | "best-ap";
 export type PersonalScoreDomain = "personal-solo" | "personal-live";
-export interface EvidenceGap {
-  code: string;
-  source: string;
-}
 
 export type EvaluationBasisRequest =
   | { kind: "single" }
@@ -93,11 +62,6 @@ export interface MetricValue {
   scoreDomain?: "personal-solo" | "personal-live";
   assumptions: string[];
   gaps: EvidenceGap[];
-}
-export interface PowerStats {
-  performance: number;
-  technique: number;
-  visual: number;
 }
 /** Adapter resolves the player's actual levels; no implicit maximum training. */
 export interface MemberOption {
@@ -152,12 +116,6 @@ export interface SongOption {
   nativeGekisoPlan?: NativeGekisoSongPlan;
   nativeGekisoPlanGaps?: EvidenceGap[];
   gaps: EvidenceGap[];
-}
-export interface TeamAssignment {
-  memberInstanceIds: string[];
-  /** Each index equips the corresponding member; null is an empty slot. */
-  snapshotInstanceIds: (string | null)[];
-  leaderInstanceId: string;
 }
 export interface Candidate {
   assignment: TeamAssignment;

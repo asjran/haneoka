@@ -1,4 +1,4 @@
-import type { PowerStats, ReleaseIdentity } from "./contracts";
+import type { PowerStats, ReleaseIdentity } from "./model";
 import { projectEventDetail } from "./data/events";
 import { adaptChallengeMusicTable, type ChallengeMusicTable } from "./data/resource-stage";
 import { adaptRuntimeRules, adaptChallengePointTable, adaptBoostTables, adaptGekisoTimelineTables, GEKISO_TIMELINE_MASTER_TABLES, type RuntimeRules, type LiveChallengePointTable } from "./data/runtime-rules";

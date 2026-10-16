@@ -1,4 +1,4 @@
-import type { NativeRuleDomain, NativeRuleEvidence } from "../contracts";
+import type { NativeRuleDomain, NativeRuleEvidence } from "../model";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const sha256 = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
