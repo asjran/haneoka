@@ -1775,25 +1775,31 @@ def garbage_collect_cas(
 
     def unchanged_candidate(
         item: tuple[str, tuple[datetime, int, str]],
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, list[str]]:
         key, (expected_modified, expected_size, expected_etag) = item
         metadata = store.head(key)
         if metadata is None:
-            return key, "missing"
+            return key, "missing", []
         digest = parse_cas_key(key)
         object_metadata = metadata.get("Metadata")
-        if (
-            metadata.get("LastModified") != expected_modified
-            or metadata.get("ContentLength") != expected_size
-            or metadata.get("ETag") != expected_etag
-            or not isinstance(object_metadata, dict)
-            or object_metadata.get("sha256") != digest
-        ):
-            return key, "changed"
-        return key, "unchanged"
+        reasons = []
+        modified = metadata.get("LastModified")
+        if modified != expected_modified:
+            reasons.append("lastModified")
+            if isinstance(modified, datetime) and modified.replace(microsecond=0) == expected_modified.replace(microsecond=0):
+                reasons.append("lastModifiedSubsecond")
+        if metadata.get("ContentLength") != expected_size:
+            reasons.append("size")
+        if metadata.get("ETag") != expected_etag:
+            reasons.append("etag")
+        recorded_digest = object_metadata.get("sha256") if isinstance(object_metadata, dict) else None
+        if recorded_digest != digest:
+            reasons.append("sha256Missing" if recorded_digest is None else "sha256Mismatch")
+        return key, "changed" if reasons else "unchanged", reasons
 
     garbage: list[str] = []
     changed: list[str] = []
+    changed_reasons: dict[str, int] = defaultdict(int)
     missing: list[str] = []
     deleted = 0
     candidate_items = sorted(candidates.items())
@@ -1801,11 +1807,13 @@ def garbage_collect_cas(
         for offset in range(0, len(candidate_items), 1000):
             batch = candidate_items[offset : offset + 1000]
             verified: list[str] = []
-            for key, state in executor.map(unchanged_candidate, batch):
+            for key, state, reasons in executor.map(unchanged_candidate, batch):
                 if state == "unchanged":
                     verified.append(key)
                 elif state == "changed":
                     changed.append(key)
+                    for reason in reasons:
+                        changed_reasons[reason] += 1
                 else:
                     missing.append(key)
             garbage.extend(verified)
@@ -1833,6 +1841,7 @@ def garbage_collect_cas(
         "initialGarbageObjects": len(candidates) + len(newly_referenced),
         "newlyReferencedObjects": len(newly_referenced),
         "changedObjects": len(changed),
+        "changedObjectReasons": dict(sorted(changed_reasons.items())),
         "missingObjects": len(missing),
         "garbageObjects": len(garbage),
         "garbageBytes": garbage_bytes,
