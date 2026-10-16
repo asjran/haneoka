@@ -1,15 +1,15 @@
 ---
-import { providerCollectionData } from "../../../../server/provider-page-data";
-import { renderProviderStories } from "../../../../server/render-provider";
-import { serializePageData } from "../../../../lib/page-data";
-import { collectionDescription } from "../../../../lib/collection-description";
-import Base from "../../../../layouts/Base.astro";
-import AppShell from "../../../../components/AppShell.astro";
-import { LOCALES, type Locale } from "../../../../i18n/locales";
-import { t } from "../../../../i18n/messages";
-import "../../../../lit/story-workspace";
-import "../../../../styles/catalog.css";
-import "../../../../styles/story.css";
+import { providerCollectionData } from "../../../../../server/provider-page-data";
+import { renderProviderStories } from "../../../../../server/render-provider";
+import { serializePageData } from "../../../../../lib/page-data";
+import { collectionDescription } from "../../../../../lib/collection-description";
+import Base from "../../../../../layouts/Base.astro";
+import AppShell from "../../../../../components/AppShell.astro";
+import { LOCALES, type Locale } from "../../../../../i18n/locales";
+import { t } from "../../../../../i18n/messages";
+import "../../../../../lit/story-workspace";
+import "../../../../../styles/catalog.css";
+import "../../../../../styles/story.css";
 
 export const BESTDORI_STORY_SECTIONS = ["event", "band", "main", "afterlive", "card"] as const;
 
@@ -19,7 +19,7 @@ export function getStaticPaths() {
   );
 }
 const { locale, section } = Astro.props as { locale: Locale; section: string };
-const route = `/community/stories-bestdori/${section}`;
+const route = `/community/gbp/stories/${section}`;
 const titleKey = `story.navigation.bestdori${section.charAt(0).toUpperCase()}${section.slice(1)}`;
 const title = t(locale, titleKey, section);
 const payload = await providerCollectionData("bestdori", locale, `stories/${section}`);
@@ -35,5 +35,5 @@ const description = collectionDescription(Object.values(payload.document), local
   </AppShell>
 </Base>
 <script>
-  import "../../../../lit/story-workspace";
+  import "../../../../../lit/story-workspace";
 </script>

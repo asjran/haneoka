@@ -37,7 +37,7 @@ import {
   STATIC_DOCUMENT_SCHEMA,
   type StaticDocumentRecord,
 } from "../src/lib/static-documents.ts";
-import { providerEntityFromUrl } from "../src/lib/provider-entity-routing.ts";
+import { legacyProviderRedirectTarget, providerEntityFromUrl } from "../src/lib/provider-entity-routing.ts";
 import { providerEntityHtmlPath } from "../src/lib/provider-entity-data.ts";
 import { staticViewFromUrl } from "../src/lib/static-view-routing.ts";
 import { assetStaticDocumentFromUrl } from "../src/lib/asset-static-routing.ts";
@@ -1376,6 +1376,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
   const legacyEntityTarget =
+    legacyProviderRedirectTarget(url.pathname, url.search) ??
     legacyEntityRedirectTarget(url.pathname, url.search) ??
     legacyCollectionRedirectTarget(url.pathname, url.search) ??
     legacyHomeRedirectTarget(url.pathname, url.search);

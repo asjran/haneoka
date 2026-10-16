@@ -2075,7 +2075,7 @@ export class CatalogScreen extends LitElement {
     return this.settings.origin === "bestdori" || this.settings.origin === "sekai";
   }
   private providerCollection() {
-    return `/${this.settings.locale}/community/${this.settings.origin === "sekai" ? "sekai/songs" : "songs-bestdori"}/`;
+    return `/${this.settings.locale}/community/${this.settings.origin === "sekai" ? "sekai/songs" : "gbp/songs"}/`;
   }
   /** A provider's region is chosen by the reading locale, as the worker expects. */
   private bestdoriRegion() {

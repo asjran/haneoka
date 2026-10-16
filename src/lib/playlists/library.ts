@@ -262,7 +262,7 @@ export function mergeSongLibrary(native: PromiseSettledResult<PlaylistCatalogSou
 
 export function songDetailPath(song: LibrarySong, locale: Locale): string {
   const { provider, server, musicId } = song.ref;
-  if (provider === "bestdori") return `/${locale}/community/songs-bestdori/detail/?song=${encodeURIComponent(musicId)}`;
+  if (provider === "bestdori") return `/${locale}/community/gbp/songs/detail/?song=${encodeURIComponent(musicId)}`;
   return isReleaseServer(server)
     ? resourcePath({ server, locale, kind: "songs", id: musicId })
     : `/catalog/songs?song=${encodeURIComponent(musicId)}`;

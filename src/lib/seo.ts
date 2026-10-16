@@ -182,9 +182,9 @@ export function pageDescription(locale: Locale, route: string, title: string): s
                     ? "communityTags"
                     : route === "/community/playlists"
                       ? "communityPlaylists"
-                      : route === "/community/songs-bestdori"
+                      : route === "/community/gbp/songs"
                         ? "communitySongs"
-                        : route.startsWith("/community/stories-bestdori/")
+                        : route.startsWith("/community/gbp/stories/")
                           ? "communityStories"
                           : route.startsWith("/community")
                             ? "community"

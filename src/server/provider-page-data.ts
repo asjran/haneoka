@@ -1,5 +1,6 @@
 import { BESTDORI_CATALOG_VERSION } from "@haneoka/bestdori/resources";
 import { providerCatalogBase, type CatalogProvider, type ProviderCollectionPayload } from "../lib/provider-page-data";
+import { readProviderStaticCollection } from "./provider-static-data";
 
 const origin = (process.env.STATIC_CATALOG_ORIGIN || "https://haneoka.org").replace(/\/+$/u, "");
 const reads = new Map<string, Promise<Record<string, unknown>>>();
@@ -34,6 +35,8 @@ export function providerCollectionData(provider: CatalogProvider, locale: string
   let pending = pages.get(key);
   if (!pending) {
     pending = (async () => {
+      const cached = process.env.PROVIDER_STATIC_DATA_ROOT ? readProviderStaticCollection(provider, locale, resource) : undefined;
+      if (cached) return cached;
       const base = providerCatalogBase(provider, locale);
       const story = resource.startsWith("stories/");
       const path = resource === "stories/card" && provider === "bestdori" ? "cards" : resource;

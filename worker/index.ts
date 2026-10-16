@@ -10,7 +10,7 @@ import { handleAdminRequest } from "./admin";
 import { applySiteSettings, readSiteSettings, testContentAllowed } from "./site-settings";
 import { serveStaticDocument, staticDocumentRedirect } from "./static-documents";
 import { staticDocumentLookupPath, acceptsGzip } from "../src/lib/static-documents";
-import { providerEntityFromUrl } from "../src/lib/provider-entity-routing";
+import { legacyProviderRedirectTarget, providerEntityFromUrl } from "../src/lib/provider-entity-routing";
 import { providerEntityHtmlPath } from "../src/lib/provider-entity-data";
 import { staticViewFromUrl } from "../src/lib/static-view-routing";
 import { assetStaticDocumentFromUrl } from "../src/lib/asset-static-routing";
@@ -3444,6 +3444,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     }
   }
   const legacyEntityTarget =
+    legacyProviderRedirectTarget(url.pathname, url.search) ??
     legacyEntityRedirectTarget(url.pathname, url.search) ??
     legacyCollectionRedirectTarget(url.pathname, url.search) ??
     legacyHomeRedirectTarget(url.pathname, url.search);

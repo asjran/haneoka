@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import type { CatalogProvider, ProviderCollectionPayload } from "../lib/provider-page-data";
 
 const dataRoot = process.env.PROVIDER_STATIC_DATA_ROOT || path.join(process.cwd(), "data", "provider-static", "generated-data");
 const files = new Map<string, string>();
@@ -49,4 +50,28 @@ export function providerStaticDataEntries() {
     if (entry.isFile() && /^[a-f0-9]{64}\.json$/u.test(entry.name)) files.set(entry.name.slice(0, -5), path.join(entry.parentPath, entry.name));
   }
   return [...files].map(([sha256, file]) => ({ sha256, file }));
+}
+
+let collectionSnapshots: Map<string, string | null> | undefined;
+/** Read a complete frozen collection by its own identity, including empty catalogues. */
+export function readProviderStaticCollection(provider: CatalogProvider, locale: string, resource: string): ProviderCollectionPayload | undefined {
+  const key = (provider: string, locale: string, resource: string) => JSON.stringify([provider, locale, resource]);
+  if (!collectionSnapshots) {
+    const snapshots = new Map<string, string | null>();
+    try {
+      for (const { sha256 } of providerStaticDataEntries()) {
+        const url = `/provider-static/data/${sha256}.json`;
+        const value = readProviderStaticData<ProviderCollectionPayload>(url);
+        if (value?.schema !== "haneoka-provider-collection-v1") continue;
+        const identity = key(value.provider, value.locale, value.resource);
+        const previous = snapshots.get(identity);
+        snapshots.set(identity, snapshots.has(identity) && previous !== url ? null : url);
+      }
+      collectionSnapshots = snapshots;
+    } catch {
+      collectionSnapshots = new Map();
+    }
+  }
+  const url = collectionSnapshots.get(key(provider, locale, resource));
+  return url ? readProviderStaticData<ProviderCollectionPayload>(url) : undefined;
 }

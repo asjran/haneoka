@@ -1,21 +1,21 @@
 ---
-import { providerCollectionData } from "../../../server/provider-page-data";
-import { renderProviderSongs } from "../../../server/render-provider";
-import { serializePageData } from "../../../lib/page-data";
-import { collectionDescription } from "../../../lib/collection-description";
-import Base from "../../../layouts/Base.astro";
-import AppShell from "../../../components/AppShell.astro";
-import { catalogConfig } from "../../../config/catalog-labels";
-import { LOCALES, type Locale } from "../../../i18n/locales";
-import { t } from "../../../i18n/messages";
-import "../../../lit/catalog-screen";
-import "../../../styles/catalog.css";
+import { providerCollectionData } from "../../../../server/provider-page-data";
+import { renderProviderSongs } from "../../../../server/render-provider";
+import { serializePageData } from "../../../../lib/page-data";
+import { collectionDescription } from "../../../../lib/collection-description";
+import Base from "../../../../layouts/Base.astro";
+import AppShell from "../../../../components/AppShell.astro";
+import { catalogConfig } from "../../../../config/catalog-labels";
+import { LOCALES, type Locale } from "../../../../i18n/locales";
+import { t } from "../../../../i18n/messages";
+import "../../../../lit/catalog-screen";
+import "../../../../styles/catalog.css";
 
 export function getStaticPaths() {
   return LOCALES.map((locale) => ({ params: { locale }, props: { locale } }));
 }
 const { locale } = Astro.props as { locale: Locale };
-const route = "/community/songs-bestdori";
+const route = "/community/gbp/songs";
 const titleKey = "community.page.songsBestDori";
 const title = t(locale, titleKey, "GBP songs");
 const config = catalogConfig({ resource: "songs", locale, origin: "bestdori" });
@@ -32,5 +32,5 @@ const description = collectionDescription(Object.values(payload.document), local
   </AppShell>
 </Base>
 <script>
-  import "../../../lit/catalog-screen";
+  import "../../../../lit/catalog-screen";
 </script>

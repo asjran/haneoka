@@ -54,7 +54,7 @@ const appPages: Array<[string, string]> = [
   ["/community/activity", "community.page.activity"],
   ["/community/tags", "community.page.tags"],
   ["/community/playlists", "community.page.playlistPage.title"],
-  ["/community/songs-bestdori", "community.page.songsBestDori"],
+  ["/community/gbp/songs", "community.page.songsBestDori"],
   ["/community/sekai/songs", "community.page.sekai.title"],
   ["/community/sekai/stories/event", "community.page.sekai.stories.event"],
   ["/community/sekai/stories/unit", "community.page.sekai.stories.unit"],
@@ -68,7 +68,7 @@ const appPages: Array<[string, string]> = [
   ...(["event", "band", "main", "afterlive", "card"] as const).map(
     (section) =>
       [
-        `/community/stories-bestdori/${section}`,
+        `/community/gbp/stories/${section}`,
         `story.navigation.bestdori${section.charAt(0).toUpperCase()}${section.slice(1)}`,
       ] as [string, string],
   ),

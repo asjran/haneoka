@@ -1,7 +1,7 @@
 import type { AstroIntegration } from "astro";
 import fs from "node:fs";
 import path from "node:path";
-import { providerEntityFromUrl, providerEntityPhysicalPath } from "../lib/provider-entity-routing";
+import { legacyProviderRedirectTarget, providerEntityFromUrl, providerEntityPhysicalPath } from "../lib/provider-entity-routing";
 import { providerEntityHtmlPath } from "../lib/provider-entity-data";
 import { providerEntityManifestEntry, providerEntityRoot } from "./provider-entity-manifest";
 import { staticViewFromUrl } from "../lib/static-view-routing";
@@ -13,9 +13,15 @@ type DevServer = Parameters<Setup>[0]["server"];
 
 /** Capture query selection before Astro strips it from prerendered requests. */
 export function installProviderDevRouting(server: DevServer): void {
-  server.middlewares.use((request, _response, next) => {
+  server.middlewares.use((request, response, next) => {
     try {
       const url = new URL(request.url || "/", "http://localhost");
+      const legacy = legacyProviderRedirectTarget(url.pathname, url.search);
+      if (legacy && (request.method === "GET" || request.method === "HEAD")) {
+        response.writeHead(308, { Location: legacy, "Cache-Control": "public, max-age=86400" });
+        response.end();
+        return;
+      }
       const selected = providerEntityFromUrl(url);
       if (selected) {
         const entry = fs.existsSync(path.join(providerEntityRoot(), "manifest.json")) ? providerEntityManifestEntry(providerEntityHtmlPath(selected), true) : undefined;

@@ -228,7 +228,7 @@ const sections: NavSection[] = [
     label: "navigation.gbpArchive",
     collapsible: true,
     items: [
-      { route: "/community/songs-bestdori", icon: "library_music", label: "community.page.songsBestDori" },
+      { route: "/community/gbp/songs", icon: "library_music", label: "community.page.songsBestDori" },
       /**
        * Every Bestdori story section is listed, exactly as the archive's own
        * story sections are listed above. The page used to carry a pill tab bar
@@ -237,7 +237,7 @@ const sections: NavSection[] = [
        * routes; routes belong in the navigation.
        */
       ...BESTDORI_STORY_ROUTES.map((key) => ({
-        route: `/community/stories-bestdori/${key}`,
+        route: `/community/gbp/stories/${key}`,
         icon: BESTDORI_STORY_ICONS[key],
         label: `story.navigation.bestdori${key.charAt(0).toUpperCase()}${key.slice(1)}`,
       })),

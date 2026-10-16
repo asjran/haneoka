@@ -28,7 +28,7 @@ const rendered = await renderProviderEntity(payload, locale, route);
 if (import.meta.env.PROD) writeStaticJsonDocument(providerEntityJsonPath(payload), payload);
 const pageDataId = "provider-entity";
 const song = resource === "songs";
-const collectionRoute = `/community/${provider === "bestdori" ? song ? "songs-bestdori" : "stories-bestdori" : song ? "sekai/songs" : "sekai/stories"}${song ? "" : `/${section || "card"}`}`;
+const collectionRoute = `/community/${provider === "bestdori" ? song ? "gbp/songs" : "gbp/stories" : song ? "sekai/songs" : "sekai/stories"}${song ? "" : `/${section || "card"}`}`;
 const backHref = `/${locale}${collectionRoute}/`;
 const config = song ? catalogConfig({ resource: "songs", locale, origin: provider, entityId: payload.id, entityContext: true }) : "";
 ---

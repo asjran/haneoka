@@ -131,7 +131,7 @@ export async function resolvePlaylistTracks(tracks: RecordValue[], defaultServer
         musicUrl: song?.musicUrl || track.musicUrl || "",
         ...(performer ? { displayPerformer: performer } : {}),
         detailPath: bestdori
-          ? `/${preferredLocale()}/community/songs-bestdori/detail/?song=${encodeURIComponent(id)}`
+          ? `/${preferredLocale()}/community/gbp/songs/detail/?song=${encodeURIComponent(id)}`
           : isReleaseServer(server)
             ? resourcePath({ server, locale: preferredLocale() as Locale, kind: "songs", id })
             : `/catalog/songs?song=${encodeURIComponent(id)}`,
