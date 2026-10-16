@@ -1,4 +1,4 @@
-import type { EvidenceGap, NativeRuleDomain, NativeRuleEvidence, ReleaseIdentity } from "../contracts.ts";
+import type { EvidenceGap, NativeRuleDomain, NativeRuleEvidence, ReleaseIdentity } from "../model.ts";
 
 const fingerprints = {
   "challenge-context": [{

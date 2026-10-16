@@ -1,4 +1,4 @@
-import type { EvidenceGap, TeamAssignment } from "../contracts";
+import type { EvidenceGap, TeamAssignment } from "../model";
 import { dataRows, nativeRow, objectRow, type DataRow, type TeamBuilderData } from "../data";
 import { validateInventory, type Inventory } from "../inventory";
 import type {

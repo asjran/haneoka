@@ -1,4 +1,4 @@
-import type { EvidenceGap } from "../contracts";
+import type { EvidenceGap } from "../model";
 import { dataRows, nativeRow, objectRow, type DataRow, type TeamBuilderData } from "../data";
 import { nativeRewardSources } from "./reward-input";
 import { nativeRuleSupports } from "../solver/native-rule-profile";

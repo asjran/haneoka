@@ -1,5 +1,15 @@
-import type { EvidenceGap } from "../contracts.ts";
-import { battleScoreThreshold } from "../rewards.ts";
+import type { EvidenceGap } from "../model.ts";
+/** BattleLiveScoreRankCalculator.CalcRequiredScore (Intl 1.0.1, 0x620dbec).
+ * This is a room total threshold; compare it to the room total score.
+ */
+export function battleScoreThreshold(requiredScore: number, rankTargetPlayerCount: number): number {
+  if (!Number.isSafeInteger(requiredScore) || requiredScore < 0 || !Number.isSafeInteger(rankTargetPlayerCount))
+    throw new RangeError("score-threshold-input");
+  if (rankTargetPlayerCount < 1) return 0x7fffffff;
+  const result = Math.trunc(Math.sqrt(5 / rankTargetPlayerCount) * requiredScore * rankTargetPlayerCount);
+  if (result > 0x7fffffff) throw new RangeError("score-threshold-int32-overflow");
+  return result;
+}
 export interface NativeScoreRankRow {
   rank: number;
   requiredScore: number;

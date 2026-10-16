@@ -1,4 +1,4 @@
-import type { ReleaseIdentity, TeamAssignment } from "./contracts";
+import type { ReleaseIdentity, TeamAssignment } from "./model";
 import { resolveCharacterRankTotal, type CharacterRankTotalScope } from "./data/character-rank-total";
 import { characterRankInventoryIds } from "./data/character-rank-scope";
 import { dataRows, nativeRow, type TeamBuilderData } from "./data";

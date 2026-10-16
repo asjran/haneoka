@@ -1,4 +1,4 @@
-import type { EvidenceGap } from "../contracts.ts";
+import type { EvidenceGap } from "../model.ts";
 
 export interface BoostBonusRow {
   consumedCount: number;

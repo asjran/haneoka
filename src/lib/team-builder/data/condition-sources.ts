@@ -1,4 +1,4 @@
-import type { EvidenceGap } from "../contracts";
+import type { EvidenceGap } from "../model";
 import { dataRows, nativeRow, objectRow, type DataRow, type TeamBuilderData } from "../data";
 import { createUnknownPlayerModifiers, playerModifierRanges, validateInventory, type InventoryV1 } from "../inventory";
 import { resolveCharacterRankTotal, type CharacterRankTotalScope } from "./character-rank-total";

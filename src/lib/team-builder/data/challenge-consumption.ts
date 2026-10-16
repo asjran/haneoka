@@ -1,4 +1,4 @@
-import type { EvidenceGap } from "../contracts";
+import type { EvidenceGap } from "../model";
 import type { TeamBuilderData } from "../data";
 import type { BoostBonusRow } from "../solver/event-rewards";
 

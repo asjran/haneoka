@@ -1,4 +1,4 @@
-import { spoilerCookieEnabled } from "../src/lib/spoiler-content";
+import { spoilerCookieEnabled } from "../src/lib/spoiler-cookie";
 
 export type SiteSettings = {
   showTestServerContent: boolean;

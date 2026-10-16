@@ -1,10 +1,7 @@
+import { SPOILER_COOKIE, spoilerCookieEnabled } from "./spoiler-cookie";
+export { SPOILER_COOKIE, spoilerCookieEnabled } from "./spoiler-cookie";
 const KEY = "haneoka:spoiler-content:v1";
-export const SPOILER_COOKIE = "haneoka.spoilers";
 export const SPOILER_CONTENT_EVENT = "haneoka:spoiler-content";
-
-export function spoilerCookieEnabled(cookie: string | null): boolean {
-  return (cookie || "").split(";").some((part) => part.trim() === `${SPOILER_COOKIE}=1`);
-}
 
 /** Personal preference is off until the visitor explicitly enables it. */
 export function spoilerContentEnabled(): boolean {
