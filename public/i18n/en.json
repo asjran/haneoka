@@ -1039,7 +1039,26 @@
       "missionCount": "{count} missions",
       "missionNoEnd": "No end date",
       "missionDailyReset": "Resets daily",
-      "missionRewardTotal": "Total rewards"
+      "missionRewardTotal": "Total rewards",
+      "permanent": "Permanent missions",
+      "releaseDay": "Day {day}",
+      "categoryOther": "Other missions",
+      "categoryDaily": "Daily",
+      "categoryPeriod": "Limited Time",
+      "categoryEvent": "Event",
+      "categoryNormal": "Normal",
+      "categoryBeginner": "Beginner",
+      "categoryComeback": "Comeback",
+      "categoryCharacter": "Character",
+      "categoryInvitation": "Friend Invite",
+      "categorySecret": "Hidden missions",
+      "categoryEventDaily": "Event Daily",
+      "categoryCircle": "Group",
+      "categoryCircleDaily": "Group Daily",
+      "categoryEventCircle": "Group Event",
+      "categoryEventCircleDaily": "Group Event Daily",
+      "categoryUnlockMusic": "Song Unlock",
+      "categoryUnlockHome": "Home Unlock"
     },
     "resources": {
       "types": {

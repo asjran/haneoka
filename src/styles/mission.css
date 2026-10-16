@@ -16,7 +16,6 @@
   .mission-workspace__filter {
     display: flex;
     min-width: 0;
-    padding-block: 4px 8px;
   }
   .mission-workspace__filter > .segmented {
     width: auto;
@@ -42,6 +41,9 @@
     padding: 8px 16px 16px;
     border-radius: var(--md-sys-shape-corner-extra-large);
     background: var(--md-sys-color-surface-container-low);
+  }
+  .mission-section + .mission-section {
+    margin-block-start: 16px;
   }
   /* ---- Overview: one card per group ---- */
   .mission-cards {
@@ -94,7 +96,7 @@
     background: var(--md-sys-color-secondary-container);
     clip-path: var(--shape-cookie-9);
   }
-  .mission-card[data-category="limited"] .mission-card__icon {
+  .mission-card[data-category="2"] .mission-card__icon {
     color: var(--md-sys-color-on-tertiary-container);
     background: var(--md-sys-color-tertiary-container);
   }
@@ -118,6 +120,12 @@
     font: var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size) /
       var(--md-sys-typescale-body-medium-line-height) var(--app-font);
   }
+  .mission-card__status,
+  .mission-row__goal {
+    color: var(--md-sys-color-on-surface-variant);
+    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size) /
+      var(--md-sys-typescale-label-large-line-height) var(--app-font);
+  }
   .mission-card__rewards {
     display: flex;
     flex-wrap: wrap;
@@ -137,6 +145,7 @@
   /* ---- One group ---- */
   .mission-group__header {
     display: flex;
+    flex-wrap: wrap;
     min-height: 56px;
     align-items: center;
     gap: 12px;
@@ -197,11 +206,19 @@
     border-top: 1px solid var(--md-sys-color-outline-variant);
   }
   .mission-row__condition {
+    display: grid;
+    gap: 4px;
     flex: 1 1 auto;
     min-width: 0;
     color: var(--md-sys-color-on-surface);
     font: var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size) /
       var(--md-sys-typescale-body-large-line-height) var(--app-font);
+  }
+  .mission-row__condition > a {
+    display: flex;
+    min-block-size: 48px;
+    align-items: center;
+    color: inherit;
   }
   .mission-row__rewards {
     display: flex;
@@ -214,10 +231,12 @@
 
   .mission-chip {
     display: inline-flex;
-    height: 32px;
+    min-height: 32px;
+    max-inline-size: 100%;
     align-items: center;
     gap: 8px;
     padding-inline: 12px;
+    padding-block: 6px;
     border-radius: var(--md-sys-shape-corner-small);
     background: var(--md-sys-color-surface-container);
     color: var(--md-sys-color-on-surface);
@@ -228,13 +247,23 @@
   a.mission-chip:hover {
     background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container));
   }
+  a.mission-chip {
+    min-height: 48px;
+    height: auto;
+  }
   .mission-chip img {
+    flex: none;
     width: 20px;
     height: 20px;
     object-fit: contain;
   }
   .mission-chip b {
+    flex: none;
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .mission-chip > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   @media (max-width: 599px) {

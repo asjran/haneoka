@@ -1039,7 +1039,26 @@
       "missionCount": "{count} 项任务",
       "missionNoEnd": "无固定时限",
       "missionDailyReset": "每日重置",
-      "missionRewardTotal": "奖励合计"
+      "missionRewardTotal": "奖励合计",
+      "permanent": "常驻任务",
+      "releaseDay": "第 {day} 天",
+      "categoryOther": "其他任务",
+      "categoryDaily": "每日",
+      "categoryPeriod": "限时",
+      "categoryEvent": "活动",
+      "categoryNormal": "常规",
+      "categoryBeginner": "新手",
+      "categoryComeback": "回归",
+      "categoryCharacter": "角色",
+      "categoryInvitation": "好友邀请",
+      "categorySecret": "隐藏任务",
+      "categoryEventDaily": "活动每日",
+      "categoryCircle": "社群",
+      "categoryCircleDaily": "社群日常",
+      "categoryEventCircle": "社群活动",
+      "categoryEventCircleDaily": "社群活动每日",
+      "categoryUnlockMusic": "乐曲解锁",
+      "categoryUnlockHome": "主页解锁"
     },
     "resources": {
       "types": {

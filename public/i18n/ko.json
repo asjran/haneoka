@@ -1039,7 +1039,26 @@
       "missionCount": "미션 {count}개",
       "missionNoEnd": "기한 없음",
       "missionDailyReset": "매일 갱신",
-      "missionRewardTotal": "보상 합계"
+      "missionRewardTotal": "보상 합계",
+      "permanent": "상시 미션",
+      "releaseDay": "{day}일 차",
+      "categoryOther": "기타 미션",
+      "categoryDaily": "데일리",
+      "categoryPeriod": "기간 한정",
+      "categoryEvent": "이벤트",
+      "categoryNormal": "일반",
+      "categoryBeginner": "초보자",
+      "categoryComeback": "복귀",
+      "categoryCharacter": "캐릭터",
+      "categoryInvitation": "친구 초대",
+      "categorySecret": "히든 미션",
+      "categoryEventDaily": "이벤트 데일리",
+      "categoryCircle": "그룹",
+      "categoryCircleDaily": "그룹 데일리",
+      "categoryEventCircle": "그룹 이벤트",
+      "categoryEventCircleDaily": "그룹 이벤트 데일리",
+      "categoryUnlockMusic": "곡 해제",
+      "categoryUnlockHome": "홈 해제"
     },
     "resources": {
       "types": {
