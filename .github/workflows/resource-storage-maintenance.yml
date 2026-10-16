@@ -21,6 +21,11 @@ on:
         description: Optional two-digit lowercase SHA-256 prefix for a bounded CAS sweep
         required: false
         type: string
+      metadata_only:
+        description: Maintain release, source and stage metadata without scanning shared CAS
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: "16 8 * * 0"
 
@@ -101,6 +106,7 @@ jobs:
   collect:
     name: Plan or apply one shared CAS sweep
     needs: maintain
+    if: ${{ github.event_name == 'schedule' || inputs.metadata_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     environment:
