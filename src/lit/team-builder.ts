@@ -23,7 +23,7 @@ import type { EngineRequest, EngineResponse, Goal, TeamEvaluation } from "../lib
 import { BoxStore, type BoxSnapshot } from "../lib/team-builder/sync/box-store";
 import { engineInputs, readBox, type BoxView } from "../lib/team-builder/sync/box-view";
 import type { BoxValue } from "../lib/team-builder/sync/box-doc";
-import { iconButton, rovingKeydown } from "./ui/controls";
+import { rovingKeydown } from "./ui/controls";
 import { clearAppBarActions, setAppBarActions, setAppBarSearch } from "../lib/app-bar";
 import { LazyImages } from "./ui/lazy-images";
 import { icon } from "./ui/icon";
@@ -537,23 +537,31 @@ export class TeamBuilder extends LitElement {
   /** Sync status lives in the app bar; the box search uses the app-bar search field. */
   private syncAppBar() {
     const snapshot = this.snapshot;
-    if (snapshot) {
-      const map: Record<string, { icon: string; label: string }> = {
-        local: { icon: "save", label: this.t("syncLocal", "Saved on this device · sign in to sync") },
-        syncing: { icon: "sync", label: this.t("syncing", "Syncing…") },
-        pending: { icon: "schedule", label: this.t("syncPending", "Saving…") },
-        synced: { icon: "cloud_done", label: this.t("synced", "Synced") },
-        offline: { icon: "cloud_off", label: this.t("syncOffline", "Offline · changes are kept and sent later") },
-        "signed-out": { icon: "no_accounts", label: this.t("syncSignedOut", "Sign in again to sync") },
-        error: { icon: "error", label: this.t("syncError", "Sync paused") },
-      };
-      const { icon: name, label } = map[snapshot.status] ?? map.local!;
-      setAppBarActions(
-        SYNC_OWNER,
-        html`<span class=${`tb-sync tb-sync--${snapshot.status}`}>${iconButton({ icon: name, label, onClick: () => void this.store?.refresh() })}</span>`,
-        this,
-      );
-    } else clearAppBarActions(SYNC_OWNER);
+    const status = snapshot?.status ?? "local";
+    const signedOut = !snapshot?.owner || status === "signed-out";
+    const map: Record<string, { icon: string; label: string }> = {
+      local: { icon: "save", label: this.t("syncLocal", "Saved on this device · sign in to sync") },
+      syncing: { icon: "sync", label: this.t("syncing", "Syncing…") },
+      pending: { icon: "schedule", label: this.t("syncPending", "Saving…") },
+      synced: { icon: "cloud_done", label: this.t("synced", "Synced") },
+      offline: { icon: "cloud_off", label: this.t("syncOffline", "Offline · changes are kept and sent later") },
+      "signed-out": { icon: "no_accounts", label: this.t("syncSignedOut", "Sign in again to sync") },
+      error: { icon: "error", label: this.t("syncError", "Sync paused") },
+    };
+    const { icon: name, label } = map[status] ?? map.local!;
+    setAppBarActions(
+      SYNC_OWNER,
+      html`<span class=${`tb-sync tb-sync--${status}`} data-app-bar-keep>
+        ${signedOut
+          ? html`<a class="button button--tonal" href=${`/${this.locale}/account/?next=${encodeURIComponent(`/${this.locale}/team-builder/`)}`} title=${label}>
+              ${icon("cloud_sync", 20)}${this.t("syncSignIn", "Sign in to sync")}
+            </a>`
+          : html`<button class="button button--text" type="button" title=${label} @click=${() => void this.store?.refresh()}>
+              ${icon(name, 20)}${status === "offline" ? this.t("syncOfflineShort", "Offline") : label}
+            </button>`}
+      </span>`,
+      this,
+    );
     if (this.tab === "box" && this.data && !this.releaseSearch)
       this.releaseSearch = setAppBarSearch(SEARCH_OWNER, {
         value: this.filters.query,

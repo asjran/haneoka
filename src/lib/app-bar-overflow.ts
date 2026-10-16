@@ -154,10 +154,12 @@ export function fitAppBarActions(bar: HTMLElement, actions: HTMLElement): void {
   // scrollWidth is the title's untruncated width, padding included.
   const minimum = title && !title.hidden ? Math.min(title.scrollWidth, TITLE_MAX_RESERVED) : 0;
   if (titleRoom() >= minimum && !compactOnly.length) return;
+  const available = candidates(actions);
+  if (!available.length && !compactOnly.length) return;
   const more = overflowButton(actions);
   more.hidden = false;
   more.setAttribute("aria-label", clientText(document.documentElement.dataset.locale || "en", "common.actions.moreActions", "More"));
-  for (const node of candidates(actions)) {
+  for (const node of available) {
     if (titleRoom() >= minimum) break;
     node.dataset[HIDDEN] = "true";
   }

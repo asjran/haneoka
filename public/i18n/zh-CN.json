@@ -2052,6 +2052,8 @@
       "tabAccount": "账号加成",
       "tabTeams": "队伍",
       "syncLocal": "已保存在本设备 · 登录后可同步",
+      "syncSignIn": "登录后云同步",
+      "syncOfflineShort": "离线",
       "syncing": "同步中…",
       "syncPending": "保存中…",
       "synced": "已同步",

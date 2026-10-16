@@ -206,6 +206,11 @@
   .tb-sync {
     display: contents;
   }
+  .tb-sync > .button {
+    min-height: 48px;
+    padding-inline: 12px;
+    white-space: nowrap;
+  }
   .tb-sync--synced {
     color: var(--md-sys-color-primary);
   }
@@ -213,9 +218,9 @@
   .tb-sync--pending .material-icon {
     animation: tb-spin 1.2s linear infinite;
   }
-  .tb-sync--offline .icon-button,
-  .tb-sync--signed-out .icon-button,
-  .tb-sync--error .icon-button {
+  .tb-sync--offline .button,
+  .tb-sync--signed-out .button,
+  .tb-sync--error .button {
     color: var(--md-sys-color-on-error-container);
     background: var(--md-sys-color-error-container);
   }
@@ -403,6 +408,14 @@
   .tb-songs {
     display: grid;
     gap: var(--md-sys-spacing-1);
+  }
+  .tb-songs__list {
+    display: grid;
+    gap: var(--md-sys-spacing-1);
+    max-block-size: min(20rem, 40dvh);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
   }
   .tb-song {
     min-height: 64px;

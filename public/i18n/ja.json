@@ -2052,6 +2052,8 @@
       "tabAccount": "アカウントボーナス",
       "tabTeams": "編成一覧",
       "syncLocal": "この端末に保存済み · ログインで同期",
+      "syncSignIn": "ログインして同期",
+      "syncOfflineShort": "オフライン",
       "syncing": "同期中…",
       "syncPending": "保存中…",
       "synced": "同期済み",

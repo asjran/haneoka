@@ -2052,6 +2052,8 @@
       "tabAccount": "Account bonuses",
       "tabTeams": "Teams",
       "syncLocal": "Saved on this device · sign in to sync",
+      "syncSignIn": "Sign in to sync",
+      "syncOfflineShort": "Offline",
       "syncing": "Syncing…",
       "syncPending": "Saving…",
       "synced": "Synced",

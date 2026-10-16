@@ -2052,6 +2052,8 @@
       "tabAccount": "계정 보너스",
       "tabTeams": "팀",
       "syncLocal": "이 기기에 저장됨 · 로그인하면 동기화",
+      "syncSignIn": "로그인 후 동기화",
+      "syncOfflineShort": "오프라인",
       "syncing": "동기화 중…",
       "syncPending": "저장 중…",
       "synced": "동기화됨",

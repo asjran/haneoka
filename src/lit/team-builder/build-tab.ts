@@ -50,7 +50,7 @@ function songList(
   const catalog = host.catalog!;
   return html`
     <div class="tb-songs">
-      ${songs.map(
+      ${songs.length ? html`<div class="tb-songs__list" role="region" aria-label=${host.t("songs", "Songs")} tabindex="0">${songs.map(
         (song, index) => html`
           <div class="list-item list-item--two-line tb-song">
             <span class="list-item__leading tb-song__art">
@@ -65,7 +65,7 @@ function songList(
             </span>
           </div>
         `,
-      )}
+      )}</div>` : nothing}
       <button
         class="button button--tonal tb-songs__add"
         type="button"

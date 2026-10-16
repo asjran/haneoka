@@ -2052,6 +2052,8 @@
       "tabAccount": "帳號加成",
       "tabTeams": "隊伍",
       "syncLocal": "已儲存在本裝置 · 登入後可同步",
+      "syncSignIn": "登入後雲端同步",
+      "syncOfflineShort": "離線",
       "syncing": "同步中…",
       "syncPending": "儲存中…",
       "synced": "已同步",
