@@ -2401,7 +2401,7 @@ export class StoryWorkspace extends LitElement {
                             ${
                               visibleCommands.length
                                 ? html`
-                                    <div class="story-transcript">${this.renderTranscript(visibleCommands)}</div>
+                                    <div class="story-transcript dialogue-list">${this.renderTranscript(visibleCommands)}</div>
                                   `
                                 : emptyState({ title: uiText(this.locale, "common.states.empty"), icon: "search_off" })
                             }

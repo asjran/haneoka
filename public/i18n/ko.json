@@ -1278,6 +1278,8 @@
       "cancelled": "재생을 중지했습니다",
       "failure": "재생하지 못했습니다. 다시 시도하세요.",
       "playLine": "이 대사 재생",
+      "playGroup": "대화 연속 재생",
+      "birthdayOf": "{0}의 생일",
       "replay": "다시 재생",
       "unlockRank": "캐릭터 랭크 {0}에 해금",
       "unlockBond": "인연 랭크 {0}에 해금",

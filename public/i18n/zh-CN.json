@@ -1278,6 +1278,8 @@
       "cancelled": "已停止播放",
       "failure": "播放失败，请重试。",
       "playLine": "播放这句台词",
+      "playGroup": "播放整组",
+      "birthdayOf": "{0}的生日",
       "replay": "重新播放",
       "unlockRank": "角色等级 {0} 解锁",
       "unlockBond": "羁绊等级 {0} 解锁",

@@ -137,3 +137,24 @@ export function compareVoices(a: JsonRecord, b: JsonRecord) {
     voiceKey(a).localeCompare(voiceKey(b), "en", { numeric: true })
   );
 }
+
+export function voiceCalendarDate(locale: string, value: unknown, year = 0): string {
+  const match = /^(\d{1,2})\/(\d{1,2})$/.exec(String(value || ""));
+  if (!match) return "";
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const date = new Date(Date.UTC(year > 0 ? year : 2000, month - 1, day));
+  return new Intl.DateTimeFormat(locale, {
+    month: "long",
+    day: "numeric",
+    ...(year > 0 ? { year: "numeric" as const } : {}),
+    timeZone: "UTC",
+  }).format(date);
+}
+
+export function voiceSeasonRange(entry: JsonRecord, locale: string): string {
+  const year = Number(entry.year) || 0;
+  const start = voiceCalendarDate(locale, entry.seasonStartAt, year);
+  const end = voiceCalendarDate(locale, entry.seasonEndAt, year);
+  return start && end && start !== end ? `${start} – ${end}` : start || end;
+}

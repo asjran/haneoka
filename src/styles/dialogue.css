@@ -1,11 +1,17 @@
 @layer pages {
+  .dialogue-list {
+    display: grid;
+    min-width: 0;
+    gap: var(--md-sys-spacing-4);
+  }
+
   .dialogue-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--md-sys-spacing-2);
     align-items: start;
     min-width: 0;
-    padding-block: var(--md-sys-spacing-3);
+    padding-block: 0;
   }
 
   .dialogue-row__avatar {
@@ -148,7 +154,7 @@
   @media (max-width: 599px) {
     .dialogue-row {
       gap: var(--md-sys-spacing-2);
-      padding-block: var(--md-sys-spacing-2);
+      padding-block: 0;
     }
 
     .dialogue-row__bubble {

@@ -12,6 +12,8 @@ import {
   voiceLines,
   voiceText,
   voiceTitleKey,
+  voiceCalendarDate,
+  voiceSeasonRange,
 } from "./shared/voice-catalog";
 import { icon } from "./ui/icon";
 import { dialogueRow, type DialogueRowState } from "./ui/dialogue-row";
@@ -32,7 +34,6 @@ const uiLabelPaths: Readonly<Record<string, string>> = {
   "title": "common.fields.title",
   "unavailable": "common.states.unavailable"
 };
-
 
 type PlaybackState = Extract<DialogueRowState, "idle" | "loading" | "playing" | "error" | "cancelled">;
 
@@ -138,7 +139,13 @@ export class CharacterVoices extends LitElement {
           ? this.v("response")
           : ""
       : "";
-    return [title, score, call].filter(Boolean).join(" · ");
+    const birthdayId = Number(entry.birthdayCharacterId || 0);
+    if (birthdayId > 0) return this.v("birthdayOf", this.name(birthdayId));
+    const pair =
+      Number(entry.masterType) === 6
+        ? (entry.characterIds as unknown[]).map((id) => this.name(Number(id))).join(" → ")
+        : "";
+    return [title, score, call, pair].filter(Boolean).join(" · ");
   }
 
   private clipKey(entry: JsonRecord, index: number) {
@@ -184,50 +191,75 @@ export class CharacterVoices extends LitElement {
     this.setClipStatus(key, "error", this.v("failure"));
   }
 
-  private async playLine(entry: JsonRecord, index: number) {
-    const line = voiceLines(entry)[index];
-    if (!line?.url) return;
-    const key = this.clipKey(entry, index);
-    const status = this.clipStatus(key).state;
-    if (this.activeClipKey === key && (status === "loading" || status === "playing")) {
-      this.cancelActive();
-      return;
-    }
+  private async playSequence(entry: JsonRecord, indices: number[]) {
+    const lines = voiceLines(entry);
+    const clips = indices.flatMap((index) => (lines[index]?.url ? [{ index, line: lines[index]! }] : []));
+    if (!clips.length) return;
     this.cancelActive();
     const generation = ++this.generation;
     const audio = new Audio();
     const events = new AbortController();
     this.audio = audio;
     this.audioEvents = events;
-    this.activeClipKey = key;
-    const ownsClip = () => this.audio === audio && this.generation === generation && this.activeClipKey === key;
+    let position = 0;
+    const ownsSequence = () => this.audio === audio && this.generation === generation;
+    const startClip = async () => {
+      if (!ownsSequence()) return;
+      const { index, line } = clips[position]!;
+      const key = this.clipKey(entry, index);
+      this.activeClipKey = key;
+      this.setClipStatus(key, "loading", this.v("loading"));
+      audio.src = line.url;
+      try {
+        await audio.play();
+        if (ownsSequence() && this.activeClipKey === key) this.setClipStatus(key, "playing");
+      } catch (error) {
+        if (
+          ownsSequence() &&
+          this.activeClipKey === key &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        )
+          this.failActive();
+      }
+    };
     const listen = (type: string, action: () => void) =>
       audio.addEventListener(
         type,
         () => {
-          if (ownsClip()) action();
+          if (ownsSequence()) action();
         },
         { signal: events.signal },
       );
     audio.preload = "none";
-    listen("playing", () => this.setClipStatus(key, "playing"));
+    listen("playing", () => this.setClipStatus(this.activeClipKey, "playing"));
     listen("waiting", () => {
-      if (!audio.paused) this.setClipStatus(key, "loading", this.v("loading"));
+      if (!audio.paused) this.setClipStatus(this.activeClipKey, "loading", this.v("loading"));
     });
-    listen("ended", () => this.finishActive());
+    listen("ended", () => {
+      this.setClipStatus(this.activeClipKey, "idle");
+      if (++position < clips.length) void startClip();
+      else this.finishActive();
+    });
     listen("error", () => this.failActive());
-    this.setClipStatus(key, "loading", this.v("loading"));
     document.querySelector<HTMLElement & { pausePlayback?: () => void }>("audio-dock")?.pausePlayback?.();
     dispatchEvent(new CustomEvent("haneoka:character-voice", { detail: this }));
-    audio.src = line.url;
-    try {
-      await audio.play();
-      if (ownsClip()) this.setClipStatus(key, "playing");
-    } catch (error) {
-      if (ownsClip() && !(error instanceof DOMException && error.name === "AbortError")) {
-        this.failActive();
-      }
-    }
+    await startClip();
+  }
+
+  private async playLine(entry: JsonRecord, index: number) {
+    const key = this.clipKey(entry, index);
+    const state = this.clipStatus(key).state;
+    if (this.activeClipKey === key && (state === "loading" || state === "playing")) this.cancelActive();
+    else await this.playSequence(entry, [index]);
+  }
+
+  private playGroup(entry: JsonRecord) {
+    if (this.activeClipKey.startsWith(`${this.voiceKey(entry)}:`)) this.cancelActive();
+    else
+      void this.playSequence(
+        entry,
+        voiceLines(entry).map((_, index) => index),
+      );
   }
 
   private lineAction(entry: JsonRecord, index: number, line: ReturnType<typeof voiceLines>[number]) {
@@ -292,11 +324,18 @@ export class CharacterVoices extends LitElement {
   }
 
   private condition(entry: JsonRecord) {
-    return Number(entry.unlockCharacterRank) > 0
-      ? this.v("unlockRank", Number(entry.unlockCharacterRank))
-      : Number(entry.unlockFriendshipRank) > 0
-        ? this.v("unlockBond", Number(entry.unlockFriendshipRank))
-        : "";
+    const seasonal = voiceSeasonRange(entry, this.locale);
+    const birthday = this.character(Number(entry.birthdayCharacterId))?.birthday as JsonRecord | undefined;
+    const birthdayDate = birthday
+      ? voiceCalendarDate(this.locale, `${birthday.month}/${birthday.day}`, Number(entry.year) || 0)
+      : "";
+    const unlock =
+      Number(entry.unlockCharacterRank) > 1
+        ? this.v("unlockRank", Number(entry.unlockCharacterRank))
+        : Number(entry.unlockFriendshipRank) > 0
+          ? this.v("unlockBond", Number(entry.unlockFriendshipRank))
+          : "";
+    return [seasonal || birthdayDate, unlock].filter(Boolean).join(" · ");
   }
 
   private renderEntry(entry: JsonRecord, previous?: JsonRecord) {
@@ -304,14 +343,17 @@ export class CharacterVoices extends LitElement {
     const title = this.entryTitle(entry);
     const titleLanguage = entry.title ? resolveLocalizedText(entry.title, this.locale).locale : this.locale;
     const condition = this.condition(entry);
+    const sequence = lines.length > 1;
+    const groupActive = this.activeClipKey.startsWith(`${this.voiceKey(entry)}:`);
     const showHeading =
+      sequence ||
       !previous ||
       title !== this.entryTitle(previous) ||
       condition !== this.condition(previous) ||
       entry.cardId !== previous.cardId;
     return html`
       <article
-        class="voice-entry"
+        class=${`voice-entry${sequence ? " voice-entry--sequence" : ""}`}
         data-voice-key=${this.voiceKey(entry)}
         data-master-type=${String(entry.masterType ?? "")}
       >
@@ -341,11 +383,28 @@ export class CharacterVoices extends LitElement {
                         : nothing
                     }
                   </div>
+                  ${
+                    sequence
+                      ? html`
+                          <button
+                            class="button button--tonal voice-entry__play-group"
+                            type="button"
+                            ?disabled=${!lines.some((line) => line.url)}
+                            aria-label=${`${groupActive ? this.v("stop") : this.v("playGroup")} · ${title}`}
+                            aria-pressed=${String(groupActive)}
+                            @click=${() => this.playGroup(entry)}
+                          >
+                            ${icon(groupActive ? "stop" : "play_arrow", 24)}
+                            <span>${groupActive ? this.v("stop") : this.v("playGroup")}</span>
+                          </button>
+                        `
+                      : nothing
+                  }
                 </header>
               `
             : nothing
         }
-        <div class="voice-entry__lines">
+        <div class="voice-entry__lines dialogue-list">
           ${repeat(
             lines,
             (_, index) => this.clipKey(entry, index),
@@ -381,7 +440,7 @@ export class CharacterVoices extends LitElement {
                       <span class="voice-group__title">${this.v(voiceGroupLabelKey(group))}</span>
                       <span class="voice-group__count">${items.length}</span>
                     </h3>
-                    <div>
+                    <div class="dialogue-list">
                       ${repeat(
                         items,
                         (entry) => this.voiceKey(entry),

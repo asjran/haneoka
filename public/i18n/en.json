@@ -1278,6 +1278,8 @@
       "cancelled": "Playback stopped",
       "failure": "Playback failed. Try again.",
       "playLine": "Play this line",
+      "playGroup": "Play dialogue",
+      "birthdayOf": "{0}’s birthday",
       "replay": "Replay",
       "unlockRank": "Unlocks at character rank {0}",
       "unlockBond": "Unlocks at bond rank {0}",

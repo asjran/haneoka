@@ -1,4 +1,8 @@
 @layer pages {
+  vega-story-stage:has([data-vega-ui-hidden="true"]) .playback-controls {
+    visibility: hidden;
+    pointer-events: none;
+  }
   /* ==========================================================================
    Stories
    The story screen is the browse pattern — bar, applied chips, collection,
@@ -31,6 +35,10 @@
     display: grid;
     height: 100%;
     grid-template-rows: minmax(0, 1fr);
+  }
+  .app-shell__main:has(.story-detail--page[data-view="play"]) {
+    overflow: hidden;
+    scrollbar-gutter: auto;
   }
 
   .story-detail[data-story-fullscreen="true"] > vega-story-stage {
@@ -216,6 +224,9 @@
     padding: 24px 16px;
     background: transparent;
   }
+  .vega-story-runtime__loading .state__body {
+    color: #c4c6d0;
+  }
   .vega-story-runtime__error .notice {
     width: min(100%, 560px);
     margin: 0;
@@ -248,16 +259,11 @@
   }
 
   .story-transcript {
-    display: grid;
     width: 100%;
     min-width: 0;
     grid-template-columns: minmax(0, 1fr);
     margin: 0;
-    gap: var(--md-sys-spacing-4);
     padding-block: var(--md-sys-spacing-4) var(--md-sys-spacing-8);
-  }
-  .story-transcript > .dialogue-row {
-    padding-block: 0;
   }
   .story-transcript__entry:not(.dialogue-row) {
     display: flex;
@@ -282,7 +288,8 @@
   }
   .story-transcript__speaker {
     color: var(--md-sys-color-primary);
-    font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) / var(--md-sys-typescale-title-small-line-height) var(--app-font);
+    font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) /
+      var(--md-sys-typescale-title-small-line-height) var(--app-font);
   }
   .story-transcript__text {
     margin: 0;
@@ -316,7 +323,8 @@
   }
   .story-transcript__scene > figcaption {
     color: var(--md-sys-color-on-surface-variant);
-    font: var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size) / var(--md-sys-typescale-body-small-line-height) var(--app-font);
+    font: var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size) /
+      var(--md-sys-typescale-body-small-line-height) var(--app-font);
     padding-inline: 12px;
   }
   .story-transcript__chapter {
@@ -331,7 +339,8 @@
   .story-transcript__chapter > h3,
   .story-transcript__choices > h3 {
     margin: 0;
-    font: var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size) / var(--md-sys-typescale-title-medium-line-height) var(--app-font);
+    font: var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size) /
+      var(--md-sys-typescale-title-medium-line-height) var(--app-font);
   }
   .story-transcript__choices {
     margin: 16px 24px;
@@ -441,7 +450,8 @@
     padding: 12px 20px;
     cursor: pointer;
     color: var(--md-sys-color-on-surface-variant);
-    font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) / var(--md-sys-typescale-title-small-line-height) var(--app-font);
+    font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size) /
+      var(--md-sys-typescale-title-small-line-height) var(--app-font);
     list-style: none;
   }
   .story-transcript__media > summary::-webkit-details-marker {
@@ -493,10 +503,12 @@
     align-items: center;
     gap: 12px;
     margin: 8px 0 16px;
-    font: var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size) / var(--md-sys-typescale-title-medium-line-height) var(--app-font);
+    font: var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size) /
+      var(--md-sys-typescale-title-medium-line-height) var(--app-font);
   }
   .story-episode-group > h3 small {
-    font: var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size) / var(--md-sys-typescale-body-small-line-height) var(--app-font);
+    font: var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size) /
+      var(--md-sys-typescale-body-small-line-height) var(--app-font);
     color: var(--md-sys-color-on-surface-variant);
   }
   .story-table-media {
