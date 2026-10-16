@@ -28,6 +28,7 @@ from core.contracts import (
     STORY_ASSETS_SCHEMA,
 )
 from core.hashes import sha256_file
+from core.master_values import LOCALE_FIELDS, RESOURCE_TYPES, _localized, _timestamp, _image_variants
 from core.manifests import read_json, write_json
 from core.paths import build_layout
 from core.unity_objects import iter_unity_object_archive
@@ -45,13 +46,6 @@ from build.spine_catalog import build_spine_catalog
 from build.unity_effect import serialize_unity_effect
 
 
-LOCALE_FIELDS = (
-    "_japanese",
-    "_english",
-    "_traditionalChinese",
-    "_simplifiedChinese",
-    "_korean",
-)
 JST = timezone(timedelta(hours=9))
 DIFFICULTIES = ("easy", "normal", "hard", "expert", "special")
 META_REFERENCE_DOWNTIME_SECONDS = 30.0
@@ -145,13 +139,7 @@ ITEM_TYPES = {
     18: "CommonPiece", 19: "OfflineBonusSkip", 20: "ArenaSupportItem",
     21: "BandLevelItem",
 }
-RESOURCE_TYPES = {
-    1: "Item", 2: "MemberCard", 3: "SupportCard",
-    4: "Voice", 5: "LoginBonus", 6: "Subscription", 7: "GachaPoint",
-    8: "Music", 9: "Stamp", 10: "PremiumPass", 11: "EventMedal",
-    12: "LiveLaneSkin", 13: "LiveNoteSkin", 14: "LiveNoteEffectSkin",
-    15: "LiveNoteSEGroup", 16: "VipPoint", 17: "Degree",
-}
+
 OBSERVED_CHARACTER_MISSION_TYPES = {
     12: "MemberCollectCharacter", 14: "SupportCollectCharacter",
     16: "StampCollectCharacter", 25: "FriendshipCharacterTotal",
@@ -218,30 +206,6 @@ def _rows(root: Path, name: str) -> list[dict[str, Any]]:
     return value.get("_allData", []) if isinstance(value, dict) else []
 
 
-def _localized(row: dict[str, Any] | None, fallback: str = "") -> list[str]:
-    row = row or {}
-    identifier = str(row.get("_id") or "")
-    values = [str(row.get(field) or "") for field in LOCALE_FIELDS]
-    for index, value in enumerate(values):
-        if index == 0:
-            continue
-        is_music_placeholder = identifier.startswith(("Music_Tilte_", "Music_Ruby_Tilte_", "Music_Phonetic_Tilte_")) and re.fullmatch(r"Music_Tilte_\d+", value)
-        if value and (value == identifier or is_music_placeholder):
-            values[index] = ""
-    return values if any(values) else [str(fallback), "", "", "", ""]
-
-
-def _timestamp(value: Any) -> list[int | None]:
-    text = str(value or "").strip().replace("/", "-")
-    if not text:
-        return [0, None, None, None, None]
-    try:
-        text = re.sub(r" (\d):", r" 0\1:", text)
-        parsed = datetime.fromisoformat(text).replace(tzinfo=JST)
-        milliseconds = int(parsed.timestamp() * 1000)
-    except ValueError:
-        milliseconds = 0
-    return [milliseconds, None, None, None, None]
 
 
 class BuildData:
@@ -2590,34 +2554,6 @@ def _comics(data: BuildData) -> dict[str, Any]:
     return output
 
 
-def _image_variants(data: BuildData, record: dict[str, Any]) -> dict[str, dict[str, str]]:
-    prefix = f"/assets/{data.server}/"
-    urls: set[str] = set()
-
-    def collect(value: Any) -> None:
-        if isinstance(value, str) and value.startswith(prefix):
-            urls.add(value)
-        elif isinstance(value, dict):
-            for child in value.values():
-                collect(child)
-        elif isinstance(value, list):
-            for child in value:
-                collect(child)
-
-    collect(record)
-    variants: dict[str, dict[str, str]] = {}
-    for url in sorted(urls):
-        source = PurePosixPath(url[len(prefix):])
-        if source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
-            continue
-        choices = {"ja": url}
-        for locale in ("en", "zh-Hant", "zh-Hans", "ko"):
-            candidate = source.with_name(f"{source.stem}({locale}){source.suffix}")
-            if data.has_asset(candidate.as_posix()):
-                choices[locale] = f"{prefix}{candidate.as_posix()}"
-        if len(choices) > 1:
-            variants[url] = choices
-    return variants
 
 
 def _enrich_image_variants(data: BuildData, documents: dict[str, Any]) -> None:

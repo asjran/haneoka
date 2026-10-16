@@ -1492,8 +1492,15 @@ def _challenge(
     return {"entries": entries}
 
 
+MISSION_CATEGORY_TEXT = {
+    1: "daily", 2: "limited", 4: "normal", 5: "beginner", 6: "comeback",
+    8: "friend_invite", 11: "circle", 12: "circle_daily",
+    15: "unlock_music", 16: "unlock_home",
+}
+
+
 def _mission_description(
-    data: Any, row: dict[str, Any], documents: dict[str, Any]
+    data: Any, row: dict[str, Any], documents: dict[str, Any], category: int = 0
 ) -> list[str]:
     text = data.text(row.get("_descriptionTextId"))
     bands = documents["bands"]
@@ -1510,11 +1517,21 @@ def _mission_description(
         ),
         None,
     )
+    episodes = documents["stories"].get("episodes", {}).values()
     episode = next(
         (
-            item
-            for item in documents["stories"].get("episodes", {}).values()
+            item for item in episodes
             if episode_row
+            and _number(item, "storyEpisodeId") == _number(episode_row, "_id")
+            and item.get("sourceTable") == "MasterStoryEpisode"
+        ),
+        None,
+    ) or next(
+        (
+            item
+            for item in episodes
+            if episode_row
+            and item.get("sourceTable") in (None, "MasterStoryEpisode")
             and _number(item, "chapterId") == _number(episode_row, "_chapterId")
             and _number(item, "episodeNumber") == _number(episode_row, "_episodeNumber")
         ),
@@ -1525,7 +1542,7 @@ def _mission_description(
     music = songs.get(str(_number(row, "_musicId")))
     shop = exchange.get(str(_number(row, "_exchangeId")))
     score_ranks = {1: "E", 2: "D", 3: "C", 4: "B", 5: "A", 6: "S", 7: "SS"}
-    difficulty_keys = ("easy", "normal", "hard", "expert", "master")
+    difficulty_keys = ("easy", "normal", "hard", "expert", "special")
     color_keys = ("Red", "Blue", "Green", "Yellow", "Purple")
     card_type = _number(row, "_cardType")
     difficulty = _number(row, "_musicDifficulty")
@@ -1547,21 +1564,39 @@ def _mission_description(
         "MusicDifficulty": data.text(f"ui_difficulty_{difficulty_keys[difficulty]}")
         if 0 <= difficulty < len(difficulty_keys)
         else [],
-        "MissionCategory": "",
+        "MissionCategory": data.text(f"ui_mission_tab_{MISSION_CATEGORY_TEXT[category]}")
+        if category in MISSION_CATEGORY_TEXT else None,
     }
     rendered = []
     for index, raw in enumerate(text):
         line = str(raw or "")
-        for key, value in values.items():
-            replacement = (
-                str(value[index] or "")
-                if isinstance(value, list) and index < len(value)
-                else str(value or "")
-            )
-            line = line.replace(f"{{{key}}}", replacement)
-        line = re.sub(r"\{[^{}]+\}", "", line)
+
+        def substitute(match: re.Match[str]) -> str:
+            key = match.group(1)
+            value = values.get(key)
+            if value is None:
+                return match.group(0)
+            if isinstance(value, list):
+                return str(value[index] or "") if index < len(value) else ""
+            return str(value)
+
+        line = re.sub(r"\{([^{}:]+)(?::[^{}]+)?\}", substitute, line)
         rendered.append(re.sub(r"\s{2,}", " ", line).strip())
     return rendered
+
+
+def _mission_window(
+    row: dict[str, Any], group: dict[str, Any], field: str,
+    stamp: Callable[[Any], list[int | None]],
+) -> list[int | None]:
+    mission, parent = stamp(row.get(field)), stamp(group.get(field))
+    output = []
+    for index in range(max(len(mission), len(parent))):
+        values = [slots[index] for slots in (mission, parent) if index < len(slots)]
+        positive = [value for value in values if value is not None and value > 0]
+        output.append((max(positive) if field == "_startAt" else min(positive))
+                      if positive else 0 if any(value is not None for value in values) else None)
+    return output
 
 
 def _missions(
@@ -1594,12 +1629,14 @@ def _missions(
             if not identity:
                 continue
             group = groups.get(_number(row, "_limitedMissionGroupId"))
+            group_category = _number(group or {}, "_missionCategory")
+            category = _number(row, "_missionCategory") if "_missionCategory" in row else group_category
             prizes = [
                 rewards[int(value)]
                 for value in row.get("_missionRewardIds", [])
                 if int(value) in rewards
             ]
-            title = _mission_description(data, row, documents)
+            title = _mission_description(data, row, documents, category)
             entries[f"{kind}-{identity}"] = _entry(
                 f"{kind}-{identity}",
                 title,
@@ -1607,12 +1644,19 @@ def _missions(
                 image=_asset(data, group.get("_bannerAsset"))
                 if group
                 else (prizes[0]["image"] if prizes else ""),
-                start_at=stamp(row.get("_startAt") or (group or {}).get("_startAt")),
-                end_at=stamp(row.get("_endAt") or (group or {}).get("_endAt")),
+                start_at=_mission_window(row, group or {}, "_startAt", stamp),
+                end_at=_mission_window(row, group or {}, "_endAt", stamp),
                 group=data.text(group.get("_nameTextID")) if group else [],
                 rewards=prizes,
                 goal=_number(row, "_achievementCount"),
+                value=_number(row, "_value"),
+                initialValue=_number(row, "_initialValue"),
                 missionType=_number(row, "_missionType"),
+                category=category,
+                groupId=_number(row, "_limitedMissionGroupId"),
+                groupCategory=group_category,
+                releaseDay=_number(row, "_releaseDay"),
+                priority=_number(row, "_priority"),
             )
     return {"entries": entries}
 

@@ -623,6 +623,7 @@ RESOURCE_SPECS: dict[str, ResourceSpec] = {
         projection=ProjectionSpec(
             include=(
                 "id", "title", "kind", "startAt", "endAt", "goal", "group", "missionType", "rewards",
+                "category", "groupId", "groupCategory", "releaseDay", "priority", "value", "initialValue",
             )
         ),
     ),

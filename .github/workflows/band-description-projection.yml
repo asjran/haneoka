@@ -1,24 +1,30 @@
-name: Publish current native band introductions
+name: Publish reviewed current catalog projection
 on:
   workflow_dispatch:
     inputs:
+      resource:
+        description: Existing catalog resource to recompile from the reviewed current pin
+        type: choice
+        options: [bands, missions]
+        default: bands
+        required: true
       producer_pin:
         description: Full reviewed commit containing the bounded projection publisher
         required: true
         type: string
       projection_json:
-        description: Native five-band description evidence for Intl and JP under exact current pins
+        description: Native projection evidence for Intl and JP under exact current pins
         required: true
         type: string
       publish:
-        description: Promote after bounded unchanged-parent and exact band projection checks
+        description: Promote after bounded unchanged-parent and exact selected projection checks
         required: true
         type: boolean
         default: false
 permissions:
   contents: read
 concurrency:
-  group: current-band-description-projection
+  group: current-catalog-projection
   cancel-in-progress: false
 jobs:
   bands:
@@ -44,7 +50,7 @@ jobs:
           python scripts/publish/reference_postpin.py --bootstrap "$RUNNER_TEMP/band-dependencies"
           python -m pip install --disable-pip-version-check --require-hashes \
             --requirement "$RUNNER_TEMP/band-dependencies/requirements.txt"
-      - name: Prepare only five descriptions and optionally switch current atomically
+      - name: Prepare the selected projection and optionally switch current atomically
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -53,8 +59,15 @@ jobs:
           PRODUCER_PIN: ${{ inputs.producer_pin }}
           RESOURCE_SERVER: ${{ matrix.server }}
           BAND_DESCRIPTION_PROJECTION_JSON: ${{ inputs.projection_json }}
+          CATALOG_PROJECTION_JSON: ${{ inputs.projection_json }}
+          CATALOG_PROJECTION_RESOURCE: ${{ inputs.resource }}
           PUBLISH: ${{ inputs.publish }}
-        run: python scripts/publish/band_descriptions.py --output "$RUNNER_TEMP/band-output"
+        run: |
+          case "$CATALOG_PROJECTION_RESOURCE" in
+            bands) python scripts/publish/band_descriptions.py --output "$RUNNER_TEMP/band-output" ;;
+            missions) python scripts/publish/missions.py --output "$RUNNER_TEMP/band-output" ;;
+            *) exit 1 ;;
+          esac
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -62,3 +75,17 @@ jobs:
           path: ${{ runner.temp }}/band-output/*.json
           if-no-files-found: ignore
           retention-days: 7
+
+  refresh-static-pages:
+    needs: bands
+    if: inputs.publish == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Rebuild the public snapshot after both current projections are published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-cloudflare.yml --repo "$GITHUB_REPOSITORY" --ref main
