@@ -33,6 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: resource-intl
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,6 +61,11 @@ jobs:
           HOME_SPOT_BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
           PUBLISH: ${{ inputs.publish }}
         run: python scripts/publish/home_spot_repair.py --output "$RUNNER_TEMP/home-spot-repair-output"
+      - name: Rebuild static pages after publishing the repair
+        if: inputs.publish == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-cloudflare.yml --repo "$GITHUB_REPOSITORY" --ref main
       - uses: actions/upload-artifact@v5
         if: always()
         with:

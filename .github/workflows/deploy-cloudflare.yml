@@ -22,6 +22,11 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: read
+    env:
+      STATIC_PAGE_GROUPS: core
+      STATIC_RESOURCE_SERVERS: intl,jp
+      STATIC_CATALOG_SOURCE: http
+      PROVIDER_STATIC_SNAPSHOT: data/provider-static/snapshots/${{ github.run_id }}
 
     steps:
       - name: Check out repository
@@ -104,29 +109,52 @@ jobs:
           key: static-documents-v1-${{ runner.os }}-${{ github.run_id }}
           restore-keys: static-documents-v1-${{ runner.os }}-
 
-      - name: Build production assets before database changes
+      - name: Restore verified model workspace renders
+        id: model-render-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: data/static-render/model-v1
+          key: model-render-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: model-render-v1-${{ runner.os }}-
+
+      - name: Build shared engine and application packages
+        run: pnpm build:packages
+
+      - name: Prepare fonts and image assets
+        run: pnpm prepare:frontend
+
+      - name: Build standalone player bundles
+        run: pnpm build:embeds
+
+      - name: Prepare enabled provider snapshots
+        run: pnpm build:provider-static
+
+      - name: Render complete static pages
+        run: pnpm exec astro build
+
+      - name: Build search indexes and pack static documents
+        run: pnpm finalize:frontend
+
+      - name: Verify complete frontend artifacts before publication
         run: |
-          pnpm build:packages
-          pnpm --filter @haneoka/api-client build
-          pnpm --filter @haneoka/embed-core build
-          pnpm build:frontend
           pnpm runtime:cubism:verify-output
           for entry in core vega cassiopeia home-spot vega-theme api-client; do
             test -s ".output/public/embed/${entry}.js"
           done
           test -s .output/public/embed/manifest.json
-        env:
-          STATIC_PAGE_GROUPS: core
-          STATIC_RESOURCE_SERVERS: intl,jp
-          STATIC_CATALOG_SOURCE: http
-          PROVIDER_STATIC_SNAPSHOT: data/provider-static/snapshots/${{ github.run_id }}
-
       - name: Save verified provider HTTP responses after interrupted builds
         if: always() && steps.provider-http-cache.outputs.cache-primary-key != '' && steps.provider-http-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: data/provider-static/http-cache
           key: ${{ steps.provider-http-cache.outputs.cache-primary-key }}
+
+      - name: Save verified model workspace renders after interrupted builds
+        if: always() && steps.model-render-cache.outputs.cache-primary-key != '' && steps.model-render-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: data/static-render/model-v1
+          key: ${{ steps.model-render-cache.outputs.cache-primary-key }}
 
       - name: Save this run's captured provider inputs and payloads
         if: always() && steps.provider-snapshot-cache.outputs.cache-primary-key != '' && steps.provider-snapshot-cache.outputs.cache-hit != 'true'
