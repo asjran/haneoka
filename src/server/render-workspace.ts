@@ -12,8 +12,18 @@ import { withDocumentUrl } from "../lib/document-url";
 
 type Node = DefaultTreeAdapterMap["node"];
 const MaterialStyleRenderer = createMaterialStyleRenderer(import.meta.env?.DEV === true);
+function materialBooleanProperties(node: Node): void {
+  if ("tagName" in node && node.tagName === "input")
+    node.attrs = node.attrs.filter((attr) => !(attr.name === "checked" && attr.value === "false"));
+  if ("tagName" in node && node.tagName === "template")
+    materialBooleanProperties((node as DefaultTreeAdapterMap["template"]).content);
+  if ("childNodes" in node) for (const child of node.childNodes) materialBooleanProperties(child);
+}
 function lightDom(node: Node): void {
-  if ("tagName" in node && node.tagName.startsWith("md-")) return;
+  if ("tagName" in node && node.tagName.startsWith("md-")) {
+    materialBooleanProperties(node);
+    return;
+  }
   if ("tagName" in node && node.tagName === "img") {
     const source = node.attrs.find(attr => attr.name === "data-src");
     if (source && !node.attrs.some(attr => attr.name === "src")) node.attrs.push({ name: "src", value: source.value });

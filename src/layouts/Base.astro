@@ -69,6 +69,9 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
       @layer tokens, reset, base, layout, components, shell, patterns, motion, pages, utilities, accessibility;
     </style>
     <meta charset="utf-8" />
+    <script>
+      import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+    </script>
     <slot name="head-early" />
     {uiFontStyles(locale).map((font) => <link rel="stylesheet" href={font.href} data-ui-font={font.key} />)}
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />

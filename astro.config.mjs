@@ -74,6 +74,8 @@ export default defineConfig({
       rollupOptions: {
         output: {
           manualChunks(id) {
+            // The hydration hook must run before the separate LitElement module.
+            if (id.includes("/node_modules/lit-html/")) return "lit-html";
             // Rollup pulls a manual chunk's unassigned dependencies into it.
             // The dynamic-import preload helper is such a dependency of the
             // flowchart, and every lazy import site on the site references
