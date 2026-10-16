@@ -280,7 +280,8 @@ export function musicView(master: EngineMaster, songId: number, challengeEventId
   let musicType = song.musicType;
   if (challengeEventId !== null) {
     const challenge = master.challengeMusics.find((row) => row.eventId === challengeEventId && row.liveMusicId === songId);
-    if (challenge?.musicType) musicType = challenge.musicType;
+    if (!challenge) throw new RangeError(`unknown-challenge-song:${challengeEventId}:${songId}`);
+    if (challenge.musicType) musicType = challenge.musicType;
   }
   return { musicType, bestTags: song.bestTags, memoryKey: songId };
 }

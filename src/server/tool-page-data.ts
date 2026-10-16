@@ -3,6 +3,8 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import {
   fetchStaticCatalog,
+  fetchStaticApplicationJson,
+  hasLocalStaticCatalog,
   fetchStaticReleaseJson,
   fetchStaticReleaseEntry,
   staticCatalogRelease,
@@ -10,6 +12,7 @@ import {
 } from "../lib/static-catalog-source";
 import { adaptTeamBuilderData, objectRow, type TeamBuilderData } from "../lib/team-builder/data";
 import { hydrateRuntimeDocuments } from "../lib/team-builder/data/complete";
+import { readRuntimeRulesDocument } from "../lib/team-builder/data/runtime-rules";
 import type { fetchCatalogVisuals } from "../lib/catalog-visuals";
 import { goalBoard, shuffle } from "../lib/song-puzzle/model";
 import { stampChoices, mergeTextlessStampManifests, type TextlessStampManifest } from "../lib/stamp-maker/catalog";
@@ -163,10 +166,23 @@ function teamSource(server: string): Promise<TeamBuilderData> {
   if (!pending) {
     pending = (async () => {
       const identity = await staticCatalogRelease(server);
+      if (!hasLocalStaticCatalog(server)) {
+        const data = await fetchStaticApplicationJson(`/api/v1/team-builder/${encodeURIComponent(server)}`, identity) as TeamBuilderData;
+        if (data.schema !== "haneoka-team-builder-data-v1" || data.identity.server !== identity.server ||
+          data.identity.releaseId !== identity.releaseId || data.identity.sourceId !== identity.sourceId)
+          throw new Error("Static team data projection identity mismatch");
+        return data;
+      }
       const read = (resource: string) => fetchStaticCatalog(resource, server, identity);
       const documents = Object.fromEntries(
         await Promise.all(resources.map(async (resource) => [resource, await read(resource)])),
       );
+      documents["runtime-rules"] = await readRuntimeRulesDocument(identity, async (pin, table) => {
+        const relative = `objects/master/${table}.json`;
+        return await fetchStaticReleaseEntry(relative, server, pin)
+          ? fetchStaticReleaseJson(relative, server, pin)
+          : null;
+      });
       const events = objectRow(documents.events),
         entries = objectRow(events.entries);
       documents.events = {

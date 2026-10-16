@@ -347,7 +347,7 @@ function renderSetup(host: TeamBuilder): TemplateResult {
   const master = host.master!;
   const picker = (songs: SongRef[], change: (songs: SongRef[]) => void, extra: Partial<SongPickerState> = {}) => {
     host.songPicker = {
-      songs: [...songs],
+      songs: songs.filter((song) => !extra.allowedSongIds || extra.allowedSongIds.includes(song.songId)),
       single: false,
       query: "",
       filtersOpen: false,
@@ -442,7 +442,7 @@ function renderSetup(host: TeamBuilder): TemplateResult {
             label: host.t("chooseSongs", "Choose songs"),
             icon: icon("library_music", 20),
             count: s.songs.length,
-            open: () => picker(s.songs, (songs) => host.updateSettings({ songs })),
+            open: () => picker(s.songs, (songs) => host.updateSettings({ songs }), { allowedSongIds: catalog.normalEventSongIds(s.eventId) }),
           }),
         )}
         ${s.ptCycle ? html` ${ptField(

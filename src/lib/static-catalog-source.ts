@@ -68,6 +68,7 @@ function localCatalog(server: string): ReleaseCatalog | null {
   localCatalogs.set(server, catalog);
   return catalog;
 }
+export const hasLocalStaticCatalog = (server: string): boolean => localCatalog(server) !== null;
 
 function readLocalPath(catalog: ReleaseCatalog, route: string): unknown {
   const url = new URL(route, "https://catalog.invalid/");
@@ -267,7 +268,7 @@ function requestKey(path: string, server: string, release?: StaticCatalogRelease
   return `${server}\u0000${release?.releaseId || "current"}\u0000${release?.sourceId || ""}\u0000${path}`;
 }
 
-async function fetchJson(path: string, server: string, release?: StaticCatalogRelease): Promise<unknown> {
+async function fetchJson(path: string, server: string, release?: StaticCatalogRelease, absoluteUrl?: string): Promise<unknown> {
   const key = requestKey(path, server, release);
   let pending = requestPromises.get(key);
   if (!pending) {
@@ -288,7 +289,7 @@ async function fetchJson(path: string, server: string, release?: StaticCatalogRe
         }
         console.warn(`Static catalog: rebuilding invalid cache for ${server}/${path.split("?")[0]}`);
       }
-      const response = await fetchResponse(path, server, release?.releaseId, "GET", release?.sourceId);
+      const response = await fetchResponse(path, server, release?.releaseId, "GET", release?.sourceId, absoluteUrl);
       try {
         observedRelease(response, release);
         const value: unknown = await response.json();
@@ -395,6 +396,13 @@ export async function fetchStaticCatalog(
     }
   }
   return fetchJson(path, server, pinned);
+}
+
+/** Application projections share the catalog's immutable pin, cache and retry policy. */
+export async function fetchStaticApplicationJson(route: string, release: StaticCatalogRelease): Promise<unknown> {
+  const url = new URL(route, ORIGIN);
+  url.searchParams.set("release", release.releaseId);
+  return fetchJson(url.pathname + url.search, release.server, release, url.toString());
 }
 
 /** Public JSON bytes verified against the same immutable release manifest. */

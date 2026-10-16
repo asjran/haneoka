@@ -217,6 +217,10 @@ export class Catalog {
   challengeSongs(eventId: number | null) {
     return this.master.challengeMusics.filter((row) => eventId === null || row.eventId === eventId);
   }
+  normalEventSongIds(eventId: number | null) {
+    const eventSongId = eventId === null ? undefined : this.master.events.get(eventId)?.musicId;
+    return Object.keys(this.data.songs).map(Number).filter((id) => id !== eventSongId);
+  }
 }
 
 export const avatar = (image: string, label: string) =>

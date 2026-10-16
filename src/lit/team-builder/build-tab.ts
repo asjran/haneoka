@@ -45,6 +45,7 @@ function songList(
   songs: SongRef[],
   change: (songs: SongRef[]) => void,
   single = false,
+  allowedSongIds?: number[],
 ): TemplateResult {
   const catalog = host.catalog!;
   return html`
@@ -70,7 +71,7 @@ function songList(
         type="button"
         @click=${() => {
           host.songPicker = {
-            songs: [...songs],
+            songs: songs.filter((song) => !allowedSongIds || allowedSongIds.includes(song.songId)),
             single,
             query: "",
             filtersOpen: false,
@@ -78,6 +79,7 @@ function songList(
             attributes: [],
             gekisouTypes: [],
             difficulty: 3,
+            allowedSongIds,
             change,
           };
           host.requestUpdate();
@@ -100,8 +102,8 @@ function eventSection(host: TeamBuilder): TemplateResult {
     `;
   const eventId = s.eventId ?? events[0]!.id;
   if (s.eventId === null) queueMicrotask(() => set({ eventId }));
-  const event = events.find((row) => row.id === eventId)?.event;
   const challengeSongs = catalog.challengeSongs(eventId);
+  const challenge = s.goal === "plan" || (s.goal === "event" ? s.route === "challenge" : s.challengeRules);
   return html`
     <md-outlined-select
       label=${host.t("event", "Event")}
@@ -131,35 +133,19 @@ function eventSection(host: TeamBuilder): TemplateResult {
       )}
     </md-outlined-select>
     ${
-      event?.musicId || challengeSongs.length
+      challenge && challengeSongs.length
         ? html`
             <div class="cluster">
-              ${
-            event?.musicId
-              ? html`
                   <button
                     class="button button--text button--small"
                     type="button"
-                    @click=${() => set({ songs: [{ songId: event.musicId, difficulty: 3 }] })}
-                  >
-                    ${icon("music_note", 18)}${host.t("useEventSong", "Use the event song")}
-                  </button>
-                `
-              : nothing
-          }
-              ${
-            challengeSongs.length && (s.goal === "plan" || s.route === "challenge")
-              ? html`
-                  <button
-                    class="button button--text button--small"
-                    type="button"
-                    @click=${() => set(s.goal === "plan" ? { planChallengeSongs: challengeSongs.map((row) => ({ songId: row.liveMusicId, difficulty: 3 })) } : { songs: challengeSongs.map((row) => ({ songId: row.liveMusicId, difficulty: 3 })) })}
+                    @click=${() => {
+                      const songs = challengeSongs.filter((row) => catalog.difficultyRows(row.liveMusicId).some((difficulty) => Number(difficulty.difficulty) === 3)).map((row) => ({ songId: row.liveMusicId, difficulty: 3 }));
+                      set(s.goal === "plan" ? { planChallengeSongs: songs } : { songs: s.goal === "power" ? songs.slice(0, 1) : songs });
+                    }}
                   >
                     ${icon("swords", 18)}${host.t("useChallengeSongs", "Use challenge songs")}
                   </button>
-                `
-              : nothing
-          }
             </div>
           `
         : nothing
@@ -423,6 +409,9 @@ export function renderCandidates(host: TeamBuilder): TemplateResult {
 
 export function renderBuildTab(host: TeamBuilder, leading?: TemplateResult): TemplateResult {
   const s = host.searchSettings;
+  const challengeSongs = s.eventId === null ? [] : host.catalog!.challengeSongs(s.eventId).map((row) => row.liveMusicId);
+  const challenge = s.goal === "event" ? s.route === "challenge" : (s.goal === "score" || s.goal === "power") && s.challengeRules;
+  const allowedSongIds = challenge ? challengeSongs : s.goal === "event" || s.goal === "plan" ? host.catalog!.normalEventSongIds(s.eventId) : undefined;
   const set = (patch: Partial<BuildSettings>) => host.updateSettings(patch);
   const cards = host.engineCards();
   const goal = host.goal();
@@ -606,7 +595,7 @@ export function renderBuildTab(host: TeamBuilder, leading?: TemplateResult): Tem
                   </div>
                   ${segmented({ label: host.t("cpPerLive", "Challenge points per live"), value: String(s.challengePoints), options: [200, 400, 800, 1600].map((cp) => ({ value: String(cp), label: `${cp}` })), onSelect: (value) => set({ challengePoints: Number(value) }) })}
                   <span class="tb-field__label">${host.t("planChallengeSongs", "Challenge songs")}</span>
-                  ${songList(host, s.planChallengeSongs, (planChallengeSongs) => set({ planChallengeSongs }))}
+                  ${songList(host, s.planChallengeSongs, (planChallengeSongs) => set({ planChallengeSongs }), false, challengeSongs)}
                 </section>
               `
             : nothing
@@ -615,8 +604,8 @@ export function renderBuildTab(host: TeamBuilder, leading?: TemplateResult): Tem
           needsSongs
             ? html`
                 <section class="surface stack">
-                  ${sectionHeading({ icon: "library_music", label: s.goal === "plan" ? host.t("planNormalSongs", "Normal-live songs") : host.t("songs", "Songs"), count: s.songs.length || undefined })}
-                  ${s.goal === "power" ? songList(host, s.songs.slice(0, 1), (songs) => set({ songs }), true) : songList(host, s.songs, (songs) => set({ songs }))}
+                  ${sectionHeading({ icon: "library_music", label: challenge ? host.t("planChallengeSongs", "Challenge songs") : s.goal === "plan" ? host.t("planNormalSongs", "Normal-live songs") : host.t("songs", "Songs"), count: s.songs.length || undefined })}
+                  ${songList(host, s.goal === "power" ? s.songs.slice(0, 1) : s.songs, (songs) => set({ songs }), s.goal === "power", allowedSongIds)}
                 </section>
               `
             : nothing

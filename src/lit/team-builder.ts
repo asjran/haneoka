@@ -292,6 +292,7 @@ export class TeamBuilder extends LitElement {
         this.settings = { ...this.settings, rewardMode: this.settings.goal, goal: "score" };
         if (ownerChanged) this.tab = "pt";
       }
+      this.settings = this.compatibleSettings(this.settings);
     }
     this.requestUpdate();
     void this.pt.restore();
@@ -308,12 +309,13 @@ export class TeamBuilder extends LitElement {
     }
   }
   updateSettings(patch: Partial<BuildSettings>) {
-    this.settings = { ...this.settings, ...patch };
+    this.settings = this.compatibleSettings({ ...this.settings, ...patch });
     this.write([{ key: SETTINGS_KEY, value: this.settings as unknown as BoxValue }]);
     this.requestUpdate();
   }
   setTab(tab: Tab) {
     this.tab = tab;
+    this.settings = this.compatibleSettings(this.settings);
     this.requestUpdate();
     void this.updateComplete.then(() => this.querySelector<HTMLElement>(".tb-tabpanel")?.focus({ preventScroll: true }));
   }
@@ -348,12 +350,26 @@ export class TeamBuilder extends LitElement {
   }
   get searchSettings(): BuildSettings {
     const goal = this.tab === "pt" && this.settings.rewardMode !== "recommendation" ? this.settings.rewardMode : this.settings.goal;
-    return { ...this.settings, goal };
+    return this.compatibleSettings({ ...this.settings, goal });
+  }
+  private compatibleSettings(settings: BuildSettings): BuildSettings {
+    if (!this.catalog || settings.eventId === null) return settings;
+    const goal = this.tab === "pt" ? settings.rewardMode : settings.goal;
+    const challengeIds = new Set(this.catalog.challengeSongs(settings.eventId).map((row) => row.liveMusicId));
+    const challenge = goal === "event" ? settings.route === "challenge" : (goal === "score" || goal === "power") && settings.challengeRules;
+    const normalEvent = goal === "event" || goal === "plan" || goal === "recommendation";
+    const allowed = challenge ? challengeIds : normalEvent ? new Set(this.catalog.normalEventSongIds(settings.eventId)) : undefined;
+    return {
+      ...settings,
+      songs: allowed ? settings.songs.filter((song) => allowed.has(song.songId)) : settings.songs,
+      planChallengeSongs: settings.planChallengeSongs.filter((song) => challengeIds.has(song.songId)),
+    };
   }
   goal(): Goal | null {
     const s = this.searchSettings;
     const play = s.playMode === "ap" ? { great: 0, good: 0, bad: 0, miss: 0 } : { great: s.great / 100, good: s.good / 100, bad: 0, miss: s.miss / 100, missEvery: s.missEvery || 0 };
     const challengeId = s.challengeRules && s.eventId !== null ? s.eventId : null;
+    if ((s.goal === "score" || s.goal === "power") && s.challengeRules && challengeId === null) return null;
     switch (s.goal) {
       case "power":
         return { kind: "power", song: s.powerSong ? (s.songs[0] ?? null) : null, challengeEventId: challengeId };
