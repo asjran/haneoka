@@ -19,6 +19,9 @@ on:
       source_id:
         required: false
         type: string
+      resume_stage_run_id:
+        required: false
+        type: string
       ktx2:
         required: false
         default: true
@@ -62,7 +65,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.r2_secret_access_key }}
   AWS_EC2_METADATA_DISABLED: "true"
   PIPELINE_STAGE_BUCKET: hotdori-assets
-  PIPELINE_STAGE_PREFIX: private/resource-pipeline-stage/${{ github.run_id }}/${{ inputs.server }}
+  PIPELINE_STAGE_PREFIX: private/resource-pipeline-stage/${{ inputs.resume_stage_run_id || github.run_id }}/${{ inputs.server }}
   PYTHONPATH: scripts
   HANEOKA_RESOURCE_BUILD_OPTIONS: '{"ktx2":${{ inputs.ktx2 }},"basisReencode":${{ inputs.basis_reencode }}}'
 
@@ -91,6 +94,7 @@ jobs:
       RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
       PACKAGE_R2_KEY: ${{ inputs.package_r2_key }}
       SOURCE_ID_INPUT: ${{ inputs.source_id }}
+      RESUME_STAGE_RUN_ID: ${{ inputs.resume_stage_run_id }}
       RESOURCE_CDN_AUTHORIZATION: ${{ secrets.RESOURCE_CDN_AUTHORIZATION || secrets.resource_cdn_authorization }}
       JP_VERSION_SUBSCRIPTION: ${{ secrets.jp_version_subscription }}
     steps:
@@ -136,6 +140,12 @@ jobs:
             fi
             return "$status"
           }
+          if [[ -n "$RESUME_STAGE_RUN_ID" ]]; then
+            if [[ ! "$RESUME_STAGE_RUN_ID" =~ ^[1-9][0-9]*$ || -z "$SOURCE_ID_INPUT" || "${{ inputs.no_reuse }}" == "true" ]]; then
+              echo "Resuming stages requires a numeric run id, explicit source_id, and reuse enabled" >&2
+              exit 1
+            fi
+          fi
           if [[ -n "$SOURCE_ID_INPUT" ]]; then
             python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source \
               --source "$SOURCE_ID_INPUT" --role package --role master-manifest --role master-data > "$RUNNER_TEMP/source.json"
@@ -353,12 +363,39 @@ jobs:
       - name: Prepare Unity bundle reuse
         id: unity_reuse
         if: steps.source_input.outputs.skip != 'true' && inputs.no_reuse != true
-        continue-on-error: true
+        continue-on-error: ${{ inputs.resume_stage_run_id == '' }}
         run: |
           SOURCE_ID="${{ steps.identity.outputs.source_id }}"
           SHARDS="${{ steps.identity.outputs.shard_count }}"
           echo "delta=false" >> "$GITHUB_OUTPUT"
           echo "unity_matrix=${{ steps.identity.outputs.shard_matrix }}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$RESUME_STAGE_RUN_ID" ]]; then
+            endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
+            aws s3 cp "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
+              "$RUNNER_TEMP/resume-unity-plan.json" --endpoint-url "$endpoint" --region auto --no-progress
+            python - "$RUNNER_TEMP/resume-unity-plan.json" "$SOURCE_ID" "$SHARDS" <<'PY_RESUME'
+          import json, os, sys
+          from pathlib import Path
+          from core.config import PROJECT_ROOT, load_server_config
+          from core.delta import load_plan
+          from core.fingerprints import stage_recipe
+          from extract.unity_reuse import extractor_identity
+          plan = load_plan(Path(sys.argv[1]))
+          server = os.environ["RESOURCE_SERVER"]
+          if (plan["server"] != server or plan["sourceId"] != sys.argv[2]
+              or plan["shardCount"] != int(sys.argv[3]) or plan["extractor"] != extractor_identity()
+              or plan.get("producerRecipes", {}).get("unity") != stage_recipe(PROJECT_ROOT, load_server_config(server), "unity")):
+              raise ValueError("Saved Unity stages do not match this source and producer")
+          counts = {}
+          for shard in plan["pending"].values():
+              counts[str(shard)] = counts.get(str(shard), 0) + 1
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("delta=true\nbase_release_id=" + plan["baseReleaseId"] + "\n")
+              output.write("pending_by_shard=" + json.dumps(counts) + "\nunity_matrix=[]\n")
+          PY_RESUME
+            echo "Resuming verified Master and Unity stages from run $RESUME_STAGE_RUN_ID"
+            exit 0
+          fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" prepare-unity-reuse \
             --source "$SOURCE_ID" --shard-count "$SHARDS" \
             --output-dir "$RUNNER_TEMP/unity-reuse" > "$RUNNER_TEMP/unity-reuse.json"
@@ -431,13 +468,13 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Extract Master
-        if: steps.source_input.outputs.skip != 'true'
+        if: steps.source_input.outputs.skip != 'true' && inputs.resume_stage_run_id == ''
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" extract-master
           --source "${{ steps.identity.outputs.source_id }}"
           --build "${{ steps.identity.outputs.build_id }}"
       - name: Preserve Master build stage in private R2
-        if: steps.source_input.outputs.skip != 'true'
+        if: steps.source_input.outputs.skip != 'true' && inputs.resume_stage_run_id == ''
         run: |
           build_root="data/servers/$RESOURCE_SERVER/builds/${{ steps.identity.outputs.build_id }}"
           archive="$RUNNER_TEMP/resource-master.tar.gz"

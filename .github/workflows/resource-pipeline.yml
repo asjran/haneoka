@@ -50,6 +50,10 @@ on:
         description: Existing immutable R2 source id to resume without ingestion
         required: false
         type: string
+      resume_stage_run_id:
+        description: Reuse verified Master and Unity stages from this run; requires source_id
+        required: false
+        type: string
       ktx2:
         description: Package original runtime texture blocks
         required: false
@@ -86,6 +90,7 @@ jobs:
       server: intl
       package_r2_key: ${{ inputs.package_r2_key }}
       source_id: ${{ inputs.source_id }}
+      resume_stage_run_id: ${{ inputs.resume_stage_run_id }}
       # On schedule events the inputs context is empty, which would feed ''
       # into boolean-typed callee inputs and fail input validation.
       ktx2: ${{ github.event_name == 'schedule' || inputs.ktx2 || false }}
@@ -112,6 +117,7 @@ jobs:
       server: jp
       package_r2_key: ${{ inputs.package_r2_key }}
       source_id: ${{ inputs.source_id }}
+      resume_stage_run_id: ${{ inputs.resume_stage_run_id }}
       ktx2: ${{ github.event_name == 'schedule' || inputs.ktx2 || false }}
       basis_reencode: ${{ inputs.basis_reencode || false }}
       force: ${{ inputs.force || false }}
@@ -136,6 +142,7 @@ jobs:
       server: intl-test
       package_r2_key: ${{ inputs.package_r2_key }}
       source_id: ${{ inputs.source_id }}
+      resume_stage_run_id: ${{ inputs.resume_stage_run_id }}
       # On schedule events the inputs context is empty, which would feed ''
       # into boolean-typed callee inputs and fail input validation.
       ktx2: ${{ github.event_name == 'schedule' || inputs.ktx2 || false }}
@@ -162,6 +169,7 @@ jobs:
       server: ${{ inputs.server }}
       package_r2_key: ${{ inputs.package_r2_key }}
       source_id: ${{ inputs.source_id }}
+      resume_stage_run_id: ${{ inputs.resume_stage_run_id }}
       ktx2: ${{ inputs.ktx2 || false }}
       basis_reencode: ${{ inputs.basis_reencode || false }}
       force: ${{ inputs.force || false }}

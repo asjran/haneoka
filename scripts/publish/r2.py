@@ -4,17 +4,19 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Protocol
+from typing import Any, Callable, Iterable, Protocol
 
 import boto3
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ConnectionClosedError, IncompleteReadError, ReadTimeoutError, ResponseStreamingError
 
 from core.config import ServerConfig, validate_server_id
 from core.contracts import (
@@ -179,16 +181,28 @@ class R2Store:
 
     def get_bytes(self, key: str) -> bytes | None:
         try:
-            response = self.client.get_object(Bucket=self.bucket, Key=key)
+            return self._read_object(key, lambda response: response["Body"].read())
         except ClientError as error:
             if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404:
                 return None
             raise
-        body = response["Body"]
-        try:
-            return body.read()
-        finally:
-            body.close()
+
+    def _read_object(self, key: str, read: Callable[[dict[str, Any]], Any]) -> Any:
+        """Retry interrupted response bodies after closing their connections."""
+        for attempt in range(5):
+            body = None
+            try:
+                response = self.client.get_object(Bucket=self.bucket, Key=key)
+                body = response["Body"]
+                return read(response)
+            except (ResponseStreamingError, IncompleteReadError, ReadTimeoutError, ConnectionClosedError):
+                if attempt == 4:
+                    raise
+                sys.stderr.write(f"warning: R2 response interrupted; retrying {key} ({attempt + 2}/5)\n")
+            finally:
+                if body is not None:
+                    body.close()
+            time.sleep(min(2 ** attempt, 8))
 
     def get_json(self, key: str) -> Any | None:
         body = self.get_bytes(key)
@@ -211,9 +225,8 @@ class R2Store:
             raise ValueError("expected_bytes must be non-negative")
         file.parent.mkdir(parents=True, exist_ok=True)
         temporary: Path | None = None
-        body: Any | None = None
-        try:
-            response = self.client.get_object(Bucket=self.bucket, Key=key)
+        def copy(response: dict[str, Any]) -> int:
+            nonlocal temporary
             declared_size = response.get("ContentLength")
             body = response["Body"]
             if isinstance(declared_size, int):
@@ -222,6 +235,8 @@ class R2Store:
                         f"R2 object size differs from its manifest: {key}: "
                         f"{declared_size} != {expected_bytes}"
                     )
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
             with tempfile.NamedTemporaryFile(
                 mode="wb",
                 prefix=f".{file.name}.",
@@ -252,13 +267,12 @@ class R2Store:
             os.replace(temporary, file)
             temporary = None
             return copied
+
+        try:
+            return self._read_object(key, copy)
         finally:
-            try:
-                if body is not None:
-                    body.close()
-            finally:
-                if temporary is not None:
-                    temporary.unlink(missing_ok=True)
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def iter_keys(self, prefix: str) -> Iterable[dict[str, Any]]:
         paginator = self.client.get_paginator("list_objects_v2")
