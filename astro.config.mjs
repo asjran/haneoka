@@ -6,6 +6,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { beginStaticDocumentsBuild } from "./src/server/static-documents.ts";
 import { installProviderDevRouting } from "./src/server/provider-dev-routing.ts";
+import { modelRenderCachePlugin } from "./scripts/build/model-render-cache.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -45,6 +46,9 @@ export default defineConfig({
       name: "workspace-cache",
       hooks: {
         "astro:build:start": () => beginStaticDocumentsBuild(),
+        "astro:build:setup": ({ target, updateConfig }) => {
+          if (target === "server") updateConfig({ plugins: [modelRenderCachePlugin(root)] });
+        },
         "astro:server:setup": ({ server }) => installProviderDevRouting(server),
         "astro:config:setup": ({ command, updateConfig }) => {
           devAssetRoutes = command === "dev";

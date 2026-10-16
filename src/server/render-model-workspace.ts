@@ -13,9 +13,10 @@ export async function renderModelWorkspace(
   previewSrc = "",
 ): Promise<StaticWorkspacePage> {
   const route = `/catalog/${kind}`;
+  const seed = useStaticLocale(locale, route);
   const page = await cachedModelRender(
     [kind, payload.server || "", payload.id, locale],
-    [kind, payload, locale, previewSrc],
+    [kind, payload, locale, previewSrc, { namespaces: seed.namespaces, requiredNamespaces: seed.requiredNamespaces, fallbacks: seed.fallbacks }],
     async () => {
       await Promise.all([
         import("@material/web/select/outlined-select.js"),

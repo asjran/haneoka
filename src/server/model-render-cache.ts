@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { gzipSync, gunzipSync } from "node:zlib";
 import type { StaticWorkspacePage } from "./render-workspace";
 
@@ -16,78 +15,11 @@ let epoch: string | null | undefined;
 function rendererEpoch(): string | null {
   if (epoch !== undefined) return epoch;
   try {
-    const digest = createHash("sha256");
-    const add = (relative: string) => {
-      digest
-        .update(relative)
-        .update("\0")
-        .update(fs.readFileSync(path.join(process.cwd(), relative)))
-        .update("\0");
-    };
-    const walk = (relative: string) => {
-      for (const entry of fs
-        .readdirSync(path.join(process.cwd(), relative), {
-          withFileTypes: true,
-        })
-        .sort((a, b) => a.name.localeCompare(b.name))) {
-        const file = `${relative}/${entry.name}`;
-        if (entry.isDirectory()) walk(file);
-        else if (entry.isFile()) add(file);
-      }
-    };
-    for (const file of [
-      "package.json",
-      "pnpm-lock.yaml",
-      "pnpm-workspace.yaml",
-      "tsconfig.json",
-      "astro.config.mjs",
-      ".gitmodules",
-      "config/cubism-runtime.lock.json",
-    ])
-      add(file);
-    walk("src");
-    walk("public/i18n");
-    for (const entry of fs
-      .readdirSync(path.join(process.cwd(), "packages"), {
-        withFileTypes: true,
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!entry.isDirectory()) continue;
-      const directory = `packages/${entry.name}`;
-      if (fs.existsSync(path.join(process.cwd(), directory, "package.json")))
-        add(`${directory}/package.json`);
-      if (fs.existsSync(path.join(process.cwd(), directory, "src")))
-        walk(`${directory}/src`);
-    }
-    const modules = execFileSync(
-      "git",
-      [
-        "config",
-        "-f",
-        path.join(process.cwd(), ".gitmodules"),
-        "--get-regexp",
-        "^submodule\\..*\\.path$",
-      ],
-      { encoding: "utf8" },
-    );
-    for (const line of modules.trim().split("\n").sort()) {
-      const directory = line.slice(line.indexOf(" ") + 1).trim();
-      const revision = execFileSync(
-        "git",
-        ["-C", path.join(process.cwd(), directory), "rev-parse", "HEAD"],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-      ).trim();
-      digest.update(directory).update("\0").update(revision).update("\0");
-    }
-    digest.update(
-      JSON.stringify([
-        SCHEMA,
-        process.versions.node,
-        process.versions.icu,
-        process.platform,
-      ]),
-    );
-    epoch = digest.digest("hex");
+    const manifest = JSON.parse(fs.readFileSync(path.join(process.cwd(), ".astro/model-render-epoch.json"), "utf8"));
+    if (manifest.schema !== "haneoka-model-render-epoch-v1" || !/^[a-f0-9]{64}$/u.test(manifest.epoch)) throw new Error("Missing model renderer epoch");
+    const { project, runtime, external } = manifest;
+    if (sha256(JSON.stringify({ project, runtime, external })) !== manifest.epoch) throw new Error("Invalid model renderer epoch");
+    epoch = sha256(JSON.stringify([manifest.epoch, SCHEMA, process.versions.node, process.versions.icu, process.platform]));
   } catch {
     epoch = null;
   }
