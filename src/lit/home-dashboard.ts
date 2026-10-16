@@ -1,3 +1,4 @@
+import { withUiMarksProjection } from "../lib/ui-marks";
 import { readCommunityBootstrap } from "../lib/community-bootstrap";
 import { communityStickerPreview } from "../lib/community-markup";
 import { renderLazyEntityCommentActivity } from "./views/entity-comment-activity-lazy";
@@ -711,7 +712,7 @@ export class HomeDashboard extends LitElement {
       this.requestUpdate();
       const identity = catalogs.cards?.identities["intl-test"];
       if (seed && identity) {
-        const response = await fetch(`/api/v1/servers/intl-test/ui-marks?release=${encodeURIComponent(identity.releaseId)}`, { signal });
+        const response = await fetch(withUiMarksProjection(`/api/v1/servers/intl-test/ui-marks?release=${encodeURIComponent(identity.releaseId)}`), { signal });
         if (response.ok && response.headers.get("x-haneoka-release-id") === identity.releaseId && response.headers.get("x-haneoka-source-id") === identity.sourceId) {
           const marks = await response.json() as Record<string, string>;
           if (this.catalogRequests.current(signal) && this.seed === seed && showTestServerContent())

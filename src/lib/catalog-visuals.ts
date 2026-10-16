@@ -1,3 +1,4 @@
+import { withUiMarksProjection } from "./ui-marks";
 import { objectRow } from "./team-builder/data";
 
 /** The catalogue's presentation records, read under the caller's existing pin. */
@@ -9,7 +10,7 @@ export async function fetchCatalogVisuals(
 ) {
   const read = async (resource: string) => {
     const response = await fetch(
-      `/api/v1/servers/${encodeURIComponent(identity.server)}/${resource}?release=${encodeURIComponent(identity.releaseId)}`,
+      withUiMarksProjection(`/api/v1/servers/${encodeURIComponent(identity.server)}/${resource}?release=${encodeURIComponent(identity.releaseId)}`),
       { signal },
     );
     if (

@@ -1,3 +1,4 @@
+import { withUiMarksProjection } from "./ui-marks";
 import fs from "node:fs";
 import nodePath from "node:path";
 import { createHash } from "node:crypto";
@@ -109,7 +110,7 @@ export function staticCatalogUrl(path: string, server = "intl", releaseId?: stri
   const url = new URL(`/api/v1/servers/${encodeURIComponent(server)}/${path.replace(/^\/+/, "")}`, ORIGIN);
   if (releaseId) url.searchParams.set("release", releaseId);
   else url.searchParams.set("__static_catalog_build", BUST);
-  return url.toString();
+  return withUiMarksProjection(url.toString());
 }
 
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));

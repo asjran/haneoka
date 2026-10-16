@@ -1,3 +1,4 @@
+import { withUiMarksProjection } from "../../lib/ui-marks";
 import { clientText, getI18nClient } from "../../i18n/client";
 import { resolveLocalizedText } from "../../lib/localized-text";
 import { readReleaseServer } from "../../lib/release-server";
@@ -59,7 +60,7 @@ export function currentReleaseServer(): string {
 
 export function catalogUrl(resource: string, id = "", server = currentReleaseServer()): string {
   const path = resource.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-  return `/api/v1/servers/${encodeURIComponent(server)}/${path}${id ? `/${encodeURIComponent(id)}` : ""}${!id && ["stories", "songs"].includes(resource) ? "?projection=4" : ""}`;
+  return withUiMarksProjection(`/api/v1/servers/${encodeURIComponent(server)}/${path}${id ? `/${encodeURIComponent(id)}` : ""}${!id && ["stories", "songs"].includes(resource) ? "?projection=4" : ""}`);
 }
 
 export class JsonResponseError extends Error {

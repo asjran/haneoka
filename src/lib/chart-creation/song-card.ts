@@ -1,3 +1,4 @@
+import { withUiMarksProjection } from "../ui-marks";
 import type { HaneokaLocale, HaneokaReleaseIdentity } from "../../../packages/api-client/src/haneoka";
 import { readBytes } from "../../../packages/embed-core/src/io";
 import { resolveLocalizedText, resolveRelationshipText } from "../localized-text";
@@ -62,7 +63,7 @@ export async function loadPublicCreationSongCardData(
   const read = async (resource: string) => {
     const url = new URL(`servers/${encodeURIComponent(options.identity.server)}/${resource}`, base);
     url.searchParams.set("locale", options.locale);
-    const response = await fetcher(new Request(url, { signal: options.signal }));
+    const response = await fetcher(new Request(withUiMarksProjection(url.toString()), { signal: options.signal }));
     const bytes = await readBytes(response, {
       signal: options.signal,
       maxBytes: 2 * 1024 * 1024,

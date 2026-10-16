@@ -1,4 +1,4 @@
-import { projectUiMarks } from "../src/lib/ui-marks.ts";
+import { projectUiMarks, withUiMarksProjection } from "../src/lib/ui-marks.ts";
 import { refreshCommunityRanking, COMMUNITY_RANKING_CRON } from "./community-ranking";
 import { handleCommunityBootstrap } from "./community-bootstrap";
 import { withRequestWork } from "./request-work";
@@ -2201,7 +2201,7 @@ async function handleCatalogApiRequest(
   const tail = cleanRelativePath(rawTail);
   if (!tail) return errorResponse(request, 404, "route_not_found", "API route not found");
   if (tail === "ui-marks") {
-    const cacheRequest = releaseCacheRequest(request, release.releaseId);
+    const cacheRequest = releaseCacheRequest(new Request(withUiMarksProjection(request.url), request), release.releaseId);
     return releaseResponseHeaders(
       await edgeCached(
         cacheRequest,

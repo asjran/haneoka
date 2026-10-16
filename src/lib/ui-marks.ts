@@ -1,3 +1,13 @@
+export const UI_MARK_PROJECTION = 2;
+
+/** Changes only the presentation version of official UI-mark requests. */
+export function withUiMarksProjection(value: string): string {
+  const url = new URL(value, "https://catalog.invalid");
+  if (!/^\/api\/v1\/servers\/[^/]+\/ui-marks$/u.test(url.pathname)) return value;
+  url.searchParams.set("projection", String(UI_MARK_PROJECTION));
+  return /^[A-Za-z][A-Za-z\d+.-]*:/u.test(value) ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
+}
+
 export const UI_MARK_NAMES =
   /^(?:RarityIconCenter_(?:R|SR|SSR|EX|BD)|CardType-(?:Red|Blue|Green|Yellow|Purple)|CardRank[0-5]|snaplimit_[0-5]|SpecialTraining|sp_icon_live_music_type_(?:1|2|3|4|5|99))\.png$/u;
 

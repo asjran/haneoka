@@ -1,3 +1,4 @@
+import { withUiMarksProjection } from "../lib/ui-marks";
 import { catalogLabelPath } from "../config/catalog-labels";
 import { relativeTimeWindow, relativeTimestamp, TIME_REGIONS, type TimeRegion } from "../lib/relative-time";
 import {
@@ -1229,7 +1230,7 @@ export class CatalogScreen extends LitElement {
           const identity = dto.identities[server];
           if (!identity || unionPresentationMarks.has(JSON.stringify([server, identity.releaseId, identity.sourceId])))
             return [server, null] as const;
-          const read = fetch(`/api/v1/servers/${server}/ui-marks?release=${encodeURIComponent(identity.releaseId)}`, {
+          const read = fetch(withUiMarksProjection(`/api/v1/servers/${server}/ui-marks?release=${encodeURIComponent(identity.releaseId)}`), {
             signal,
           });
           read.catch(() => undefined);
@@ -1247,7 +1248,7 @@ export class CatalogScreen extends LitElement {
         }
         try {
           const response = await (markReads.get(server) ??
-            fetch(`/api/v1/servers/${server}/ui-marks?release=${encodeURIComponent(identity.releaseId)}`, { signal }));
+            fetch(withUiMarksProjection(`/api/v1/servers/${server}/ui-marks?release=${encodeURIComponent(identity.releaseId)}`), { signal }));
           if (
             response.ok &&
             response.headers.get("x-haneoka-release-id") === identity.releaseId &&
