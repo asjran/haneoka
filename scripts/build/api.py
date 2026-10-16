@@ -290,6 +290,11 @@ class BuildData:
         self.serialized_files: dict[str, dict[str, Any]] = serialized_files
         self.source_paths = sorted(self.source_index)
         self.source_path_set = set(self.source_paths)
+        self._source_paths_by_parent: dict[PurePosixPath, list[str]] = {}
+        for source_path in self.source_paths:
+            self._source_paths_by_parent.setdefault(
+                PurePosixPath(source_path).parent, []
+            ).append(source_path)
         self._source_descriptor_cache: dict[str, dict[str, Any]] = {}
         self._object_archive_cache: dict[str, dict[str, dict[str, Any]]] = {}
         self._unity_output_index: dict[
@@ -361,6 +366,9 @@ class BuildData:
                         cue_sheet_name, []
                     ).append(entry)
         self._sound_cache: dict[int, dict[str, Any] | None] = {}
+        self._cri_audio_output_cache: dict[
+            str, tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]
+        ] = {}
 
     def _index_external_pointers(self, owner_serialized_file: str) -> None:
         if owner_serialized_file in self._external_pointer_owners_indexed:
@@ -703,6 +711,9 @@ class BuildData:
             "url": url,
         }
 
+    def source_children(self, directory: PurePosixPath) -> list[str]:
+        return self._source_paths_by_parent.get(directory, [])
+
     def source_descriptor(self, source_path: str) -> dict[str, Any]:
         """Read one canonical source descriptor and reject index divergence."""
         cached = self._source_descriptor_cache.get(source_path)
@@ -923,6 +934,34 @@ class BuildData:
             raw=row,
         )
 
+    def _cri_audio_outputs(
+        self, entry: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+        runtime_path = str(entry.get("runtimePath") or "")
+        cached = self._cri_audio_output_cache.get(runtime_path)
+        if cached is not None:
+            return cached
+        audio_outputs = [
+            value
+            for value in entry.get("outputs", [])
+            if PurePosixPath(str(value.get("path") or "")).suffix.casefold()
+            in CRI_AUDIO_SUFFIXES
+            and self.runtime_output_url(str(value.get("path") or ""))
+        ]
+        by_cue: dict[str, list[dict[str, Any]]] = {}
+        for value in audio_outputs:
+            cue = VGMSTREAM_RANDOM_CUE_PREFIX.sub(
+                "",
+                VGMSTREAM_SEQUENCE_PREFIX.sub(
+                    "", PurePosixPath(str(value.get("path") or "")).stem, count=1
+                ),
+                count=1,
+            ).casefold()
+            by_cue.setdefault(cue, []).append(value)
+        cached = audio_outputs, by_cue
+        self._cri_audio_output_cache[runtime_path] = cached
+        return cached
+
     def _resolve_sound(
         self,
         identity: int,
@@ -958,27 +997,8 @@ class BuildData:
         elif len(entries) == 1:
             entry = entries[0]
             runtime_path = str(entry.get("runtimePath") or "")
-            audio_outputs = [
-                value
-                for value in entry.get("outputs", [])
-                if PurePosixPath(str(value.get("path") or "")).suffix.casefold()
-                in CRI_AUDIO_SUFFIXES
-                and self.runtime_output_url(str(value.get("path") or ""))
-            ]
-            exact_outputs = [
-                value
-                for value in audio_outputs
-                if VGMSTREAM_RANDOM_CUE_PREFIX.sub(
-                    "",
-                    VGMSTREAM_SEQUENCE_PREFIX.sub(
-                        "",
-                        PurePosixPath(str(value.get("path") or "")).stem,
-                        count=1,
-                    ),
-                    count=1,
-                ).casefold()
-                == cue_name.casefold()
-            ]
+            audio_outputs, by_cue = self._cri_audio_outputs(entry)
+            exact_outputs = by_cue.get(cue_name.casefold(), [])
             if len(exact_outputs) == 1:
                 output = exact_outputs[0]
                 status = "resolved"
@@ -5683,9 +5703,8 @@ def _home_spot_spine_runtime(
             reference = skeleton_pointer.get("reference", {}) if isinstance(skeleton_pointer, dict) else {}
             binary_name = str(reference.get("name") or "")
             binary_candidates = [
-                value for value in data.source_paths
-                if PurePosixPath(value).parent == PurePosixPath(skeleton_source).parent
-                and PurePosixPath(value).name == f"{binary_name}.bytes"
+                value for value in data.source_children(PurePosixPath(skeleton_source).parent)
+                if PurePosixPath(value).name == f"{binary_name}.bytes"
             ]
             for binary_source in binary_candidates:
                 binary_descriptor, _ = data.source_objects(binary_source)
@@ -5711,9 +5730,8 @@ def _home_spot_spine_runtime(
         skeleton_dir = PurePosixPath(skeleton_source).parent
         matching_atlases = sorted(
             (
-                value for value in data.source_paths
-                if PurePosixPath(value).parent == skeleton_dir
-                and value.endswith(".atlas.txt")
+                value for value in data.source_children(skeleton_dir)
+                if value.endswith(".atlas.txt")
                 and skeleton_stem.startswith(PurePosixPath(value).name.removesuffix(".atlas.txt"))
             ),
             key=lambda value: len(PurePosixPath(value).name),
@@ -5721,9 +5739,8 @@ def _home_spot_spine_runtime(
         )
         if not matching_atlases:
             folder_atlases = [
-                value for value in data.source_paths
-                if PurePosixPath(value).parent == skeleton_dir
-                and value.endswith(".atlas.txt")
+                value for value in data.source_children(skeleton_dir)
+                if value.endswith(".atlas.txt")
             ]
             if len(folder_atlases) == 1:
                 matching_atlases = folder_atlases
