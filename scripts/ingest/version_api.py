@@ -23,7 +23,7 @@ CDN_ROOT_HEADER = "x-sirius-env"
 CDN_PASSWORD_HEADER = "x-sirius-cred"
 HEX_32 = re.compile(r"^[0-9a-f]{32}$")
 VERSION_PARTS = re.compile(r"^\d+(?:\.\d+)*$")
-RETRYABLE_CURL_CODES = frozenset({5, 6, 7, 18, 28, 52, 55, 56, 92})
+RETRYABLE_CURL_CODES = frozenset({5, 6, 7, 18, 28, 35, 52, 55, 56, 92})
 RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 

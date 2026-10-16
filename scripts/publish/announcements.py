@@ -16,8 +16,11 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from build.announcements import (
+    ANNOUNCEMENT_SCHEMA,
+    MAX_ANNOUNCEMENTS,
     PUBLIC_BASE_URL,
     AnnouncementCollection,
+    announcement_timestamp,
     collect_announcements,
     package_client_version,
     public_announcement_document,
@@ -31,6 +34,80 @@ from publish.r2 import IMMUTABLE_CACHE, R2Store
 
 OPERATION_PREFIX = "operation"
 SNAPSHOT_CACHE = "public, max-age=60, must-revalidate"
+
+
+def _validate_published_snapshot(value: dict[str, Any], server: str) -> None:
+    if value.get("schema") != ANNOUNCEMENT_SCHEMA or value.get("server") != server:
+        raise ValueError("invalid published announcement snapshot identity")
+    if value.get("available") is not True:
+        raise ValueError("published announcement snapshot is unavailable")
+    if not isinstance(value.get("fetchedAt"), str) or not value["fetchedAt"]:
+        raise ValueError("invalid published announcement snapshot timestamp")
+    records = value.get("announcements")
+    if not isinstance(records, list) or len(records) > MAX_ANNOUNCEMENTS:
+        raise ValueError("invalid published announcement snapshot records")
+    for record in records:
+        if (
+            not isinstance(record, dict)
+            or not isinstance(record.get("title"), str)
+            or not record["title"]
+        ):
+            raise ValueError("invalid published announcement record title")
+        for key in ("id", "category", "startAt", "endAt", "updatedAt"):
+            number = record.get(key)
+            if (
+                type(number) is not int
+                or number < (1 if key == "id" else 0)
+                or number > (1 << 53) - 1
+            ):
+                raise ValueError(f"invalid published announcement record {key}")
+        if "sourceRegion" in record or "sourceId" in record:
+            region, identifier = record.get("sourceRegion"), record.get("sourceId")
+            if (
+                not isinstance(region, str) or not region or len(region) > 32
+                or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in region)
+            ):
+                raise ValueError("invalid published announcement source region")
+            if type(identifier) is not int or not 0 < identifier <= (1 << 53) - 1:
+                raise ValueError("invalid published announcement source id")
+
+
+def _repair_published_snapshot(value: dict[str, Any], server: str) -> tuple[dict[str, Any], int]:
+    records = value.get("announcements")
+    if not isinstance(records, list):
+        raise ValueError("invalid published announcement snapshot records")
+    repaired = {**value, "announcements": []}
+    changed = 0
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("invalid published announcement record")
+        current = dict(record)
+        for field in ("startAt", "endAt", "updatedAt"):
+            if type(current.get(field)) is int:
+                timestamp = announcement_timestamp(current[field])
+                changed += timestamp != current[field]
+                current[field] = timestamp
+        repaired["announcements"].append(current)
+    _validate_published_snapshot(repaired, server)
+    return repaired, changed
+
+
+def repair_published_announcements(store: R2Store, config: ServerConfig) -> dict[str, Any]:
+    snapshot_key = f"servers/{config.id}/{OPERATION_PREFIX}/announcements.json"
+    version = store.get_json_with_version(snapshot_key)
+    if version is None or not isinstance(version[0], dict):
+        raise ValueError("published announcement snapshot is missing")
+    repaired, changed = _repair_published_snapshot(version[0], config.id)
+    if changed:
+        store.put_json(snapshot_key, repaired, SNAPSHOT_CACHE, expected_etag=version[1])
+    return {
+        "schema": "haneoka-announcements-publication-v1",
+        "server": config.id,
+        "available": True,
+        "announcements": len(repaired["announcements"]),
+        "timestampsRepaired": changed,
+        "snapshotKey": snapshot_key,
+    }
 
 
 def _media_key(server: str, filename: str) -> str:
@@ -104,7 +181,8 @@ def publish_announcements(
     snapshot_key = f"servers/{config.id}/{OPERATION_PREFIX}/announcements.json"
     if store is None and not dry_run:
         raise ValueError("announcement publication requires a storage client")
-    previous = store.get_json(snapshot_key) if store is not None else None
+    previous_version = store.get_json_with_version(snapshot_key) if store is not None else None
+    previous = previous_version[0] if previous_version is not None else None
     if work_dir is not None:
         work_dir.mkdir(parents=True, exist_ok=True)
     temporary_root = Path(
@@ -122,6 +200,8 @@ def publish_announcements(
             client_version=client_version,
         )
         document = public_announcement_document(collection, config.id, base_url)
+        if document["available"]:
+            _validate_published_snapshot(document, config.id)
         if dry_run:
             return {
                 "schema": "haneoka-announcements-publication-v1",
@@ -160,6 +240,13 @@ def publish_announcements(
             "reason": str(exc),
         }
         if isinstance(exc, DiscoveryUnavailable) and result["available"]:
+            repaired, changed = _repair_published_snapshot(previous, config.id)
+            if changed:
+                store.put_json(
+                    snapshot_key, repaired, SNAPSHOT_CACHE,
+                    expected_etag=previous_version[1],
+                )
+                result["timestampsRepaired"] = changed
             result["deferred"] = True
             result["temporaryReason"] = exc.reason
         return result
@@ -176,21 +263,34 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, default=16)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--base-url", default=PUBLIC_BASE_URL)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--repair-published", action="store_true",
+        help="validate and repair only the published snapshot's exact unset-timestamp sentinel, using its ETag",
+    )
+    mode.add_argument(
         "--dry-run", action="store_true",
         help="collect and validate without R2 access; regional bootstrap uses the local --source/current package version",
     )
     args = parser.parse_args()
     config = load_server_config(args.server)
-    result = publish_announcements(
-        None if args.dry_run else R2Store(config, args.concurrency),
-        config,
-        source_id=args.source,
-        base_url=args.base_url,
-        work_dir=args.work_dir,
-        dry_run=args.dry_run,
-    )
+    if args.repair_published:
+        result = repair_published_announcements(R2Store(config, args.concurrency), config)
+    else:
+        result = publish_announcements(
+            None if args.dry_run else R2Store(config, args.concurrency),
+            config,
+            source_id=args.source,
+            base_url=args.base_url,
+            work_dir=args.work_dir,
+            dry_run=args.dry_run,
+        )
     print(stable_json(result, pretty=True), end="")
+    if result.get("deferred"):
+        print(
+            f"::warning::Announcement refresh deferred for {config.id}; retained {result['announcements']} published announcements.",
+            file=sys.stderr,
+        )
     return 1 if "error" in result and not result.get("deferred") else 0
 
 

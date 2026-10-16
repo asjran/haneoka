@@ -47,6 +47,7 @@ MAX_IMAGE_BYTES = 32 * 1024 * 1024
 REGIONAL_ANNOUNCEMENT_ID_STRIDE = 1 << 51
 RETRY_DELAYS = (0.0, 1.0, 3.0)
 PUBLIC_BASE_URL = "https://haneoka.org"
+PROTOBUF_UNSET_TIMESTAMP = (1 << 64) - 62_135_596_800
 
 _IMAGE_TYPES = {
     "image/avif": "avif",
@@ -361,6 +362,10 @@ def _text(value: int | bytes | None) -> str:
     return value.decode("utf-8", "replace") if isinstance(value, bytes) else ""
 
 
+def announcement_timestamp(value: int) -> int:
+    return 0 if value == PROTOBUF_UNSET_TIMESTAMP else value
+
+
 def _entry(fields: dict[int, list[int | bytes]]) -> dict[str, Any]:
     def number(field: int) -> int:
         value = _first(fields, field)
@@ -370,9 +375,9 @@ def _entry(fields: dict[int, list[int | bytes]]) -> dict[str, Any]:
         "id": number(1),
         "category": number(2),
         "title": _text(_first(fields, 3)),
-        "startAt": number(7),
-        "endAt": number(8),
-        "updatedAt": number(14),
+        "startAt": announcement_timestamp(number(7)),
+        "endAt": announcement_timestamp(number(8)),
+        "updatedAt": announcement_timestamp(number(14)),
     }
     for source, target in ((5, "bodyImage"), (11, "banner")):
         url = _text(_first(fields, source)).strip()

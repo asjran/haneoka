@@ -13,6 +13,11 @@ on:
         description: GitHub environment
         type: string
         required: false
+      repair_published:
+        description: Repair only the published unset-timestamp sentinel without requesting the game API
+        type: boolean
+        required: false
+        default: false
       source_id:
         description: Package source whose version should be sent to the bootstrap API
         type: string
@@ -28,6 +33,10 @@ on:
       source_id:
         type: string
         required: false
+      repair_published:
+        type: boolean
+        required: false
+        default: false
     secrets:
       RESOURCE_PIPELINE_CONFIG:
         required: true
@@ -83,5 +92,8 @@ jobs:
           args=(--server "$RESOURCE_SERVER" --concurrency 16)
           if [[ -n "$SOURCE_ID" ]]; then
             args+=(--source "$SOURCE_ID")
+          fi
+          if [[ "${{ inputs.repair_published }}" == "true" ]]; then
+            args+=(--repair-published)
           fi
           python scripts/publish/announcements.py "${args[@]}"
