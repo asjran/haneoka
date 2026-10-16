@@ -7,18 +7,22 @@ export interface CardGrowth {
   level?: number | null;
   training?: number | null;
   rank?: number | null;
-  skill?: number | null;
+  liveSkill?: { level: number | null; icon: string; label: string };
+  gekisoSkill?: { level: number | null; icon: string; label: string };
   unknown?: string;
   trainingLabel: string;
   rankLabel: string;
-  skillLabel?: string;
-  skillShortLabel?: string;
 }
 
 export function cardGrowth(options: CardGrowth) {
   const value = (number: number | null | undefined) => number ?? options.unknown ?? "?";
   const rank = options.kind === "member" ? options.icons.memberRanks : options.icons.supportRanks;
   const rankImage = rank[options.rank ?? 0];
+  const skills = [options.liveSkill, options.gekisoSkill];
+  const skillMarks = skills.map((skill) => skill?.icon
+    ? html`<span title=${`${skill.label} ${value(skill.level)}`} aria-label=${`${skill.label} ${value(skill.level)}`}>
+        <img src=${skill.icon} alt="" /><span>${value(skill.level)}</span>
+      </span>` : nothing);
   return html`<span class=${`card-growth card-growth--${options.kind}`}>
     ${options.level !== undefined
       ? html`<span class="card-growth__level"><small>Lv.</small>${value(options.level)}</span>`
@@ -27,7 +31,11 @@ export function cardGrowth(options: CardGrowth) {
       ? html`<span class="card-growth__training" title=${`${options.trainingLabel} ${value(options.training)}`}>
           ${options.icons.training ? html`<img src=${options.icons.training} alt=${options.trainingLabel} />` : options.trainingLabel}
           <span>${value(options.training)}</span>
-          ${options.skill !== undefined ? html`<small title=${options.skillLabel}>${options.skillShortLabel}${value(options.skill)}</small>` : nothing}
+        </span>`
+      : nothing}
+    ${(options.liveSkill || options.gekisoSkill)
+      ? html`<span class="card-growth__skills">
+          ${skillMarks}
         </span>`
       : nothing}
     ${options.rank !== undefined

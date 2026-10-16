@@ -156,7 +156,7 @@ export function tileMedia(options: TileOptions): TemplateResult {
   // silently left every tile unclickable in production builds.
   return html`
     <span
-      class=${`tile__media media-loading ${options.fit ? `tile__media--${options.fit}` : ""}${options.serverMark?.image ? " tile__media--server-mark" : ""}`}
+      class=${`tile__media media-loading ${options.fit ? `tile__media--${options.fit}` : ""}${options.serverMark?.image ? " tile__media--server-mark" : ""}${options.kind === "member" || options.kind === "support" ? ` card-media card-media--${options.kind}` : ""}`}
       style=${mediaStyle || nothing}
     >
       ${

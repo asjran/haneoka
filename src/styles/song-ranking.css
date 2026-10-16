@@ -196,22 +196,8 @@
   .song-ranking__card-media--support .song-ranking__player-media img {
     object-fit: contain;
   }
-  .song-ranking__card-attribute {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    object-fit: contain;
-  }
-  .song-ranking__card-rarity {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 22px;
-    height: 14px;
-    object-fit: contain;
-  }
+
+
   .song-ranking__regions.settings-options {
     gap: 4px;
     padding: 0;

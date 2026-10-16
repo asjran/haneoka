@@ -87,6 +87,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto auto;
 }
 .skill-timeline__events img {
+  object-position: 50% 25%;
   width: 28px;
   height: 28px;
   border-radius: var(--md-sys-shape-corner-full);

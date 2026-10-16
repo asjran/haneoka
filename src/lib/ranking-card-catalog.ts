@@ -30,6 +30,10 @@ export async function rankingCardCatalog(server: ReleaseServer): Promise<Ranking
             avatar: String(asRecord(card.images)?.thumbnail || ""),
             attributeIcon: mark(`CardType-${attributeColors[Number(card.cardType)]}.png`),
             rarityIcon: mark(`RarityIconCenter_${rarityNames[Number(card.rarity)]}.png`),
+            ...(!support ? {
+              liveSkillIcon: String(asRecord(asRecord(card.resolvedSkills)?.live)?.icon ?? ""),
+              gekisoSkillIcon: String(asRecord(asRecord(card.resolvedSkills)?.gekisou)?.icon ?? ""),
+            } : {}),
             rankGroup: Number(card.supportCardRankGroup || 0),
             levelGroup: Number(support ? card.supportCardLevelGroup : card.memberCardLevelGroup),
           },

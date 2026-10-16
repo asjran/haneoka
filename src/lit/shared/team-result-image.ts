@@ -1,4 +1,5 @@
 import { canvasToPngBlob } from "../../lib/canvas-capture";
+import type { CardGrowth } from "./card-growth";
 
 export interface ResultImageCard {
   title: string;
@@ -10,6 +11,7 @@ export interface ResultImageCard {
   attributeLabel: string;
   rarityLabel: string;
   leader: boolean;
+  growth?: CardGrowth | null;
   facts: { label: string; value: string }[];
 }
 export interface TeamResultImage {
@@ -34,7 +36,12 @@ export interface TeamResultImage {
 export async function renderTeamResultImage(model: TeamResultImage): Promise<Blob> {
   const images = new Map<string, HTMLImageElement | null>();
   const sources = new Set(model.members.concat(model.snapshots.filter((card): card is ResultImageCard => card !== null))
-    .flatMap(card => [card.image, card.attribute, card.rarity, ...card.avatars]).filter((url): url is string => !!url));
+    .flatMap(card => {
+      const growth = card.growth;
+      return [card.image, card.attribute, card.rarity, ...card.avatars,
+        growth?.icons.training, growth?.liveSkill?.icon, growth?.gekisoSkill?.icon,
+        growth && (growth.kind === "member" ? growth.icons.memberRanks : growth.icons.supportRanks)[growth.rank ?? 0]];
+    }).filter((url): url is string => !!url));
   if (model.jacket) sources.add(model.jacket);
   await Promise.all([...sources].map(async source => {
     try {
@@ -108,15 +115,46 @@ export async function renderTeamResultImage(model: TeamResultImage): Promise<Blo
     if (!image(card.image, x, y, width, h)) lines(model.imageUnavailableLabel, x + 16, y + h / 2 - 12, width - 32, 18, 2, t.muted);
     if (!image(card.attribute, x + 8, y + 8, 32, 32)) lines(card.attributeLabel, x + 8, y + 8, 128, 16, 1, t.primary, 600);
     if (!image(card.rarity, x + width - 40, y + 8, 32, 32)) lines(card.rarityLabel, x + width - 48, y + 8, 40, 18, 1, t.primary, 600);
+    if (card.growth) {
+      const growth = card.growth;
+      const value = (number: number | null | undefined) => String(number ?? growth.unknown ?? "?");
+      const overlay = (text: string, left: number, top: number, size: number) => {
+        c.save(); font(size, 600); c.fillStyle = "#fff"; c.strokeStyle = "#000"; c.lineWidth = 1.2;
+        c.strokeText(text, left, top); c.fillText(text, left, top); c.restore();
+      };
+      if (growth.level !== undefined) overlay(`Lv.${value(growth.level)}`, x + width * .03, y + h * .97 - 28, 28);
+      if (growth.training !== undefined) {
+        image(growth.icons.training, x + width * .03, y + h * .85 - 24, 22, 22);
+        overlay(value(growth.training), x + width * .03 + 26, y + h * .85 - 24, 24);
+      }
+      let left = x + width * .03;
+      for (const skill of [growth.liveSkill, growth.gekisoSkill]) if (skill?.icon) {
+        image(skill.icon, left, y + h * .71 - 24, 24, 24);
+        overlay(value(skill.level), left + 27, y + h * .71 - 24, 24);
+        left += 58;
+      }
+      if (growth.rank !== undefined) {
+        const source = (growth.kind === "member" ? growth.icons.memberRanks : growth.icons.supportRanks)[growth.rank ?? 0];
+        const w = width * (member ? 64 / 224 : 64 / 326), loaded = source ? images.get(source) : null;
+        const rankHeight = loaded ? w * loaded.naturalHeight / loaded.naturalWidth : w;
+        image(source, x + width - w, y + h - rankHeight, w, rankHeight);
+        if (growth.rank === null) overlay(value(growth.rank), x + width - w * .65, y + h - rankHeight * .65, 22);
+      }
+    }
     if (card.leader) {
       font(15, 700); const w = Math.min(width - 16, c.measureText(model.leaderLabel).width + 24);
-      c.fillStyle = t.surface; c.beginPath(); c.roundRect(x + width - w - 8, y + h - 36, w, 28, 14); c.fill();
-      lines(model.leaderLabel, x + width - w + 4, y + h - 31, w - 24, 15, 1, t.primary, 700);
+      c.fillStyle = t.surface; c.beginPath(); c.roundRect(x + 8, y + h * .56 - 28, w, 28, 14); c.fill();
+      lines(model.leaderLabel, x + 20, y + h * .56 - 23, w - 24, 15, 1, t.primary, 700);
     }
     lines(card.title, x, y + h + 14, width, 20, 2, t.text, 600);
     let avatarX = x;
     for (const avatar of card.avatars.slice(0, 5)) {
-      if (image(avatar, avatarX, y + h + 71, 24, 24)) avatarX += 20;
+      const loaded = images.get(avatar);
+      if (loaded) {
+        const edge = Math.min(loaded.naturalWidth, loaded.naturalHeight);
+        c.drawImage(loaded, (loaded.naturalWidth - edge) / 2, (loaded.naturalHeight - edge) / 4, edge, edge, avatarX, y + h + 71, 24, 24);
+        avatarX += 20;
+      }
     }
     lines(card.character, avatarX + (avatarX > x ? 8 : 0), y + h + 75, width - (avatarX - x) - 8, 15, 2, t.muted);
     card.facts.forEach((fact, factIndex) => {

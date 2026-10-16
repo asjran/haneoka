@@ -18,6 +18,13 @@ import { resultSettings, SCORE_GOALS, scoreProof, scoreText } from "./score-goal
 
 const RANK_NAMES: Record<string, string> = { "1": "E", "2": "D", "3": "C", "4": "B", "5": "A", "6": "S", "7": "SS" };
 export const timelines = new Map<string, Timeline | "loading" | "error">();
+const resultInputs = (host: TeamBuilder) => host.tab === "pt" && host.settings.rewardMode === "recommendation"
+  ? host.pt.job?.request ?? null : host.resultInputs;
+function resultGrowth(host: TeamBuilder, kind: "members" | "snaps", key: string) {
+  const source = resultInputs(host);
+  const input = kind === "members" ? source?.members.find((row) => row.key === key) : source?.snaps.find((row) => row.key === key);
+  return input && source ? host.catalog!.resolvedGrowth(kind, input, source.unknownPolicy) : null;
+}
 
 const format = (host: TeamBuilder, value: number, digits = 0) =>
   new Intl.NumberFormat(host.locale, { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value);
@@ -66,18 +73,20 @@ export function formation(host: TeamBuilder, hit: EngineHit): TemplateResult {
         const member = cardIdOf(hit.members[index]!);
         const snapKey = hit.snaps[index];
         const snap = snapKey ? cardIdOf(snapKey) : null;
-        const growth = resultSettings(host).scope === "theoretical" ? "maximum" : undefined;
-        const memberOptions = catalog.cardOptions("members", member, growth);
-        const snapOptions = snap !== null ? catalog.cardOptions("snaps", snap, growth) : null;
+        const memberGrowth = resultGrowth(host, "members", hit.members[index]!);
+        const snapGrowth = snapKey ? resultGrowth(host, "snaps", snapKey) : null;
+        const memberOptions = catalog.cardOptions("members", member, memberGrowth);
+        const snapOptions = snap !== null ? catalog.cardOptions("snaps", snap, snapGrowth) : null;
         const owned = host.view?.members.get(member);
         return html`
           <li
             class=${`tb-slot${index === 0 ? " is-leader" : ""}`}
+            aria-label=${index === 0 ? host.t("leader", "Leader") : nothing}
             title=${`${catalog.characterName(catalog.member(member)?.characterId ?? 0)} · ${host.t("slotPower", "Slot power")} ${format(host, hit.slotPowers[index] ?? 0)}`}
           >
             <button class="tb-slot__member" type="button" aria-label=${`${host.t("editGrowth", "Edit growth")}: ${memberOptions?.label ?? member}`}
               @click=${() => { host.editing = { kind: "members", cardId: member }; host.requestUpdate(); }}>
-              ${memberOptions ? tileMedia({ ...memberOptions, marks: [...(memberOptions.marks ?? []), ...(index === 0 ? [{ at: "bottom-start" as const, text: host.t("leader", "Leader"), accent: "var(--md-sys-color-primary)" }] : [])] }) : nothing}
+              ${memberOptions ? tileMedia(memberOptions) : nothing}
             </button>
             <button class="tb-slot__snap" type="button" ?disabled=${snap === null} aria-label=${snapOptions ? `${host.t("editGrowth", "Edit growth")}: ${snapOptions.label}` : host.t("noSnap", "No snap")}
               @click=${() => { if (snap !== null) { host.editing = { kind: "snaps", cardId: snap }; host.requestUpdate(); } }}>
@@ -131,7 +140,7 @@ function orderTimeline(host: TeamBuilder, hit: EngineHit, index: number) {
   const value = timelines.get(key);
   if (value) return value;
   timelines.set(key, "loading");
-  const request = host.tab === "pt" && host.settings.rewardMode === "recommendation" ? host.pt.job?.request : host.request();
+  const request = resultInputs(host);
   if (request && host.engine && hit.song)
     void host.engine
       .explain({ members: request.members, snaps: request.snaps, unknownPolicy: request.unknownPolicy, team: { members: hit.members, snaps: hit.snaps, leader: hit.members[0]! }, song: hit.song, eventOrder: ORDERS[index]!.map((slot) => hit.members[slot]!), play: { great: 0, good: 0, bad: 0, miss: 0 } })
@@ -145,13 +154,14 @@ function memberFace(host: TeamBuilder, hit: EngineHit, slot: number) {
   const catalog = host.catalog!;
   const card = catalog.member(cardIdOf(hit.members[slot]!));
   const character = card?.characterId ?? 0;
-  return { character, name: catalog.characterName(character), face: catalog.characterFace(character), card: card?.image ?? "", color: catalog.characterColor(character) };
+  const image = card?.image || catalog.characterFace(character);
+  return { character, name: catalog.characterName(character), card: image, color: catalog.characterColor(character) };
 }
 
 function orderFaces(host: TeamBuilder, hit: EngineHit, index: number, firing: readonly number[]) {
   return html`<span class="tb-order-faces">${firing.map((event) => {
     const member = memberFace(host, hit, ORDERS[index]![event]!);
-    return html`<img src=${member.face} alt=${member.name} title=${member.name} width="28" height="28" loading="lazy" decoding="async" style=${`--member-color:${member.color}`} />`;
+    return html`<img src=${member.card} alt=${member.name} title=${member.name} width="28" height="28" loading="lazy" decoding="async" style=${`--member-color:${member.color}`} />`;
   })}</span>`;
 }
 
@@ -238,7 +248,7 @@ function skillOrderView(host: TeamBuilder, hit: EngineHit): TemplateResult {
                 startMs: window.startMs,
                 endMs: window.endMs,
                 color: member.color,
-                image: member.face,
+                image: member.card,
                 label: member.name,
                 value: `+${format(host, window.percent + window.perfectPercent, 0)}%${window.extensionMs ? ` · +${(window.extensionMs / 1000).toFixed(1)}s` : ""}`,
               };
@@ -292,19 +302,21 @@ async function exportImage(host: TeamBuilder, hit: EngineHit) {
   const catalog = host.catalog!;
   const style = getComputedStyle(host);
   const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  const card = (kind: "members" | "snaps", id: number, leader: boolean): ResultImageCard => {
+  const card = (kind: "members" | "snaps", key: string, leader: boolean): ResultImageCard => {
+    const id = cardIdOf(key);
     const entry = kind === "members" ? catalog.member(id) : catalog.snap(id);
     const characters = catalog.characterIds(kind, id);
     return {
       title: catalog.cardName(kind, id),
       character: characters.map((character) => catalog.characterName(character)).join(" · "),
       image: entry?.image ?? "",
-      avatars: characters.map((character) => catalog.characterFace(character)).filter(Boolean),
+      avatars: kind === "members" && entry?.image ? [entry.image] : characters.map((character) => catalog.characterFace(character)).filter(Boolean),
       attribute: catalog.attributeIcon(entry?.attribute ?? 0) || undefined,
       rarity: catalog.rarityIcon(entry?.rarity ?? 0) || undefined,
       attributeLabel: catalog.attributeName(entry?.attribute ?? 0),
       rarityLabel: cardRarityName(entry?.rarity ?? 0),
       leader,
+      growth: resultGrowth(host, kind, key),
       facts: [],
     };
   };
@@ -317,8 +329,8 @@ async function exportImage(host: TeamBuilder, hit: EngineHit) {
     leaderLabel: host.t("leader", "Leader"),
     emptyLabel: host.t("noSnap", "No snap"),
     imageUnavailableLabel: host.t("imageUnavailable", "Image unavailable"),
-    members: hit.members.map((key, index) => card("members", cardIdOf(key), index === 0)),
-    snapshots: hit.snaps.map((key) => (key ? card("snaps", cardIdOf(key), false) : null)),
+    members: hit.members.map((key, index) => card("members", key, index === 0)),
+    snapshots: hit.snaps.map((key) => (key ? card("snaps", key, false) : null)),
     metrics: [
       { label: main.label, value: main.value, detail: "" },
       { label: host.t("power", "Power"), value: format(host, hit.power), detail: "" },

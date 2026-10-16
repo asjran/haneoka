@@ -130,6 +130,8 @@ export interface RankingCardArtwork {
   avatar: string;
   attributeIcon: string;
   rarityIcon: string;
+  liveSkillIcon?: string;
+  gekisoSkillIcon?: string;
   rankGroup: number;
   levelGroup: number;
 }

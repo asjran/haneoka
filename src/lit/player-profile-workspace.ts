@@ -553,6 +553,8 @@ export class PlayerProfileWorkspace extends GameRecordsCardsElement {
                                             level: favoriteLevelDisplay,
                                             training: favorite?.awakeCount ?? null,
                                             rank: favorite?.cardRank ?? null,
+                                            liveSkillLevel: favorite?.liveSkillLevel,
+                                            gekisoSkillLevel: favorite?.performanceSkillLevel,
                                           }) : nothing}
                                         </span>
                                         <strong>${cardName}</strong>

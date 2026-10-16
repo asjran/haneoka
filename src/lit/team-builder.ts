@@ -86,6 +86,7 @@ export class TeamBuilder extends LitElement {
   songPicker: SongPickerState | null = null;
   results: EngineResponse | null = null;
   resultSettings: BuildSettings | null = null;
+  resultInputs: Pick<EngineRequest, "members" | "snaps" | "unknownPolicy"> | null = null;
   resultTab = "overall";
   resultsFor = "";
   running = false;
@@ -457,6 +458,11 @@ export class TeamBuilder extends LitElement {
     const contextKey = this.calculationContext();
     const generation = ++this.runGeneration;
     const settings = this.searchSettings;
+    const inputs = {
+      members: request.members.map((row) => ({ ...row })),
+      snaps: request.snaps.map((row) => ({ ...row })),
+      unknownPolicy: request.unknownPolicy,
+    };
     request.contextKey = contextKey;
     if (verify) {
       request.timeLimitMs = null;
@@ -479,6 +485,7 @@ export class TeamBuilder extends LitElement {
       this.results = response;
       this.resultsFor = contextKey;
       this.resultSettings = settings;
+      this.resultInputs = inputs;
       this.requestUpdate();
     };
     const loading = beginLoading(this.t("searching", "Searching teams"));

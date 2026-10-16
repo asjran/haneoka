@@ -312,9 +312,25 @@
   height: 0.95em;
   object-fit: contain;
 }
-.card-growth__training small {
-  margin-left: 0.3em;
-  font-size: 0.75em;
+.card-growth__skills {
+  position: absolute;
+  left: 3%;
+  bottom: 29%;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: clamp(9px, 11cqw, 16px);
+}
+.card-growth__skills > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15em;
+}
+.card-growth__skills img {
+  width: 1.2em;
+  height: 1.2em;
+  border-radius: 2px;
+  object-fit: contain;
 }
 .card-growth__rank {
   position: absolute;
@@ -336,6 +352,38 @@
   display: grid;
   place-items: center;
   font-size: clamp(9px, 14cqw, 18px);
+}
+.card-media {
+  --card-mark-width: 22.321429%;
+}
+.card-media--support {
+  --card-mark-width: 15.337423%;
+}
+.card-media > .tile__mark--start,
+.card-media > .tile__mark--end {
+  top: 0;
+  width: var(--card-mark-width);
+  min-height: 0;
+}
+.card-media > .tile__mark--start,
+.card-media > .card-media__attribute {
+  left: 0;
+}
+.card-media > .tile__mark--end,
+.card-media > .card-media__rarity {
+  right: 0;
+}
+.card-media > .tile__mark--image > img {
+  width: 100%;
+  height: auto;
+}
+.card-media > .card-media__attribute,
+.card-media > .card-media__rarity {
+  position: absolute;
+  top: 0;
+  width: var(--card-mark-width);
+  height: auto;
+  object-fit: contain;
 }
 .tile__media--server-mark:has(.card-growth) .tile__server-mark {
   bottom: 28%;

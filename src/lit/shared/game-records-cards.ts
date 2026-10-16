@@ -119,19 +119,19 @@ export abstract class GameRecordsCardsElement extends LitElement {
     const name = artwork ? localizedText(artwork.name, this.locale) : this.label("unavailableCard", "Card unavailable");
     const level = artwork ? this.cardLevel(artwork, card, support) : null;
     const body = html`
-      <span class=${`song-ranking__card-media${support ? " song-ranking__card-media--support" : ""}`}>
+      <span class=${`song-ranking__card-media card-media card-media--${support ? "support" : "member"}${support ? " song-ranking__card-media--support" : ""}`}>
         ${artwork?.image ? this.profileMedia(name, artwork.image) : icon("broken_image", 24)}
         ${
           artwork?.attributeIcon
             ? html`
-                <img class="song-ranking__card-attribute" src=${artwork.attributeIcon} alt="" />
+                <img class="card-media__attribute" src=${artwork.attributeIcon} alt="" />
               `
             : nothing
         }
         ${
           artwork?.rarityIcon
             ? html`
-                <img class="song-ranking__card-rarity" src=${artwork.rarityIcon} alt="" />
+                <img class="card-media__rarity" src=${artwork.rarityIcon} alt="" />
               `
             : nothing
         }
@@ -159,7 +159,7 @@ export abstract class GameRecordsCardsElement extends LitElement {
 
   protected renderCardProgress(
     artwork: RankingCardArtwork,
-    values: { level: number | null; training?: number | null; rank: number | null },
+    values: { level: number | null; training?: number | null; rank: number | null; liveSkillLevel?: number | null; gekisoSkillLevel?: number | null },
     support = false,
   ) {
     return cardGrowth({
@@ -168,6 +168,14 @@ export abstract class GameRecordsCardsElement extends LitElement {
       icons: this.cardCatalogs[artwork.server]?.growthIcons ?? cardGrowthIcons(() => ""),
       trainingLabel: clientText(this.locale, "catalog.cards.fields.training", "Training"),
       rankLabel: clientText(this.locale, "catalog.cards.fields.awakening", "Awakening"),
+      liveSkill: values.liveSkillLevel !== undefined ? {
+        level: values.liveSkillLevel, icon: artwork.liveSkillIcon ?? "",
+        label: clientText(this.locale, "catalog.cards.fields.liveSkill", "LIVE Skill"),
+      } : undefined,
+      gekisoSkill: values.gekisoSkillLevel !== undefined ? {
+        level: values.gekisoSkillLevel, icon: artwork.gekisoSkillIcon ?? "",
+        label: clientText(this.locale, "catalog.cards.fields.gekisouSkill", "Gekisou Skill"),
+      } : undefined,
     });
   }
 }
