@@ -191,6 +191,8 @@ jobs:
     permissions:
       contents: read
     environment: ${{ inputs.server == 'jp' && 'resource-jp' || 'resource-intl' }}
+    outputs:
+      release_promoted: ${{ steps.project.outputs.release_promoted }}
     env:
       RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
     steps:
@@ -212,6 +214,7 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes \
             --requirement "$RUNNER_TEMP/tgw-dependencies/requirements.txt"
       - name: Prepare current TGW entities or publish the exact reviewed candidate
+        id: project
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -222,7 +225,11 @@ jobs:
           TGW_MODE: ${{ inputs.tgw_mode }}
           TGW_INPUT_JSON: ${{ inputs.tgw_input_json }}
           TGW_APPROVAL_JSON: ${{ inputs.tgw_approval_json }}
-        run: python scripts/publish/tgw_current.py --output "$RUNNER_TEMP/tgw-output"
+        run: |
+          python scripts/publish/tgw_current.py --output "$RUNNER_TEMP/tgw-output"
+          if [[ "$TGW_MODE" == 'publish-reviewed' ]] && jq -e '.promoted == true and .publicReadbackConfirmed == true' "$RUNNER_TEMP/tgw-output/publication-receipt.json" > /dev/null; then
+            echo 'release_promoted=true' >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -233,9 +240,9 @@ jobs:
 
   rebuild-site:
     name: Rebuild site pages
-    needs: [pipeline_intl, pipeline_jp, pipeline_intl_test]
+    needs: [pipeline_intl, pipeline_jp, current_tgw_projection]
     # Rebuild once after either production server promotes an immutable release.
-    if: ${{ always() && (needs.pipeline_intl.outputs.release_promoted == 'true' || needs.pipeline_jp.outputs.release_promoted == 'true' || needs.pipeline_intl_test.outputs.release_promoted == 'true') }}
+    if: ${{ always() && (needs.pipeline_intl.outputs.release_promoted == 'true' || needs.pipeline_jp.outputs.release_promoted == 'true' || needs.current_tgw_projection.outputs.release_promoted == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       actions: write

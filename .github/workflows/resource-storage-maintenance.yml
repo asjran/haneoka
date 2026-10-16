@@ -80,11 +80,11 @@ jobs:
           python scripts/pipeline.py --server "$RESOURCE_SERVER" "${stage[@]}" > "$RUNNER_TEMP/storage-maintenance/stages.json"
           python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-uploads "${common[@]}" > "$RUNNER_TEMP/storage-maintenance/uploads.json"
           python scripts/pipeline.py --server "$RESOURCE_SERVER" prune-package-leases --concurrency 32 --dry-run > "$RUNNER_TEMP/storage-maintenance/package-leases.json"
-      - name: Verify the current release before applying manifest retention
+      - name: Verify current release metadata before applying retention
         if: env.APPLY_CHANGES == 'true'
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" verify-remote
-          --concurrency 32
+          --fast --concurrency 32
       - name: Plan or apply release and source retention
         run: |
           common=(--concurrency 32)

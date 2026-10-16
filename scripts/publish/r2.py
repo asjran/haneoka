@@ -213,6 +213,24 @@ class R2Store:
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ValueError(f"R2 object is not valid JSON: {key}") from error
 
+    def get_json_with_version(self, key: str) -> tuple[Any, str, int] | None:
+        """Read JSON and its version from the same response."""
+
+        def read(response: dict[str, Any]) -> tuple[Any, str, int]:
+            body = response["Body"].read()
+            try:
+                value = json.loads(body)
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise ValueError(f"R2 object is not valid JSON: {key}") from error
+            return value, str(response.get("ETag") or ""), len(body)
+
+        try:
+            return self._read_object(key, read)
+        except ClientError as error:
+            if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404:
+                return None
+            raise
+
     def download_file(
         self,
         key: str,
@@ -1577,7 +1595,8 @@ def _garupa_master_cas_live_roots(
 
 def _collect_cas_live_roots(
     store: R2Store,
-) -> tuple[set[str], set[str], dict[str, str], set[str]]:
+    manifest_cache: dict[str, tuple[str, int, tuple[str, ...]]],
+) -> tuple[set[str], set[str], dict[str, str], set[str], dict[str, int]]:
     """Strictly resolve every manifest, checkpoint, and lease CAS root."""
 
     garupa_live, garupa_manifests, garupa_checkpoint_states = (
@@ -1586,14 +1605,26 @@ def _collect_cas_live_roots(
     live = set(garupa_live)
     server_keys = list(store.iter_keys("servers/"))
     manifests: dict[str, tuple[str, str, str]] = {}
+    versions: dict[str, tuple[object, object]] = {}
     for item in server_keys:
         key = str(item.get("Key") or "")
         identity = _manifest_identity(key)
         if identity is not None:
             kind, server, manifest_id = identity
             manifests[key] = (kind, server, manifest_id)
-    for key, (kind, server, manifest_id) in manifests.items():
-        manifest = store.get_json(key)
+            versions[key] = (item.get("ETag"), item.get("Size"))
+
+    def read_manifest(
+        item: tuple[str, tuple[str, str, str]],
+    ) -> tuple[str, tuple[str, int, tuple[str, ...]], bool]:
+        key, (kind, server, manifest_id) = item
+        cached = manifest_cache.get(key)
+        if cached and cached[0] and versions[key] == cached[:2]:
+            return key, cached, True
+        result = store.get_json_with_version(key)
+        if result is None:
+            raise ValueError(f"refusing CAS garbage collection: missing manifest: {key}")
+        manifest, etag, byte_count = result
         try:
             records = (
                 _validate_release_manifest_for_gc(
@@ -1614,8 +1645,16 @@ def _collect_cas_live_roots(
             raise ValueError(
                 f"refusing CAS garbage collection: {key}: {error}"
             ) from error
-        for record in records:
-            live.add(cas_key(record["sha256"]))
+        roots = tuple(sys.intern(cas_key(record["sha256"])) for record in records)
+        return key, (etag, byte_count, roots), False
+
+    reused = 0
+    # Bound simultaneous JSON bodies while overlapping independent R2 reads.
+    with ThreadPoolExecutor(max_workers=min(store.concurrency, 4)) as executor:
+        for key, cached, was_reused in executor.map(read_manifest, manifests.items()):
+            manifest_cache[key] = cached
+            live.update(cached[2])
+            reused += was_reused
 
     checkpoint_keys: list[str] = []
     for item in server_keys:
@@ -1675,6 +1714,7 @@ def _collect_cas_live_roots(
         set(manifests).union(garupa_manifests),
         checkpoint_states,
         set(lease_keys),
+        {"reads": len(manifests) - reused, "reused": reused},
     )
 
 
@@ -1690,7 +1730,10 @@ def garbage_collect_cas(
         raise ValueError("minimum CAS garbage age must be at least one hour")
     if shard is not None and not re.fullmatch(r"[a-f0-9]{2}", shard):
         raise ValueError("CAS sweep shard must be two lowercase hexadecimal characters")
-    live, manifests, checkpoint_states, lease_keys = _collect_cas_live_roots(store)
+    manifest_cache: dict[str, tuple[str, int, tuple[str, ...]]] = {}
+    live, manifests, checkpoint_states, lease_keys, initial_reads = _collect_cas_live_roots(
+        store, manifest_cache,
+    )
 
     candidates: dict[str, tuple[datetime, int, str]] = {}
     cutoff = datetime.now(timezone.utc) - timedelta(hours=minimum_age_hours)
@@ -1719,8 +1762,8 @@ def garbage_collect_cas(
     # A different server can publish into the shared bucket while this sweep is
     # running. Preserve both snapshots: a root disappearing concurrently must
     # never make an object less live during the current collection pass.
-    refreshed_live, refreshed_manifests, refreshed_checkpoints, refreshed_leases = (
-        _collect_cas_live_roots(store)
+    refreshed_live, refreshed_manifests, refreshed_checkpoints, refreshed_leases, refreshed_reads = (
+        _collect_cas_live_roots(store, manifest_cache)
     )
     live.update(refreshed_live)
     manifests.update(refreshed_manifests)
@@ -1776,6 +1819,8 @@ def garbage_collect_cas(
         "shard": shard,
         "scannedObjects": scanned,
         "manifestCount": len(manifests),
+        "manifestReads": initial_reads["reads"] + refreshed_reads["reads"],
+        "reusedManifests": refreshed_reads["reused"],
         "checkpointCount": len(checkpoint_states),
         "uploadingCheckpointCount": sum(
             state == "uploading" for state in checkpoint_states.values()

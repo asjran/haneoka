@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - main
+    # Resource producers refresh pages after publishing an immutable release.
+    paths:
+      - "**"
+      - "!scripts/**/*.py"
+      - "scripts/build/icon_sprite.py"
+      - "!scripts/requirements.txt"
+      - "!.github/workflows/resource-*.yml"
+      - "!.github/actions/setup-resource-pipeline/**"
+      - "!.github/workflows/home-spot-repair.yml"
   workflow_dispatch:
     inputs:
       apply_d1_migrations:
