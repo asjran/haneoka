@@ -405,7 +405,9 @@ def _archive_records(file: Path) -> dict[str, dict[str, dict[str, Any]]]:
     return dict(records)
 
 
-def _discover_shared_fx_records(layout, sources: list[dict[str, Any]]) -> dict[str, dict[tuple[str, str], str]]:
+def _discover_shared_fx_records(
+    layout, sources: list[dict[str, Any]], delta: "DeltaContext | None" = None,
+) -> dict[str, dict[tuple[str, str], str]]:
     """Resolve the shared renderer graph from this build's actual declared object identities."""
     available = {source["sourcePath"]: source for source in sources if source["sourcePath"] in FX_SHARED_RUNTIME_SOURCES}
     prefabs = set(available) & FX_SHARED_PREFAB_PARTICLE_PATHS.keys()
@@ -425,6 +427,8 @@ def _discover_shared_fx_records(layout, sources: list[dict[str, Any]]) -> dict[s
             digest = source["selectedBundle"]
             archive = layout.objects / "unity" / f"{digest}.jsonl.gz"
             declared = source["objectArchive"]
+            if not archive.is_file() and delta is not None and delta.reusable(digest):
+                delta.fetch_archive(digest, archive)
             if (declared.get("path") != f"objects/unity/{digest}.jsonl.gz" or
                     not archive.is_file() or archive.stat().st_size != declared.get("bytes") or
                     sha256_file(archive) != declared.get("sha256")):
@@ -572,7 +576,7 @@ def _runtime_projections(
     identity before any of its fields are trusted.
     """
 
-    fx_records = _discover_shared_fx_records(layout, sources)
+    fx_records = _discover_shared_fx_records(layout, sources, delta)
     fx_selection_documents = {
         path: [{"serializedFile": owner, "pathId": identity, "type": kind}
                for (owner, identity), kind in sorted(records.items())]
@@ -646,6 +650,8 @@ def _runtime_projections(
         if not pending_sources:
             continue
         archive_path = layout.objects / "unity" / f"{digest}.jsonl.gz"
+        if not archive_path.is_file() and delta is not None and delta.reusable(digest):
+            delta.fetch_archive(digest, archive_path)
         if not archive_path.is_file():
             raise ValueError(
                 f"runtime projection policy requires the original local object archive: {digest}; "
