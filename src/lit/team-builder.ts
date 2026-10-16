@@ -315,7 +315,6 @@ export class TeamBuilder extends LitElement {
   }
   setTab(tab: Tab) {
     this.tab = tab;
-    this.settings = this.compatibleSettings(this.settings);
     this.requestUpdate();
     void this.updateComplete.then(() => this.querySelector<HTMLElement>(".tb-tabpanel")?.focus({ preventScroll: true }));
   }
