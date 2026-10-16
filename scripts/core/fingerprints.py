@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 import json
 import subprocess
+import ast
+import re
 from pathlib import Path
+from typing import Callable
 
 from core.config import ServerConfig
 from core.contracts import PIPELINE_CONTRACT
@@ -68,6 +71,28 @@ def _output_configuration(config: ServerConfig) -> dict[str, object]:
     }
 
 
+def resource_build_options() -> dict[str, bool]:
+    raw = os.environ.get("HANEOKA_RESOURCE_BUILD_OPTIONS")
+    if raw is None:
+        return {"ktx2": False, "basisReencode": False, "live2dBc7": False}
+    def unique_pairs(pairs: list[tuple[str, object]]) -> dict:
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("HANEOKA_RESOURCE_BUILD_OPTIONS repeats an output option")
+            result[key] = value
+        return result
+    try:
+        value = json.loads(raw, object_pairs_hook=unique_pairs)
+    except json.JSONDecodeError:
+        raise ValueError("HANEOKA_RESOURCE_BUILD_OPTIONS must be a JSON object of boolean output options") from None
+    if (not isinstance(value, dict) or not {"ktx2", "basisReencode"} <= set(value)
+            or set(value) - {"ktx2", "basisReencode", "live2dBc7"}
+            or any(type(option) is not bool for option in value.values())):
+        raise ValueError("HANEOKA_RESOURCE_BUILD_OPTIONS requires boolean ktx2 and basisReencode, with optional boolean live2dBc7")
+    return {"live2dBc7": False, **value}
+
+
 def build_fingerprint(project_root: Path, config: ServerConfig) -> str:
     files = _files(project_root)
     payload = "".join(
@@ -111,6 +136,264 @@ def build_fingerprint(project_root: Path, config: ServerConfig) -> str:
         if set(external_inputs) != set(chart_repositories):
             raise ValueError("chart dependency Git submodule pins are incomplete")
     configuration = stable_json(
-        {**_output_configuration(config), "chartRepositories": external_inputs}
+        {**_output_configuration(config), "chartRepositories": external_inputs,
+         "outputOptions": resource_build_options(),
+         "stageRecipes": {stage: stage_recipe(project_root, config, stage)["fingerprint"]
+                          for stage in STAGE_ROOTS}}
     )
     return sha256_bytes(f"{PIPELINE_CONTRACT}\n{configuration}{payload}")
+
+
+# A release identity covers the whole build. Reuse identities cover the producer
+# of one stage, so a chart/API or optional stamp change does not decode Unity again.
+STAGE_RECIPE_SCHEMA = "haneoka-stage-recipe-v1"
+STAGE_ROOTS = {
+    "unity": ("extract/unity.py", "ingest/bundle_crypto.py"),
+    "cri": ("extract/cri.py",),
+    "live2d": ("build/live2d.py",),
+    "spine": ("build/spine.py",),
+    "home-spots": ("build/home_spots.py",),
+    "ktx2": ("build/ktx2.py",),
+}
+_RECIPE_INFRASTRUCTURE = {
+    "core/config.py", "core/private_config.py", "core/storage.py",
+    "core/delta.py", "core/fingerprints.py", "extract/unity_reuse.py",
+}
+_UNITY_PACKAGES = {
+    "unitypy", "pillow", "texture2ddecoder", "lz4", "brotli", "etcpak",
+    "astc-encoder-py", "pycryptodome", "fsspec", "attrs", "fmod-toolkit",
+}
+_STAGE_PACKAGES = {
+    "unity": _UNITY_PACKAGES,
+    "cri": {"wannacri", "pycryptodome"},
+    "live2d": _UNITY_PACKAGES | {"numpy"},
+    "spine": _UNITY_PACKAGES | {"numpy"},
+    "home-spots": _UNITY_PACKAGES | {"numpy"},
+    "ktx2": _UNITY_PACKAGES,
+}
+
+
+def _stage_sources(read: Callable[[str], bytes | None], stage: str) -> dict[str, str]:
+    """Hash the local Python import closure, including imports inside functions."""
+
+    roots = STAGE_ROOTS.get(stage)
+    if roots is None:
+        raise ValueError(f"unknown pipeline recipe stage: {stage}")
+    pending = list(roots)
+    sources: dict[str, str] = {}
+    while pending:
+        relative = pending.pop()
+        if relative in sources or relative in _RECIPE_INFRASTRUCTURE:
+            continue
+        body = read("scripts/" + relative)
+        if body is None:
+            raise FileNotFoundError(f"pipeline stage source is missing: {relative}")
+        sources[relative] = sha256_bytes(body)
+        tree = ast.parse(body)
+        for node in ast.walk(tree):
+            modules: list[str] = []
+            if isinstance(node, ast.Import):
+                modules = [value.name for value in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                base = node.module or ""
+                if node.level:
+                    parent = relative.split("/")[:-node.level]
+                    base = ".".join([*parent, base]).strip(".")
+                modules = [base, *(f"{base}.{value.name}" for value in node.names)]
+            for module in modules:
+                candidate = module.replace(".", "/")
+                for imported in (candidate + ".py", candidate + "/__init__.py"):
+                    if read("scripts/" + imported) is not None:
+                        pending.append(imported)
+    return dict(sorted(sources.items()))
+
+
+def stage_options(stage: str, options: dict | None = None) -> dict[str, bool]:
+    output_options = resource_build_options()
+    defaults = ({"includeBc7": output_options["live2dBc7"]} if stage == "live2d" else
+                {"basisReencode": output_options["basisReencode"]} if stage == "ktx2" else {})
+    if options is not None and (set(options) - set(defaults)
+                                or any(type(value) is not bool for value in options.values())):
+        raise ValueError(f"invalid {stage} producer options")
+    return {**defaults, **(options or {})}
+
+
+def _stage_recipe(read: Callable[[str], bytes | None], config: ServerConfig, stage: str, options: dict | None) -> dict:
+    normalized_options = stage_options(stage, options)
+    sources = _stage_sources(read, stage)
+    requirements = (read("scripts/requirements.txt") or b"").decode("utf-8")
+    # Keep package pins and all wheel hashes for the selected producer libraries.
+    pins, dependencies = {}, {}
+    name = None
+    for line in requirements.splitlines():
+        match = re.match(r"^([A-Za-z0-9_.-]+)==", line)
+        if match:
+            name = match[1].lower().replace("_", "-")
+            pins[name] = [line.strip()]
+            dependencies[name] = set()
+        elif name in pins and line.strip().startswith("--hash="):
+            pins[name].append(line.strip())
+        elif name in dependencies and line.strip().startswith("#"):
+            parent = line.strip().removeprefix("#").strip().removeprefix("via ")
+            if re.fullmatch(r"[A-Za-z0-9_.-]+", parent):
+                dependencies[name].add(parent.lower().replace("_", "-"))
+    selected = set(_STAGE_PACKAGES[stage])
+    while True:
+        expanded = selected | {name for name, parents in dependencies.items() if parents & selected}
+        if expanded == selected:
+            break
+        selected = expanded
+    pins = {name: pin for name, pin in pins.items() if name in selected}
+    configuration = {"server": config.id, "platform": config.platform, "unityVersion": config.unity_version}
+    if stage == "unity":
+        configuration["bundleCrypto"] = config.bundle_crypto
+    if stage == "cri":
+        configuration["criHcaKey"] = config.cri_hca_key
+    if stage == "ktx2":
+        configured = resource_build_options()
+        configuration["outputOptions"] = {name: configured[name] for name in ("ktx2", "basisReencode")}
+    extras = {}
+    if stage == "live2d":
+        body = read("config/cubism-runtime.lock.json")
+        if body is None:
+            raise FileNotFoundError("Cubism runtime lock is missing")
+        extras["cubism"] = sha256_bytes(body)
+    if stage in {"live2d", "spine"}:
+        package = json.loads(read("package.json") or b"{}")
+        dependencies = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
+        extras["rendererPackages"] = {
+            name: version for name, version in dependencies.items()
+            if name in {"three", "@esotericsoftware/spine-threejs", "@esotericsoftware/spine-core", "puppeteer-core"}
+        }
+        lock = (read("pnpm-lock.yaml") or b"").decode("utf-8")
+        records = []
+        selected_record = False
+        for line in lock.splitlines():
+            if line and not line.startswith(" "):
+                selected_record = False
+            elif re.match(r"^  \S", line):
+                selected_record = bool(re.match(
+                    r"^  ['\"]?(?:three|@esotericsoftware/spine-(?:threejs|core)|esbuild)@", line))
+            if selected_record:
+                records.append(line.rstrip())
+        extras["rendererLock"] = records
+        extras["preview"] = "off" if os.environ.get("HANEOKA_MODEL_PREVIEW_POLICY") == "off" else "enabled"
+    setup = (read(".github/actions/setup-resource-pipeline/action.yml") or b"").decode("utf-8")
+    extras["python"] = re.findall(r"python-version:\s*['\"]?([0-9.]+)", setup)
+    workflow = (read(".github/workflows/resource-pipeline-run.yml") or b"").decode("utf-8")
+    if stage == "cri":
+        extras["vgmstream"] = sorted(set(re.findall(r"vgmstream/releases/download/([^/\s]+)/([^\s]+)", workflow)))
+    if stage in {"live2d", "ktx2"}:
+        extras["ktx"] = sorted(set(re.findall(r"KTX-Software/releases/download/([^/\s]+)/([^\s]+)", workflow)))
+        lines = workflow.splitlines()
+        extras["ktxArchiveSha256"] = sorted({digest for index, line in enumerate(lines)
+            if "KTX-Software/releases/download/" in line
+            for digest in re.findall(r"\b[a-f0-9]{64}\b", "\n".join(lines[index:index + 4]))})
+    payload = {"schema": STAGE_RECIPE_SCHEMA, "stage": stage, "sources": sources,
+               "configuration": configuration, "packages": pins, "tools": extras, "options": normalized_options}
+    return {"schema": STAGE_RECIPE_SCHEMA, "stage": stage,
+            "fingerprint": sha256_bytes(stable_json(payload)), "options": normalized_options}
+
+
+def stage_recipe(project_root: Path, config: ServerConfig, stage: str, options: dict | None = None) -> dict:
+    def read(relative: str) -> bytes | None:
+        file = project_root / relative
+        return file.read_bytes() if file.is_file() else None
+
+    return _stage_recipe(read, config, stage, options)
+
+
+def pipeline_producer(project_root: Path, config: ServerConfig) -> dict:
+    """Capture producer identity when assembling, independently of publication."""
+
+    receipt = {"schema": "haneoka-pipeline-producer-v1", "server": config.id,
+               "pipelineFingerprint": build_fingerprint(project_root, config)[:16]}
+    root = subprocess.run(["git", "-C", str(project_root), "rev-parse", "--show-toplevel"],
+                          capture_output=True, text=True, check=False)
+    if root.returncode == 0 and Path(root.stdout.strip()).resolve() == project_root.resolve():
+        clean = subprocess.run(["git", "-C", str(project_root), "diff", "--quiet", "HEAD", "--", *BUILD_INPUTS], check=False)
+        if clean.returncode == 0:
+            revision = subprocess.run(["git", "-C", str(project_root), "rev-parse", "HEAD"],
+                                      capture_output=True, text=True, check=True).stdout.strip()
+            receipt["producerGitSha"] = revision
+    return receipt
+
+
+def legacy_stage_recipes(project_root: Path, config: ServerConfig, pointer: dict) -> dict[str, dict]:
+    """Adopt legacy output only with matching full identity or verified Git producer."""
+
+    if pointer.get("pipelineFingerprint") == build_fingerprint(project_root, config)[:16]:
+        return {"unity": stage_recipe(project_root, config, "unity"),
+                "_proof": {"method": "exact-global-fingerprint", "pipelineFingerprint": pointer["pipelineFingerprint"]}}
+    revision = pointer.get("producerGitSha")
+    if isinstance(revision, str) and re.fullmatch(r"[a-f0-9]{40}", revision):
+        revisions = [revision]
+    else:
+        history = subprocess.run(["git", "-C", str(project_root), "log", "-16", "--format=%H"],
+                                 capture_output=True, text=True, check=False)
+        revisions = history.stdout.splitlines() if history.returncode == 0 else []
+    for candidate in revisions:
+        result = _legacy_stage_recipes_at_revision(project_root, config, pointer, candidate)
+        if result:
+            return result
+    return {}
+
+
+def _legacy_stage_recipes_at_revision(project_root: Path, config: ServerConfig, pointer: dict, revision: str) -> dict[str, dict]:
+    cache: dict[str, bytes | None] = {}
+
+    def read(relative: str) -> bytes | None:
+        if relative not in cache:
+            result = subprocess.run(["git", "-C", str(project_root), "show", f"{revision}:{relative}"],
+                                    capture_output=True, check=False)
+            cache[relative] = result.stdout if result.returncode == 0 else None
+        return cache[relative]
+
+    # Reconstruct the known legacy fingerprint with the current output settings;
+    # this also proves the producer used the same crypto and chart dependency pins.
+    module = read("scripts/core/fingerprints.py")
+    if module is None:
+        return {}
+    tree = ast.parse(module)
+    functions = [ast.dump(node, include_attributes=False) for node in tree.body
+                 if isinstance(node, ast.FunctionDef) and node.name in {"_files", "_output_configuration", "build_fingerprint"}]
+    if sha256_bytes("\n".join(functions)) != "0f956bbc9fc1d6858f3769854a6d02a5c57726fcb5f6078b794616afddb06883":
+        return {}
+    constants = {node.targets[0].id: ast.literal_eval(node.value) for node in tree.body
+                 if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+                 and node.targets[0].id in {"BUILD_INPUTS", "IGNORED_PARTS", "OPERATIONAL_INPUTS"}}
+    listing = subprocess.run(["git", "-C", str(project_root), "ls-tree", "-r", "--name-only", revision],
+                             capture_output=True, text=True, check=False)
+    if listing.returncode:
+        return {}
+    paths = sorted(path for path in listing.stdout.splitlines()
+                   if any(path == root or path.startswith(root + "/") for root in constants["BUILD_INPUTS"])
+                   and not any(part in constants["IGNORED_PARTS"] for part in Path(path).parts)
+                   and not path.endswith(".pyc") and path not in constants["OPERATIONAL_INPUTS"])
+    lock = read("config/external-repositories.lock.json")
+    names = ("cassiopeia", "cassiopeia-plugin-our-notes", "cassiopeia-plugin-sonolus")
+    if lock is None:
+        links = subprocess.run(["git", "-C", str(project_root), "ls-tree", revision, "--",
+                                *(f".dependencies/{name}" for name in names)],
+                               capture_output=True, text=True, check=False)
+        repositories = {}
+        for entry in links.stdout.splitlines():
+            metadata, path = entry.split("\t", 1)
+            mode, kind, commit = metadata.split()
+            if mode != "160000" or kind != "commit":
+                return {}
+            repositories[path.removeprefix(".dependencies/")] = commit
+        if set(repositories) != set(names):
+            return {}
+    else:
+        repositories = {entry["name"]: entry["commit"] for entry in json.loads(lock)["repositories"]}
+    configuration = stable_json({**_output_configuration(config), "chartRepositories": {name: repositories[name] for name in names}})
+    contracts = ast.parse(read("scripts/core/contracts.py") or b"")
+    contract = next((ast.literal_eval(node.value) for node in contracts.body if isinstance(node, ast.Assign)
+                     and any(isinstance(target, ast.Name) and target.id == "PIPELINE_CONTRACT" for target in node.targets)), None)
+    payload = "".join(f"{path}:{sha256_bytes(read(path))}\n" for path in paths)
+    if sha256_bytes(f"{contract}\n{configuration}{payload}")[:16] != pointer.get("pipelineFingerprint"):
+        return {}
+    return {"unity": _stage_recipe(read, config, "unity", None),
+            "_proof": {"method": "verified-legacy-git-producer", "producerGitSha": revision,
+                       "pipelineFingerprint": pointer["pipelineFingerprint"]}}

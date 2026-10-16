@@ -12,6 +12,8 @@ from uuid import uuid4
 from build.catalog_storage import compile_catalog_storage, compile_source_index_storage
 from build.game_client import assemble_game_client
 from core.manifests import read_json, write_json
+from core.config import PROJECT_ROOT, load_server_config
+from core.fingerprints import pipeline_producer
 from core.paths import build_layout, server_layout
 from core.paths import validate_release_path
 from core.process import hardlink_or_copy, walk_files
@@ -311,6 +313,8 @@ def _base_fill_entries(
 
 def assemble_release(server: str, source_id: str, build_id: str, base_manifest: dict | None = None) -> dict:
     build = build_layout(server, build_id)
+    write_json(build.metadata / "pipeline-recipes" / "pipeline.json",
+               pipeline_producer(PROJECT_ROOT, load_server_config(server)), pretty=True)
     staging_parent = server_layout(server).releases / ".staging"
     staging: Path | None = staging_parent / f"{build_id}-{uuid4().hex}"
     staging.mkdir(parents=True)

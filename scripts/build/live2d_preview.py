@@ -57,6 +57,21 @@ _MAX_PREVIEW_BASE64_BYTES = 4 * ((_MAX_PREVIEW_PNG_BYTES + 2) // 3)
 _MAX_PREVIEW_POST_BYTES = 12 * 1024 * 1024
 
 
+def cubism_preview_runtime() -> tuple[str, str, list[dict[str, Any]]]:
+    """Identify the pinned renderer even when its local provision is absent."""
+
+    lock_file = PROJECT_ROOT / "config" / "cubism-runtime.lock.json"
+    lock = json.loads(lock_file.read_text("utf-8"))
+    records = lock["files"]
+    modules = [entry for entry in records if entry["source"] == "Framework/vega-cubism-web-runtime.mjs"]
+    if len(modules) != 1:
+        raise ValueError("Cubism runtime lock must identify exactly one preview renderer")
+    target = modules[0]["target"]
+    if not isinstance(target, str) or not target.startswith("public/cubism-runtime/") or _safe_relative(target) is None:
+        raise ValueError("Cubism preview renderer must be inside the pinned public runtime")
+    return sha256_file(lock_file), "/" + target.removeprefix("public/"), records
+
+
 def _safe_relative(value: str) -> PurePosixPath | None:
     path = PurePosixPath(value.replace("\\", "/").strip("/"))
     if not path.parts or path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
@@ -163,6 +178,7 @@ class _PreviewServer:
     layout_root: Path
     public_root: Path
     server: str
+    runtime_url: str
     _states: dict[str, dict[str, Any]] = field(default_factory=dict)
     _condition: threading.Condition = field(default_factory=threading.Condition)
     _http: ThreadingHTTPServer | None = None
@@ -201,7 +217,7 @@ class _PreviewServer:
             def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
                 path = urlsplit(self.path).path
                 if path == "/__haneoka_live2d_preview.html":
-                    content = _PREVIEW_PAGE.encode("utf-8")
+                    content = _PREVIEW_PAGE.replace("__CUBISM_PREVIEW_RUNTIME_URL__", parent.runtime_url).encode("utf-8")
                     self.send_response(HTTPStatus.OK)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", str(len(content)))
@@ -302,7 +318,7 @@ _PREVIEW_PAGE = f"""<!doctype html>
 <canvas id="preview" width="{PREVIEW_RENDER_SIZE}" height="{PREVIEW_RENDER_SIZE}"></canvas>
 <script src="/Core/live2dcubismcore.js"></script>
 <script type="module">
-  import {{ CubismModelViewer }} from "/cubism-runtime/vega-cubism-web-runtime.mjs";
+  import {{ CubismModelViewer }} from "__CUBISM_PREVIEW_RUNTIME_URL__";
   const params = new URLSearchParams(location.search);
   const key = params.get("key") || "";
   const modelUrl = params.get("model") || "";
@@ -704,20 +720,6 @@ def build_live2d_previews(
     if policy == "off":
         _prune_preview_outputs(preview_root, set())
         return unavailable, {"restored": 0, "failed": 0}
-    chrome = _chrome_binary()
-    provision = PROJECT_ROOT / "public" / "cubism-runtime" / "vega-cubism-web-runtime.mjs"
-    if not chrome or not provision.is_file():
-        _prune_preview_outputs(preview_root, set())
-        if policy == "required":
-            missing = "Chrome" if not chrome else "Cubism web runtime provision"
-            raise RuntimeError(f"Live2D preview rendering requires {missing}")
-        reason = "headless-chrome-unavailable" if not chrome else "cubism-runtime-unavailable"
-        return {key: {"status": "unavailable", "reason": reason} for key in models}, {
-            "restored": 0,
-            "failed": 0,
-        }
-
-    workers = max(1, min(4, int(os.environ.get(PREVIEW_WORKERS_ENV, "3") or "3")))
     preview_root.mkdir(parents=True, exist_ok=True)
     result = _cached_previews(layout, server, source_id, models, identities)
     restored, reuse_summary = _reusable_previews(
@@ -729,8 +731,28 @@ def build_live2d_previews(
     _prune_preview_outputs(preview_root, set(models))
     if len(result) == len(models):
         return {key: result[key] for key in models}, reuse_summary
+    chrome = _chrome_binary()
+    _, runtime_url, runtime_files = cubism_preview_runtime()
+    provisioned = all(
+        (PROJECT_ROOT / entry["target"]).is_file()
+        and (PROJECT_ROOT / entry["target"]).stat().st_size == entry["bytes"]
+        and sha256_file(PROJECT_ROOT / entry["target"]) == entry["sha256"]
+        for entry in runtime_files
+    )
+    if not chrome or not provisioned:
+        _prune_preview_outputs(preview_root, set(result))
+        if policy == "required":
+            missing = "Chrome" if not chrome else "Cubism web runtime provision"
+            raise RuntimeError(f"Live2D preview rendering requires {missing}")
+        reason = "headless-chrome-unavailable" if not chrome else "cubism-runtime-unavailable"
+        return {
+            key: result.get(key, {"status": "unavailable", "reason": reason})
+            for key in models
+        }, reuse_summary
+
+    workers = max(1, min(4, int(os.environ.get(PREVIEW_WORKERS_ENV, "3") or "3")))
     with tempfile.TemporaryDirectory(prefix="haneoka-live2d-preview-") as temp_dir, _PreviewServer(
-        layout.root, PROJECT_ROOT / "public", server
+        layout.root, PROJECT_ROOT / "public", server, runtime_url
     ) as preview_server:
         temporary = Path(temp_dir)
         with ThreadPoolExecutor(max_workers=workers) as executor:

@@ -64,6 +64,7 @@ env:
   PIPELINE_STAGE_BUCKET: hotdori-assets
   PIPELINE_STAGE_PREFIX: private/resource-pipeline-stage/${{ github.run_id }}/${{ inputs.server }}
   PYTHONPATH: scripts
+  HANEOKA_RESOURCE_BUILD_OPTIONS: '{"ktx2":${{ inputs.ktx2 }},"basisReencode":${{ inputs.basis_reencode }}}'
 
 jobs:
   prepare:
@@ -81,6 +82,7 @@ jobs:
       shard_matrix: ${{ steps.identity.outputs.shard_matrix }}
       shard_archives: ${{ steps.stage_shards.outputs.available }}
       skip: ${{ steps.source_input.outputs.skip }}
+      deferred: ${{ steps.source_input.outputs.deferred }}
       delta: ${{ steps.unity_reuse.outputs.delta }}
       base_release_id: ${{ steps.unity_reuse.outputs.base_release_id }}
       pending_by_shard: ${{ steps.unity_reuse.outputs.pending_by_shard }}
@@ -93,6 +95,8 @@ jobs:
       JP_VERSION_SUBSCRIPTION: ${{ secrets.jp_version_subscription }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - uses: ./.github/actions/setup-resource-pipeline
       - name: Start JP API egress proxy
         if: startsWith(inputs.server, 'jp') && env.JP_VERSION_SUBSCRIPTION != ''
@@ -102,12 +106,44 @@ jobs:
       - name: Materialize source input
         id: source_input
         run: |
+          run_live() {
+            local output="$1"
+            shift
+            local status=0
+            "$@" > "$output" || status=$?
+            if [[ "$status" == 124 ]]; then
+              jq -n --arg server "$RESOURCE_SERVER" \
+                '{server:$server,available:false,status:"unavailable",reason:"timeout",message:"Live discovery timed out"}' \
+                > "$output"
+              status=75
+            fi
+            if [[ "$status" == 75 ]]; then
+              current_json="$(python scripts/pipeline.py --server "$RESOURCE_SERVER" current-package)"
+              if ! jq -e '.available == true and (.sourceId | type == "string" and length > 0)' \
+                <<< "$current_json" > /dev/null; then
+                echo "Live discovery is unavailable and no published source can be retained" >&2
+                cat "$output" >&2
+                exit 1
+              fi
+              reason="$(jq -er '.reason' "$output")"
+              printf '%s\n' "$current_json" > "$RUNNER_TEMP/source.json"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "deferred=true" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Resource discovery deferred::$RESOURCE_SERVER: $reason; published release retained"
+              printf '### %s resources\n\nLive discovery deferred: %s. The published release is retained.\n' \
+                "$RESOURCE_SERVER" "$reason" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            return "$status"
+          }
           if [[ -n "$SOURCE_ID_INPUT" ]]; then
             python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source \
               --source "$SOURCE_ID_INPUT" --role package --role master-manifest --role master-data > "$RUNNER_TEMP/source.json"
           else
-            python scripts/pipeline.py --server "$RESOURCE_SERVER" resolve-server \
+            run_live "$RUNNER_TEMP/resolved-resource-summary.json" \
+              python scripts/pipeline.py --server "$RESOURCE_SERVER" --defer-unavailable resolve-server \
               --output "$RUNNER_TEMP/resolved-resource-config.json" --mask-github
+            cat "$RUNNER_TEMP/resolved-resource-summary.json"
             unset RESOURCE_PIPELINE_CONFIG
             export RESOURCE_PIPELINE_CONFIG_FILE="$RUNNER_TEMP/resolved-resource-config.json"
             echo "RESOURCE_PIPELINE_CONFIG=" >> "$GITHUB_ENV"
@@ -143,16 +179,14 @@ jobs:
                 # With the package unchanged, fresh catalogs and Master data
                 # decide the source identity without transferring the package.
                 identity_json=""
-                if [[ "${{ inputs.force }}" != "true" ]]; then
-                  if ! identity_json="$(timeout --kill-after=10s 5m python scripts/pipeline.py --server "$RESOURCE_SERVER" probe-identity)"; then
-                    # A live catalog/Master failure cannot be repaired by
-                    # transferring the unchanged package and probing it again.
-                    if [[ "$(python -m core.config --server "$RESOURCE_SERVER" --field has-master)" == "true" ]]; then
-                      echo "Live source discovery failed or exceeded 5 minutes; retaining the published release" >&2
-                      exit 1
-                    fi
-                    identity_json=""
-                  fi
+                identity_status=0
+                run_live "$RUNNER_TEMP/live-identity.json" \
+                  timeout --kill-after=10s 5m python scripts/pipeline.py --server "$RESOURCE_SERVER" \
+                  --defer-unavailable probe-identity || identity_status=$?
+                if [[ "$identity_status" == 0 ]]; then
+                  identity_json="$(cat "$RUNNER_TEMP/live-identity.json")"
+                elif [[ "$(python -m core.config --server "$RESOURCE_SERVER" --field has-master)" == "true" ]]; then
+                  exit "$identity_status"
                 fi
                 if [[ -n "$identity_json" ]]; then
                   probed_source="$(printf '%s' "$identity_json" | jq -r .sourceId)"
@@ -162,11 +196,18 @@ jobs:
                   if aws s3 cp                       "s3://$PIPELINE_STAGE_BUCKET/servers/$RESOURCE_SERVER/current.json"                       "$RUNNER_TEMP/current-pointer.json"                       --endpoint-url "$stage_endpoint" --region auto --no-progress 2>/dev/null; then
                     current_source="$(jq -r .sourceId "$RUNNER_TEMP/current-pointer.json")"
                     current_fingerprint="$(jq -r '.pipelineFingerprint // empty' "$RUNNER_TEMP/current-pointer.json")"
-                    if [[ "$current_source" == "$probed_source" && "$current_fingerprint" == "$wanted_fingerprint" ]]; then
+                    if [[ "$current_source" == "$probed_source" && "$current_fingerprint" == "$wanted_fingerprint" && "${{ inputs.force }}" != "true" ]]; then
                       echo "Source identity unchanged without any package transfer; skipping this build"
                       printf '%s\n' "$identity_json" > "$RUNNER_TEMP/source-probe.json"
                       cp "$RUNNER_TEMP/source-probe.json" "$RUNNER_TEMP/source.json"
                       echo "skip=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                    fi
+                    if [[ "$current_source" == "$probed_source" ]]; then
+                      echo "Reusing the immutable source for the requested derivative build"
+                      python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-source \
+                        --source "$probed_source" --role package --role master-manifest --role master-data \
+                        > "$RUNNER_TEMP/source.json"
                       exit 0
                     fi
                   fi
@@ -199,8 +240,9 @@ jobs:
             fi
             python scripts/pipeline.py --server "$RESOURCE_SERVER" fetch-package \
               --key "$PACKAGE_R2_KEY" --output "$RUNNER_TEMP/package-input"
-            timeout --kill-after=10s 10m python scripts/pipeline.py --server "$RESOURCE_SERVER" probe-source \
-              --input "$RUNNER_TEMP/package-input" > "$RUNNER_TEMP/source-probe.json"
+            run_live "$RUNNER_TEMP/source-probe.json" \
+              timeout --kill-after=10s 10m python scripts/pipeline.py --server "$RESOURCE_SERVER" \
+              --defer-unavailable probe-source --input "$RUNNER_TEMP/package-input"
             probed_source="$(jq -r .sourceId "$RUNNER_TEMP/source-probe.json")"
             wanted_build="$(python scripts/pipeline.py --server "$RESOURCE_SERVER" build-id \
               --source "$probed_source" | jq -r .buildId)"
@@ -234,8 +276,9 @@ jobs:
                 ingest_extra+=(--base-source "$current_source_id")
               fi
             fi
-            if ! python scripts/pipeline.py --server "$RESOURCE_SERVER" ingest \
-              --input "$RUNNER_TEMP/package-input" --concurrency 32 "${ingest_extra[@]}" > "$RUNNER_TEMP/source.json"; then
+            if ! run_live "$RUNNER_TEMP/source.json" \
+              python scripts/pipeline.py --server "$RESOURCE_SERVER" --defer-unavailable ingest \
+              --input "$RUNNER_TEMP/package-input" --concurrency 32 "${ingest_extra[@]}"; then
               if [[ "$(python -m core.config --server "$RESOURCE_SERVER" --field has-master)" == "true" ]]; then
                 echo "Live Master ingestion failed; retaining the published release" >&2
                 exit 1
@@ -255,8 +298,9 @@ jobs:
               fi
               if [[ -s "$RUNNER_TEMP/embedded-catalog.bin" ]]; then
                 export HANEOKA_SOURCE_CATALOG="$RUNNER_TEMP/embedded-catalog.bin"
-                python scripts/pipeline.py --server "$RESOURCE_SERVER" ingest \
-                  --input "$RUNNER_TEMP/package-input" --concurrency 32 "${ingest_extra[@]}" > "$RUNNER_TEMP/source.json"
+                run_live "$RUNNER_TEMP/source.json" \
+                  python scripts/pipeline.py --server "$RESOURCE_SERVER" --defer-unavailable ingest \
+                  --input "$RUNNER_TEMP/package-input" --concurrency 32 "${ingest_extra[@]}"
               else
                 exit 1
               fi
@@ -264,6 +308,7 @@ jobs:
           fi
       - name: Refresh shared CDN credential secret
         # The active build already has its credential; refresh is best effort.
+        if: steps.source_input.outputs.skip != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.secret_writer_gh_token }}
@@ -307,7 +352,7 @@ jobs:
           fi
       - name: Prepare Unity bundle reuse
         id: unity_reuse
-        if: steps.source_input.outputs.skip != 'true' && inputs.source_id == '' && inputs.no_reuse != true
+        if: steps.source_input.outputs.skip != 'true' && inputs.no_reuse != true
         continue-on-error: true
         run: |
           SOURCE_ID="${{ steps.identity.outputs.source_id }}"
@@ -524,7 +569,7 @@ jobs:
       release_promoted: ${{ steps.publish_release.outputs.release_promoted }}
     env:
       RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
-      HANEOKA_MODEL_PREVIEW_POLICY: required
+      HANEOKA_MODEL_PREVIEW_POLICY: optional
       HANEOKA_MODEL_PREVIEW_WORKERS: "4"
     steps:
       - uses: actions/checkout@v7
@@ -560,6 +605,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/setup-resource-pipeline
       - name: Provision licensed Cubism runtime
+        continue-on-error: true
         uses: ./.github/actions/setup-cubism-runtime
       - name: Install FFmpeg
         run: |
@@ -843,6 +889,7 @@ jobs:
   announcements:
     name: Refresh operational announcements
     needs: [prepare]
+    if: needs.prepare.outputs.deferred != 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/announcements.yml
@@ -867,7 +914,31 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Expire private build stages older than seven days
+        continue-on-error: true
+        run: |
+          endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
+          aws s3api list-objects-v2 \
+            --bucket "$PIPELINE_STAGE_BUCKET" \
+            --prefix private/resource-pipeline-stage/ \
+            --endpoint-url "$endpoint" --region auto \
+            > "$RUNNER_TEMP/pipeline-stages.json"
+          jq -c --argjson cutoff "$(date -u -d '7 days ago' +%s)" '
+            [.Contents[]? |
+              select(.Key | test("^private/resource-pipeline-stage/[0-9]+/(intl|intl-test|jp|jp-cbt|intl-cbt)/")) |
+              select((.LastModified | sub("\\+00:00$"; "Z") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff) |
+              {Key}] |
+            range(0; length; 1000) as $start |
+            {Objects: .[$start:$start + 1000], Quiet: true}
+          ' "$RUNNER_TEMP/pipeline-stages.json" |
+          while IFS= read -r batch; do
+            aws s3api delete-objects \
+              --bucket "$PIPELINE_STAGE_BUCKET" --delete "$batch" \
+              --endpoint-url "$endpoint" --region auto
+          done
       - name: Remove this run's temporary objects
+        if: needs.release.result == 'success'
+        continue-on-error: true
         run: >-
           aws s3 rm
           "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/"

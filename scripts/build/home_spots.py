@@ -1003,8 +1003,6 @@ def build_home_spots(
             if artifact is None:
                 continue
             digest = str(artifact["sha256"])
-            if not delta.reusable(digest):
-                continue
             file = source.root / path
             if not file.is_file():
                 delta.fetch_original_bundle(digest, file)

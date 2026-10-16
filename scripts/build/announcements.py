@@ -23,7 +23,15 @@ from PIL import Image
 from core.config import AnnouncementRegion, ServerConfig, load_server_config
 from core.manifests import read_json, write_json
 from core.paths import build_layout, source_layout
-from ingest.version_api import cdn_authorization, discover_asset_version, proxy_from_env
+from ingest.version_api import (
+    DiscoveryUnavailable,
+    RETRYABLE_HTTP_STATUS,
+    cdn_authorization,
+    curl_transport_error,
+    discover_asset_version,
+    proxy_curl_flags,
+    proxy_from_env,
+)
 
 
 LIST_PATH = "/app.announcement.AnnouncementService/GetList"
@@ -234,6 +242,8 @@ def _parse_header_blocks(data: bytes) -> dict[str, str]:
     status_match = re.match(r"HTTP/\S+\s+(\d{3})(?:\s|$)", status_line)
     if not status_match or status_match.group(1) != "200":
         status = status_match.group(1) if status_match else "unknown"
+        if status_match and int(status) in RETRYABLE_HTTP_STATUS:
+            raise DiscoveryUnavailable("service", f"announcement HTTP status {status}")
         raise RuntimeError(f"announcement HTTP status {status}")
     headers: dict[str, str] = {}
     for block in blocks:
@@ -243,6 +253,8 @@ def _parse_header_blocks(data: bytes) -> dict[str, str]:
             name, value = line.split(":", 1)
             headers[name.strip().lower()] = value.strip()
     if headers.get("grpc-status") != "0":
+        if headers.get("grpc-status") in {"4", "8", "13", "14"}:
+            raise DiscoveryUnavailable("service", f"announcement gRPC status {headers['grpc-status']}")
         raise RuntimeError(
             f"announcement gRPC status {headers.get('grpc-status', 'missing')}"
         )
@@ -301,8 +313,7 @@ def _grpc_body(
         GRPC_USER_AGENT,
         *header_arguments,
     ]
-    if proxy:
-        command_prefix.extend(["--proxy", proxy])
+    command_prefix.extend(proxy_curl_flags(proxy))
     frame = b"\x00" + len(payload).to_bytes(4, "big") + payload
     last_error: RuntimeError | None = None
     for delay in RETRY_DELAYS[: max(1, attempts)]:
@@ -313,32 +324,36 @@ def _grpc_body(
         ) as directory:
             header_file = Path(directory) / "headers"
             body_file = Path(directory) / "body"
-            result = subprocess.run(
-                [
-                    *command_prefix,
-                    "--dump-header",
-                    str(header_file),
-                    "--output",
-                    str(body_file),
-                    "--data-binary",
-                    "@-",
-                    url,
-                ],
-                input=frame,
-                capture_output=True,
-                timeout=35,
-                check=False,
-            )
-            if result.returncode:
-                last_error = RuntimeError(
-                    f"announcement curl transport failed ({result.returncode})"
+            try:
+                result = subprocess.run(
+                    [
+                        *command_prefix,
+                        "--dump-header",
+                        str(header_file),
+                        "--output",
+                        str(body_file),
+                        "--data-binary",
+                        "@-",
+                        url,
+                    ],
+                    input=frame,
+                    capture_output=True,
+                    timeout=35,
+                    check=False,
                 )
+            except subprocess.TimeoutExpired:
+                last_error = DiscoveryUnavailable("timeout", "announcement request timed out")
+                continue
+            if result.returncode:
+                last_error = curl_transport_error("announcement", result.returncode)
+                if not isinstance(last_error, DiscoveryUnavailable):
+                    raise last_error
                 continue
             try:
                 _parse_header_blocks(header_file.read_bytes())
                 return _decode_grpc_frames(body_file.read_bytes())
-            except (OSError, RuntimeError, ValueError) as error:
-                last_error = RuntimeError(str(error))
+            except DiscoveryUnavailable as error:
+                last_error = error
     raise last_error or RuntimeError("announcement request failed")
 
 

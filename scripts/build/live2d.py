@@ -20,7 +20,7 @@ from core.manifests import atomic_write, read_json, stable_json, write_json
 from core.paths import PROJECT_ROOT, build_layout
 from core.process import walk_files
 from core.unity_objects import UnityObjectStore
-from build.live2d_preview import PREVIEW_SCHEMA, build_live2d_previews
+from build.live2d_preview import PREVIEW_SCHEMA, build_live2d_previews, cubism_preview_runtime
 from build.live2d_textures import (
     TextureOutputReference,
     TextureVariantIssue,
@@ -775,6 +775,7 @@ def _preview_input_identity(
     server: str,
     model: dict[str, Any],
     provision_sha256: str,
+    delta: Any = None,
 ) -> str:
     """Fingerprint every input a preview render of this model depends on.
 
@@ -798,23 +799,27 @@ def _preview_input_identity(
         add(expression.get("sourcePath") if isinstance(expression, dict) else None)
     paths.update(_texture_identity_paths(server, model))
 
+    def file_identity(relative: str) -> str:
+        file = layout.root.joinpath(*PurePosixPath(relative).parts)
+        if file.is_file():
+            return sha256_file(file)
+        entry = delta.entry(relative) if delta is not None else None
+        digest = entry.get("sha256") if isinstance(entry, dict) else None
+        if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError(f"Live2D preview input has no verified content identity: {relative}")
+        return digest
+
     inputs: list[list[str]] = []
     for path in sorted(paths):
         entry = sources_index.get(path)
         if isinstance(entry, dict):
             descriptor = str(entry.get("descriptor") or "")
-            descriptor_file = layout.metadata / descriptor if descriptor else None
-            descriptor_sha = (
-                sha256_file(descriptor_file)
-                if descriptor_file is not None and descriptor_file.is_file()
-                else ""
-            )
+            descriptor_sha = file_identity(f"metadata/{descriptor}") if descriptor else ""
             inputs.append(
                 [path, str(entry.get("selectedBundle") or ""), descriptor_sha]
             )
             continue
-        file = layout.root.joinpath(*PurePosixPath(path).parts)
-        inputs.append([path, "file", sha256_file(file) if file.is_file() else ""])
+        inputs.append([path, "file", file_identity(path)])
     return sha256_bytes(
         stable_json(
             {
@@ -1553,17 +1558,10 @@ def build_live2d(
         elif model.get("runtime", {}).get("motionSync") != sibling_sync:
             model["runtime"]["motionSync"] = copy.deepcopy(sibling_sync)
 
-    provision_file = (
-        PROJECT_ROOT / "public" / "cubism-runtime" / "vega-cubism-web-runtime.mjs"
-    )
-    provision_sha = sha256_file(provision_file) if provision_file.is_file() else ""
+    provision_sha, _, _ = cubism_preview_runtime()
     identities = {
-        key: (
-            str(base_models[key].get("previewInputSha256") or "")
-            if key in adopted_model_keys
-            else _preview_input_identity(
-                index.get("sources", {}), layout, config.id, model, provision_sha
-            )
+        key: _preview_input_identity(
+            index.get("sources", {}), layout, config.id, model, provision_sha, delta
         )
         for key, model in models.items()
     }

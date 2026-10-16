@@ -274,8 +274,13 @@ function parseIdentity(value: CatalogRecord, server: string, releaseId: string):
 }
 
 function parseCurrentPointer(value: CatalogRecord, server: string): { releaseId: string; sourceId: string } {
+  const { pipelineFingerprint, producerGitSha, ...identity } = value;
   if (
-    !expectedKeys(value, ["releaseId", "releaseIndex", "releaseManifest", "schema", "server", "sourceId"]) ||
+    !expectedKeys(identity, ["releaseId", "releaseIndex", "releaseManifest", "schema", "server", "sourceId"]) ||
+    (hasOwn(value, "pipelineFingerprint") &&
+      (typeof pipelineFingerprint !== "string" || !/^(?:[a-f0-9]{16})?$/u.test(pipelineFingerprint))) ||
+    (hasOwn(value, "producerGitSha") &&
+      (typeof producerGitSha !== "string" || !/^[a-f0-9]{40}$/u.test(producerGitSha))) ||
     value.schema !== CURRENT_POINTER_SCHEMA ||
     value.server !== server ||
     typeof value.releaseId !== "string" ||

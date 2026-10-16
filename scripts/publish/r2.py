@@ -26,7 +26,6 @@ from core.contracts import (
     RELEASE_TREES,
 )
 from core.hashes import sha256_file
-from core.fingerprints import build_fingerprint
 from core.manifests import read_json, stable_json, write_json
 from core.paths import (
     release_layout,
@@ -959,12 +958,23 @@ def publish_release(
     manifest_key = prefix + "release.json"
     identity_key = prefix + RELEASE_IDENTITY_FILENAME
     identity = release_identity_descriptor(config.id, release_id, manifest)
+    producer = {}
+    producer_path = "metadata/pipeline-recipes/pipeline.json"
+    producer_entry = next((entry for entry in manifest["entries"] if entry["path"] == producer_path), None)
+    producer_file = layout.root / producer_path
+    if producer_entry is not None and producer_file.is_file():
+        body = producer_file.read_bytes()
+        if len(body) != producer_entry["bytes"] or hashlib.sha256(body).hexdigest() != producer_entry["sha256"]:
+            raise ValueError("release producer receipt does not match the verified manifest")
+        producer = json.loads(body)
+        if producer.get("schema") != "haneoka-pipeline-producer-v1" or producer.get("server") != config.id:
+            raise ValueError("release producer receipt has an invalid identity")
     if isinstance(current, dict) and current.get("releaseId") == release_id:
         remote_manifest = store.get_json(manifest_key)
         if remote_manifest != manifest:
             raise ValueError(f"remote release manifest mismatch: {manifest_key}")
         identity_published = _publish_release_identity(store, identity_key, identity)
-        fingerprint = build_fingerprint(Path(__file__).resolve().parents[2], config)[:16]
+        fingerprint = producer.get("pipelineFingerprint", current.get("pipelineFingerprint", ""))
         identity_refreshed = current.get("pipelineFingerprint") != fingerprint
         if identity_refreshed:
             if store.get_json(pointer_key) != current:
@@ -1048,7 +1058,7 @@ def publish_release(
         "schema": POINTER_SCHEMA,
         "server": config.id,
         "sourceId": manifest["sourceId"],
-        "pipelineFingerprint": build_fingerprint(Path(__file__).resolve().parents[2], config)[:16],
+        "pipelineFingerprint": producer.get("pipelineFingerprint", ""),
         "releaseId": release_id,
         "releaseManifest": manifest_key,
         "releaseIndex": {
@@ -1057,6 +1067,8 @@ def publish_release(
             "prefix": release_index_prefix(config.id, release_id),
         },
     }
+    if producer.get("producerGitSha"):
+        pointer["producerGitSha"] = producer["producerGitSha"]
     if store.get_json(pointer_key) != current:
         raise ValueError("current release changed during publication; refusing stale promotion")
     store.put_json(

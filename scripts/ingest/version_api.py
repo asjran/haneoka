@@ -23,6 +23,27 @@ CDN_ROOT_HEADER = "x-sirius-env"
 CDN_PASSWORD_HEADER = "x-sirius-cred"
 HEX_32 = re.compile(r"^[0-9a-f]{32}$")
 VERSION_PARTS = re.compile(r"^\d+(?:\.\d+)*$")
+RETRYABLE_CURL_CODES = frozenset({5, 6, 7, 18, 28, 52, 55, 56, 92})
+RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+class DiscoveryUnavailable(RuntimeError):
+    """A live service is temporarily unavailable; no source identity was resolved."""
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+
+    def __reduce__(self):
+        return type(self), (self.reason, str(self))
+
+
+def curl_transport_error(service: str, code: int) -> RuntimeError:
+    message = f"{service} curl transport failed ({code})"
+    if code in RETRYABLE_CURL_CODES:
+        reason = "dns" if code in {5, 6} else "timeout" if code == 28 else "transport"
+        return DiscoveryUnavailable(reason, message)
+    return RuntimeError(message)
 
 
 @dataclass(frozen=True)
@@ -85,7 +106,7 @@ def _public_https(url: str, skip_resolution_check: bool = False) -> None:
             result[4][0] for result in socket.getaddrinfo(hostname, port or 443, type=socket.SOCK_STREAM)
         }
     except socket.gaierror as error:
-        raise ValueError(f"version endpoint DNS resolution failed: {hostname}") from error
+        raise DiscoveryUnavailable("dns", "version endpoint DNS resolution failed") from error
     if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
         raise ValueError(f"version endpoint does not resolve publicly: {hostname}")
 
@@ -141,6 +162,7 @@ def discover_asset_version(
     curl = shutil.which("curl")
     if not curl:
         raise RuntimeError("curl with HTTP/2 support is required for server version discovery")
+    proxy_flags = proxy_curl_flags(proxy)
     _public_https(endpoint, skip_resolution_check)
     command = [
         curl,
@@ -148,7 +170,7 @@ def discover_asset_version(
         "--http2-prior-knowledge",
         "--max-time",
         str(int(timeout)),
-        *proxy_curl_flags(proxy),
+        *proxy_flags,
         "-o",
         "/dev/null",
         "-D",
@@ -168,31 +190,48 @@ def discover_asset_version(
     # One stalled egress (direct or through a JP proxy node) must not fail
     # the whole ingestion; mirror the Master version lookup's short backoff.
     result = None
-    failure = ""
+    failure: RuntimeError | None = None
     for delay in (0, 3, 8):
         if delay:
             time.sleep(delay)
         try:
             result = subprocess.run(command, input=EMPTY_GRPC_FRAME, capture_output=True, timeout=timeout + 10)
         except subprocess.TimeoutExpired:
-            failure = "asset version request timed out"
+            failure = DiscoveryUnavailable("timeout", "asset version request timed out")
             continue
         if result.returncode == 0:
             break
-        failure = result.stderr.decode("utf-8", "replace").strip() or f"curl exit {result.returncode}"
+        failure = curl_transport_error("asset version", result.returncode)
+        if not isinstance(failure, DiscoveryUnavailable):
+            raise failure
     if result is None or result.returncode != 0:
-        raise RuntimeError(f"version endpoint request failed after 3 attempts: {failure}")
+        raise failure or RuntimeError("version endpoint request failed")
     headers: dict[str, str] = {}
+    status = "unknown status"
     for raw_line in result.stdout.decode("utf-8", "replace").splitlines():
+        if raw_line.startswith("HTTP/"):
+            status = raw_line.strip()
+            headers.clear()
+            continue
         if ":" not in raw_line:
             continue
         name, value = raw_line.split(":", 1)
-        headers.setdefault(name.strip().lower(), value.strip())
+        headers[name.strip().lower()] = value.strip()
+    status_match = re.match(r"HTTP/\S+\s+(\d{3})(?:\s|$)", status)
+    if status_match and int(status_match.group(1)) in RETRYABLE_HTTP_STATUS:
+        raise DiscoveryUnavailable("service", f"asset version HTTP status {status_match.group(1)}")
+    if not status_match or status_match.group(1) != "200":
+        raise RuntimeError(f"asset version HTTP response failed ({status})")
     if VERSION_HEADER not in headers:
-        status = next(
-            (line.strip() for line in result.stdout.decode("utf-8", "replace").splitlines() if line.startswith("HTTP/")),
-            "unknown status",
-        )
+        try:
+            maintenance_total = int(headers.get("x-maintenance-total", "0"))
+        except ValueError:
+            maintenance_total = 0
+        emergency = headers.get("x-maintenance-is-emergency", "").strip().lower() in {"true", "1"}
+        if maintenance_total > 0 or emergency:
+            raise DiscoveryUnavailable("maintenance", "asset version service is under maintenance")
+        if headers.get("grpc-status") in {"4", "8", "13", "14"}:
+            raise DiscoveryUnavailable("service", f"asset version gRPC status {headers['grpc-status']}")
         # Header NAMES only: values may carry credentials.
         raise RuntimeError(
             "version endpoint response carries no version header "
@@ -200,7 +239,7 @@ def discover_asset_version(
         )
     raw_version = headers[VERSION_HEADER]
     if raw_version.strip().lower() == "unknown":
-        raise RuntimeError("server reported no asset version for this endpoint state")
+        raise DiscoveryUnavailable("service", "server reported no asset version for this endpoint state")
     try:
         payload = json.loads(raw_version)
     except json.JSONDecodeError as error:

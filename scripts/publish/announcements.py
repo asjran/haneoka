@@ -25,6 +25,7 @@ from build.announcements import (
 from core.config import ServerConfig, load_server_config
 from core.manifests import read_json, stable_json
 from core.paths import safe_id, server_layout, source_layout
+from ingest.version_api import DiscoveryUnavailable
 from publish.r2 import IMMUTABLE_CACHE, R2Store
 
 
@@ -145,7 +146,7 @@ def publish_announcements(
             "snapshotKey": snapshot_key,
         }
     except Exception as exc:  # noqa: BLE001 - the operational feed preserves its previous commit
-        return {
+        result = {
             "schema": "haneoka-announcements-publication-v1",
             "server": config.id,
             "available": isinstance(previous, dict)
@@ -158,6 +159,10 @@ def publish_announcements(
             "error": type(exc).__name__,
             "reason": str(exc),
         }
+        if isinstance(exc, DiscoveryUnavailable) and result["available"]:
+            result["deferred"] = True
+            result["temporaryReason"] = exc.reason
+        return result
     finally:
         shutil.rmtree(temporary_root, ignore_errors=True)
 
@@ -186,7 +191,7 @@ def main() -> int:
         dry_run=args.dry_run,
     )
     print(stable_json(result, pretty=True), end="")
-    return 1 if "error" in result else 0
+    return 1 if "error" in result and not result.get("deferred") else 0
 
 
 if __name__ == "__main__":

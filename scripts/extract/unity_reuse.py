@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from core.delta import PLAN_SCHEMA
+from core.delta import PLAN_SCHEMA, DeltaContext
 from core.storage import cas_key
 
 REUSE_SCHEMA = "haneoka-unity-reuse-v1"
@@ -72,6 +72,11 @@ def load_reuse_manifest(path: Path) -> dict[str, dict[str, Any]]:
         raise ValueError(f"invalid Unity reuse manifest: {path}")
     if str(document.get("extractor") or "") != extractor_identity():
         raise ValueError(f"Unity reuse manifest was prepared by a different extractor: {path}")
+    from core.config import PROJECT_ROOT, load_server_config
+    from core.fingerprints import stage_recipe
+    recipe = stage_recipe(PROJECT_ROOT, load_server_config(document["server"]), "unity")
+    if document.get("recipe") != recipe:
+        raise ValueError(f"Unity reuse manifest was prepared by a different producer recipe: {path}")
     return bundles
 
 
@@ -82,6 +87,10 @@ def prepare_unity_delta_plan(
     source_id: str,
     shard_count: int,
     concurrency: int = 32,
+    *,
+    pointer: dict | None = None,
+    recipes: dict[str, dict] | None = None,
+    legacy_recipes: dict[str, dict] | None = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """Build one complete delta plan: per-digest reuse refs plus pending digests.
 
@@ -91,7 +100,8 @@ def prepare_unity_delta_plan(
     references; pending digests must be extracted fresh.
     """
 
-    pointer = store.get_json(f"servers/{server}/current.json")
+    if pointer is None:
+        pointer = store.get_json(f"servers/{server}/current.json")
     release_id = str((pointer or {}).get("releaseId") or "")
     stats = {"candidates": 0, "reused": 0, "reports": 0}
     if not release_id:
@@ -100,6 +110,18 @@ def prepare_unity_delta_plan(
     if not isinstance(release, dict) or release.get("server") != server:
         raise ValueError("current release manifest is missing or invalid")
     release_paths = _release_paths(release)
+    base_recipes = dict(legacy_recipes or {})
+    legacy_proof = base_recipes.pop("_proof", None)
+    reader = DeltaContext(store, server, {"server": server, "baseReleaseId": release_id})
+    reader._manifest = release
+    for stage in recipes or {}:
+        relative = f"metadata/pipeline-recipes/{stage}.json"
+        if relative in release_paths:
+            receipt = reader.base_document(relative)
+            if (isinstance(receipt, dict) and receipt.get("schema") == "haneoka-stage-recipe-v1"
+                    and receipt.get("stage") == stage):
+                base_recipes[stage] = receipt
+    unity_compatible = bool(recipes and base_recipes.get("unity") == recipes.get("unity"))
     old_source_id = str(release.get("sourceId") or "")
     old_manifest = store.get_json(f"servers/{server}/sources/{old_source_id}/source.json")
     if not isinstance(old_manifest, dict):
@@ -119,7 +141,7 @@ def prepare_unity_delta_plan(
         stats["candidates"] += 1
         shard_index = int(digest[:16], 16) % shard_count
         items_by_digest[digest] = item
-        if old_contexts.get(digest) == bundle_context(item):
+        if unity_compatible and old_contexts.get(digest) == bundle_context(item):
             digests.append((digest, item))
         else:
             pending[digest] = shard_index
@@ -185,6 +207,9 @@ def prepare_unity_delta_plan(
         "sourceId": source_id,
         "baseReleaseId": release_id,
         "extractor": extractor_identity(),
+        "baseRecipes": base_recipes,
+        "producerRecipes": recipes or {},
+        "legacyProducerProof": legacy_proof,
         "shardCount": shard_count,
         "bundles": bundles,
         "pending": pending,

@@ -21,7 +21,7 @@ from build.release import assemble_release
 from build.spine import build_spine
 from core.config import ServerConfig, load_server_config
 from core.contracts import SOURCE_SCHEMA
-from core.fingerprints import build_fingerprint
+from core.fingerprints import build_fingerprint, stage_recipe, legacy_stage_recipes, resource_build_options, STAGE_ROOTS
 from core.manifests import read_json, stable_json, write_json
 from core.private_config import redact_private_text, runtime_settings, github_masks
 from core.paths import build_layout, source_layout
@@ -38,6 +38,7 @@ from extract.cri import extract_cri
 from extract.unity import extract_shard
 from ingest.apks import ingest_package, probe_source_identity
 from ingest.version_api import (
+    DiscoveryUnavailable,
     cdn_authorization,
     discover_asset_version,
     proxy_from_env,
@@ -68,6 +69,19 @@ from verify.source import verify_source
 
 def _pipeline_hash(config: ServerConfig) -> str:
     return build_fingerprint(Path(__file__).resolve().parent.parent, config)
+
+
+def _stage_recipe(config: ServerConfig, stage: str, options: dict | None = None) -> dict:
+    return stage_recipe(Path(__file__).resolve().parent.parent, config, stage, options)
+
+
+def _record_stage(config: ServerConfig, identity: str, stage: str, options: dict | None = None) -> None:
+    write_json(build_layout(config.id, identity).metadata / "pipeline-recipes" / f"{stage}.json",
+               _stage_recipe(config, stage, options), pretty=True)
+
+
+def _stage_compatible(delta: Any, config: ServerConfig, stage: str, options: dict | None = None) -> bool:
+    return delta.compatible_stage(_stage_recipe(config, stage, options))
 
 
 def build_id(config: ServerConfig, source_id: str) -> str:
@@ -405,6 +419,8 @@ def _delta_context(config: ServerConfig, plan_path: str) -> Any:
             "delta plan was prepared by a different Unity extractor; "
             "reusable outputs must not be composed across extractor changes"
         )
+    if plan.get("producerRecipes", {}).get("unity") != _stage_recipe(config, "unity"):
+        raise ValueError("delta plan was prepared by a different Unity producer recipe")
     store = R2Store(config, 32)
     return DeltaContext(store, config.id, plan)
 
@@ -414,8 +430,8 @@ def command_prepare_unity_reuse(args: argparse.Namespace) -> None:
     layout = source_layout(config.id, args.source)
     store = R2Store(config, args.concurrency)
     pointer = store.get_json(f"servers/{config.id}/current.json")
-    if not isinstance(pointer, dict) or pointer.get("pipelineFingerprint") != _pipeline_hash(config)[:16]:
-        raise ValueError("pipeline outputs changed; rebuild stages before adopting base derivatives")
+    if not isinstance(pointer, dict):
+        raise ValueError("no current release is published; a delta plan has no base")
     plan, stats = prepare_unity_delta_plan(
         store,
         config.id,
@@ -423,6 +439,9 @@ def command_prepare_unity_reuse(args: argparse.Namespace) -> None:
         args.source,
         args.shard_count,
         args.concurrency,
+        pointer=pointer,
+        recipes={stage: _stage_recipe(config, stage) for stage in STAGE_ROOTS},
+        legacy_recipes=legacy_stage_recipes(Path(__file__).resolve().parent.parent, config, pointer),
     )
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -445,6 +464,7 @@ def command_prepare_unity_reuse(args: argparse.Namespace) -> None:
                 "shardIndex": index,
                 "shardCount": args.shard_count,
                 "extractor": extractor_identity(),
+                "recipe": _stage_recipe(config, "unity"),
                 "bundles": bundles,
             },
         )
@@ -545,6 +565,7 @@ def command_merge_unity(args: argparse.Namespace) -> None:
     count = args.shard_count or config.extraction_shards
     delta = _delta_context(config, args.delta_plan) if args.delta_plan else None
     _print(merge_unity_shards(config.id, args.source, identity, count, delta))
+    _record_stage(config, identity, "unity")
 
 
 def command_extract_cri(args: argparse.Namespace) -> None:
@@ -556,6 +577,8 @@ def command_extract_cri(args: argparse.Namespace) -> None:
     if args.delta_plan:
         delta = _delta_context(config, args.delta_plan)
         try:
+            if not _stage_compatible(delta, config, "cri"):
+                raise ValueError("CRI producer recipe changed; decode source payloads")
             document = delta.base_document("metadata/cri.json")
             snapshot = {
                 "releaseId": delta.base_release_id,
@@ -569,6 +592,8 @@ def command_extract_cri(args: argparse.Namespace) -> None:
         try:
             store = R2Store(config, args.reuse_concurrency)
             snapshot = current_release_document(store, config, "metadata/cri.json")
+            if snapshot is not None and not _snapshot_recipe_matches(store, snapshot, _stage_recipe(config, "cri")):
+                snapshot = None
         except Exception as error:
             sys.stderr.write(
                 f"CRI current-release reuse is unavailable; decoding all sources: {error}\n"
@@ -593,6 +618,7 @@ def command_extract_cri(args: argparse.Namespace) -> None:
         reuse_concurrency=args.reuse_concurrency,
         delta=delta,
     )
+    _record_stage(config, identity, "cri")
     _print(
         _fields(
             result,
@@ -612,10 +638,13 @@ def _preview_reuse_inputs(
     document_path: str,
     reuse_concurrency: int,
     delta: Any = None,
+    recipe: dict | None = None,
 ) -> tuple[dict | None, object | None]:
     """Load the pinned base release's stage document for preview reuse."""
 
     if delta is not None:
+        if recipe is None or not delta.compatible_stage(recipe):
+            return None, None
         try:
             snapshot = {
                 "releaseId": delta.base_release_id,
@@ -639,7 +668,22 @@ def _preview_reuse_inputs(
         return None, None
     if not isinstance(snapshot, dict):
         return None, None
+    if recipe is None or not _snapshot_recipe_matches(store, snapshot, recipe):
+        return None, None
     return snapshot.get("document"), _preview_restore(store, snapshot)
+
+
+def _snapshot_recipe_matches(store: Any, snapshot: dict, recipe: dict) -> bool:
+    entry = snapshot.get("entries", {}).get(f"metadata/pipeline-recipes/{recipe['stage']}.json")
+    if not isinstance(entry, dict):
+        return False
+    try:
+        body = store.get_bytes(cas_key(entry["sha256"]))
+        return bool(body is not None and len(body) == entry["bytes"]
+                    and sha256_bytes(body) == entry["sha256"] and json.loads(body) == recipe)
+    except Exception as error:  # noqa: BLE001 - unavailable reuse rebuilds the stage
+        sys.stderr.write(f"warning: {recipe['stage']} producer proof unavailable; rebuild stage: {error}\n")
+        return False
 
 
 def _preview_restore(store: Any, snapshot: dict) -> object:
@@ -679,18 +723,23 @@ def command_build_live2d(args: argparse.Namespace) -> None:
     reuse_manifest, restore_output = (None, None)
     delta = None
     base_document = None
+    recipe_options = {"includeBc7": bool(getattr(args, "live2d_bc7", False))}
     if args.delta_plan:
         delta = _delta_context(config, args.delta_plan)
         reuse_manifest, restore_output = _preview_reuse_inputs(
-            config, "metadata/live2d.json", args.reuse_concurrency, delta=delta
+            config, "metadata/live2d.json", args.reuse_concurrency, delta=delta,
+            recipe=_stage_recipe(config, "live2d", recipe_options)
         )
         try:
+            if not _stage_compatible(delta, config, "live2d", recipe_options):
+                raise ValueError("Live2D producer recipe changed; rebuild models")
             base_document = delta.base_document("metadata/live2d.json")
         except Exception as error:  # noqa: BLE001 - adoption is best effort
             sys.stderr.write(f"warning: base Live2D document unavailable: {error}\n")
     elif args.reuse_current:
         reuse_manifest, restore_output = _preview_reuse_inputs(
-            config, "metadata/live2d.json", args.reuse_concurrency
+            config, "metadata/live2d.json", args.reuse_concurrency,
+            recipe=_stage_recipe(config, "live2d", recipe_options)
         )
     result = build_live2d(
         config,
@@ -703,6 +752,7 @@ def command_build_live2d(args: argparse.Namespace) -> None:
         delta=delta,
         base_document=base_document,
     )
+    _record_stage(config, identity, "live2d", recipe_options)
     _print(
         _fields(
             result,
@@ -727,15 +777,19 @@ def command_build_spine(args: argparse.Namespace) -> None:
     if args.delta_plan:
         delta = _delta_context(config, args.delta_plan)
         reuse_manifest, restore_output = _preview_reuse_inputs(
-            config, "metadata/spine.json", args.reuse_concurrency, delta=delta
+            config, "metadata/spine.json", args.reuse_concurrency, delta=delta,
+            recipe=_stage_recipe(config, "spine")
         )
         try:
+            if not _stage_compatible(delta, config, "spine"):
+                raise ValueError("Spine producer recipe changed; rebuild models")
             base_document = delta.base_document("metadata/spine.json")
         except Exception as error:  # noqa: BLE001 - adoption is best effort
             sys.stderr.write(f"warning: base Spine document unavailable: {error}\n")
     elif args.reuse_current:
         reuse_manifest, restore_output = _preview_reuse_inputs(
-            config, "metadata/spine.json", args.reuse_concurrency
+            config, "metadata/spine.json", args.reuse_concurrency,
+            recipe=_stage_recipe(config, "spine")
         )
     result = build_spine(
         config,
@@ -747,6 +801,7 @@ def command_build_spine(args: argparse.Namespace) -> None:
         delta=delta,
         base_document=base_document,
     )
+    _record_stage(config, identity, "spine")
     _print(
         _fields(
             result,
@@ -774,6 +829,8 @@ def command_build_home_spots(args: argparse.Namespace) -> None:
     if args.delta_plan:
         delta = _delta_context(config, args.delta_plan)
         try:
+            if not _stage_compatible(delta, config, "home-spots"):
+                raise ValueError("Home Spot producer recipe changed; rebuild scenes")
             base_document = delta.base_document("metadata/home-spots.json")
         except Exception as error:  # noqa: BLE001 - adoption is best effort
             sys.stderr.write(f"warning: base Home Spot document unavailable: {error}\n")
@@ -784,6 +841,7 @@ def command_build_home_spots(args: argparse.Namespace) -> None:
         delta=delta,
         base_document=base_document,
     )
+    _record_stage(config, identity, "home-spots")
     _print(
         {
             "buildId": identity,
@@ -843,6 +901,7 @@ def command_build_ktx2(args: argparse.Namespace) -> None:
 
     _print(build_ktx2(config.id, identity, source_id=args.source,
                       fetch_original=fetch_original, allow_basis_reencode=args.basis_reencode))
+    _record_stage(config, identity, "ktx2", {"basisReencode": bool(args.basis_reencode)})
 
 
 def command_build_textless_stamps(args: argparse.Namespace) -> None:
@@ -925,6 +984,7 @@ def _run_build(
         for future in futures:
             future.result()
     merge_unity_shards(config.id, source_id, identity, config.extraction_shards)
+    _record_stage(config, identity, "unity")
     stages = [
         lambda: extract_cri(config, source_id, identity),
         lambda: build_live2d(
@@ -939,6 +999,9 @@ def _run_build(
     with ThreadPoolExecutor(max_workers=len(stages)) as executor:
         for future in [executor.submit(stage) for stage in stages]:
             future.result()
+    for stage in ("cri", "spine", "home-spots"):
+        _record_stage(config, identity, stage)
+    _record_stage(config, identity, "live2d", {"includeBc7": include_live2d_bc7})
     # Runtime metadata is a prerequisite for exact atlas selection.
     if include_ktx2 or include_basis_reencode:
         texture_metadata = read_json(build_layout(config.id, identity).metadata / "spine.json")
@@ -946,6 +1009,7 @@ def _run_build(
             raise ValueError("runtime texture selection metadata belongs to a different server/source")
         build_ktx2(config.id, identity, source_id=source_id,
                    allow_basis_reencode=include_basis_reencode)
+        _record_stage(config, identity, "ktx2", {"basisReencode": include_basis_reencode})
     build_api(config, source_id, identity)
     from build.stamp_pipeline import build_textless_stamps
     if not offline and config.id in ("intl", "intl-test"):
@@ -1199,6 +1263,11 @@ def command_gc_r2(args: argparse.Namespace) -> None:
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     root.add_argument("--server", default="jp-cbt", help="server configuration id")
+    root.add_argument(
+        "--defer-unavailable",
+        action="store_true",
+        help="return 75 for temporary live discovery failures; the caller must verify current before skipping publication",
+    )
     commands = root.add_subparsers(dest="command", required=True)
     resolver = commands.add_parser("resolve-server", help="resolve live resource endpoints into a private runtime configuration")
     resolver.add_argument("--output", required=True)
@@ -1614,7 +1683,35 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = parser().parse_args()
-    args.run(args)
+    configured = "HANEOKA_RESOURCE_BUILD_OPTIONS" in os.environ
+    options = resource_build_options()
+    flags = {"ktx2": "ktx2", "basisReencode": "basis_reencode", "live2dBc7": "live2d_bc7"}
+    if configured:
+        for name, flag in flags.items():
+            if hasattr(args, flag):
+                if getattr(args, flag) and not options[name]:
+                    raise ValueError(f"--{flag.replace('_', '-')} conflicts with HANEOKA_RESOURCE_BUILD_OPTIONS")
+                setattr(args, flag, options[name])
+    else:
+        for name, flag in flags.items():
+            if hasattr(args, flag):
+                options[name] = bool(getattr(args, flag))
+        if args.command == "build-ktx2":
+            options["ktx2"] = True
+        os.environ["HANEOKA_RESOURCE_BUILD_OPTIONS"] = json.dumps(options)
+    try:
+        args.run(args)
+    except DiscoveryUnavailable as error:
+        if not args.defer_unavailable or args.command not in {"resolve-server", "probe-identity", "probe-source", "ingest"}:
+            raise
+        _print({
+            "server": args.server,
+            "available": False,
+            "status": "unavailable",
+            "reason": error.reason,
+            "message": str(error),
+        })
+        return 75
     return 0
 
 

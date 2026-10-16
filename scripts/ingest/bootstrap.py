@@ -14,15 +14,24 @@ from core.config import ServerConfig
 from core.private_config import github_masks
 from ingest.apks import _request
 from ingest.master import discover_master_version
-from ingest.version_api import _public_https, is_versioned_catalog_version, proxy_from_env
+from ingest.version_api import (
+    DiscoveryUnavailable,
+    RETRYABLE_HTTP_STATUS,
+    _public_https,
+    curl_transport_error,
+    is_versioned_catalog_version,
+    proxy_curl_flags,
+    proxy_from_env,
+)
 
 
 def resolve_resource_endpoints(config: ServerConfig, settings: dict) -> tuple[dict, dict]:
     discovery = config.cdn_discovery
     if not discovery:
         return settings, {"server": config.id, "resolved": False}
-    _public_https(discovery["endpoint"], config.skip_public_resolution_check)
     proxy = proxy_from_env(config.version_proxy_env)
+    proxy_curl_flags(proxy)
+    _public_https(discovery["endpoint"], config.skip_public_resolution_check)
     body = _grpc_body(
         discovery["endpoint"], b"",
         {"x-platform": config.platform, "x-client-version": discovery["clientVersion"]},
@@ -55,6 +64,7 @@ def resolve_resource_endpoints(config: ServerConfig, settings: dict) -> tuple[di
     # complete connection across all DNS addresses, unlike urllib's socket timeout.
     selected = None
     failures = []
+    hard_failure = False
     for index, cdn in enumerate(cdns):
         candidate = replace(config, remote_root=cdn + discovery["assetPath"])
         request = _request(f"{candidate.remote_root}/catalog_{resource_version}.hash", candidate)
@@ -71,18 +81,25 @@ def resolve_resource_endpoints(config: ServerConfig, settings: dict) -> tuple[di
             except subprocess.TimeoutExpired:
                 failures.append(f"node {index + 1}: process timeout")
                 continue
-            if result.returncode == 0 and result.stdout == b"200" and output.is_file() and re.fullmatch(
-                rb"[a-fA-F0-9]{32}\s*", output.read_bytes(),
-            ):
+            if result.returncode == 0 and result.stdout == b"200":
+                if not output.is_file() or not re.fullmatch(rb"[a-fA-F0-9]{32}\s*", output.read_bytes()):
+                    raise ValueError("announced CDN returned an invalid catalog hash")
                 selected = (index, cdn)
                 break
             status = result.stdout.decode("ascii", "replace").strip() or "unknown"
             failures.append(f"node {index + 1}: HTTP {status}, curl {result.returncode}")
+            if result.returncode:
+                hard_failure |= not isinstance(curl_transport_error("catalog", result.returncode), DiscoveryUnavailable)
+            else:
+                hard_failure |= not (status.isdecimal() and int(status) in RETRYABLE_HTTP_STATUS)
     if selected is None:
-        raise RuntimeError(
+        message = (
             "all announced CDN nodes failed the bounded catalog hash check "
-            f"(resource {resource_version}; {'; '.join(failures)}); retaining the published release"
+            f"(resource {resource_version}; {'; '.join(failures)})"
         )
+        if hard_failure:
+            raise RuntimeError(message)
+        raise DiscoveryUnavailable("service", message)
     index, cdn = selected
     resolved = {**settings, "remoteRoot": cdn + discovery["assetPath"],
                 "masterRemoteRoot": cdn + discovery["masterPath"],

@@ -112,6 +112,11 @@ class DeltaContext:
     def reusable(self, digest: str) -> bool:
         return digest in self.plan["bundles"]
 
+    def compatible_stage(self, recipe: dict) -> bool:
+        """Derived output adoption requires its own verified producer identity."""
+
+        return self.plan.get("baseRecipes", {}).get(recipe["stage"]) == recipe
+
     def shard_reusable(self, shard_index: int) -> dict[str, dict[str, Any]]:
         return {
             digest: entry
