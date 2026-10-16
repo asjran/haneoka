@@ -113,8 +113,13 @@ export async function renderTeamResultImage(model: TeamResultImage): Promise<Blo
     panel(x, y, width, h);
     if (!card) { lines(model.emptyLabel, x + 16, y + h / 2 - 12, width - 32, 20, 2, t.muted); return; }
     if (!image(card.image, x, y, width, h)) lines(model.imageUnavailableLabel, x + 16, y + h / 2 - 12, width - 32, 18, 2, t.muted);
-    if (!image(card.attribute, x + 8, y + 8, 32, 32)) lines(card.attributeLabel, x + 8, y + 8, 128, 16, 1, t.primary, 600);
-    if (!image(card.rarity, x + width - 40, y + 8, 32, 32)) lines(card.rarityLabel, x + width - 48, y + 8, 40, 18, 1, t.primary, 600);
+    const markWidth = width * (member ? 50 / 224 : 50 / 326);
+    const markHeight = (source: string | undefined) => {
+      const loaded = source ? images.get(source) : null;
+      return loaded ? markWidth * loaded.naturalHeight / loaded.naturalWidth : markWidth;
+    };
+    if (!image(card.attribute, x, y, markWidth, markHeight(card.attribute))) lines(card.attributeLabel, x + 8, y + 8, 128, 16, 1, t.primary, 600);
+    if (!image(card.rarity, x + width - markWidth, y, markWidth, markHeight(card.rarity))) lines(card.rarityLabel, x + width - 48, y + 8, 40, 18, 1, t.primary, 600);
     if (card.growth) {
       const growth = card.growth;
       const value = (number: number | null | undefined) => String(number ?? growth.unknown ?? "?");
