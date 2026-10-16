@@ -76,9 +76,18 @@ export class SkillsWorkspace extends LitElement {
   createRenderRoot() {
     return this;
   }
+  preparePage(data: SkillCatalogPayload, locale: Locale, entityId = "") {
+    this.data = data;
+    this.locale = locale;
+    this.entityId = entityId;
+  }
+  renderStaticChrome() {
+    if (!this.entityId) this.syncSearch();
+  }
   connectedCallback() {
     super.connectedCallback();
     this.data = readPageData<SkillCatalogPayload>(this);
+    this.removeAttribute("data-prerendered");
     this.replaceChildren();
     if (this.entityId) return;
     const params = new URLSearchParams(location.search);
@@ -91,6 +100,9 @@ export class SkillsWorkspace extends LitElement {
     this.view = collectionView(params.get("view"));
     this.includeUnlinked = params.get("unlinked") === "1";
     this.facets = { family: params.getAll("filter.family"), effect: params.getAll("filter.effect") };
+    this.syncSearch();
+  }
+  private syncSearch() {
     this.releaseSearch = setAppBarSearch(SEARCH_OWNER, {
       value: this.query,
       label: this.text("common.actions.search", "Search"),
@@ -172,7 +184,7 @@ export class SkillsWorkspace extends LitElement {
     this.lazyImages.observe(this);
   }
 
-  protected render() {
+  render() {
     const data = this.data;
     if (!data) return nothing;
     if (this.entityId) {

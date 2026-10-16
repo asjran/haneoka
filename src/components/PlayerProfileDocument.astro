@@ -3,20 +3,22 @@ import Base from "../layouts/Base.astro";
 import AppShell from "./AppShell.astro";
 import type { Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
-import { rankingCardCatalog } from "../lib/ranking-card-catalog";
+import { rankingCardsPageData } from "../server/tool-page-data";
+import { renderPlayerProfilePage } from "../server/render-tools";
 import { serializePageData } from "../lib/page-data";
 import "../styles/song-ranking.css";
 const { locale } = Astro.props as { locale: Locale };
 const route = "/player-profile";
 const title = t(locale, "tools.playerProfile.title", "Player lookup");
-const [intl, jp] = await Promise.all([rankingCardCatalog("intl"), rankingCardCatalog("jp")]);
+const cards = await rankingCardsPageData();
+const page = await renderPlayerProfilePage(cards, locale);
 const pageDataId = "player-profile-card-catalogs";
 ---
 
 <Base locale={locale} route={route} title={title} titleKey="tools.playerProfile.title">
-  <AppShell locale={locale} route={route} title={title} titleKey="tools.playerProfile.title">
-    <player-profile-workspace locale={locale} data-page-data={pageDataId}></player-profile-workspace>
-    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData({ intl, jp })}></script>
+  <AppShell locale={locale} route={route} title={title} titleKey="tools.playerProfile.title" appBar={page.appBar}>
+    <player-profile-workspace locale={locale} data-page-data={pageDataId} data-prerendered set:html={page.body}></player-profile-workspace>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(cards)}></script>
   </AppShell>
 </Base>
 

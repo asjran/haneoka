@@ -63,6 +63,20 @@ md-linear-progress:not(:defined) {
   overflow: hidden;
   visibility: hidden;
 }
+/* Declarative shadow DOM already contains the styled control before upgrade. */
+:is(
+  md-outlined-select,
+  md-filled-select,
+  md-outlined-text-field,
+  md-filled-text-field,
+  md-slider,
+  md-switch,
+  md-checkbox,
+  md-radio,
+  md-linear-progress
+)[defer-hydration]:not(:defined) {
+  visibility: visible;
+}
 md-switch {
   --md-switch-selected-track-color: var(--md-sys-color-primary);
   --md-switch-selected-handle-color: var(--md-sys-color-on-primary);

@@ -1,4 +1,26 @@
 ---
-import Base from "../layouts/Base.astro";import AppShell from "./AppShell.astro";import type{Locale}from"../i18n/locales";import{t}from"../i18n/messages";import{resourcePath}from"../lib/resource-route";import type{ReleaseServer}from"../lib/release-server";import"../lit/help-workspace";import "../styles/catalog.css";import "../styles/help.css";const{locale,server}=Astro.props as{locale:Locale;server?:ReleaseServer};const title=t(locale,"navigation.help","Help");
+import Base from "../layouts/Base.astro";
+import AppShell from "./AppShell.astro";
+import type { Locale } from "../i18n/locales";
+import { t } from "../i18n/messages";
+import { resourcePath } from "../lib/resource-route";
+import type { ReleaseServer } from "../lib/release-server";
+import { serializePageData } from "../lib/page-data";
+import { workspaceCollectionData } from "../server/workspace-page-data";
+import { renderHelpView } from "../server/render-help";
+import type { HelpViewState } from "../lit/help-workspace";
+import "../styles/catalog.css";
+import "../styles/help.css";
+const { locale, server, view } = Astro.props as { locale: Locale; server?: ReleaseServer; view?: HelpViewState };
+const title = t(locale, "navigation.help", "Help");
+const payload = await workspaceCollectionData("help", server || "intl", locale);
+const page = await renderHelpView(payload, locale, view);
+const dataId = "help-collection-" + payload.server + "-" + locale;
 ---
-<Base locale={locale} route="/catalog/help" canonicalRoute={server ? resourcePath({ server, locale, kind: "help" }) : undefined} title={title} titleKey="navigation.help"><AppShell locale={locale} route="/catalog/help" title={title} titleKey="navigation.help" server={server}><help-workspace locale={locale}></help-workspace></AppShell></Base><script>import "../lit/help-workspace";</script>
+<Base locale={locale} route="/catalog/help" canonicalRoute={server ? resourcePath({ server, locale, kind: "help" }) : undefined} title={title} titleKey="navigation.help">
+  <AppShell locale={locale} route="/catalog/help" title={title} titleKey="navigation.help" server={server} appBar={page.appBar}>
+    <script is:inline type="application/json" id={dataId} set:html={serializePageData(page.payload)}></script>
+    <help-workspace locale={locale} data-page-data={dataId} data-prerendered set:html={page.body}></help-workspace>
+  </AppShell>
+</Base>
+<script>import "../lit/help-workspace";</script>

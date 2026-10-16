@@ -1,3 +1,5 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { hydrateWorkspace } from "./shared/hydrate-workspace";
 import "@material/web/progress/linear-progress.js";
 import "@material/web/menu/menu.js";
 import "@material/web/menu/menu-item.js";
@@ -78,7 +80,26 @@ export class PlayerProfileWorkspace extends GameRecordsCardsElement {
     this.queryInvalid = false;
   }
   connectedCallback() {
+    const cards = readPageData<typeof this.cardCatalogs>(this);
+    if (cards) this.preparePage(cards);
     super.connectedCallback();
+    if (this.hasAttribute("data-prerendered")) void this.updateComplete.then(() => this.connectProfile());
+    else this.connectProfile();
+  }
+  preparePage(cards: Partial<Record<"jp" | "intl", RankingCardCatalog>>) {
+    this.cardCatalogs = cards;
+    this.region = defaultGameRecordsRegion("intl", this.locale);
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrateWorkspace(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  renderStaticChrome() { this.syncChrome(true); }
+  private connectProfile() {
+    if (!this.isConnected) return;
     this.lifetime = new AbortController();
     this.searchInitialized = false;
     this.cardCatalogs = readPageData<typeof this.cardCatalogs>(this) || this.cardCatalogs;
@@ -195,8 +216,8 @@ export class PlayerProfileWorkspace extends GameRecordsCardsElement {
     this.searchInitialized = false;
     this.syncUrl("");
   }
-  private syncChrome() {
-    const returnTo = playerProfileReturn(navigationDocumentUrl().searchParams.get("return"));
+  private syncChrome(staticPage = false) {
+    const returnTo = staticPage ? null : playerProfileReturn(navigationDocumentUrl().searchParams.get("return"));
     setAppBarActions(
       this.owner,
       html`
@@ -253,7 +274,9 @@ export class PlayerProfileWorkspace extends GameRecordsCardsElement {
         this.queryInvalid = false;
       },
       onSubmit: (value) => this.submitProfile(value),
+      expanded: staticPage && this.profilePhase === "idle",
     });
+    if (staticPage) return;
     const input = document.querySelector<HTMLInputElement>(`[data-app-bar-search-owner="${this.owner}"] input`);
     if (input) {
       input.inputMode = "numeric";

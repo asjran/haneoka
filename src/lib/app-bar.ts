@@ -25,17 +25,44 @@ export interface AppBarSearchOptions {
   onInput: (value: string) => void;
   onSubmit?: (value: string) => void;
   closeLabel?: string;
+  expanded?: boolean;
+}
+
+export interface StaticAppBarTemplates {
+  actions: Map<string, TemplateResult>;
+  identity: Map<string, TemplateResult>;
+  search: Map<string, { inputId: string; content: TemplateResult; expanded: boolean }>;
+  locale: string;
+}
+let staticAppBar: StaticAppBarTemplates | undefined;
+export function captureAppBar<T>(locale: string, renderPage: () => T): { result: T; bar: StaticAppBarTemplates } {
+  const previous = staticAppBar;
+  const bar: StaticAppBarTemplates = { actions: new Map(), identity: new Map(), search: new Map(), locale };
+  staticAppBar = bar;
+  try { return { result: renderPage(), bar }; } finally { staticAppBar = previous; }
+}
+const ownerKind = (owner: string) => owner.replace(/-\d+$/u, "");
+function adoptStaticBar(host: HTMLElement, owner: string, attribute: string, create: boolean): HTMLElement | null {
+  const existing = host.querySelector<HTMLElement>(`[${attribute}="${owner}"]`) ||
+    (create ? [...host.querySelectorAll<HTMLElement>(`[data-app-bar-static][${attribute}]`)].find(node => node.dataset.appBarOwnerKind === ownerKind(owner)) : null);
+  if (!existing) return null;
+  if (create && existing.hasAttribute("data-app-bar-static")) {
+    existing.replaceChildren();
+    existing.removeAttribute("data-app-bar-static");
+    existing.setAttribute(attribute, owner);
+  }
+  return existing;
 }
 
 let searchGeneration = 0;
 let searchInputGeneration = 0;
 
-const slot = () => document.querySelector<HTMLElement>(SLOT);
+const slot = () => typeof document === "undefined" ? null : document.querySelector<HTMLElement>(SLOT);
 
 function container(owner: string, create: boolean): HTMLElement | null {
   const host = slot();
   if (!host) return null;
-  const existing = host.querySelector<HTMLElement>(`[data-app-bar-owner="${owner}"]`);
+  const existing = adoptStaticBar(host, owner, "data-app-bar-owner", create);
   if (existing || !create) return existing ?? null;
   const node = document.createElement("div");
   node.dataset.appBarOwner = owner;
@@ -45,9 +72,9 @@ function container(owner: string, create: boolean): HTMLElement | null {
 }
 
 function identityContainer(owner: string, create: boolean): HTMLElement | null {
-  const host = document.querySelector<HTMLElement>(IDENTITY_SLOT);
+  const host = typeof document === "undefined" ? null : document.querySelector<HTMLElement>(IDENTITY_SLOT);
   if (!host) return null;
-  const existing = host.querySelector<HTMLElement>(`[data-app-bar-owner="${owner}"]`);
+  const existing = adoptStaticBar(host, owner, "data-app-bar-owner", create);
   if (existing || !create) return existing ?? null;
   const node = document.createElement("div");
   node.dataset.appBarOwner = owner;
@@ -59,9 +86,7 @@ function identityContainer(owner: string, create: boolean): HTMLElement | null {
 function searchContainer(owner: string, create: boolean): HTMLElement | null {
   const host = slot();
   if (!host) return null;
-  const existing = [...host.querySelectorAll<HTMLElement>(SEARCH_SLOT)].find(
-    (node) => node.dataset.appBarSearchOwner === owner,
-  );
+  const existing = adoptStaticBar(host, owner, "data-app-bar-search-owner", create);
   if (existing || !create) return existing ?? null;
   const node = document.createElement("div");
   node.dataset.appBarSearch = "true";
@@ -80,8 +105,14 @@ function renderSearch(node: HTMLElement, options: AppBarSearchOptions, forceExpa
     renderSearch(node, { ...options, value }, false);
     node.querySelector<HTMLButtonElement>(".top-app-bar__search-toggle")?.focus();
   };
-  render(
-    html`
+  render(searchContent(options, inputId, expanded, () => {
+    renderSearch(node, options, true);
+    queueMicrotask(() => node.querySelector<HTMLInputElement>("input")?.focus());
+  }, close), node);
+}
+
+function searchContent(options: AppBarSearchOptions, inputId: string, expanded: boolean, open: () => void, close: () => void): TemplateResult {
+  return html`
       <form
         class="top-app-bar__search"
         role="search"
@@ -105,10 +136,7 @@ function renderSearch(node: HTMLElement, options: AppBarSearchOptions, forceExpa
           aria-expanded=${expanded}
           aria-keyshortcuts="/"
           aria-label=${options.label}
-          @click=${() => {
-            renderSearch(node, options, true);
-            queueMicrotask(() => node.querySelector<HTMLInputElement>("input")?.focus());
-          }}
+          @click=${open}
         >
           ${icon("search", 24)}
         </button>
@@ -135,25 +163,26 @@ function renderSearch(node: HTMLElement, options: AppBarSearchOptions, forceExpa
           ${icon("close", 24)}
         </button>
       </form>
-    `,
-    node,
-  );
+    `;
 }
 
 /** Renders (or re-renders) this owner's actions into the app bar. */
 export function setAppBarActions(owner: string, content: TemplateResult, context?: object) {
+  if (staticAppBar) { staticAppBar.actions.set(owner, content); return; }
   const node = container(owner, true);
   if (node) render(content, node, { host: context });
 }
 
 /** Renders an entity's non-interactive identity marks between Back and title. */
 export function setAppBarIdentity(owner: string, content: TemplateResult, context?: object) {
+  if (staticAppBar) { staticAppBar.identity.set(owner, content); return; }
   const node = identityContainer(owner, true);
   if (node) render(content, node, { host: context });
 }
 
 /** Removes this owner's identity marks without affecting the action row. */
 export function clearAppBarIdentity(owner: string) {
+  if (staticAppBar) { staticAppBar.identity.delete(owner); return; }
   const node = identityContainer(owner, false);
   if (!node) return;
   render(undefined, node);
@@ -162,6 +191,7 @@ export function clearAppBarIdentity(owner: string) {
 
 /** Removes this owner's actions. Safe to call when nothing was rendered. */
 export function clearAppBarActions(owner: string) {
+  if (staticAppBar) { staticAppBar.actions.delete(owner); return; }
   const node = container(owner, false);
   if (!node) return;
   render(undefined, node);
@@ -193,6 +223,13 @@ function installSearchShortcut() {
 let shortcutInstalled = false;
 
 export function setAppBarSearch(owner: string, options: AppBarSearchOptions): () => void {
+  if (staticAppBar) {
+    const bar = staticAppBar, inputId = `app-bar-search-${++searchInputGeneration}`;
+    const labels = { ...options, closeLabel: options.closeLabel ?? clientText(bar.locale, "common.actions.close", "Close") };
+    bar.search.set(owner, { inputId, expanded: options.expanded ?? false,
+      content: searchContent(labels, inputId, options.expanded ?? false, () => {}, () => {}) });
+    return () => { bar.search.delete(owner); };
+  }
   installSearchShortcut();
   const node = searchContainer(owner, true);
   const generation = ++searchGeneration;
@@ -209,5 +246,6 @@ export function setAppBarSearch(owner: string, options: AppBarSearchOptions): ()
 
 /** Removes the current search owned by `owner`, if one exists. */
 export function clearAppBarSearch(owner: string): void {
+  if (staticAppBar) { staticAppBar.search.delete(owner); return; }
   searchContainer(owner, false)?.remove();
 }

@@ -1,0 +1,46 @@
+---
+import Base from "../layouts/Base.astro";
+import AppShell from "./AppShell.astro";
+import { renderProviderEntity } from "../server/render-provider";
+import { writeStaticJsonDocument } from "../server/static-documents";
+import { providerEntityJsonPath, providerEntityRoute, type ProviderEntityPayload } from "../lib/provider-entity-data";
+import { catalogConfig } from "../config/catalog-labels";
+import { localizeValue } from "../i18n/locales";
+import { t } from "../i18n/messages";
+import { serializePageData } from "../lib/page-data";
+import "../styles/catalog.css";
+import "../styles/story.css";
+
+const { payload } = Astro.props as { payload: ProviderEntityPayload };
+const { locale, provider, resource, section } = payload;
+const route = providerEntityRoute(payload);
+const titleKey = resource === "songs"
+  ? provider === "bestdori" ? "community.page.songsBestDori" : "community.page.sekai.title"
+  : provider === "bestdori"
+    ? `story.navigation.bestdori${(section || "card").charAt(0).toUpperCase()}${(section || "card").slice(1)}`
+    : `community.page.sekai.stories.${section}`;
+const fallback = resource === "songs" ? provider === "bestdori" ? "GBP Songs" : "Project SEKAI Songs" : section || "card";
+const collectionTitle = t(locale, titleKey, fallback);
+const record = payload.detail;
+const summary = payload.collection.document[payload.id] as Record<string, unknown>;
+const entityTitle = localizeValue(record.musicTitle || record.title || record.prefix || record.name || summary?.musicTitle || summary?.title || summary?.prefix || summary?.name, locale) || collectionTitle;
+const rendered = await renderProviderEntity(payload, locale, route);
+if (import.meta.env.PROD) writeStaticJsonDocument(providerEntityJsonPath(payload), payload);
+const pageDataId = "provider-entity";
+const song = resource === "songs";
+const collectionRoute = `/community/${provider === "bestdori" ? song ? "songs-bestdori" : "stories-bestdori" : song ? "sekai/songs" : "sekai/stories"}${song ? "" : `/${section || "card"}`}`;
+const backHref = `/${locale}${collectionRoute}/`;
+const config = song ? catalogConfig({ resource: "songs", locale, origin: provider, entityId: payload.id, entityContext: true }) : "";
+---
+<Base locale={locale} route={route} canonicalRoute={route} title={entityTitle} description={entityTitle} noindex>
+  <AppShell locale={locale} route={collectionRoute} title={collectionTitle} titleKey={titleKey} appBar={rendered.appBar} entity={song ? { title: entityTitle, backHref } : undefined}>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    {song
+      ? <catalog-screen config={config} data-page-data={pageDataId} data-collection-data="provider-entity-collection" data-prerendered set:html={rendered.body}></catalog-screen>
+      : <story-workspace locale={locale} origin={provider} mode={section || "card"} data-page-data={pageDataId} data-collection-data="provider-entity-collection" data-prerendered set:html={rendered.body}></story-workspace>}
+  </AppShell>
+</Base>
+<script>
+  import "../lit/catalog-screen";
+  import "../lit/story-workspace";
+</script>

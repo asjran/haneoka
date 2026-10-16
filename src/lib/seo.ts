@@ -26,8 +26,11 @@ const PRIVATE_ROUTES = new Set([
 ]);
 
 export function canonicalPath(route: string): string {
-  const clean = `/${route.replace(/^\/+|\/+$/g, "")}`;
-  return clean === "/" ? "/" : `${clean}/`;
+  const suffixAt = route.search(/[?#]/u);
+  const pathname = suffixAt < 0 ? route : route.slice(0, suffixAt);
+  const suffix = suffixAt < 0 ? "" : route.slice(suffixAt);
+  const clean = `/${pathname.replace(/^\/+|\/+$/g, "")}`;
+  return `${clean === "/" ? "/" : `${clean}/`}${suffix}`;
 }
 
 export function shouldNoindex(route: string): boolean {
@@ -73,10 +76,8 @@ export function pageKeywords(locale: Locale, route: string, title: string): stri
 }
 
 export function pageSummary(locale: Locale, route: string, title: string, description?: string): string {
-  const context = pageDescription(locale, route, title);
   const supplied = description?.trim();
-  if (!supplied || supplied === title.trim() || context.includes(supplied)) return context;
-  return supplied.length >= context.length ? supplied : `${supplied} ${context}`;
+  return supplied && supplied !== title.trim() ? supplied : pageDescription(locale, route, title);
 }
 
 export function pageStructuredData(
@@ -161,6 +162,10 @@ export function pageDescription(locale: Locale, route: string, title: string): s
   const key =
     route === "/"
       ? "home"
+      : route === "/team-builder"
+        ? "teamBuilder"
+        : route === "/song-puzzle" || route === "/tools/song-puzzle"
+          ? "songPuzzle"
       : route === "/stamp-maker" || route === "/tools/stamp-maker"
         ? "stampMaker"
         : route.startsWith("/chart-editor")

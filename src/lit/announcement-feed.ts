@@ -6,6 +6,9 @@ import { readReleaseServer } from "../lib/release-server";
 import { navigationDocumentUrl } from "../lib/document-url";
 import { RequestScope } from "../lib/request-scope";
 import { announcementRow, announcementState, type AnnouncementPhase } from "./shared/announcement";
+import { readPageData } from "../lib/page-data";
+import { adoptPrerenderedWorkspace } from "../lib/workspace-page-data";
+import type { AnnouncementPageData } from "../lib/announcement-page-data";
 
 /** Also used in home: this request has its own state and cancellation. */
 export class AnnouncementFeed extends LitElement {
@@ -21,20 +24,29 @@ export class AnnouncementFeed extends LitElement {
   declare entries: Announcement[];
   private requests = new RequestScope();
   private loadedLocale?: string;
-  private server = readReleaseServer();
+  private pageAdopted = false;
+  private server = typeof document !== "undefined" && document.documentElement?.dataset ? readReleaseServer() : "intl" as const;
   private localeListener = (event: Event) => {
     const locale = (event as CustomEvent).detail;
     if (isLocale(locale)) this.locale = locale;
   };
   constructor() {
     super();
-    this.locale = localeFromPath(typeof location === "undefined" ? "" : navigationDocumentUrl().pathname) || preferredDeviceLocale();
+    this.locale = localeFromPath(typeof location === "undefined" || !document.documentElement?.dataset ? "" : navigationDocumentUrl().pathname) || preferredDeviceLocale();
     this.limit = 0;
     this.phase = "loading";
     this.entries = [];
   }
   createRenderRoot() {
     return this;
+  }
+  preparePage(page: AnnouncementPageData, locale: Locale) {
+    adoptPrerenderedWorkspace(this);
+    this.locale = locale;
+    this.loadedLocale = locale;
+    this.server = page.server;
+    this.entries = sortAnnouncements(page.entries);
+    this.phase = page.phase;
   }
   connectedCallback() {
     super.connectedCallback();
@@ -50,6 +62,12 @@ export class AnnouncementFeed extends LitElement {
     if (changed.has("locale") && this.loadedLocale !== this.locale) void this.load();
   }
   private async load() {
+    const page = readPageData<AnnouncementPageData>(this);
+    if (!this.pageAdopted && page?.schema === "haneoka-announcement-page-v1" && page.locale === this.locale) {
+      this.pageAdopted = true;
+      this.preparePage(page, this.locale);
+      return;
+    }
     this.loadedLocale = this.locale;
     const signal = this.requests.begin();
     this.server = readReleaseServer();

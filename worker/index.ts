@@ -7,6 +7,14 @@ import { sonolusShareRedirectTarget } from "./sonolus-share";
 export { CommunityMediaContainer } from "./community-media-container";
 import { handleAdminRequest } from "./admin";
 import { applySiteSettings, readSiteSettings, testContentAllowed } from "./site-settings";
+import { serveStaticDocument, staticDocumentRedirect } from "./static-documents";
+import { staticDocumentLookupPath, acceptsGzip } from "../src/lib/static-documents";
+import { providerEntityFromUrl } from "../src/lib/provider-entity-routing";
+import { providerEntityHtmlPath } from "../src/lib/provider-entity-data";
+import { staticViewFromUrl } from "../src/lib/static-view-routing";
+import { assetStaticDocumentFromUrl } from "../src/lib/asset-static-routing";
+import { playlistStaticDocumentFromUrl } from "../src/lib/playlists/static-routing";
+import { isCommunityForumDetailPath, restoreCommunityForumDetailShell } from "../src/lib/community-forum-document";
 import { handleAccountRegistrationRequest, handleAuthRequest } from "./auth";
 import { handleAppAccountRequest } from "./app-account";
 import { handleAvatarRequest } from "./avatar";
@@ -2299,7 +2307,6 @@ async function handleCatalogApiRequest(
   return handleCatalogStorageApi(env, ctx, request, release, storage, tail);
 }
 
-
 async function handleMetaReferenceApi(env: Env, request: Request): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== "/api/v1/meta-reference" && !url.pathname.startsWith("/api/v1/meta-reference/")) return null;
@@ -2391,7 +2398,8 @@ const recognitionReferenceProvider = createRecognitionReferenceProvider({
       !RESOURCE_SERVER_SLUG_PATTERN.test(context.server) ||
       !RELEASE_ID_PATTERN.test(context.releaseId) ||
       !SOURCE_ID_PATTERN.test(context.sourceId)
-    ) return null;
+    )
+      return null;
     const server = await activeResourceServer(env, context.server);
     if (!server) return null;
     const release = await requestedRelease(env, server, context.releaseId);
@@ -2423,11 +2431,7 @@ const TEAM_BUILDER_RUNTIME_MASTER_TABLES: ReadonlySet<string> = new Set([
   "MasterLiveGekisouLuckBonusLot",
 ]);
 
-async function handleTeamBuilderDataApi(
-  env: Env,
-  ctx: ExecutionContext,
-  request: Request,
-): Promise<Response | null> {
+async function handleTeamBuilderDataApi(env: Env, ctx: ExecutionContext, request: Request): Promise<Response | null> {
   // Per-request snapshot captured from the existing validated catalog pin.
   let pinned: Release | null = null;
   let pinnedServer: ResourceServerRoute | null = null;
@@ -2461,8 +2465,12 @@ async function handleTeamBuilderDataApi(
       if (!TEAM_BUILDER_RUNTIME_MASTER_TABLES.has(sourceTable)) {
         throw new Error("Runtime Master table is not allowed");
       }
-      if (!pinned || identity.server !== pinned.server || identity.releaseId !== pinned.releaseId ||
-          identity.sourceId !== pinned.sourceId) {
+      if (
+        !pinned ||
+        identity.server !== pinned.server ||
+        identity.releaseId !== pinned.releaseId ||
+        identity.sourceId !== pinned.sourceId
+      ) {
         throw new Error("Runtime Master pin does not match the selected release");
       }
       return readReleaseJson(env, pinned, `objects/master/${sourceTable}.json`);
@@ -2482,7 +2490,6 @@ async function handleTeamBuilderDataApi(
     (promise) => ctx.waitUntil(promise),
   );
 }
-
 
 async function handleChartImageApi(env: Env, request: Request): Promise<Response | null> {
   const url = new URL(request.url);
@@ -2865,7 +2872,13 @@ function sonolusServerBanner(value: unknown): JsonObject | undefined {
 function sonolusFallbackThumbnail(value: JsonValue | null): JsonObject | undefined {
   if (!isJsonObject(value) || !isJsonObject(value.thumbnail)) return undefined;
   const { hash, url } = value.thumbnail;
-  if (typeof hash !== "string" || !/^[a-f0-9]{40}$/u.test(hash) || typeof url !== "string" || url !== `/sonolus/repository/${hash}`) return undefined;
+  if (
+    typeof hash !== "string" ||
+    !/^[a-f0-9]{40}$/u.test(hash) ||
+    typeof url !== "string" ||
+    url !== `/sonolus/repository/${hash}`
+  )
+    return undefined;
   return { hash, url: new URL(url, `https://${CANONICAL_HOST}`).href };
 }
 
@@ -3192,7 +3205,15 @@ async function serveStaticAsset(request: Request, env: Env): Promise<Response> {
   if (url.pathname.includes("/community/")) {
     if (/^\/(?:ja|en|zh-TW|zh-CN|ko)\/community\/forums(?:\/[^/]+)?\/?$/u.test(url.pathname)) {
       const forums = await tryEntry("/community/forums/");
-      if (forums) return forums;
+      if (forums) {
+        if (!isCommunityForumDetailPath(url.pathname)) return forums;
+        const headers = new Headers(forums.headers);
+        headers.delete("Content-Length");
+        headers.delete("Content-Encoding");
+        headers.delete("ETag");
+        const body = request.method === "HEAD" ? null : restoreCommunityForumDetailShell(await forums.text());
+        return new Response(body, { status: forums.status, statusText: forums.statusText, headers });
+      }
     }
     const entry = await tryEntry("/community/");
     if (entry) return entry;
@@ -3230,14 +3251,20 @@ async function documentEntityAvailability(
 
 /** Preview documents are aliases of Intl whenever that page or native entity exists there. */
 async function previewDocumentRedirect(request: Request, env: Env): Promise<Response | null> {
-  const source = new URL(request.url), parts = source.pathname.split("/").filter(Boolean);
+  const source = new URL(request.url),
+    parts = source.pathname.split("/").filter(Boolean);
   if (parts[0] !== "intl-test" || !SERVER_FIRST_LOCALES.has(parts[1] || "")) return null;
   const target = new URL(source);
   target.pathname = source.pathname.replace(/^\/intl-test(?=\/)/u, "/intl");
   for (const key of ["server", "release", "releaseId", "source", "sourceId"]) target.searchParams.delete(key);
   const returnTo = target.searchParams.get("return");
-  if (returnTo?.startsWith("/intl-test/")) target.searchParams.set("return", returnTo.replace(/^\/intl-test\//u, "/intl/"));
-  const redirect = () => new Response(null, { status: 302, headers: { Location: target.pathname + target.search, "Cache-Control": "no-store" } });
+  if (returnTo?.startsWith("/intl-test/"))
+    target.searchParams.set("return", returnTo.replace(/^\/intl-test\//u, "/intl/"));
+  const redirect = () =>
+    new Response(null, {
+      status: 302,
+      headers: { Location: target.pathname + target.search, "Cache-Control": "no-store" },
+    });
   const route = parseResourceRoute(source.pathname);
   const collection = route && (!route.id || (route.kind === "stories" && STORY_MODES.has(route.id)));
   if (collection || parts[2] === "assets" || (parts[2] === "events" && parts[3] === "tracker")) {
@@ -3249,7 +3276,8 @@ async function previewDocumentRedirect(request: Request, env: Env): Promise<Resp
     return formal ? redirect() : null;
   }
   const headers = new Headers(request.headers);
-  headers.delete("If-None-Match"); headers.delete("If-Modified-Since");
+  headers.delete("If-None-Match");
+  headers.delete("If-Modified-Since");
   const sibling = await env.ASSETS.fetch(new Request(target, { method: "HEAD", headers }));
   if (sibling.status < 400) return redirect();
   // Settings and shared tools use a locale-only address rather than a server prefix.
@@ -3264,19 +3292,34 @@ function previewDetailShell(request: Request, shell: Response, route: ResourceRo
   for (const key of ["Content-Length", "Content-Encoding", "ETag"]) headers.delete(key);
   const workspace = {
     element(element: Element) {
-      element.removeAttribute("data-prerendered"); element.removeAttribute("data-page-data");
+      element.removeAttribute("data-prerendered");
+      element.removeAttribute("data-page-data");
       element.setAttribute("entity-id", route.id);
       if (element.tagName === "catalog-screen") {
         const config = JSON.parse(element.getAttribute("config") || "{}");
-        element.setAttribute("config", JSON.stringify({ ...config, server: route.server, entityId: route.id, entityContext: true }));
+        element.setAttribute(
+          "config",
+          JSON.stringify({ ...config, server: route.server, entityId: route.id, entityContext: true }),
+        );
       }
       element.setInnerContent("");
     },
   };
   return new HTMLRewriter()
-    .on("catalog-screen, story-workspace, help-workspace, live2d-workspace, spine-workspace, mission-workspace, tgw-card-workspace", workspace)
-    .on('script[type="application/json"]', { element(element) { if (element.getAttribute("id") !== "haneoka-i18n-seed") element.remove(); } })
-    .on('link[rel="canonical"]', { element(element) { element.setAttribute("href", new URL(request.url).origin + new URL(request.url).pathname); } })
+    .on(
+      "catalog-screen, story-workspace, help-workspace, live2d-workspace, spine-workspace, mission-workspace, tgw-card-workspace",
+      workspace,
+    )
+    .on('script[type="application/json"]', {
+      element(element) {
+        if (element.getAttribute("id") !== "haneoka-i18n-seed") element.remove();
+      },
+    })
+    .on('link[rel="canonical"]', {
+      element(element) {
+        element.setAttribute("href", new URL(request.url).origin + new URL(request.url).pathname);
+      },
+    })
     .transform(new Response(shell.body, { status: 200, headers }));
 }
 
@@ -3289,6 +3332,8 @@ async function serveCanonicalResourceDocument(request: Request, env: Env): Promi
   const requestedUrl = new URL(request.url);
   const announcement = announcementDocumentRequest(requestedUrl.pathname);
   if (announcement && (request.method === "GET" || request.method === "HEAD")) {
+    const direct = await env.ASSETS.fetch(request);
+    if (direct.status !== 404) return direct;
     const shellUrl = new URL(requestedUrl);
     shellUrl.pathname = announcement.shellPath;
     const shell = await env.ASSETS.fetch(new Request(shellUrl, { method: "GET", headers: request.headers }));
@@ -3362,6 +3407,10 @@ const WORKER_FIRST_PREFIXES = [
   "/objects/",
   "/runtime/",
   "/sonolus/",
+  "/provider-static/",
+  "/static-views/",
+  "/asset-static/",
+  "/playlist-static/",
 ];
 
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -3369,8 +3418,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   const segments = url.pathname.split("/").filter(Boolean);
   if (request.method === "GET" || request.method === "HEAD") {
     const documentPath =
-      url.pathname === "/" ||
-      /^\/(?:jp|intl|jp-cbt|intl-cbt|gl-cbt|ja|en|zh-TW|zh-CN|ko)(?:\/|$)/u.test(url.pathname);
+      url.pathname === "/" || /^\/(?:jp|intl|jp-cbt|intl-cbt|gl-cbt|ja|en|zh-TW|zh-CN|ko)(?:\/|$)/u.test(url.pathname);
     const temporaryTarget = documentPath ? temporaryPublicRedirectTarget(url.pathname, url.search) : undefined;
     if (temporaryTarget) {
       return new Response(null, {
@@ -3458,11 +3506,14 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     const resolveCommunityEntity = createCommunityEntityResolver((catalogEnv, catalogRequest) =>
       handleCatalogApi(catalogEnv, ctx, catalogRequest, new URL(catalogRequest.url).pathname),
     );
-    const bootstrap = await handleCommunityBootstrap(request, env, async (readRequest) =>
-      (await handleCommunityEntityRequest(readRequest, env, resolveCommunityEntity)) ??
-      (await handleCommunityForumsRequest(readRequest, env)) ??
-      (await handlePublicProfileRequest(readRequest, env)) ??
-      (await handleCommunityRequest(readRequest, env)),
+    const bootstrap = await handleCommunityBootstrap(
+      request,
+      env,
+      async (readRequest) =>
+        (await handleCommunityEntityRequest(readRequest, env, resolveCommunityEntity)) ??
+        (await handleCommunityForumsRequest(readRequest, env)) ??
+        (await handlePublicProfileRequest(readRequest, env)) ??
+        (await handleCommunityRequest(readRequest, env)),
     );
     if (bootstrap) return bootstrap;
     const communityEntity = await handleCommunityEntityRequest(request, env, resolveCommunityEntity);
@@ -3507,6 +3558,12 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     headers.set("Allow", "GET, HEAD, OPTIONS");
     return new Response(response.body, { status: response.status, headers });
   }
+  const staticPath =
+    staticDocumentLookupPath(url.pathname) ||
+    (/^\/provider-static\/data\/[a-f0-9]{64}\.json$/u.test(url.pathname) ? url.pathname : undefined);
+  if (staticPath && !staticPath.endsWith(".html")) {
+    return (await serveStaticDocument(request, env, ctx, staticPath)) || new Response("Not found", { status: 404 });
+  }
   const announcements = await handleAnnouncementsRequest(request, env, (serverSlug) =>
     activeResourceServer(env, serverSlug),
   );
@@ -3540,7 +3597,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   const artifact = await handleArtifact(env, ctx, request, url.pathname);
   if (artifact) return artifact;
   if (url.pathname.startsWith("/api/")) return errorResponse(request, 404, "route_not_found", "API route not found");
-  const documentRequest = url.pathname.endsWith("/") || url.pathname.endsWith(".html") || !/\.[^/]+$/u.test(url.pathname);
+  const documentRequest =
+    url.pathname.endsWith("/") || url.pathname.endsWith(".html") || !/\.[^/]+$/u.test(url.pathname);
   if (!documentRequest) return serveStaticAsset(request, env);
   const previewRequest = url.pathname.split("/")[1]?.includes("-test");
   if (previewRequest) {
@@ -3555,10 +3613,41 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   headers.delete("If-Modified-Since");
   const assetRequest = new Request(request, { headers });
   const [response, settings] = await Promise.all([
-    serveCanonicalResourceDocument(assetRequest, env).then((value) => value ?? serveStaticAsset(assetRequest, env)),
+    (async () => {
+      const redirect = await staticDocumentRedirect(assetRequest, env);
+      if (redirect) return redirect;
+      const provider = providerEntityFromUrl(url);
+      const view = staticViewFromUrl(url);
+      const corePath = staticDocumentLookupPath(view || url.pathname);
+      const document = assetStaticDocumentFromUrl(url) || playlistStaticDocumentFromUrl(url) ||
+        (provider ? providerEntityHtmlPath(provider) : corePath);
+      const documents = document ? [document] : [];
+      if (provider && corePath && corePath !== document) documents.push(corePath);
+      for (const candidate of documents) {
+        const hit = await serveStaticDocument(assetRequest, env, ctx, candidate);
+        if (hit) return hit;
+      }
+      if (view) {
+        const hit = await env.ASSETS.fetch(new Request(new URL(view, url), assetRequest));
+        if (hit.status !== 404) return hit;
+      }
+      return (await serveCanonicalResourceDocument(assetRequest, env)) || serveStaticAsset(assetRequest, env);
+    })(),
     previewSettings ? Promise.resolve(previewSettings) : readSiteSettings(env),
   ]);
-  return applySiteSettings(request, response, settings);
+  const result = await applySiteSettings(request, response, settings);
+  if (
+    result.body &&
+    result.headers.get("Content-Type")?.includes("text/html") &&
+    acceptsGzip(request.headers.get("Accept-Encoding")) &&
+    !result.headers.has("Content-Encoding")
+  ) {
+    const compressed = new Headers(result.headers);
+    compressed.set("Content-Encoding", "gzip");
+    compressed.append("Vary", "Accept-Encoding");
+    return new Response(result.body, { status: result.status, statusText: result.statusText, headers: compressed });
+  }
+  return result;
 }
 
 function errorDetails(error: unknown): { message: string; name: string } {
@@ -3629,8 +3718,11 @@ const worker: ExportedHandler<Env> = {
         withD1Session(request, env, async (routedEnv) => {
           const response = await cachedCommunityRead(request, ctx, () => handleRequest(request, routedEnv, ctx));
           if (
-            request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS" &&
-            response.status < 400 && new URL(request.url).pathname.startsWith("/api/")
+            request.method !== "GET" &&
+            request.method !== "HEAD" &&
+            request.method !== "OPTIONS" &&
+            response.status < 400 &&
+            new URL(request.url).pathname.startsWith("/api/")
           )
             ctx.waitUntil(markCommunityMutation(request.url));
           return response;
@@ -3646,14 +3738,14 @@ const worker: ExportedHandler<Env> = {
       controller.cron === COMMUNITY_RANKING_CRON
         ? ["community_ranking", () => refreshCommunityRanking(env)]
         : controller.cron === MEDIA_RECONCILIATION_CRON
-        ? ["community_media_reconciliation", () => reconcileCommunityMedia(env)]
-        : controller.cron === MODERATION_RECONCILIATION_CRON
-          ? ["moderation_reconciliation", () => reconcileModerationState(env)]
-          : controller.cron === COMMUNITY_UPLOAD_CLEANUP_CRON
-            ? ["community_upload_cleanup", () => cleanupCommunityUploads(env)]
-            : controller.cron === DATABASE_CLEANUP_CRON
-              ? ["database_cleanup", () => cleanupDatabase(env)]
-              : null;
+          ? ["community_media_reconciliation", () => reconcileCommunityMedia(env)]
+          : controller.cron === MODERATION_RECONCILIATION_CRON
+            ? ["moderation_reconciliation", () => reconcileModerationState(env)]
+            : controller.cron === COMMUNITY_UPLOAD_CLEANUP_CRON
+              ? ["community_upload_cleanup", () => cleanupCommunityUploads(env)]
+              : controller.cron === DATABASE_CLEANUP_CRON
+                ? ["database_cleanup", () => cleanupDatabase(env)]
+                : null;
     if (!scheduledTask) {
       console.warn(JSON.stringify({ cron: controller.cron, event: "worker.unknown_scheduled_trigger" }));
       return;

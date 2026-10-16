@@ -1,9 +1,15 @@
 ---
 import type { Locale } from "../../i18n/locales";
+import { sonolusHubPageData } from "../../server/tool-page-data";
+import { renderSonolusHubPage } from "../../server/render-tools";
+import { serializePageData } from "../../lib/page-data";
 const { locale } = Astro.props as { locale: Locale };
+const payload = await sonolusHubPageData();
+const page = await renderSonolusHubPage(payload, locale);
 ---
 
-<sonolus-hub locale={locale}></sonolus-hub>
+<sonolus-hub locale={locale} data-page-data="sonolus-hub-page" data-prerendered set:html={page.body}></sonolus-hub>
+<script id="sonolus-hub-page" type="application/json" set:html={serializePageData(payload)}></script>
 <script>
   import "../../lit/sonolus-hub";
 </script>

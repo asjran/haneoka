@@ -11,6 +11,19 @@ export interface PlaylistCatalogSource {
   songs: Record<string, RecordValue>;
   registry: PerformerRegistry;
 }
+export function playlistCatalogSourceFromRecords(provider: PlaylistCatalogSource["provider"], server: string, songRows: RecordValue, bandRows: RecordValue, charRows: RecordValue, identity: { releaseId?: string; sourceId?: string } = {}): PlaylistCatalogSource {
+  const rows = (document: RecordValue) => Object.entries(document.items ?? document).filter(([, value]) => value && typeof value === "object" && !Array.isArray(value)) as Array<[string, RecordValue]>;
+  return {
+    provider, server, ...identity,
+    songs: Object.fromEntries(rows(songRows).map(([id, row]) => [String(row.musicId ?? row.id ?? id), row])),
+    registry: {
+      game: provider === "bestdori" ? "gbp" : "our-notes", server,
+      ...(identity.sourceId ? { sourceId: identity.sourceId } : {}),
+      bands: new Map(rows(bandRows).map(([id, row]) => [Number(row.bandId ?? id), row])),
+      characters: new Map(rows(charRows).map(([id, row]) => [Number(row.characterId ?? id), row])),
+    },
+  };
+}
 const sources = new Map<string, Promise<PlaylistCatalogSource>>();
 export async function loadPlaylistCatalogSource(
   provider: "our-notes" | "bestdori",
@@ -47,24 +60,7 @@ export async function loadPlaylistCatalogSource(
         return (await response.json()) as RecordValue;
       };
       const [songRows, bandRows, charRows] = await Promise.all([read("songs"), read("bands"), read("characters")]);
-      const rows = (document: RecordValue) =>
-        Object.entries(document.items ?? document).filter(
-          ([, value]) => value && typeof value === "object" && !Array.isArray(value),
-        ) as Array<[string, RecordValue]>;
-      return {
-        provider,
-        server,
-        releaseId,
-        sourceId,
-        songs: Object.fromEntries(rows(songRows).map(([id, row]) => [String(row.musicId ?? row.id ?? id), row])),
-        registry: {
-          game: provider === "bestdori" ? "gbp" : "our-notes",
-          server,
-          sourceId,
-          bands: new Map(rows(bandRows).map(([id, row]) => [Number(row.bandId ?? id), row])),
-          characters: new Map(rows(charRows).map(([id, row]) => [Number(row.characterId ?? id), row])),
-        },
-      };
+      return playlistCatalogSourceFromRecords(provider, server, songRows, bandRows, charRows, { ...(releaseId ? { releaseId } : {}), ...(sourceId ? { sourceId } : {}) });
     })();
     sources.set(key, request);
     request.catch(() => sources.delete(key));

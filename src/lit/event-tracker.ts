@@ -3,6 +3,8 @@ import { clientText } from "../i18n/client";
 import { clearAppBarActions, setAppBarActions } from "../lib/app-bar";
 import { RequestScope } from "../lib/request-scope";
 import { readPageData } from "../lib/page-data";
+import { adoptPrerenderedWorkspace } from "../lib/workspace-page-data";
+import type { TrackerPageData } from "../lib/event-tracker-page-data";
 import { navigationDocumentUrl } from "../lib/document-url";
 import { resourcePath } from "../lib/resource-route";
 import { resolveLocalizedText } from "../lib/localized-text";
@@ -36,9 +38,6 @@ import "../styles/song-ranking.css";
 import { snackbar } from "../lib/snackbar";
 
 type Region = GameRecordsRegion;
-type TrackerPageData = Partial<Record<"jp" | "intl", RankingCardCatalog>> & {
-  musicTypeMarks?: Partial<Record<"jp" | "intl", Record<string, string>>>;
-};
 let trackerSequence = 0;
 
 export class EventTracker extends LitElement {
@@ -73,6 +72,7 @@ export class EventTracker extends LitElement {
   private cards: Partial<Record<"jp" | "intl", RankingCardCatalog>> = {};
   private musicTypeMarks: Partial<Record<"jp" | "intl", Map<string, string>>> = {};
   private readonly owner = `event-tracker-${++trackerSequence}`;
+  private pageAdopted = false;
 
   constructor() {
     super();
@@ -90,14 +90,39 @@ export class EventTracker extends LitElement {
   createRenderRoot() {
     return this;
   }
+  preparePage(page: TrackerPageData, locale: string, server: ReleaseServer, region = defaultGameRecordsRegion(server, locale)) {
+    adoptPrerenderedWorkspace(this);
+    this.locale = locale;
+    this.server = server;
+    this.region = region;
+    this.applyPageCatalogs(page);
+    const snapshot = page.snapshots?.[region];
+    if (!snapshot) return;
+    if (snapshot.data) this.applyEventData(snapshot.data);
+    this.phase = snapshot.phase;
+    this.info = snapshot.info;
+    this.songs = snapshot.songs;
+    this.infoServer = snapshot.infoServer;
+  }
+  private applyPageCatalogs(pageData: TrackerPageData) {
+    this.cards = { intl: pageData.intl, jp: pageData.jp };
+    this.musicTypeMarks = Object.fromEntries(Object.entries(pageData.musicTypeMarks || {}).map(([source, marks]) => [source, new Map(Object.entries(marks))]));
+  }
+  private applyEventData(data: EventTrackerDto) {
+    const changed = this.data?.event?.id !== data.event?.id;
+    this.data = data;
+    this.phase = "ready";
+    if (changed) { this.info = null; this.songs = {}; }
+    const challenges = data.event?.challenges || [];
+    if (!challenges.some((challenge) => challenge.id === this.challengeId)) this.challengeId = challenges.find((challenge) => challenge.enabled)?.id || challenges[0]?.id || "";
+    return changed;
+  }
+  renderStaticChrome() { this.syncAppBar(); }
   connectedCallback() {
     super.connectedCallback();
     this.lifetime = new AbortController();
     const pageData = readPageData<TrackerPageData>(this) || {};
-    this.cards = { intl: pageData.intl, jp: pageData.jp };
-    this.musicTypeMarks = Object.fromEntries(
-      Object.entries(pageData.musicTypeMarks || {}).map(([source, marks]) => [source, new Map(Object.entries(marks))]),
-    );
+    this.applyPageCatalogs(pageData);
     this.locale = preferredLocale(this.locale);
     const params = navigationDocumentUrl().searchParams;
     const requested = params.get("region");
@@ -146,6 +171,12 @@ export class EventTracker extends LitElement {
     return this.region === "jp" ? "jp" : "intl";
   }
   private async load() {
+    const page = readPageData<TrackerPageData>(this);
+    if (!this.pageAdopted && page?.snapshots?.[this.region]) {
+      this.pageAdopted = true;
+      this.preparePage(page, this.locale, this.server, this.region);
+      return;
+    }
     const region = this.region;
     const signal = this.requests.begin();
     this.refreshing = true;
@@ -156,16 +187,8 @@ export class EventTracker extends LitElement {
         cache: "no-store",
       });
       if (!this.isConnected || this.region !== region || !this.requests.current(signal)) return;
-      const changed = this.data?.event?.id !== data.event?.id;
-      this.data = data;
-      this.phase = "ready";
-      if (changed) {
-        this.info = null;
-        this.songs = {};
-      }
+      const changed = this.applyEventData(data);
       const challenges = data.event?.challenges || [];
-      if (!challenges.some((challenge) => challenge.id === this.challengeId))
-        this.challengeId = challenges.find((challenge) => challenge.enabled)?.id || challenges[0]?.id || "";
       if (data.event && (changed || !this.info)) await this.loadCatalog(data.event.id, challenges, signal);
     } catch {
       if (!this.isConnected || this.region !== region || !this.requests.current(signal)) return;
@@ -281,6 +304,9 @@ export class EventTracker extends LitElement {
       if (this.cachedShown) snackbar(this.label("cached", "Showing the last available event information."));
     }
     this.lazyImages.observe(this);
+    this.syncAppBar();
+  }
+  private syncAppBar() {
     setAppBarActions(
       this.owner,
       html`

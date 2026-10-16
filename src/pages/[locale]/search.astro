@@ -5,9 +5,11 @@ import Icon from "../../components/Icon.astro";
 import { LOCALES, type Locale } from "../../i18n/locales";
 import { t } from "../../i18n/messages";
 import "../../styles/search.css";
+import { renderGlobalSearchPage } from "../../server/render-tools";
 export const getStaticPaths = () => LOCALES.map(locale => ({params:{locale},props:{locale}}));
 const { locale } = Astro.props as {locale:Locale};
 const title = t(locale,"common.actions.search","Search");
+const page = await renderGlobalSearchPage(locale);
 ---
 <Base locale={locale} route="/search" title={title} titleKey="common.actions.search" noindex>
   <AppShell locale={locale} route="/search" title={title} titleKey="common.actions.search">
@@ -17,7 +19,7 @@ const title = t(locale,"common.actions.search","Search");
       </md-filled-text-field>
       <button class="icon-button" type="submit" aria-label={title}><Icon name="arrow_forward" /></button>
     </form>
-    <global-search locale={locale} class="page search-page"></global-search>
+    <global-search locale={locale} class="page search-page" data-prerendered set:html={page.body}></global-search>
   </AppShell>
 </Base>
 <script>

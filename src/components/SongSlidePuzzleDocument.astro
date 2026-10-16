@@ -4,13 +4,19 @@ import AppShell from "./AppShell.astro";
 import type { Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
 import "../styles/song-slide-puzzle.css";
+import { songPuzzlePageData } from "../server/tool-page-data";
+import { renderSongPuzzlePage } from "../server/render-tools";
+import { serializePageData } from "../lib/page-data";
 const { locale } = Astro.props as { locale: Locale };
 const title = t(locale, "tools.songPuzzle.title", "Song cover puzzle");
 const route = "/song-puzzle";
+const payload = await songPuzzlePageData("intl");
+const page = await renderSongPuzzlePage(payload, locale);
 ---
 <Base locale={locale} route={route} title={title} titleKey="tools.songPuzzle.title">
-  <AppShell locale={locale} route={route} title={title} titleKey="tools.songPuzzle.title">
-    <song-slide-puzzle locale={locale}></song-slide-puzzle>
+  <AppShell locale={locale} route={route} title={title} titleKey="tools.songPuzzle.title" appBar={page.appBar}>
+    <song-slide-puzzle locale={locale} data-page-data="song-puzzle-page" data-prerendered set:html={page.body}></song-slide-puzzle>
+    <script id="song-puzzle-page" type="application/json" set:html={serializePageData(payload)}></script>
   </AppShell>
 </Base>
 <script>import "../lit/song-puzzle";</script>

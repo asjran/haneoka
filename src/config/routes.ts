@@ -102,6 +102,8 @@ export const ROUTES: RouteDefinition[] = [
     }),
   ),
   { route: "/catalog/tgw-card", kind: "tgw-card", key: "tgw-card", titleKey: "catalog.tgwCard.card", resource: "tgw-card" },
+  { route: "/catalog/circle", kind: "catalog", key: "circle", titleKey: "navigation.circle", resource: "circle" },
+  { route: "/catalog/challenge", kind: "catalog", key: "challenge", titleKey: "navigation.challenge", resource: "challenge" },
   { route: "/catalog/studio", kind: "studio", key: "studio", titleKey: "catalog.studio.title", resource: "studio" },
   {
     route: "/catalog/missions",

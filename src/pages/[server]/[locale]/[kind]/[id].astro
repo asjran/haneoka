@@ -1,5 +1,6 @@
 ---
 import CatalogEntityPage from "../../../../components/entities/CatalogEntityPage.astro";
+import CatalogSystemEntityPage from "../../../../components/entities/CatalogSystemEntityPage.astro";
 import HelpEntityPage from "../../../../components/entities/HelpEntityPage.astro";
 import Live2DEntityPage from "../../../../components/entities/Live2DEntityPage.astro";
 import SpineEntityPage from "../../../../components/entities/SpineEntityPage.astro";
@@ -153,6 +154,9 @@ const skillPage = page as SkillPage;
 {kind === "skills" && (
   <SkillEntityPage page={skillPage} locale={locale} canonical returnTo={returnTo} previous={previous} next={next} />
 )}
-{kind !== "live2d" && kind !== "spine" && kind !== "help" && kind !== "stories" && kind !== "skills" && (
+{(kind === "missions" || kind === "tgw-card") && (
+  <CatalogSystemEntityPage page={catalogPage} locale={locale} server={server} returnTo={returnTo} previous={previous} next={next} />
+)}
+{kind !== "live2d" && kind !== "spine" && kind !== "help" && kind !== "stories" && kind !== "skills" && kind !== "missions" && kind !== "tgw-card" && (
   <CatalogEntityPage page={catalogPage} locale={locale} server={server} canonical returnTo={returnTo} previous={previous} next={next} />
 )}

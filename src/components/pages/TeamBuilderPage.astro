@@ -2,10 +2,16 @@
 import type { Locale } from "../../i18n/locales";
 import type { ReleaseServer } from "../../lib/release-server";
 import "../../styles/team-builder.css";
+import { teamBuilderPageData } from "../../server/tool-page-data";
+import { renderTeamBuilderPage } from "../../server/render-tools";
+import { serializePageData } from "../../lib/page-data";
 const { locale, server = "intl" } = Astro.props as { locale: Locale; server?: ReleaseServer };
+const payload = await teamBuilderPageData(server);
+const page = await renderTeamBuilderPage(payload, locale);
 ---
 
-<team-builder locale={locale} server={server}></team-builder>
+<team-builder locale={locale} server={server} data-page-data="team-builder-page" data-prerendered set:html={page.body}></team-builder>
+<script id="team-builder-page" type="application/json" set:html={serializePageData(payload)}></script>
 <script>
   import "../../lit/team-builder";
 </script>

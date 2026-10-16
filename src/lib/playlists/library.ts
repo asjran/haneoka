@@ -55,6 +55,33 @@ export interface SongLibrary {
   /** Background music of the game's own screens. */
   bgm: LibrarySong[];
 }
+type SerializedLibrarySong = Omit<LibrarySong, "released"> & { released: number | null };
+export interface SerializedSongLibrary {
+  songs: SerializedLibrarySong[];
+  bgm: SerializedLibrarySong[];
+  bands: Array<Omit<LibraryBand, "songs"> & { songKeys: string[] }>;
+  partial: string[];
+}
+export function serializeSongLibrary(library: SongLibrary): SerializedSongLibrary {
+  const song = (row: LibrarySong): SerializedLibrarySong => ({ ...row, released: Number.isFinite(row.released) ? row.released : null });
+  return { songs: library.songs.map(song), bgm: library.bgm.map(song), bands: library.bands.map(({ songs, ...band }) => ({ ...band, songKeys: songs.map(song => song.key) })), partial: library.partial };
+}
+export function deserializeSongLibrary(data: SerializedSongLibrary): SongLibrary {
+  const song = (row: SerializedLibrarySong): LibrarySong => ({ ...row, released: row.released === null ? Number.POSITIVE_INFINITY : row.released });
+  const songs = data.songs.map(song), bgm = data.bgm.map(song), byKey = new Map<string, LibrarySong>();
+  for (const row of [...songs, ...bgm]) for (const key of [row.key, ...row.aliases]) byKey.set(key, row);
+  const bands = data.bands.map(({ songKeys, ...band }) => ({ ...band, songs: songKeys.map(key => {
+    const row = byKey.get(key);
+    if (!row) throw new TypeError(`Missing serialized playlist song ${key}`);
+    return row;
+  }) }));
+  return { songs, bgm, byKey, bands, partial: data.partial };
+}
+export function adoptSongLibrary(server: string, data: SerializedSongLibrary): SongLibrary {
+  const library = deserializeSongLibrary(data);
+  libraries.set(server, Promise.resolve(library));
+  return library;
+}
 
 export const refKey = (ref: TrackRef) => `${ref.provider}:${ref.server}:${ref.musicId}`;
 
@@ -135,7 +162,10 @@ const BGM_BANDS: Readonly<Record<string, number>> = { mygo: 1, mujica: 2, yumemi
 async function loadBgm(server: string, bands: ReadonlyMap<number, RecordValue>): Promise<LibrarySong[]> {
   const response = await fetch(`/api/v1/servers/${encodeURIComponent(server)}/audio/views/master-bgms`);
   if (!response.ok) return [];
-  const rows = Object.values((await response.json()) as Record<string, RecordValue>);
+  return bgmLibrarySongs(server, bands, await response.json() as Record<string, RecordValue>);
+}
+export function bgmLibrarySongs(server: string, bands: ReadonlyMap<number, RecordValue>, document: Record<string, RecordValue>): LibrarySong[] {
+  const rows = Object.values(document);
   const seen = new Set<string>();
   const rank = (cue: string) => (BGM_ORDER.indexOf(cue) + BGM_ORDER.length + 1) % (BGM_ORDER.length + 1);
   rows.sort((left, right) => rank(String(left.cueName)) - rank(String(right.cueName)));
@@ -170,13 +200,15 @@ async function build(server: string): Promise<SongLibrary> {
     loadPlaylistCatalogSource("bestdori", "jp"),
   ]);
   const bgm = await loadBgm(server, native.status === "fulfilled" ? native.value.registry.bands : new Map()).catch(() => []);
-
+  return mergeSongLibrary(native, gbp, bgm);
+}
+export function mergeSongLibrary(native: PromiseSettledResult<PlaylistCatalogSource>, gbp: PromiseSettledResult<PlaylistCatalogSource>, bgm: LibrarySong[]): SongLibrary {
   if (native.status === "rejected" && gbp.status === "rejected") throw native.reason;
   const partial: string[] = [];
   if (native.status === "rejected") partial.push("our-notes");
   if (gbp.status === "rejected") partial.push("bestdori");
   if (gbp.status === "fulfilled" && native.status === "fulfilled" && !gbp.value.registry.portraitFallbacks) {
-    gbp.value.registry = { ...gbp.value.registry, portraitFallbacks: auditedCryChicPortraits(native.value) };
+    gbp = { status: "fulfilled", value: { ...gbp.value, registry: { ...gbp.value.registry, portraitFallbacks: auditedCryChicPortraits(native.value) } } };
   }
   const primary = native.status === "fulfilled" ? songsOf(native.value) : [];
   const secondary = gbp.status === "fulfilled" ? songsOf(gbp.value) : [];

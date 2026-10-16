@@ -1,4 +1,6 @@
-import {LitElement, html, nothing} from 'lit';
+import {LitElement, html, nothing, type PropertyValues} from 'lit';
+import {readPageData} from '../lib/page-data';
+import {hydrateWorkspace} from './shared/hydrate-workspace';
 import {repeat} from 'lit/directives/repeat.js';
 import {icon} from './ui/icon';
 import {RequestScope} from '../lib/request-scope';
@@ -39,8 +41,25 @@ export class CommunityForumNavigation extends LitElement {
   ]);
   constructor() { super();this.locale='ja';this.snapshot={forums:[]};this.busy=false; }
   createRenderRoot() { return this; }
+  preparePublicDirectory(snapshot: ForumNavigationSnapshot, locale: string, route: string): void {
+    this.locale = locale;
+    const slug = route.split('/forums/')[1]?.split('/')[0];
+    this.snapshot = { ...snapshot, activeForumId: snapshot.forums.find(forum => forum.slug === slug)?.id || null };
+    this.syncActiveGroup(false);
+  }
+  protected override update(changed: PropertyValues): void {
+    if (this.hasAttribute('data-prerendered')) {
+      hydrateWorkspace(this.render(), this, this.renderOptions);
+      this.removeAttribute('data-prerendered');
+    }
+    super.update(changed);
+  }
   connectedCallback() {
     super.connectedCallback();
+    if (this.hasAttribute('data-prerendered') && this.viewerId === undefined) {
+      const snapshot = readPageData<ForumNavigationSnapshot>(this);
+      if (snapshot) this.snapshot = snapshot;
+    }
     document.addEventListener('astro:page-load', this.syncPage);
     this.syncPageContext();
     window.addEventListener('haneoka:session-changed', this.revokeDirectory);

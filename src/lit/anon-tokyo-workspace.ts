@@ -1,6 +1,9 @@
 import { clientText } from "../i18n/client";
 import { renderAnonTokyoDetails } from "./shared/anon-tokyo-detail";
 import { LitElement, html, nothing } from "lit";
+import { readPageData } from "../lib/page-data";
+import { adoptPrerenderedWorkspace } from "../lib/workspace-page-data";
+import type { CatalogSystemPayload } from "../lib/catalog-system-data";
 import { facet as renderFacet } from "./ui/facet";
 import { clearBrowseBar, renderBrowse } from "./ui/browse";
 import { inputChip, segmented } from "./ui/controls";
@@ -24,7 +27,7 @@ import {
 } from "./shared/catalog";
 import { resolveLocalizedText } from "../lib/localized-text";
 import { openDetailLocation, closeDetailLocation, observeDetailLocation } from "../lib/detail-navigation";
-import { releaseServerPath, writeReleaseServer } from "../lib/release-server";
+import { releaseServerPath, writeReleaseServer, type ReleaseServer } from "../lib/release-server";
 import { OutfitStage } from "./runtime/outfit-stage";
 import { fetchCrossServerCatalog } from "../lib/cross-server/fetch";
 import { crossCatalogDocuments, type CrossCatalogDocuments } from "../lib/cross-server/documents";
@@ -141,6 +144,7 @@ export class AnonTokyoWorkspace extends LitElement {
   private unionDocument?: CrossCatalogDocuments;
   private loadRequest?: AbortController;
   private referenceData?: Value;
+  private sourceServer?: ReleaseServer;
   private outfitStage?: OutfitStage;
   private outfitRecipeKey = "";
   private outfitStageCharacter = "";
@@ -170,6 +174,37 @@ export class AnonTokyoWorkspace extends LitElement {
   }
   createRenderRoot() {
     return this;
+  }
+  preparePage(payload: CatalogSystemPayload, locale: string) {
+    adoptPrerenderedWorkspace(this);
+    this.locale = locale;
+    this.mode = payload.mode || "characters";
+    this.sourceServer = payload.server;
+    if (payload.catalog) this.applyCatalog(payload.catalog);
+    else this.document = payload.document!;
+    this.referenceData = payload.catalog?.documents[payload.server as OfficialCatalogServer] as Value | undefined;
+    this.bands = payload.bands || [];
+    this.phase = "ready";
+    this.applySelection();
+  }
+  private applyCatalog(dto: NonNullable<CatalogSystemPayload["catalog"]>) {
+    const documents = crossCatalogDocuments(dto);
+    // Feature metadata follows a source that actually contains this family.
+    const active = dto.entries[0]?.displayServer;
+    if (active && documents.document.available === false)
+      Object.assign(documents.document, { available: true, reason: "", localization: (dto.documents[active] as Value)?.localization });
+    this.unionDocument = documents; this.document = documents.document;
+  }
+  private applySelection() {
+    if (this.mode === "outfits" && this.selectedItem) {
+      const selected = values(read(this.document, "goods.reloading")).find((item) => item.id === this.selectedItem);
+      if (selected) {
+        this.tab = Number(selected.spineType || 1);
+        this.outfitSelections = { [this.tab]: this.selectedItem };
+      }
+    }
+    const first = values(this.document?.characters)[0];
+    if (!this.selectedCharacter && first) this.selectedCharacter = String(first.id || "");
   }
   connectedCallback() {
     super.connectedCallback();
@@ -211,6 +246,10 @@ export class AnonTokyoWorkspace extends LitElement {
     history.replaceState(history.state, "", `${location.pathname}${params.size ? `?${params}` : ""}`);
   }
   private async loadReferenceData() {
+    if (this.referenceData) {
+      this.requestUpdate();
+      return;
+    }
     const server = this.server();
     let request = referenceDocuments.get(server);
     if (!request) {
@@ -286,9 +325,14 @@ export class AnonTokyoWorkspace extends LitElement {
       });
   }
   private server() {
-    return currentReleaseServer();
+    return this.sourceServer || currentReleaseServer();
   }
   private async load() {
+    const page = readPageData<CatalogSystemPayload>(this);
+    if (page?.schema === "haneoka-catalog-system-v1" && page.kind === "anon-tokyo") {
+      this.preparePage(page, this.locale);
+      return;
+    }
     this.loadRequest?.abort();
     const controller = new AbortController(); this.loadRequest = controller;
     this.phase = "loading";
@@ -300,12 +344,7 @@ export class AnonTokyoWorkspace extends LitElement {
       if (union) {
         const dto = await fetchCrossServerCatalog(resource, server, this.locale, { signal: controller.signal });
         if (Object.values(dto.sourceAvailability).every((value) => value !== "loaded")) throw new Error("ANON TOKYO catalog unavailable");
-        const documents = crossCatalogDocuments(dto);
-        // Feature metadata follows a source that actually contains this family.
-        const active = dto.entries[0]?.displayServer;
-        if (active && documents.document.available === false)
-          Object.assign(documents.document, { available: true, reason: "", localization: (dto.documents[active] as Value)?.localization });
-        this.unionDocument = documents; this.document = documents.document;
+        this.applyCatalog(dto);
       } else {
       this.unionDocument = undefined;
       const base = catalogUrl("anon-tokyo", "", this.server());
@@ -364,19 +403,11 @@ export class AnonTokyoWorkspace extends LitElement {
       if (this.mode === "tasks") await this.loadReferenceData();
       this.phase = "ready";
       if (this.selectedItem && this.mode !== "outfits") void this.loadReferenceData();
-      if (this.mode === "outfits" && this.selectedItem) {
-        const selected = values(read(this.document, "goods.reloading")).find((item) => item.id === this.selectedItem);
-        if (selected) {
-          this.tab = Number(selected.spineType || 1);
-          this.outfitSelections = { [this.tab]: this.selectedItem };
-        }
-      }
       if (this.mode === "fever") {
         const response = await fetch(catalogUrl("bands"));
         if (response.ok) this.bands = values(await response.json());
       }
-      const first = values(this.document.characters)[0];
-      if (!this.selectedCharacter && first) this.selectedCharacter = String(first.id || "");
+      this.applySelection();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       this.phase = "error";
@@ -489,7 +520,7 @@ export class AnonTokyoWorkspace extends LitElement {
             title: this.label("availabilityTitle"),
             body: this.label("unavailable"),
             icon: "inventory_2",
-            ...(currentReleaseServer() === "intl-cbt"
+            ...(this.server() === "intl-cbt"
               ? {}
               : {
                   action: html`

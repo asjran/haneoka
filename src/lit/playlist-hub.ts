@@ -13,6 +13,9 @@
  * the view's actions in the trailing row.
  */
 import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { readPageData } from "../lib/page-data";
+import { adoptPrerenderedWorkspace } from "../lib/workspace-page-data";
+import type { PlaylistPageData } from "../lib/playlists/page-data";
 import { repeat } from "lit/directives/repeat.js";
 import { live } from "lit/directives/live.js";
 import "@material/web/textfield/outlined-text-field.js";
@@ -30,6 +33,7 @@ import { songTitle, observeSongDisplay } from "../lib/song-display";
 import { uploadCommunityAttachment } from "../lib/community-upload";
 import {
   loadSongLibrary,
+  adoptSongLibrary,
   officialPlaylists,
   communityPlaylist,
   coverImages,
@@ -44,6 +48,7 @@ import {
 } from "../lib/playlists/library";
 import "../styles/playlists.css";
 import { snackbar } from "../lib/snackbar";
+import { navigationDocumentUrl } from "../lib/document-url";
 
 type RecordValue = Record<string, unknown>;
 type View = "hub" | "detail" | "edit";
@@ -114,13 +119,44 @@ export class PlaylistHub extends LitElement {
   private movedMenu?: { menu: HTMLElement; leading: HTMLElement; group: HTMLElement };
   private shellHeading = "";
   private releaseSearch?: () => void;
+  private sourcePath = "";
+  private preparedServer = "";
 
   createRenderRoot() {
     return this;
   }
+  preparePage(page: PlaylistPageData, locale: Locale, server: string, selected = "") {
+    adoptPrerenderedWorkspace(this);
+    this.locale = locale;
+    this.sourcePath = `/${locale}/community/playlists/`;
+    if (!this.isConnected) this.communityLoading = true;
+    const variants = Object.fromEntries(Object.entries(page.variants).map(([source, data]) => [source, adoptSongLibrary(source, data)]));
+    if (!variants[server]) return;
+    this.preparedServer = server;
+    this.gameError = page.gameError;
+    this.applyLibrary(variants[server], page.gamePlaylists);
+    if (selected) {
+      this.view = "detail";
+      this.targetId = selected;
+      this.current = this.findOfficial(selected);
+      this.detailError = this.current ? "" : this.t("notFound", "Playlist not found");
+    }
+  }
+  selectedTitle(): string { return this.current ? this.titleOf(this.current) : ""; }
+  private applyLibrary(library: SongLibrary, lists: RecordValue[]) {
+    this.library = library;
+    this.official = officialPlaylists(library, lists);
+  }
+  private reportLibraryStatus(library: SongLibrary, lists: RecordValue[]) {
+    if (library.partial.length) snackbar(this.t("partial", "Some songs could not be loaded; the lists show what is available."));
+    else if (this.gameError && !lists.length) snackbar(`${this.t("gameUnavailable", "In-game playlists are unavailable")} · ${this.gameError}`);
+  }
+  renderStaticChrome() { if (this.view === "hub") this.syncHubBar(); else this.renderBarActions(); }
 
   connectedCallback() {
     super.connectedCallback();
+    const page = readPageData<PlaylistPageData>(this);
+    if (page?.schema === "haneoka-playlist-page-v1") this.preparePage(page, this.locale, currentReleaseServer());
     this.releaseLocation = observeDetailLocation(() => this.route(), this);
     this.releaseSongDisplay = observeSongDisplay(() => this.requestUpdate());
     window.addEventListener("haneoka-audio-state", this.onAudioState);
@@ -189,14 +225,14 @@ export class PlaylistHub extends LitElement {
   /* ---------- Routing ---------- */
 
   private href(params: Record<string, string> = {}) {
-    const url = new URL(location.href);
+    const url = new URL(this.sourcePath, "https://haneoka.org");
     url.search = new URLSearchParams(params).toString();
     url.hash = "";
     return `${url.pathname}${url.search}`;
   }
 
   private route() {
-    const url = new URL(location.href);
+    const url = navigationDocumentUrl();
     const params = url.searchParams;
     const segments = url.pathname.split("/").filter(Boolean);
     const at = segments.indexOf("playlists");
@@ -256,6 +292,42 @@ export class PlaylistHub extends LitElement {
     const leading = document.querySelector<HTMLElement>("[data-top-app-bar-leading]");
     if (this.view === "hub") {
       this.restoreShell();
+      this.syncHubBar();
+      return;
+    }
+    this.releaseSearch?.();
+    this.releaseSearch = undefined;
+    clearAppBarSearch(OWNER);
+    if (leading && !this.leadingBack) {
+      const back = leading.querySelector<HTMLAnchorElement>("[data-entity-back]") || document.createElement("a");
+      back.className = "icon-button";
+      back.href = this.href();
+      back.dataset.playlistBack = "";
+      back.dataset.entityBack = "";
+      back.setAttribute("aria-label", this.t("backAction", "Back"));
+      back.innerHTML = `<svg class="material-icon" width="24" height="24" aria-hidden="true"><use href="/icons.svg#arrow_back"></use></svg>`;
+      back.addEventListener("click", (event) => {
+        if (event.button || event.metaKey || event.ctrlKey || event.shiftKey) return;
+        event.preventDefault();
+        this.back();
+      });
+      leading.prepend(back);
+      this.leadingBack = back;
+      // Back takes the leading slot; the navigation menu moves to the trailing row.
+      const actions = document.querySelector<HTMLElement>("[data-top-app-bar-actions]");
+      const menu = leading.querySelector<HTMLElement>("[data-nav-toggle]") || actions?.querySelector<HTMLElement>("[data-entity-menu-first]");
+      if (menu && actions) {
+        const group = menu.closest<HTMLElement>("[data-entity-menu-first-group]") || document.createElement("div");
+        group.className = "top-app-bar__group";
+        group.append(menu);
+        actions.prepend(group);
+        this.movedMenu = { menu, leading, group };
+      }
+    }
+    this.syncHeading();
+    this.renderBarActions();
+  }
+  private syncHubBar() {
       this.releaseSearch?.();
       this.releaseSearch = setAppBarSearch(OWNER, {
         value: this.query,
@@ -275,39 +347,6 @@ export class PlaylistHub extends LitElement {
           ? iconButton({ icon: "add", label: this.t("create", "New playlist"), onClick: () => this.createNew() })
           : html``,
       );
-      return;
-    }
-    this.releaseSearch?.();
-    this.releaseSearch = undefined;
-    clearAppBarSearch(OWNER);
-    if (leading && !this.leadingBack) {
-      const back = document.createElement("a");
-      back.className = "icon-button";
-      back.href = this.href();
-      back.dataset.playlistBack = "";
-      back.dataset.entityBack = "";
-      back.setAttribute("aria-label", this.t("backAction", "Back"));
-      back.innerHTML = `<svg class="material-icon" width="24" height="24" aria-hidden="true"><use href="/icons.svg#arrow_back"></use></svg>`;
-      back.addEventListener("click", (event) => {
-        if (event.button || event.metaKey || event.ctrlKey || event.shiftKey) return;
-        event.preventDefault();
-        this.back();
-      });
-      leading.prepend(back);
-      this.leadingBack = back;
-      // Back takes the leading slot; the navigation menu moves to the trailing row.
-      const menu = leading.querySelector<HTMLElement>("[data-nav-toggle]");
-      const actions = document.querySelector<HTMLElement>("[data-top-app-bar-actions]");
-      if (menu && actions) {
-        const group = document.createElement("div");
-        group.className = "top-app-bar__group";
-        group.append(menu);
-        actions.prepend(group);
-        this.movedMenu = { menu, leading, group };
-      }
-    }
-    this.syncHeading();
-    this.renderBarActions();
   }
 
   private restoreShell() {
@@ -376,6 +415,17 @@ export class PlaylistHub extends LitElement {
 
   private async loadAll() {
     this.loadError = "";
+    const page = readPageData<PlaylistPageData>(this);
+    const server = currentReleaseServer();
+    if (page?.schema === "haneoka-playlist-page-v1" && page.variants[server]) {
+      if (this.preparedServer !== server) this.preparePage(page, this.locale, server);
+      void this.loadPersonal();
+      void this.loadCommunity(false);
+      if (this.library) this.reportLibraryStatus(this.library, page.gamePlaylists);
+      this.requestUpdate();
+      if (this.view === "detail") void this.openDetail(this.targetId);
+      return;
+    }
     const game = fetch("/api/v1/garupa/playlists", { headers: { accept: "application/json" } })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -390,10 +440,8 @@ export class PlaylistHub extends LitElement {
     void this.loadCommunity(false);
     try {
       const [library, lists] = await Promise.all([loadSongLibrary(currentReleaseServer()), game]);
-      this.library = library;
-      this.official = officialPlaylists(library, lists);
-      if (library.partial.length) snackbar(this.t("partial", "Some songs could not be loaded; the lists show what is available."));
-      else if (this.gameError && !lists.length) snackbar(`${this.t("gameUnavailable", "In-game playlists are unavailable")} · ${this.gameError}`);
+      this.applyLibrary(library, lists);
+      this.reportLibraryStatus(library, lists);
     } catch (error) {
       this.loadError = error instanceof Error ? error.message : String(error);
     }

@@ -1,4 +1,7 @@
 import { localizedFallbacks } from "../src/lib/localized-text";
+import { providerFetch, providerEdgeCache, type ProviderSourceReader, type ProviderExecutionContext, type ProviderFetchInit } from "./provider-source";
+let sourceReader: ProviderSourceReader | undefined;
+export function setBestdoriSourceReader(reader?: ProviderSourceReader): void { sourceReader = reader; }
 /**
  * Bestdori reverse-proxy + transformer.
  *
@@ -276,7 +279,8 @@ const fetchUpstream = async (path: string): Promise<unknown> => {
   const cached = upstreamMemo.get(key);
   if (cached) return cached;
   const promise = (async () => {
-    const response = await fetch(upstreamUrl(path), {
+    if (sourceReader) return sourceReader.json(upstreamUrl(path), { headers: { Accept: "application/json", "User-Agent": "HaneokaBestdoriProxy/1.0 (+https://haneoka.org/)" } });
+    const response = await providerFetch(upstreamUrl(path), {
       headers: { Accept: "application/json", "User-Agent": "HaneokaBestdoriProxy/1.0 (+https://haneoka.org/)" },
       cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
     });
@@ -288,6 +292,8 @@ const fetchUpstream = async (path: string): Promise<unknown> => {
   upstreamMemo.set(key, promise);
   return promise;
 };
+
+export { fetchUpstream as readBestdoriSource, transformSongDetail as projectBestdoriSong, transformCards as projectBestdoriCards, buildStoryCollection as projectBestdoriStoryCollection, storyDetail as projectBestdoriStory, transformSongs as projectBestdoriSongs, transformBands as projectBestdoriBands, transformCharacters as projectBestdoriCharacters, transformSongMeta as projectBestdoriSongMeta, recordsPublishedInAnyRegion as publishedBestdoriRecords };
 
 const all8 = (): Promise<Record<string, unknown>> =>
   fetchUpstream("/api/songs/all.8.json") as Promise<Record<string, unknown>>;
@@ -429,13 +435,13 @@ const cacheKeyUrl = (value: string): string => {
 
 const serveCached = async (
   request: Request,
-  ctx: ExecutionContext,
+  ctx: ProviderExecutionContext,
   cacheControl: string,
   producer: () => Promise<CachedBody>,
 ): Promise<Response> => {
   const key = cacheKeyUrl(request.url);
   if (request.method === "GET") {
-    const hit = await caches.default.match(new Request(key));
+    const hit = await providerEdgeCache().match(new Request(key));
     if (hit) return hit;
   }
   let pending = inFlight.get(key);
@@ -459,7 +465,7 @@ const serveCached = async (
     status: 200,
     headers: { ...CORS, "Content-Type": result.contentType, "Cache-Control": cacheControl },
   });
-  if (request.method === "GET") ctx.waitUntil(caches.default.put(new Request(key), response.clone()));
+  if (request.method === "GET") ctx.waitUntil(providerEdgeCache().put(new Request(key), response.clone()));
   return response;
 };
 
@@ -478,7 +484,7 @@ const proxyMedia = async (request: Request, upstreamPath: string, fallbackConten
   }
   let response: Response;
   try {
-    response = await fetch(upstream, {
+    response = await providerFetch(upstream, {
       cf: { cacheTtl: BESTDORI_CACHE_POLICY.media.maxAgeSeconds, cacheEverything: true },
     });
   } catch (error) {
@@ -608,19 +614,26 @@ const bandVisuals = (bandId: number, lang?: string): Obj => {
   };
 };
 
+class MissingBestdoriAsset extends Error {}
 const fetchUpstreamText = async (path: string): Promise<string> => {
   const base = upstreamBase.toString();
   const key = `${base}\u0000${path}`;
   const cached = upstreamTextMemo.get(key);
   if (cached) return cached;
   const promise = (async () => {
-    const response = await fetch(upstreamUrl(path), {
+    const init: ProviderFetchInit = {
       headers: { "User-Agent": "HaneokaBestdoriProxy/1.0 (+https://haneoka.org/)" },
       cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
-    });
-    if (!response.ok) throw new Error(`bestdori ${path} returned HTTP ${response.status}`);
+    };
+    const response = await (sourceReader ? sourceReader.response(upstreamUrl(path), init) : providerFetch(upstreamUrl(path), init));
+    if (!response.ok) {
+      const ErrorType = response.status === 404 || response.status === 410 ? MissingBestdoriAsset : Error;
+      throw new ErrorType(`bestdori ${path} returned HTTP ${response.status}`);
+    }
     if (response.headers.get("Content-Type")?.includes("text/html")) {
-      throw new Error(`bestdori ${path} returned an HTML fallback instead of an asset`);
+      const body = await response.text();
+      const ErrorType = /<title>Bestdori! - The Ultimate BanG Dream GBP Resource Site<\/title>/u.test(body) ? MissingBestdoriAsset : Error;
+      throw new ErrorType(`bestdori ${path} returned an HTML fallback instead of an asset`);
     }
     return response.text();
   })().finally(() => {
@@ -1041,6 +1054,7 @@ interface ResolvedScenario {
   server: string;
   /** Per-server publication timeline [jp, en, tw, cn, kr] (null = not published). */
   publishedAt?: Array<number | null>;
+  card?: { id: string; resourceSetName: string; scenarioId: string };
 }
 const resolveEventScenario = async (eventId: number, chapter: number, lang?: string): Promise<ResolvedScenario> => {
   // The collection's two compact indexes contain both the exact scenario ID
@@ -1139,16 +1153,36 @@ const resolveCardScenario = async (
   // and therefore do not contain a server. Look it up from the compact card
   // index: CN-only cards such as 10027 (`bili_res026001`) otherwise resolve to
   // Bestdori's JP HTML fallback instead of their real scenario asset.
-  const card = Object.values(await allCards())
-    .map((value) => asObj(value))
-    .find((entry) => String(entry.resourceSetName || "") === resourceSetName);
+  const source = Object.entries(await allCards()).find(([, value]) => String(asObj(value).resourceSetName || "") === resourceSetName);
+  const card = source ? asObj(source[1]) : undefined;
   return {
     server: card ? regionForCard(card, lang) : (regionChainForLocale(lang)[0] ?? "jp"),
     publishedAt: card ? (timestamps(card.releasedAt) ?? []) : [],
     storyId: `card.${resourceSetName}.${scenarioId}`,
     scenarioPath: `/characters/resourceset/${resourceSetName}_rip/Scenario${scenarioId}.asset`,
     voiceBundle: `sound/voice/scenario/resourceset/${resourceSetName}_rip/`,
+    ...(source ? { card: { id: source[0], resourceSetName, scenarioId } } : {}),
   };
+};
+
+/** A resource bundle can export one scenario under its internal numeric name. */
+const cardScenarioAlias = async (server: string, card: NonNullable<ResolvedScenario["card"]>): Promise<string | undefined> => {
+  const detail = asObj(await fetchUpstream(`/api/cards/${card.id}.json`));
+  const episodes = (Array.isArray(detail.episodes) ? asArray(detail.episodes) : asArray(asObj(detail.episodes).entries)).map(asObj);
+  const declared = new Set(episodes.filter(episode => String(episode.resourceSetName || detail.resourceSetName || "") === card.resourceSetName && episode.scenarioId)
+    .map(episode => `Scenario${String(episode.scenarioId)}.asset`));
+  let value: unknown;
+  try {
+    value = JSON.parse(await fetchUpstreamText(`/api/explorer/${server}/assets/characters/resourceset/${encodeURIComponent(card.resourceSetName)}.json`));
+  } catch (error) {
+    if (error instanceof MissingBestdoriAsset) return undefined;
+    throw error;
+  }
+  if (!Array.isArray(value)) throw new Error("Bestdori resource bundle index is not a file list");
+  const actual = new Set(value.filter((file): file is string => typeof file === "string" && /^Scenario[^/\\]+\.asset$/u.test(file)));
+  const missing = [...declared].filter(file => !actual.has(file));
+  const remaining = [...actual].filter(file => !declared.has(file));
+  return missing.length === 1 && missing[0] === `Scenario${card.scenarioId}.asset` && remaining.length === 1 ? remaining[0] : undefined;
 };
 const resolveAfterLiveScenario = async (id: string, lang?: string): Promise<ResolvedScenario> => {
   const numericId = Number(id);
@@ -1266,9 +1300,18 @@ const storyDetail = async (storyId: string, requestedServer?: string, lang?: str
   for (const server of candidates) {
     // Normalize legacy leading slashes: Bestdori's CN host treats a double
     // slash as an SPA fallback even where JP happens to accept it.
-    const assetPath = `/assets/${server}/${resolved.scenarioPath.replace(/^\/+/, "")}`;
+    let assetPath = `/assets/${server}/${resolved.scenarioPath.replace(/^\/+/, "")}`;
     try {
-      const scenario = parseUpstreamAssetJson(assetPath, await fetchUpstreamText(assetPath));
+      let text: string;
+      try { text = await fetchUpstreamText(assetPath); }
+      catch (error) {
+        if (!(error instanceof MissingBestdoriAsset) || !resolved.card) throw error;
+        const alias = await cardScenarioAlias(server, resolved.card);
+        if (!alias) throw error;
+        assetPath = `/assets/${server}/characters/resourceset/${resolved.card.resourceSetName}_rip/${encodeURIComponent(alias)}`;
+        text = await fetchUpstreamText(assetPath);
+      }
+      const scenario = parseUpstreamAssetJson(assetPath, text);
       if (!Object.keys(asObj(asObj(scenario).Base)).length) {
         throw new Error("not a scenario asset");
       }
@@ -1868,7 +1911,7 @@ export async function loadBestdoriSonolusChartText(
 // ---- route handler ----
 
 export async function handleGarupaBestdoriApi(
-  ctx: ExecutionContext,
+  ctx: ProviderExecutionContext,
   request: Request,
   url: URL,
   configuredUpstreamBase?: string,

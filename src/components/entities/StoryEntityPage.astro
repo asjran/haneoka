@@ -12,7 +12,7 @@ import { asRecord } from "../../lib/static-catalog-source";
 import { resolveLocalizedText } from "../../lib/localized-text";
 import { episodeArtwork, spotArtwork } from "../../lib/story-artwork";
 import { serializePageData } from "../../lib/page-data";
-import { renderStory } from "../../server/render-catalog";
+import { renderStoryPage } from "../../server/render-catalog";
 import "../../lit/story-workspace";
 import "../../styles/story.css";
 
@@ -64,7 +64,8 @@ const storyArtwork = (() => {
   return "";
 })();
 const pageDataId = `story-page-${page.storyId}`;
-const body = await renderStory(payload, locale);
+const rendered = await renderStoryPage(payload, locale);
+const body = rendered.body;
 ---
 
 <Base
@@ -95,6 +96,7 @@ const body = await renderStory(payload, locale);
           }
         : undefined
     }
+    appBar={rendered.appBar}
   >
     <script type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
     <story-workspace locale={locale} mode={page.mode} entity-id={page.storyId} data-prerendered data-page-data={pageDataId} set:html={body}></story-workspace>

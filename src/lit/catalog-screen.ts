@@ -31,7 +31,7 @@ import {
 } from "../lib/cross-server/catalog";
 import { fetchCrossServerCatalogs } from "../lib/cross-server/fetch";
 import { isCrossCatalogResource } from "../lib/cross-server/definitions";
-import { showTestServerContent } from "../lib/test-server-visibility";
+import { canUseStaticCatalogScope, showTestServerContent } from "../lib/test-server-visibility";
 import { crossServerPublicCache } from "../lib/cross-server/cache";
 import { fetchCrossServerDetail } from "../lib/cross-server/detail";
 import { specList } from "./ui/spec";
@@ -45,6 +45,9 @@ import {
 import { gekisouMission, gekisouMissionIcons } from "../lib/gekisou";
 import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { readPageData } from "../lib/page-data";
+import type { CatalogCollectionPayload } from "../server/catalog-collection";
+import { providerCatalogBase, providerRegionForLocale, type ProviderCollectionPayload } from "../lib/provider-page-data";
+import type { ProviderEntityPayload } from "../lib/provider-entity-data";
 import { eventArtworkIndex } from "../lib/event-artwork-index";
 import { releaseChartLevelName } from "@haneoka/sonolus";
 import { navigationDocumentUrl } from "../lib/document-url";
@@ -368,6 +371,8 @@ interface EntityPayload {
   songMeta?: Item;
   aux?: Item;
   deferred?: Record<string, { url: string; count: number }>;
+  collection?: Item;
+  collectionUrl?: string;
 }
 interface UnionPresentationSnapshot {
   scopeKey: string;
@@ -1116,13 +1121,77 @@ export class CatalogScreen extends LitElement {
     this.resultCache = undefined;
     this.expandedCache = undefined;
     this.phase = "ready";
-    if (restoring) {
+    if (restoring && this.isConnected) {
       this.restoreFacets(navigationDocumentUrl().searchParams);
       this.restoreLocationState();
     }
     this.ensureSongMeta();
     if (this.settings.nativeMetaReference) void this.loadNativeMetaReference(this.settings.nativeMetaReference);
     this.requestUpdate();
+  }
+  private unionCollectionSnapshot(
+    catalogs: Partial<Record<CrossCatalogResource, CrossCatalogDTO>>,
+    marks: UnionPresentationSnapshot["marks"],
+    scopeKey: string,
+  ): UnionPresentationSnapshot {
+    const dto = catalogs[this.unionResource()!]!;
+    const sourceKey = this.unionPresentationSourceKey(dto, scopeKey);
+    const characters: UnionPresentationSnapshot["characters"] = {}, bands: UnionPresentationSnapshot["bands"] = {};
+    const facetKeys = { character: new Map<string, string>(), collectionBand: new Map<string, string>() };
+    this.indexUnionFacets(catalogs.characters, catalogs.bands, dto, facetKeys);
+    for (const server of ["jp", "intl", "intl-test"] as const) {
+      const identity = dto.identities[server];
+      if (!identity) continue;
+        const ownCharacters = new Map<number, Item>(),
+          ownBands = new Map<number, Item>();
+        for (const entry of catalogs.characters?.entries || []) {
+          const variant = entry.perServer[server];
+          if (
+            variant &&
+            variant.identity.releaseId === identity.releaseId &&
+            variant.identity.sourceId === identity.sourceId
+          )
+            ownCharacters.set(Number(variant.id), this.unionDetailRow(crossServerDetail(entry, server)));
+        }
+        for (const entry of catalogs.bands?.entries || []) {
+          const variant = entry.perServer[server];
+          if (
+            variant &&
+            variant.identity.releaseId === identity.releaseId &&
+            variant.identity.sourceId === identity.sourceId
+          )
+            ownBands.set(Number(variant.id), this.unionDetailRow(crossServerDetail(entry, server)));
+        }
+        characters[server] = ownCharacters;
+        bands[server] = ownBands;
+    }
+    const itemEntries = new WeakMap<Item, CrossCatalogEntry>();
+    const items = dto.entries.map((entry) => this.unionPrimaryRow(entry, itemEntries));
+    const complete = (["jp", "intl"] as const).every((server) => {
+      const pin = dto.identities[server];
+      return Boolean(
+        pin &&
+        marks[server] &&
+        [dto, catalogs.characters, catalogs.bands].every(
+        (catalog) =>
+          catalog?.sourceAvailability[server] === "loaded" &&
+          catalog.identities[server]?.releaseId === pin.releaseId &&
+          catalog.identities[server]?.sourceId === pin.sourceId,
+        ),
+      );
+    });
+    return {
+      scopeKey,
+      sourceKey,
+      complete,
+      dto,
+      items,
+      itemEntries,
+      characters,
+      bands,
+      marks,
+      facetKeys,
+    };
   }
   private async loadUnionCollection(signal: AbortSignal): Promise<void> {
     const resource = this.unionResource()!;
@@ -1153,11 +1222,7 @@ export class CatalogScreen extends LitElement {
         if (samePin !== cached) this.applyUnionPresentation(samePin);
         return;
       }
-      const characters: UnionPresentationSnapshot["characters"] = {},
-        bands: UnionPresentationSnapshot["bands"] = {},
-        marks: UnionPresentationSnapshot["marks"] = {};
-      const facetKeys = { character: new Map<string, string>(), collectionBand: new Map<string, string>() };
-      this.indexUnionFacets(catalogs.characters, catalogs.bands, dto, facetKeys);
+      const marks: UnionPresentationSnapshot["marks"] = {};
       // Both servers' marks are independent: start them together.
       const markReads = new Map(
         (["jp", "intl", "intl-test"] as const).map((server) => {
@@ -1174,28 +1239,6 @@ export class CatalogScreen extends LitElement {
       for (const server of ["jp", "intl", "intl-test"] as const) {
         const identity = dto.identities[server];
         if (!identity) continue;
-        const ownCharacters = new Map<number, Item>(),
-          ownBands = new Map<number, Item>();
-        for (const entry of catalogs.characters?.entries || []) {
-          const variant = entry.perServer[server];
-          if (
-            variant &&
-            variant.identity.releaseId === identity.releaseId &&
-            variant.identity.sourceId === identity.sourceId
-          )
-            ownCharacters.set(Number(variant.id), this.unionDetailRow(crossServerDetail(entry, server)));
-        }
-        for (const entry of catalogs.bands?.entries || []) {
-          const variant = entry.perServer[server];
-          if (
-            variant &&
-            variant.identity.releaseId === identity.releaseId &&
-            variant.identity.sourceId === identity.sourceId
-          )
-            ownBands.set(Number(variant.id), this.unionDetailRow(crossServerDetail(entry, server)));
-        }
-        characters[server] = ownCharacters;
-        bands[server] = ownBands;
         const markKey = JSON.stringify([server, identity.releaseId, identity.sourceId]);
         const cachedMarks = unionPresentationMarks.get(markKey);
         if (cachedMarks) {
@@ -1230,34 +1273,8 @@ export class CatalogScreen extends LitElement {
         }
       }
       if (!current()) return;
-      const itemEntries = new WeakMap<Item, CrossCatalogEntry>();
-      const items = dto.entries.map((entry) => this.unionPrimaryRow(entry, itemEntries));
-      const complete = (["jp", "intl"] as const).every((server) => {
-        const pin = dto.identities[server];
-        return Boolean(
-          pin &&
-          marks[server] &&
-          [dto, catalogs.characters, catalogs.bands].every(
-            (catalog) =>
-              catalog?.sourceAvailability[server] === "loaded" &&
-              catalog.identities[server]?.releaseId === pin.releaseId &&
-              catalog.identities[server]?.sourceId === pin.sourceId,
-          ),
-        );
-      });
-      if (cached?.complete && !complete) return;
-      const snapshot: UnionPresentationSnapshot = {
-        scopeKey,
-        sourceKey,
-        complete,
-        dto,
-        items,
-        itemEntries,
-        characters,
-        bands,
-        marks,
-        facetKeys,
-      };
+      const snapshot = this.unionCollectionSnapshot(catalogs, marks, scopeKey);
+      if (cached?.complete && !snapshot.complete) return;
       for (const [key, previous] of unionPresentations)
         if (previous.scopeKey === scopeKey) unionPresentations.delete(key);
       unionPresentations.set(sourceKey, snapshot);
@@ -1885,6 +1902,10 @@ export class CatalogScreen extends LitElement {
       updateEntityHeading(this, this.settings.chartPage ? this.chartPageTitle(item) : title.text, title.locale);
     }
     syncEntityNavigation();
+    this.renderEntityChrome();
+  }
+  private renderEntityChrome() {
+    const item = this.selected;
     if (item && this.detailReady) {
       setAppBarIdentity(
         this.entityAppBarOwner,
@@ -1984,8 +2005,7 @@ export class CatalogScreen extends LitElement {
   protected override shouldUpdate(changed: import("lit").PropertyValues): boolean {
     if (
       this.hasAttribute("data-prerendered") &&
-      this.settings.entityContext &&
-      !this.detailReady &&
+      (this.settings.entityContext ? !this.detailReady : this.phase !== "ready") &&
       this.phase !== "error"
     )
       return false;
@@ -1997,6 +2017,20 @@ export class CatalogScreen extends LitElement {
       this.replaceChildren();
     }
     super.update(changed);
+  }
+  renderStaticChrome() {
+    if (this.settings.entityContext) {
+      this.renderEntityChrome();
+      return;
+    }
+    setAppBarSearch(this.entityAppBarOwner, {
+      value: this.query,
+      label: this.label("search", "Search"),
+      onInput: (value) => {
+        this.query = value;
+        this.syncUrl();
+      },
+    });
   }
   updated() {
     this.scheduleRelativeTimeRefresh();
@@ -2018,14 +2052,7 @@ export class CatalogScreen extends LitElement {
     } else {
       clearAppBarActions(this.entityAppBarOwner);
       clearAppBarIdentity(this.entityAppBarOwner);
-      setAppBarSearch(this.entityAppBarOwner, {
-        value: this.query,
-        label: this.label("search", "Search"),
-        onInput: (value) => {
-          this.query = value;
-          this.syncUrl();
-        },
-      });
+      this.renderStaticChrome();
     }
     // tile() defers its artwork as `data-src`; this is what promotes it.
     this.lazyImages.observe(this);
@@ -2052,17 +2079,17 @@ export class CatalogScreen extends LitElement {
   }
   /** A provider's region is chosen by the reading locale, as the worker expects. */
   private bestdoriRegion() {
-    return { "zh-TW": "tw", "zh-CN": "cn", ko: "kr", en: "en" }[this.settings.locale] || "jp";
+    return providerRegionForLocale(this.settings.locale);
   }
   /** Resolves a resource against whichever origin this screen was given. */
   private sourceUrl(resource: string, id = "") {
     if (!this.isProvider()) return catalogUrl(resource, id, this.dataServer());
-    const base = `/api/v1/${this.settings.origin === "sekai" ? "sekai" : "garupa/bestdori"}/${this.bestdoriRegion()}`;
+    const base = providerCatalogBase(this.settings.origin === "sekai" ? "sekai" : "bestdori", this.settings.locale);
     const path = id ? `${resource}/${encodeURIComponent(id)}` : resource;
     return `${base}/${path}?lang=${encodeURIComponent(this.settings.locale)}`;
   }
   private dataServer(): ReleaseServer {
-    return this.settings.server || (currentReleaseServer() as ReleaseServer);
+    return this.settings.server || (!this.isConnected && this.isProvider() ? "intl" : currentReleaseServer() as ReleaseServer);
   }
   private canonicalKind(): ResourceKind | undefined {
     return this.settings.entityKind || resourceKindForCollection(this.settings.resource);
@@ -2089,12 +2116,14 @@ export class CatalogScreen extends LitElement {
       const collection = this.providerCollection();
       const returnTo = this.settings.entityContext
         ? entityReturnHref() || collection
-        : returnStateFromLocation(location.pathname, location.search, kind);
+        : this.isConnected ? returnStateFromLocation(location.pathname, location.search, kind) : collection;
       const query = new URLSearchParams({ song: id, return: returnTo, chartDifficulty: this.selectedSongDifficulty });
       if (difficulty !== undefined) query.set("difficulty", String(difficulty));
       return `${collection}detail/?${query}`;
     }
-    const returnTo = returnStateFromLocation(location.pathname, location.search, kind);
+    const returnTo = this.isConnected
+      ? returnStateFromLocation(location.pathname, location.search, kind)
+      : `/${server}/${this.settings.locale}/${this.settings.resource === "song-meta" ? "song-meta" : kind}/`;
     return entityHref({
       server,
       locale: this.settings.locale as Locale,
@@ -2219,6 +2248,84 @@ export class CatalogScreen extends LitElement {
     if (this.profile.presentation === "song" && typeof item.jacketThumbUrl === "string") return item.jacketThumbUrl;
     return this.image(item);
   }
+  async prepareProviderEntity(payload: ProviderEntityPayload, config: string = this.config): Promise<void> {
+    const source = payload.collection;
+    const summary = source.document[payload.id] as Item | undefined;
+    const collection = this.isConnected ? readPageData<ProviderCollectionPayload>(this, "data-collection-data") : undefined;
+    await this.prepareEntity({
+      schema: "haneoka-entity-payload-v1", id: payload.id,
+      item: { _key: payload.id, ...summary, ...payload.detail },
+      characters: asItems(source.characters), bands: asItems(source.bands),
+      marks: {}, gameItems: [], aux: {}, songMeta: source.songMeta || {}, collectionUrl: payload.collectionUrl,
+      ...(collection?.schema === "haneoka-provider-collection-v1" && collection.provider === payload.provider && collection.locale === payload.locale && collection.resource === "songs" ? { collection: collection.document } : {}),
+    }, config);
+  }
+  prepareProviderCollection(payload: ProviderCollectionPayload, config: string = this.config): void {
+    this.settings = JSON.parse(config || "{}") as Config;
+    this.profile = profiles[this.settings.resource] ?? fallbackProfile;
+    this.payload = undefined;
+    this.nativeCatalogPin = this.songMetaPin = undefined;
+    if (!this.isConnected) {
+      this.sort = this.profile.defaultSort;
+      this.order = this.profile.defaultOrder;
+      this.view = this.profile.perDifficulty ? "table" : "grid";
+    }
+    this.catalogDocument = payload.document;
+    this.items = asItems(payload.document, this.profile.document);
+    this.characters = asItems(payload.characters);
+    this.bands = asItems(payload.bands);
+    this.gameItems = [];
+    this.gameMarks.clear();
+    this.songMeta = payload.songMeta || {};
+    this.songMetaProvision = Promise.resolve();
+    this.phase = "ready";
+    this.ensureBandSelection();
+  }
+  prepareCollection(payload: CatalogCollectionPayload, config: string = this.config): void {
+    this.settings = JSON.parse(config || "{}") as Config;
+    this.profile = profiles[this.settings.resource] ?? fallbackProfile;
+    this.payload = undefined;
+    if (!this.isConnected) {
+      this.sort = this.profile.defaultSort;
+      this.order = this.profile.defaultOrder;
+      this.view = this.profile.perDifficulty ? "table" : "grid";
+    }
+    this.nativeCatalogPin = payload.identity;
+    this.songMetaPin = payload.identity;
+    this.songMeta = payload.songMeta[this.dataServer() as OfficialCatalogServer] || {};
+    this.songMetaProvision = Promise.resolve();
+    for (const server of ["jp", "intl", "intl-test"] as const) {
+      const identity = payload.catalogs?.[this.unionResource()!]?.identities[server];
+      const meta = payload.songMeta[server];
+      if (identity && meta) {
+        const key = JSON.stringify(identity);
+        this.unionSongMeta.set(key, meta);
+        this.unionSongMetaReads.set(key, Promise.resolve());
+      }
+    }
+    this.gameItems = asItems(payload.gameItems, "items");
+    if (payload.catalogs) {
+      const marks: UnionPresentationSnapshot["marks"] = {};
+      for (const server of ["jp", "intl", "intl-test"] as const) {
+        const pin = payload.catalogs[this.unionResource()!]?.identities[server];
+        if (!pin) continue;
+        marks[server] = new Map(Object.entries(payload.sourceMarks[server] || {}).map(([name, path]) => [
+          name, this.pinnedUnionAsset(`/runtime/${server}/${path.replace(/^runtime\//u, "")}`, pin),
+        ]));
+      }
+      this.applyUnionPresentation(this.unionCollectionSnapshot(payload.catalogs, marks, this.unionPresentationScope()));
+    } else {
+      this.catalogDocument = (payload.document || {}) as Item;
+      this.items = asItems(payload.document, this.profile.document);
+      this.characters = asItems(payload.characters);
+      this.bands = asItems(payload.bands);
+      this.gameMarks = new Map(Object.entries(payload.marks).map(([name, path]) => [
+        name, `/runtime/${this.dataServer()}/${path.replace(/^runtime\//u, "")}`,
+      ]));
+      this.phase = "ready";
+    }
+    this.ensureBandSelection();
+  }
   async prepareEntity(payload: EntityPayload, config: string = this.config, signal?: AbortSignal): Promise<void> {
     this.unionRequests.cancel();
     this.unionCatalog = undefined;
@@ -2337,8 +2444,29 @@ export class CatalogScreen extends LitElement {
     const signal = this.catalogRequests.begin();
     this.phase = "loading";
     this.setEntityReady(false);
-    const inline = readPageData<EntityPayload>(this);
-    if (inline?.schema === "haneoka-entity-payload-v1" && inline.item && inline.id === this.selectedId) {
+    const inline = readPageData<EntityPayload | CatalogCollectionPayload | ProviderCollectionPayload | ProviderEntityPayload>(this);
+    if (inline?.schema === "haneoka-provider-entity-v1" && "detail" in inline &&
+        inline.provider === this.settings.origin && inline.id === this.selectedId) {
+      await this.prepareProviderEntity(inline, this.config);
+      if (!this.isConnected || !this.catalogRequests.current(signal)) return;
+      this.restoreDetailQuery();
+      this.setEntityReady(true);
+      return;
+    }
+    if (inline?.schema === "haneoka-provider-collection-v1" && "provider" in inline &&
+        inline.provider === this.settings.origin && inline.resource === this.settings.resource && !this.settings.entityContext) {
+      this.prepareProviderCollection(inline, this.config);
+      this.restoreLocationState();
+      return;
+    }
+    if (inline?.schema === "haneoka-collection-payload-v1" &&
+        "identity" in inline && inline.resource === this.settings.resource && inline.identity.server === this.dataServer() &&
+        canUseStaticCatalogScope()) {
+      this.prepareCollection(inline, this.config);
+      this.restoreLocationState();
+      return;
+    }
+    if (inline?.schema === "haneoka-entity-payload-v1" && inline.item && inline.id === this.selectedId && canUseStaticCatalogScope()) {
       try {
         await this.prepareEntity(inline, this.config, signal);
         if (!this.isConnected || !this.catalogRequests.current(signal)) return;
@@ -2456,12 +2584,20 @@ export class CatalogScreen extends LitElement {
    */
   private collectionProvision?: Promise<void>;
   private ensureCollection(): Promise<void> {
-    this.collectionProvision ??= fetch(this.sourceUrl(this.profile.collection || this.settings.resource), {
+    if (this.payload?.collection) {
+      this.items = asItems(this.payload.collection, this.profile.document);
+      this.facetCache = undefined;
+      this.resultCache = undefined;
+      return Promise.resolve();
+    }
+    const collectionUrl = this.payload?.collectionUrl;
+    this.collectionProvision ??= fetch(collectionUrl || this.sourceUrl(this.profile.collection || this.settings.resource), {
       headers: { accept: "application/json" },
     })
       .then(async (response) => {
         if (!response.ok) return;
-        const items = asItems(await response.json(), this.profile.document);
+        const document = await response.json();
+        const items = asItems(collectionUrl ? (document as ProviderCollectionPayload).document : document, this.profile.document);
         if (!items.length || !this.isConnected) return;
         this.items = items;
         this.facetCache = undefined;
@@ -4688,7 +4824,7 @@ export class CatalogScreen extends LitElement {
       });
     const viewport =
       this.isProvider() && kind === "song" && this.view === "grid"
-        ? this.viewportGrid.initialWindow(items.length, this.closest(".page-stage"))
+        ? this.viewportGrid.initialWindow(items.length, this.isConnected ? this.closest(".page-stage") : null)
         : undefined;
     const collection =
       this.view === "table"

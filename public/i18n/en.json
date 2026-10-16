@@ -148,8 +148,10 @@
         "privacy": "Learn how haneoka handles account details, cookies, community content, uploaded files and visit records. Read about data use, storage, security, user rights, privacy settings and contact options.",
         "general": "Explore {title} on haneoka, with BanG Dream! Our Notes game information, preview tools and community contributions. Follow related entries to discover songs, characters, cards and stories.",
         "announcements": "Read BanG Dream! Our Notes announcements, event news, recruitment notices, maintenance updates and known issues. View full articles, images and publication dates in the available language for your selected server.",
-        "stampMaker": "Create custom BanG Dream! Our Notes stamps with character artwork and text. Adjust the image and export a PNG with the browser stamp maker.",
-        "chartEditor": "Create and edit rhythm-game charts in the browser chart editor. Work with notes and connectors, preview the chart and manage local projects."
+        "stampMaker": "Create stamps with game artwork or your own images. Edit text, fonts, outlines, and layout, then export a transparent PNG.",
+        "chartEditor": "Create and edit rhythm-game charts in the browser chart editor. Work with notes and connectors, preview the chart and manage local projects.",
+        "teamBuilder": "Build Our Notes teams using member cards, Snapshots, character ranks, and band-item levels. Compare regular, Gekiso, and event-reward teams, manage your card collection, and import game saves.",
+        "songPuzzle": "Solve sliding puzzles using Our Notes song jackets. Choose a song and board size, shuffle tiles, view hints, and track moves and time."
       },
       "resources": {
         "songs": "Explore BanG Dream! Our Notes song credits, bands and release information. Compare chart difficulties and note counts, open the chart player or chart image, view rankings and access Sonolus levels.",

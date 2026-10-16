@@ -18,7 +18,7 @@ export async function copyCalendarStaticAssets({
   outputRoot = ".output/public",
 } = {}) {
   const directory = path.resolve(dataRoot, "asset-manifests");
-  const sourceRoot = path.resolve(generatedPublicRoot);
+  const declaredSourceRoot = path.resolve(generatedPublicRoot);
   const output = path.resolve(outputRoot);
   let names;
   try { names = await readdir(directory); } catch (error) { if (error.code === "ENOENT") return 0; throw error; }
@@ -41,6 +41,7 @@ export async function copyCalendarStaticAssets({
     }
   }
   if (assets.size > 24) throw new Error("Calendar final image count exceeds build budget");
+  const sourceRoot = assets.size ? await realpath(declaredSourceRoot) : declaredSourceRoot;
   for (const asset of assets.values()) {
     const source = await realpath(path.join(sourceRoot, asset.path));
     if (!source.startsWith(sourceRoot + path.sep)) throw new Error("Calendar image escapes generated root");

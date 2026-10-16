@@ -1,4 +1,7 @@
 import { LitElement, html, nothing } from "lit";
+import { readPageData } from "../lib/page-data";
+import { adoptPrerenderedWorkspace } from "../lib/workspace-page-data";
+import type { CatalogSystemPayload } from "../lib/catalog-system-data";
 import { releaseServerFromPath, resourcePath } from "../lib/resource-route";
 import { beginLoading } from "../lib/loading-progress";
 import { catalogUrl, currentReleaseServer, fetchJson, localizedText, preferredLocale, uiText } from "./shared/catalog";
@@ -86,6 +89,24 @@ export class StudioWorkspace extends LitElement {
   createRenderRoot() {
     return this;
   }
+  preparePage(payload: CatalogSystemPayload, locale: string, query = new URLSearchParams()) {
+    adoptPrerenderedWorkspace(this);
+    this.locale = locale;
+    this.server = payload.server;
+    this.applyStudio(payload.document as unknown as Studio, query);
+  }
+  private applyStudio(studio: Studio, query: URLSearchParams) {
+    this.studio = studio;
+    const units = studio.units || [];
+    this.unitId = units.find((unit) => unit.bandId === Number(query.get("band")))?.id || units[0]?.id || 0;
+    const ranks = this.ranks();
+    const rank = Number(query.get("rank"));
+    this.bandRank = ranks.includes(rank) ? rank : ranks.at(-1) || 0;
+    const range = this.levelRange();
+    const level = Number(query.get("lv"));
+    this.level = range.includes(level) ? level : range.at(-1) || 0;
+    this.phase = "ready";
+  }
   connectedCallback() {
     super.connectedCallback();
     this.locale = preferredLocale(this.locale);
@@ -106,6 +127,11 @@ export class StudioWorkspace extends LitElement {
     return clientText(this.locale, `catalog.studio.${key}`, fallback);
   }
   private async load() {
+    const page = readPageData<CatalogSystemPayload>(this);
+    if (page?.schema === "haneoka-catalog-system-v1" && page.kind === "studio") {
+      this.preparePage(page, this.locale, new URLSearchParams(location.search));
+      return;
+    }
     this.request?.abort();
     const controller = new AbortController();
     this.request = controller;
@@ -117,17 +143,7 @@ export class StudioWorkspace extends LitElement {
     try {
       const studio = await fetchJson<Studio>(catalogUrl("studio", "", this.server), { signal: controller.signal });
       if (controller.signal.aborted) return progress.cancel();
-      this.studio = studio;
-      const query = new URLSearchParams(location.search);
-      const units = studio.units || [];
-      this.unitId = units.find((unit) => unit.bandId === Number(query.get("band")))?.id || units[0]?.id || 0;
-      const ranks = this.ranks();
-      const rank = Number(query.get("rank"));
-      this.bandRank = ranks.includes(rank) ? rank : ranks.at(-1) || 0;
-      const range = this.levelRange();
-      const level = Number(query.get("lv"));
-      this.level = range.includes(level) ? level : range.at(-1) || 0;
-      this.phase = "ready";
+      this.applyStudio(studio, new URLSearchParams(location.search));
       progress.finish();
     } catch (error) {
       if (controller.signal.aborted) return progress.cancel();

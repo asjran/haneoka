@@ -1,0 +1,32 @@
+---
+import Base from "../../layouts/Base.astro";
+import AppShell from "../AppShell.astro";
+import type { Locale } from "../../i18n/locales";
+import type { ReleaseServer } from "../../lib/release-server";
+import { resourcePath, type EntityLink } from "../../lib/resource-route";
+import type { SearchableCatalogPage } from "../../lib/searchable-catalog";
+import { catalogSystemEntityData } from "../../server/catalog-system-data";
+import { renderCatalogSystem } from "../../server/render-catalog-systems";
+import { serializePageData } from "../../lib/page-data";
+import "../../styles/mission.css";
+import "../../styles/tgw-card.css";
+
+interface Props { page: SearchableCatalogPage; locale: Locale; server: ReleaseServer; returnTo?: string; previous?: EntityLink; next?: EntityLink }
+const { page, locale, server, returnTo, previous, next } = Astro.props;
+const kind = page.resource as "missions" | "tgw-card";
+const payload = await catalogSystemEntityData(kind, server, page.id);
+const rendered = await renderCatalogSystem(payload, locale);
+const href = resourcePath({ server, locale, kind, id: page.id });
+const title = page.titles[locale];
+const dataId = `catalog-system-entity-${page.id}`;
+---
+<Base locale={locale} route={page.route} canonicalRoute={href} title={title} description={page.descriptions[locale]} seoTitleValues={page.titles} seoDescriptionValues={page.descriptions} searchImage={page.image} searchTitle={title}>
+  <AppShell locale={locale} route={page.route} title={title} server={server} appBar={rendered.appBar} entity={{ title, backHref: returnTo || resourcePath({ server, locale, kind }), previous, next }}>
+    <script is:inline type="application/json" id={dataId} set:html={serializePageData(payload)}></script>
+    {kind === "missions" ? <mission-workspace locale={locale} data-prerendered data-page-data={dataId} set:html={rendered.body}></mission-workspace> : <tgw-card-workspace locale={locale} data-prerendered data-page-data={dataId} set:html={rendered.body}></tgw-card-workspace>}
+  </AppShell>
+</Base>
+<script>
+  import "../../lit/mission-workspace";
+  import "../../lit/tgw-card-workspace";
+</script>

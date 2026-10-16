@@ -1,4 +1,8 @@
 ---
+import { providerCollectionData } from "../../../../server/provider-page-data";
+import { renderProviderSongs } from "../../../../server/render-provider";
+import { serializePageData } from "../../../../lib/page-data";
+import { collectionDescription } from "../../../../lib/collection-description";
 import Base from "../../../../layouts/Base.astro";
 import AppShell from "../../../../components/AppShell.astro";
 import { catalogConfig } from "../../../../config/catalog-labels";
@@ -15,11 +19,16 @@ const route = "/community/sekai/songs";
 const titleKey = "community.page.sekai.title";
 const title = t(locale, titleKey, "Project Sekai songs");
 const config = catalogConfig({ resource: "songs", locale, origin: "sekai" });
+const payload = await providerCollectionData("sekai", locale, "songs");
+const rendered = renderProviderSongs(config, payload, locale, route);
+const pageDataId = "provider-collection";
+const description = collectionDescription(Object.values(payload.document), locale, title);
 ---
 
-<Base locale={locale} route={route} title={title} titleKey={titleKey} description={title}>
-  <AppShell locale={locale} route={route} title={title} titleKey={titleKey}>
-    <catalog-screen config={config}></catalog-screen>
+<Base locale={locale} route={route} title={title} titleKey={titleKey} description={description}>
+  <AppShell locale={locale} route={route} title={title} titleKey={titleKey} appBar={rendered.appBar}>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    <catalog-screen config={config} data-page-data={pageDataId} data-prerendered set:html={rendered.body}></catalog-screen>
   </AppShell>
 </Base>
 <script>

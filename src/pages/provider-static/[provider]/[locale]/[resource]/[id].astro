@@ -1,0 +1,17 @@
+---
+import ProviderEntityDocument from "../../../../../components/ProviderEntityDocument.astro";
+import { providerEntityManifest, readProviderEntityPayload, type ProviderEntityManifestEntry } from "../../../../../server/provider-entity-manifest";
+import { providerEntityResourcePath } from "../../../../../lib/provider-entity-data";
+import { staticPageGroupEnabled } from "../../../../../server/static-build";
+
+export function getStaticPaths() {
+  if (!staticPageGroupEnabled("provider")) return [];
+  return providerEntityManifest(import.meta.env.DEV).entries.map(entry => ({
+    params: { provider: entry.provider, locale: entry.locale, resource: providerEntityResourcePath(entry), id: entry.id },
+    props: { entry },
+  }));
+}
+const { entry } = Astro.props as { entry: ProviderEntityManifestEntry };
+const payload = readProviderEntityPayload(entry);
+---
+<ProviderEntityDocument payload={payload} />

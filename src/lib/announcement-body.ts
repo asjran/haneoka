@@ -191,6 +191,32 @@ export function parseAnnouncementBody(html: string): AnnouncementBodyNode[] {
   return sanitize(fragment.childNodes);
 }
 
+/** Static markup uses the same parsed allowlist as native browser nodes. */
+export function announcementBodyMarkup(source: string, tableLabel: string, title: string) {
+  const nodes = parseAnnouncementBody(source), images: string[] = [];
+  const text = (rows: AnnouncementBodyNode[]): string => rows.map(node => node.type === "text" ? node.value : text(node.children)).join("");
+  let firstHeading = true;
+  const omitDuplicateHeading = (rows: AnnouncementBodyNode[]): AnnouncementBodyNode[] => rows.flatMap<AnnouncementBodyNode>(node => {
+    if (node.type === "text") return [node];
+    if ((node.tag === "h1" || node.tag === "h2") && firstHeading) {
+      firstHeading = false;
+      if (text(node.children).replace(/\s+/gu, " ").trim() === title.replace(/\s+/gu, " ").trim()) return [];
+    }
+    return [{ ...node, children: omitDuplicateHeading(node.children) }];
+  });
+  const clean = omitDuplicateHeading(nodes);
+  const escape = (value: string) => value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/"/gu, "&quot;");
+  const voidTags = new Set(["br", "hr", "wbr", "img", "col"]);
+  const markup = (rows: AnnouncementBodyNode[]): string => rows.map(node => {
+    if (node.type === "text") return escape(node.value);
+    if (node.tag === "img" && node.attributes.src) images.push(node.attributes.src);
+    const tag = `<${node.tag}${Object.entries(node.attributes).map(([name, value]) => ` ${name}="${escape(value)}"`).join("")}>`;
+    const element = tag + (voidTags.has(node.tag) ? "" : markup(node.children) + `</${node.tag}>`);
+    return node.tag === "table" ? `<div class="announcement-table-scroll" role="region" aria-label="${escape(tableLabel)}" tabindex="0">${element}</div>` : element;
+  }).join("");
+  return { markup: markup(clean), text: text(clean), images };
+}
+
 /** Construct safe native nodes; authored markup never enters an HTML DOM sink. */
 export function announcementBodyFragment(html: string, tableLabel: string): DocumentFragment {
   const fragment = document.createDocumentFragment();

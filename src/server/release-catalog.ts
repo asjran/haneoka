@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 const CURRENT_POINTER_SCHEMA = "haneoka-resource-pointer-v1";
 const RELEASE_IDENTITY_SCHEMA = "haneoka-resource-release-identity-v1";
@@ -502,6 +503,22 @@ export class ReleaseCatalog {
 
   readCollection(resource: string): CatalogJson {
     return this.readApiJson(this.resource(resource).index);
+  }
+
+  readReleaseJson(relative: string): CatalogJson {
+    const normalized = safeRelativePath(relative, "release JSON path");
+    const entry = this.releaseManifest.entries.get(normalized);
+    if (!entry || !normalized.endsWith(".json"))
+      throw new ReleaseCatalogError("catalog_path_missing", 404, `Release JSON is not declared: ${normalized}`);
+    const file = releaseFile(this.releaseRoot, normalized);
+    if (!fs.existsSync(file)) missingFile(file, true);
+    const body = fs.readFileSync(file);
+    if (body.length !== entry.bytes || createHash("sha256").update(body).digest("hex") !== entry.sha256)
+      throw new ReleaseCatalogError("release_manifest_invalid", 502, `Release JSON hash mismatch: ${normalized}`);
+    return jsonValue(JSON.parse(body.toString("utf8")), file);
+  }
+  releaseEntry(relative: string): Readonly<ReleaseEntry> | undefined {
+    return this.releaseManifest.entries.get(safeRelativePath(relative, "release entry path"));
   }
 
   readSummary(): CatalogJson {

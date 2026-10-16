@@ -74,6 +74,8 @@ function readLocalPath(catalog: ReleaseCatalog, route: string): unknown {
   const parts = url.pathname.slice(1).split("/").map(decodeURIComponent);
   const [resource, action, name, id] = parts;
   if (resource === "ui-marks" && parts.length === 1) return catalog.readUiMarks();
+  if (resource === "sources" && action === "tree" && parts.length === 2)
+    return catalog.readReleaseJson("metadata/source-index/tree.json");
   if (resource === "sources" && parts.length > 1) return catalog.readSource(parts.slice(1).join("/"));
   if (resource === "catalog") {
     return action === "summary" ? catalog.readSummary() : catalog.manifest.document;
@@ -198,11 +200,12 @@ async function fetchResponse(
   releaseId?: string,
   method = "GET",
   sourceId?: string,
+  absoluteUrl?: string,
 ): Promise<Response> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let response: Response;
     try {
-      response = await fetch(staticCatalogUrl(path, server, releaseId), {
+      response = await fetch(absoluteUrl || staticCatalogUrl(path, server, releaseId), {
         headers: headers(),
         method,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -394,6 +397,66 @@ export async function fetchStaticCatalog(
   return fetchJson(path, server, pinned);
 }
 
+/** Public JSON bytes verified against the same immutable release manifest. */
+export async function fetchStaticReleaseJson(relative: string, server = "intl", release?: StaticCatalogRelease): Promise<unknown> {
+  if (!/^(assets|runtime|objects)\/(?!.*(?:^|\/)\.\.?\/)[^\\?#]+\.json$/u.test(relative))
+    throw new StaticCatalogConsistencyError("Invalid public release JSON path");
+  const pinned = release || await staticCatalogRelease(server);
+  if (pinned.server !== server) throw new StaticCatalogConsistencyError("Release JSON server mismatch");
+  const key = requestKey(`release-file:${relative}`, server, pinned);
+  let pending = requestPromises.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const local = localCatalog(server);
+      if (local) {
+        if (local.identity.releaseId !== pinned.releaseId || local.identity.sourceId !== pinned.sourceId)
+          throw new StaticCatalogConsistencyError("Release JSON identity mismatch");
+        return local.readReleaseJson(relative);
+      }
+      const manifest = asRecord(await fetchJson("release", server, pinned));
+      if (manifest?.server !== server || manifest.releaseId !== pinned.releaseId || manifest.sourceId !== pinned.sourceId)
+        throw new StaticCatalogConsistencyError("Release JSON manifest identity mismatch");
+      const entry = (Array.isArray(manifest.entries) ? manifest.entries.map(asRecord) : []).find((value) => value?.path === relative);
+      if (!entry || typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(entry.sha256) || !Number.isSafeInteger(entry.bytes))
+        throw new StaticCatalogConsistencyError(`Release JSON not declared: ${relative}`);
+      const [tree, ...parts] = relative.split("/");
+      const url = new URL(`/${tree}/${encodeURIComponent(server)}/${parts.map(encodeURIComponent).join("/")}`, ORIGIN);
+      url.searchParams.set("release", pinned.releaseId);
+      const response = await fetchResponse(relative, server, pinned.releaseId, "GET", pinned.sourceId, url.toString());
+      try {
+        observedRelease(response, pinned);
+        const body = Buffer.from(await response.arrayBuffer());
+        if (body.length !== entry.bytes || createHash("sha256").update(body).digest("hex") !== entry.sha256)
+          throw new StaticCatalogConsistencyError(`Release JSON hash mismatch: ${relative}`);
+        return JSON.parse(body.toString("utf8"));
+      } finally { await releaseResponseBody(response); }
+    })();
+    requestPromises.set(key, pending);
+  }
+  try { return await pending; }
+  catch (error) { requestPromises.delete(key); throw error; }
+}
+
+export async function fetchStaticReleaseEntry(relative: string, server = "intl", release?: StaticCatalogRelease): Promise<{ path: string; bytes: number; sha256: string } | undefined> {
+  const pinned = release || await staticCatalogRelease(server);
+  if (pinned.server !== server || !relative || relative.startsWith("/") || relative.split("/").some((part) => !part || part === "." || part === "..") || /[\\?#]/u.test(relative))
+    throw new StaticCatalogConsistencyError("Invalid release entry identity");
+  const local = localCatalog(server);
+  if (local) {
+    if (local.identity.releaseId !== pinned.releaseId || local.identity.sourceId !== pinned.sourceId)
+      throw new StaticCatalogConsistencyError("Release entry identity mismatch");
+    return local.releaseEntry(relative);
+  }
+  const manifest = asRecord(await fetchJson("release", server, pinned));
+  if (manifest?.server !== server || manifest.releaseId !== pinned.releaseId || manifest.sourceId !== pinned.sourceId)
+    throw new StaticCatalogConsistencyError("Release entry manifest identity mismatch");
+  const entry = (Array.isArray(manifest.entries) ? manifest.entries.map(asRecord) : []).find((value) => value?.path === relative);
+  if (!entry) return undefined;
+  if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(entry.sha256) || typeof entry.bytes !== "number" || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0)
+    throw new StaticCatalogConsistencyError("Invalid release entry digest");
+  return { path: relative, sha256: entry.sha256, bytes: entry.bytes };
+}
+
 /** Fetches an explicitly optional collection and records why it was absent. */
 export async function fetchOptionalStaticCatalog(
   path: string,
@@ -444,11 +507,9 @@ export async function fetchStaticCatalogBatch(
   }
   // Cross-server page details request these same full entities after payload batches.
   // Seed only complete batches; keep the batch caller's objects independent.
-  if (["cards", "support-cards", "songs", "events"].includes(resource)) {
-    for (const id of new Set(ids)) {
-      const key = requestKey(`${resource}/${encodeURIComponent(id)}`, server, pinned);
-      if (!requestPromises.has(key)) requestPromises.set(key, Promise.resolve(structuredClone(items.get(id)!)));
-    }
+  for (const id of new Set(ids)) {
+    const key = requestKey(`${resource}/${encodeURIComponent(id)}`, server, pinned);
+    if (!requestPromises.has(key)) requestPromises.set(key, Promise.resolve(structuredClone(items.get(id)!)));
   }
   return items;
 }

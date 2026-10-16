@@ -1,6 +1,14 @@
 /** Destination identity stays available throughout Astro's document swap. */
 let pendingDocumentUrl: URL | undefined;
 let documentUrlListening = false;
+let renderDocumentUrl: URL | undefined;
+
+export function withDocumentUrl<T>(url: URL, render: () => T): T {
+  const previous = renderDocumentUrl;
+  renderDocumentUrl = url;
+  try { return render(); }
+  finally { renderDocumentUrl = previous; }
+}
 
 /**
  * Astro connects custom elements before it commits the browser URL. Base
@@ -9,6 +17,7 @@ let documentUrlListening = false;
  * the URL commit, so retain the destination until page-load completes.
  */
 export function navigationDocumentUrl(): URL {
+  if (renderDocumentUrl) return new URL(renderDocumentUrl);
   if (!documentUrlListening) {
     documentUrlListening = true;
     document.addEventListener("astro:page-load", () => {

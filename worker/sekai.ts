@@ -1,3 +1,7 @@
+import { providerFetch, providerEdgeCache, type ProviderSourceReader, type ProviderExecutionContext, type ProviderFetchInit } from "./provider-source";
+let sourceReader: ProviderSourceReader | undefined;
+export function setSekaiSourceReader(reader?: ProviderSourceReader): void { sourceReader = reader; }
+const sourceResponse = (input: RequestInfo | URL, init?: ProviderFetchInit): Promise<Response> => sourceReader ? sourceReader.response(input, init) : providerFetch(input, init);
 import { BESTDORI_CACHE_POLICY, bestdoriCacheControl } from "@haneoka/bestdori/cache-policy";
 import { convertBestdoriScenario, type BestdoriScenarioBase } from "@haneoka/bestdori/scenario";
 
@@ -17,12 +21,13 @@ const SOURCES = {
   cn: { master: "sekai-master-db-cn-diff", assets: "sekai-cn-assets" },
   kr: { master: "sekai-master-db-kr-diff", assets: "sekai-kr-assets" },
 } as const;
-type SekaiRegion = keyof typeof SOURCES;
+export type SekaiRegion = keyof typeof SOURCES;
 const isRegion = (value: string): value is SekaiRegion => value in SOURCES;
 
 const MASTER_ORIGIN = "https://sekai-world.github.io";
 const ASSET_ORIGIN = "https://storage.sekai.best";
 export const SEKAI_API_PREFIX = "/api/v1/sekai";
+export { songRecords as projectSekaiSongs, unitRecords as projectSekaiBands, storyList as projectSekaiEventStories, unitStoryList as projectSekaiUnitStories, characterStoryList as projectSekaiCharacterStories, cardStoryList as projectSekaiCardStories, areaTalkList as projectSekaiAreaStories, specialStoryList as projectSekaiSpecialStories, mysekaiTalkList as projectSekaiMySekaiStories, virtualLiveList as projectSekaiLiveStories, storyDetail as projectSekaiStory };
 /** Bump when a projection changes so cached responses are not reused. */
 const RESPONSE_VERSION = "5";
 const JSON_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.catalog);
@@ -60,11 +65,11 @@ const master = (region: SekaiRegion, name: string): Promise<Obj[]> => {
   const url = `${MASTER_ORIGIN}/${SOURCES[region].master}/${name}.json`;
   let pending = masterFlights.get(url);
   if (!pending) {
-    pending = fetch(url, { cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true } })
+    pending = (sourceReader ? sourceReader.json(url).then(value => value as Obj[]) : sourceResponse(url, { cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true } })
       .then(async (response) => {
         if (!response.ok) throw new Error(`${name} ${region}: HTTP ${response.status}`);
         return (await response.json()) as Obj[];
-      })
+      }))
       .finally(() => masterFlights.delete(url));
     masterFlights.set(url, pending);
   }
@@ -75,12 +80,12 @@ const regional = (region: SekaiRegion, name: string): Promise<Obj[]> =>
   region === "jp" ? Promise.resolve([]) : master(region, name).catch(() => []);
 const byId = (rows: Obj[], key = "id") => new Map(rows.map((row) => [Number(row[key]), row]));
 
-const serveJson = async (request: Request, ctx: ExecutionContext, producer: () => Promise<unknown>) => {
+const serveJson = async (request: Request, ctx: ProviderExecutionContext, producer: () => Promise<unknown>) => {
   const key = new URL(request.url);
   const ids = key.searchParams.getAll("id").sort();
   key.search = `?_cv=${RESPONSE_VERSION}${ids.map((id) => `&id=${encodeURIComponent(id)}`).join("")}`;
   if (request.method === "GET") {
-    const hit = await caches.default.match(new Request(key));
+    const hit = await providerEdgeCache().match(new Request(key));
     if (hit) return hit;
   }
   let body: string;
@@ -96,7 +101,7 @@ const serveJson = async (request: Request, ctx: ExecutionContext, producer: () =
   const response = new Response(request.method === "HEAD" ? null : body, {
     headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": JSON_CACHE_CONTROL },
   });
-  if (request.method === "GET") ctx.waitUntil(caches.default.put(new Request(key), response.clone()));
+  if (request.method === "GET") ctx.waitUntil(providerEdgeCache().put(new Request(key), response.clone()));
   return response;
 };
 
@@ -108,7 +113,7 @@ const proxyMedia = async (request: Request, bucket: string, path: string) => {
     const value = request.headers.get(header);
     if (value) upstream.headers.set(header, value);
   }
-  const response = await fetch(upstream, {
+  const response = await sourceResponse(upstream, {
     cf: { cacheTtl: BESTDORI_CACHE_POLICY.media.maxAgeSeconds, cacheEverything: true },
   });
   const headers = new Headers(CORS);
@@ -394,7 +399,7 @@ const soundEffects = async (scenario: Obj, own: string): Promise<Map<string, str
         ...(own ? [`${own}/${name}.mp3`] : []),
       ];
       for (const path of paths) {
-        const response = await fetch(`${ASSET_ORIGIN}/${SOURCES.jp.assets}/${encodeURI(path)}`, {
+        const response = await sourceResponse(`${ASSET_ORIGIN}/${SOURCES.jp.assets}/${encodeURI(path)}`, {
           method: "HEAD",
           cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
         });
@@ -562,7 +567,7 @@ const otherSource = async (storyId: string): Promise<ScenarioSource | undefined>
       effects: "",
       voices: `mysekai/talk/voice/${id}/`,
       script: async () => {
-        const response = await fetch(`${ASSET_ORIGIN}/${SOURCES.jp.assets}/mysekai/talk/scenario/talk/${id}.lua.txt`);
+        const response = await sourceResponse(`${ASSET_ORIGIN}/${SOURCES.jp.assets}/mysekai/talk/scenario/talk/${id}.lua.txt`);
         if (!response.ok) throw new Error(`${id}: HTTP ${response.status}`);
         return scriptScenario(id, mysekaiLines(await response.text()));
       },
@@ -583,7 +588,7 @@ const otherSource = async (storyId: string): Promise<ScenarioSource | undefined>
       voices: `virtual_live/mc/voice/${id}/`,
       script: async () => {
         const [response, characters3d, names] = await Promise.all([
-          fetch(`${ASSET_ORIGIN}/${SOURCES.jp.assets}/virtual_live/mc/scenario/${id}/${id}.asset`),
+          sourceResponse(`${ASSET_ORIGIN}/${SOURCES.jp.assets}/virtual_live/mc/scenario/${id}/${id}.asset`),
           master("jp", "character3ds"),
           characterNames(),
         ]);
@@ -616,7 +621,7 @@ const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> =
     let scenario: Obj;
     if (source.script) scenario = await source.script();
     else {
-      const response = await fetch(`${ASSET_ORIGIN}/${SOURCES[server].assets}/${encodeURI(path)}`, {
+      const response = await sourceResponse(`${ASSET_ORIGIN}/${SOURCES[server].assets}/${encodeURI(path)}`, {
         cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
       });
       if (!response.ok) continue;
@@ -648,7 +653,7 @@ const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> =
 /* ------------------------------------------------------- other sections */
 
 const listing = async (prefix: string): Promise<Set<string>> => {
-  const response = await fetch(
+  const response = await sourceResponse(
     `${ASSET_ORIGIN}/${SOURCES.jp.assets}/?list-type=2&max-keys=1000&prefix=${encodeURIComponent(prefix)}`,
     { cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true } },
   );
@@ -913,14 +918,14 @@ const LIVE2D_BUCKET = "sekai-live2d-assets";
 const LIVE2D_PATH = /^live2d\/(?:model|motion)\/[\w./ -]+\.(?:json|moc3|png|webp)$/;
 const live2dFile = (path: string) => `${SEKAI_API_PREFIX}/jp/live2d-file/${path}`;
 const live2dJson = async <T>(path: string): Promise<T> => {
-  const response = await fetch(`${ASSET_ORIGIN}/${LIVE2D_BUCKET}/${path}`, {
+  const response = await sourceResponse(`${ASSET_ORIGIN}/${LIVE2D_BUCKET}/${path}`, {
     cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true },
   });
   if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
   return (await response.json()) as T;
 };
 const live2dFolders = async (prefix: string): Promise<string[]> => {
-  const response = await fetch(
+  const response = await sourceResponse(
     `${ASSET_ORIGIN}/${LIVE2D_BUCKET}/?list-type=2&delimiter=/&prefix=${encodeURIComponent(prefix)}`,
     { cf: { cacheTtl: BESTDORI_CACHE_POLICY.upstream.edgeTtlSeconds, cacheEverything: true } },
   );
@@ -1073,7 +1078,7 @@ const facialExpression = async (path: string): Promise<Obj> => {
 
 /* ------------------------------------------------------------------ routes */
 
-export async function handleSekaiApi(ctx: ExecutionContext, request: Request, url: URL): Promise<Response | null> {
+export async function handleSekaiApi(ctx: ProviderExecutionContext, request: Request, url: URL): Promise<Response | null> {
   const route = /^\/api\/v1\/sekai\/([a-z]+)\/(.+)$/.exec(url.pathname);
   if (!route || !isRegion(route[1]!)) return null;
   const region = route[1];

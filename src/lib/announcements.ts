@@ -153,6 +153,9 @@ export async function fetchAnnouncements(server: ReleaseServer, signal: AbortSig
   const requestedLocale = normalizeAuthorLocale(locale);
   if (!requestedLocale) throw new TypeError("Invalid announcement locale");
   const value = await request(`/api/v1/announcements?${new URLSearchParams({ server, locale: requestedLocale })}`, signal);
+  return parseAnnouncementList(value, server, requestedLocale);
+}
+export function parseAnnouncementList(value: unknown, server: ReleaseServer, requestedLocale: string): AnnouncementList {
   if (
     !record(value) ||
     value.server !== server ||
@@ -173,6 +176,9 @@ export async function fetchAnnouncement(server: ReleaseServer, id: number, signa
   const requestedLocale = normalizeAuthorLocale(locale);
   if (!requestedLocale) throw new TypeError("Invalid announcement locale");
   const value = await request(`/api/v1/announcements/${id}?${new URLSearchParams({ server, locale: requestedLocale })}`, signal);
+  return parseAnnouncementDetail(value, server, id, requestedLocale);
+}
+export function parseAnnouncementDetail(value: unknown, server: ReleaseServer, id: number, requestedLocale: string): Announcement {
   if (!record(value) || value.server !== server || value.requestedLocale !== requestedLocale)
     throw new TypeError("Announcement detail identity mismatch");
   const entry = record(value) && "announcement" in value ? value.announcement : value;

@@ -20,7 +20,7 @@ export function testContentAllowed(request: Request, settings: SiteSettings): bo
   return settings.showTestServerContent && spoilerCookieEnabled(request.headers.get("Cookie"));
 }
 
-export function applySiteSettings(request: Request, response: Response, settings: SiteSettings): Response {
+export async function applySiteSettings(request: Request, response: Response, settings: SiteSettings): Promise<Response> {
   if (!response.headers.get("Content-Type")?.toLowerCase().includes("text/html")) return response;
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "public, max-age=0, must-revalidate");
@@ -33,11 +33,16 @@ export function applySiteSettings(request: Request, response: Response, settings
   const etag = assetEtag?.replace(/"$/u, `:site-${settings.version}:spoilers-${spoilers ? 1 : 0}"`);
   if (etag) {
     headers.set("ETag", etag);
-    if (request.headers.get("If-None-Match") === etag)
+    if (request.headers.get("If-None-Match") === etag) {
+      await response.body?.cancel();
       return new Response(null, { status: 304, headers });
+    }
   }
   const output = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-  if (request.method === "HEAD") return new Response(null, { status: output.status, headers });
+  if (request.method === "HEAD") {
+    await output.body?.cancel();
+    return new Response(null, { status: output.status, headers });
+  }
   return new HTMLRewriter().on("html", {
     element(element) {
       element.setAttribute("data-show-test-server-content", settings.showTestServerContent ? "1" : "0");

@@ -7,6 +7,7 @@ import * as pagefind from "pagefind";
 import { parseFragment } from "parse5";
 import { copyCalendarStaticAssets } from "./calendar-static-assets.mjs";
 import { addModulePreloads } from "./module-preload.mjs";
+import { finalizeStaticDocuments, packCoreStaticDocuments } from "../../src/server/static-documents.ts";
 
 const output = path.resolve(".output/public");
 const calendarImages = await copyCalendarStaticAssets({ outputRoot: output });
@@ -89,3 +90,7 @@ try {
     await pagefind.close();
   }
 }
+console.log(`packed ${await packCoreStaticDocuments(output, files)} complete Astro pages`);
+const staticDocuments = finalizeStaticDocuments(output);
+if (staticDocuments.documents)
+  console.log(`finalized ${staticDocuments.documents} complete static documents and ${staticDocuments.data} shared data objects`);

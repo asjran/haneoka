@@ -1,4 +1,8 @@
-import { LitElement, html, nothing } from "lit";
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
+import { readPageData } from "../lib/page-data";
+import type { PublicSongsPageData } from "../server/tool-page-data";
 import { BoxStore, type BoxSnapshot } from "../lib/team-builder/sync/box-store";
 import { setAppBarSearch, clearAppBarSearch } from "../lib/app-bar";
 import { beginLoading } from "../lib/loading-progress";
@@ -50,6 +54,7 @@ export class SongProgress extends LitElement {
   declare filter: Filter;
   declare query: string;
   private charts: Chart[] = [];
+  private pageData?: PublicSongsPageData;
   private store: BoxStore | null = null;
   private snapshot: BoxSnapshot | null = null;
   private unsubscribe?: () => void;
@@ -67,19 +72,42 @@ export class SongProgress extends LitElement {
     return this;
   }
   connectedCallback() {
+    const payload = readPageData<PublicSongsPageData>(this);
+    if (payload?.schema === "haneoka-public-songs-page-v1") this.preparePage(payload);
     super.connectedCallback();
     this.locale = preferredLocale(this.locale);
+    if (payload) void this.updateComplete.then(() => this.start());
+    else this.start();
+  }
+  preparePage(payload: PublicSongsPageData, server = payload.server) {
+    this.pageData = payload;
+    this.server = server as ReleaseServer;
+    const source = payload.variants[server];
+    if (!source) { this.charts = []; this.phase = "error"; return; }
+    this.applySongs(source.songs);
+    this.phase = "ready";
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  renderStaticChrome() {
+    setAppBarSearch(OWNER, {
+      value: this.query,
+      label: uiText(this.locale, "common.actions.search"),
+      onInput: value => { this.query = value.trim().toLowerCase(); },
+    });
+  }
+  private start() {
+    if (!this.isConnected) return;
     this.server = currentReleaseServer() as ReleaseServer;
     const params = new URLSearchParams(location.search);
     const difficulty = DIFFICULTIES.indexOf(params.get("difficulty") as (typeof DIFFICULTIES)[number]);
     if (difficulty >= 0) this.difficulty = difficulty === 4 ? 5 : difficulty;
-    setAppBarSearch(OWNER, {
-      value: "",
-      label: uiText(this.locale, "common.actions.search"),
-      onInput: (value) => {
-        this.query = value.trim().toLowerCase();
-      },
-    });
+    this.renderStaticChrome();
     this.store = new BoxStore({ server: this.server });
     this.unsubscribe = this.store.subscribe((snapshot) => {
       this.snapshot = snapshot;
@@ -99,9 +127,19 @@ export class SongProgress extends LitElement {
     return clientText(this.locale, `catalog.songProgress.${key}`, fallback);
   }
   private async load() {
+    if (this.pageData?.variants[this.server]) { this.preparePage(this.pageData, this.server); return; }
     const progress = beginLoading(uiText(this.locale, "common.states.loading"), { scope: "owner" });
     try {
       const songs = await fetchJson<Record<string, Row>>(catalogUrl("songs", "", this.server));
+      this.applySongs(songs);
+      this.phase = "ready";
+      progress.finish();
+    } catch (error) {
+      this.phase = "error";
+      progress.fail(error);
+    }
+  }
+  private applySongs(songs: Record<string, Row>) {
       this.charts = Object.values(songs).flatMap((song) => {
         const songId = Number(song.musicId);
         const rows = Array.isArray(song.difficulty) ? (song.difficulty as Row[]) : [];
@@ -121,12 +159,6 @@ export class SongProgress extends LitElement {
           }];
         });
       });
-      this.phase = "ready";
-      progress.finish();
-    } catch (error) {
-      this.phase = "error";
-      progress.fail(error);
-    }
   }
   private status(chart: Chart): number {
     const value = this.snapshot?.entries[chart.key]?.v;

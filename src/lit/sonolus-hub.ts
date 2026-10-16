@@ -1,4 +1,8 @@
-import { LitElement, html, nothing } from "lit";
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { hydrateWorkspace } from "./shared/hydrate-workspace";
+import { readPageData } from "../lib/page-data";
+import type { SonolusHubPageData } from "../server/tool-page-data";
 import { SONOLUS_SERVER_LINK } from "../config/sonolus";
 import { preferredLocale, uiText } from "./shared/catalog";
 import { renderDetailSectionHeading } from "./shared/detail-section-heading";
@@ -50,9 +54,23 @@ export class SonolusHub extends LitElement {
     return this;
   }
   connectedCallback() {
+    const payload = readPageData<SonolusHubPageData>(this);
+    if (payload?.schema === "haneoka-sonolus-hub-page-v1") this.preparePage(payload);
     super.connectedCallback();
     this.locale = preferredLocale(this.locale);
-    void this.load();
+    if (!payload) void this.load();
+  }
+  preparePage(payload: SonolusHubPageData) {
+    this.banner = String((payload.info.banner as Row | undefined)?.url || "");
+    this.levels = this.sections(payload.levels, "cover");
+    this.playlists = this.sections(payload.playlists, "thumbnail");
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrateWorkspace(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
   }
   disconnectedCallback() {
     this.images.disconnect();
@@ -77,7 +95,7 @@ export class SonolusHub extends LitElement {
   /** The server answers with absolute haneoka.org URLs; the page loads them from its own origin. */
   private path(url: string) {
     if (!url) return "";
-    const parsed = new URL(url, location.origin);
+    const parsed = new URL(url, typeof location === "undefined" ? "https://haneoka.org" : location.origin);
     return parsed.hostname === "haneoka.org" ? `${parsed.pathname}${parsed.search}` : url;
   }
   private sections(document: Row, image: "cover" | "thumbnail"): Section[] {

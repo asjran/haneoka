@@ -1,12 +1,33 @@
 import { defineConfig } from "astro/config";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { beginStaticDocumentsBuild } from "./src/server/static-documents.ts";
+import { installProviderDevRouting } from "./src/server/provider-dev-routing.ts";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const { searchForWorkspaceRoot } = await import(
+  pathToFileURL(require.resolve("vite", { paths: [require.resolve("astro/package.json")] })).href
+);
+const linkedDirectories = ["node_modules", ".dependencies"]
+  .map((name) => path.join(root, name))
+  .filter(existsSync)
+  .map((directory) => realpathSync(directory));
+const workspaceFiles = [
+  ...new Set([
+    searchForWorkspaceRoot(root),
+    ...linkedDirectories,
+    ...linkedDirectories.map((directory) => searchForWorkspaceRoot(directory)),
+  ]),
+];
 /** Identifies one deployment; an open tab compares it with /build.json to offer a reload. */
 const buildId = String(process.env.GITHUB_SHA || Date.now()).slice(0, 12);
 const proxyTarget = String(process.env.LOCAL_WORKER_ORIGIN || process.env.LOCAL_RELEASE_ORIGIN || "").trim();
+const providerTarget = String(process.env.BESTDORI_PROVIDER_ORIGIN || process.env.LOCAL_WORKER_ORIGIN || "").trim();
+let devAssetRoutes = false;
 
 export default defineConfig({
   site: "https://haneoka.org",
@@ -20,6 +41,21 @@ export default defineConfig({
   prefetch: true,
   build: { inlineStylesheets: "auto" },
   integrations: [
+    {
+      name: "workspace-cache",
+      hooks: {
+        "astro:build:start": () => beginStaticDocumentsBuild(),
+        "astro:server:setup": ({ server }) => installProviderDevRouting(server),
+        "astro:config:setup": ({ command, updateConfig }) => {
+          devAssetRoutes = command === "dev";
+          updateConfig({ vite: { cacheDir: path.join(root, ".astro/vite", command) } });
+        },
+        "astro:route:setup": ({ route }) => {
+          if (devAssetRoutes && route.component === "src/pages/asset-static/[server]/[locale]/[...id].astro")
+            route.prerender = false;
+        },
+      },
+    },
     {
       name: "build-id",
       hooks: {
@@ -55,15 +91,37 @@ export default defineConfig({
     },
     resolve: { dedupe: ["lit"] },
     server: {
-      watch: { ignored: ["**/data/**", "**/tmp/**", "**/.dependencies/**/target/**"] },
-      ...(proxyTarget
+      fs: { allow: workspaceFiles },
+      watch: { ignored: ["**/data/**", "**/tmp/**", "**/.output/**", "**/.dependencies/**/target/**"] },
+      ...(proxyTarget || providerTarget
         ? {
             proxy: {
-              "/api": { target: proxyTarget, changeOrigin: true },
-              "/assets": { target: proxyTarget, changeOrigin: true },
-              "/objects": { target: proxyTarget, changeOrigin: true },
-              "/runtime": { target: proxyTarget, changeOrigin: true },
-              "/sonolus": { target: proxyTarget, changeOrigin: true },
+              ...(providerTarget
+                ? {
+                    "^/api/v1/(?:garupa/bestdori|sekai)(?:/|$)": {
+                      target: providerTarget,
+                      changeOrigin: true,
+                      configure(proxy) {
+                        proxy.on("proxyReq", (request) => {
+                          // Match preview.ts's public provider allowlist, plus the target Host.
+                          const allowed = new Set(["host", "accept", "if-none-match", "if-range", "range"]);
+                          for (const name of Object.keys(request.getHeaders())) {
+                            if (!allowed.has(name.toLowerCase())) request.removeHeader(name);
+                          }
+                        });
+                      },
+                    },
+                  }
+                : {}),
+              ...(proxyTarget
+                ? {
+                    "/api": { target: proxyTarget, changeOrigin: true },
+                    "/assets": { target: proxyTarget, changeOrigin: true },
+                    "/objects": { target: proxyTarget, changeOrigin: true },
+                    "/runtime": { target: proxyTarget, changeOrigin: true },
+                    "/sonolus": { target: proxyTarget, changeOrigin: true },
+                  }
+                : {}),
             },
           }
         : {}),

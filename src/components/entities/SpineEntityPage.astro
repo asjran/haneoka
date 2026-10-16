@@ -7,7 +7,7 @@ import { serializePageData } from "../../lib/page-data";
 import type { SearchableModelPage } from "../../lib/searchable-models";
 import { resourcePath, type EntityLink } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
-import "../../lit/spine-workspace";
+import { renderModelWorkspace } from "../../server/render-model-workspace";
 import "../../styles/catalog.css";
 import "../../styles/viewer.css";
 
@@ -29,14 +29,7 @@ const canonicalHref = resourcePath({ server, locale, kind: "spine", id: page.id 
 const route = canonical ? canonicalHref : `${sectionRoute}/${page.id}`;
 const pageDataId = `model-page-${page.kind}-${page.id}`;
 const payload = { schema: "haneoka-model-page-v1", id: page.id, server, model: page.model };
-const preview = page.model.preview as Record<string, unknown> | undefined;
-const previewWidth = Number(preview?.width || preview?.imageWidth || preview?.naturalWidth || 0);
-const previewHeight = Number(preview?.height || preview?.imageHeight || preview?.naturalHeight || 0);
-const previewRatio = Number(preview?.aspectRatio || preview?.ratio || 0);
-const stageRatio =
-  Number.isFinite(previewWidth) && Number.isFinite(previewHeight) && previewWidth > 0 && previewHeight > 0
-    ? `${previewWidth} / ${previewHeight}`
-    : Number.isFinite(previewRatio) && previewRatio > 0 ? String(previewRatio) : "3 / 4";
+const rendered = await renderModelWorkspace("spine", payload, locale, page.image);
 const seoTitleValues = Object.fromEntries(
   LOCALES.map((target) => {
     const subtitle = page.subtitles[target];
@@ -68,6 +61,7 @@ const seoTitleValues = Object.fromEntries(
     server={server}
     title={canonical ? page.titles[locale] : sectionTitle}
     titleKey={canonical ? undefined : sectionRouteDefinition.titleKey}
+    appBar={rendered.appBar}
     entity={
       canonical
         ? {
@@ -79,23 +73,15 @@ const seoTitleValues = Object.fromEntries(
         : undefined
     }
   >
-    <script type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
     <spine-workspace
       data-page-data={pageDataId}
       locale={locale}
-      entity-id={canonical ? page.id : undefined}
-      preview-src={canonical ? page.image : undefined}
-    >
-      {canonical && (
-        <figure class="viewer-ssr-stage" style={`--viewer-stage-ratio: ${stageRatio}`} aria-label={page.titles[locale]}>
-          {page.image ? (
-            <img src={page.image} alt="" aria-hidden="true" decoding="async" />
-          ) : (
-            <span class="viewer-stage__placeholder" aria-hidden="true"></span>
-          )}
-        </figure>
-      )}
-    </spine-workspace>
+      entity-id={page.id}
+      preview-src={page.image}
+      data-prerendered
+      set:html={rendered.body}
+    ></spine-workspace>
   </AppShell>
 </Base>
 <script>

@@ -1,4 +1,8 @@
 ---
+import { providerCollectionData } from "../../../../server/provider-page-data";
+import { renderProviderStories } from "../../../../server/render-provider";
+import { serializePageData } from "../../../../lib/page-data";
+import { collectionDescription } from "../../../../lib/collection-description";
 import Base from "../../../../layouts/Base.astro";
 import AppShell from "../../../../components/AppShell.astro";
 import { LOCALES, type Locale } from "../../../../i18n/locales";
@@ -18,11 +22,16 @@ const { locale, section } = Astro.props as { locale: Locale; section: string };
 const route = `/community/stories-bestdori/${section}`;
 const titleKey = `story.navigation.bestdori${section.charAt(0).toUpperCase()}${section.slice(1)}`;
 const title = t(locale, titleKey, section);
+const payload = await providerCollectionData("bestdori", locale, `stories/${section}`);
+const rendered = renderProviderStories(payload, locale, section, route);
+const pageDataId = "provider-collection";
+const description = collectionDescription(Object.values(payload.document), locale, title);
 ---
 
-<Base locale={locale} route={route} title={title} titleKey={titleKey}>
-  <AppShell locale={locale} route={route} title={title} titleKey={titleKey}>
-    <story-workspace locale={locale} mode={section} origin="bestdori"></story-workspace>
+<Base locale={locale} route={route} title={title} titleKey={titleKey} description={description}>
+  <AppShell locale={locale} route={route} title={title} titleKey={titleKey} appBar={rendered.appBar}>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    <story-workspace locale={locale} mode={section} origin="bestdori" data-page-data={pageDataId} data-prerendered set:html={rendered.body}></story-workspace>
   </AppShell>
 </Base>
 <script>

@@ -4,15 +4,21 @@ import AppShell from "../../../components/AppShell.astro";
 import { LOCALES, type Locale } from "../../../i18n/locales";
 import { t } from "../../../i18n/messages";
 import "../../../styles/chart-creation.css";
+import { publicSongsPageData } from "../../../server/tool-page-data";
+import { renderChartCreationPage } from "../../../server/render-tools";
+import { serializePageData } from "../../../lib/page-data";
 export function getStaticPaths() { return LOCALES.map(locale => ({ params: { locale }, props: { locale } })); }
 const { locale } = Astro.props as { locale: Locale };
 const titleKey = "editors.chart.creation.title";
 const title = t(locale, titleKey, `${t(locale, "navigation.chartEditor", "Chart Editor")} · Beta`);
 const route = "/chart-editor/create";
+const payload = await publicSongsPageData("intl");
+const page = await renderChartCreationPage(payload, locale);
 ---
 <Base locale={locale} route={route} title={title} titleKey={titleKey}>
-  <AppShell locale={locale} route={route} title={title} titleKey={titleKey}>
-    <chart-creation-workspace locale={locale}></chart-creation-workspace>
+  <AppShell locale={locale} route={route} title={title} titleKey={titleKey} appBar={page.appBar}>
+    <chart-creation-workspace locale={locale} data-page-data="chart-creation-page" data-prerendered set:html={page.body}></chart-creation-workspace>
+    <script id="chart-creation-page" type="application/json" set:html={serializePageData(payload)}></script>
   </AppShell>
 </Base>
 <script>import "../../../lit/chart-creation-workspace";</script>

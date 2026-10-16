@@ -5,15 +5,24 @@ import { t } from "../i18n/messages";
 import type { Locale } from "../i18n/locales";
 import type { ReleaseServer } from "../lib/release-server";
 import { announcementPath } from "../lib/announcements";
+import { announcementPageData } from "../server/announcement-page-data";
+import { renderAnnouncements } from "../server/render-announcements";
+import { serializePageData } from "../lib/page-data";
 import "../styles/announcements.css";
-const { server, locale, detail = false } = Astro.props as { server: ReleaseServer; locale: Locale; detail?: boolean };
-const title = t(locale, "home.announcements.title", "Announcements");
+const { server, locale, detail = false, id } = Astro.props as { server: ReleaseServer; locale: Locale; detail?: boolean; id?: number };
+const snapshot = await announcementPageData(server, locale);
+const entry = id ? snapshot.entries.find(row => row.id === id) : undefined;
+const payload = entry ? { ...snapshot, entries: [entry] } : snapshot;
+const page = await renderAnnouncements(payload, locale, detail, id);
+const title = entry?.title || t(locale, "home.announcements.title", "Announcements");
 const listPath = announcementPath(server, locale);
-const canonicalRoute = detail ? `${listPath}detail/` : listPath;
+const canonicalRoute = id ? announcementPath(server, locale, id) : detail ? `${listPath}detail/` : listPath;
+const dataId = `announcement-page-${id || (detail ? "detail" : "feed")}`;
 ---
-<Base locale={locale} route="/announcements" canonicalRoute={canonicalRoute} title={title} titleKey="home.announcements.title" description={t(locale, "home.announcements.description", "Latest in-game announcements.")}>
-  <AppShell locale={locale} server={server} route="/announcements" title={title} titleKey="home.announcements.title" entity={detail ? { title, backHref: listPath } : undefined}>
-    {detail ? <announcement-detail locale={locale}></announcement-detail> : <div class="announcement-page"><announcement-feed locale={locale}></announcement-feed></div>}
+<Base locale={locale} route="/announcements" canonicalRoute={canonicalRoute} title={title} titleKey={entry ? undefined : "home.announcements.title"} description={entry?.title || t(locale, "home.announcements.description", "Latest in-game announcements.")} searchImage={entry?.banner || entry?.bodyImage} searchTitle={title}>
+  <AppShell locale={locale} server={server} route="/announcements" title={title} titleKey={entry ? undefined : "home.announcements.title"} entity={detail ? { title, backHref: listPath } : undefined} appBar={page.appBar}>
+    <script is:inline type="application/json" id={dataId} set:html={serializePageData(payload)}></script>
+    {detail ? <announcement-detail locale={locale} data-page-data={dataId} data-prerendered set:html={page.body}></announcement-detail> : <div class="announcement-page"><announcement-feed locale={locale} data-page-data={dataId} data-prerendered set:html={page.body}></announcement-feed></div>}
   </AppShell>
 </Base>
 <script>

@@ -6,7 +6,7 @@ import {
   resourcePath,
   selectionParamForKind,
   storyCollectionPath,
-} from "./resource-route";
+} from "./resource-route.ts";
 
 /** Public website choices; archival API server keys remain registered separately. */
 export const PUBLIC_RELEASE_SERVERS = ["jp", "intl"] as const;

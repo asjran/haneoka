@@ -31,6 +31,7 @@ export const HELP_I18N_NAMESPACE = "help" as const;
 export const SONG_PUZZLE_I18N_NAMESPACE = "songSlidePuzzle" as const;
 export const STAMP_MAKER_I18N_NAMESPACE = "stampMaker" as const;
 export const TEAM_BUILDER_I18N_NAMESPACE = "teamBuilder" as const;
+export const EVENT_TRACKER_I18N_NAMESPACE = "eventTracker" as const;
 
 export const I18N_NAMESPACES = [
   COMMON_I18N_NAMESPACE,
@@ -53,13 +54,14 @@ export const I18N_NAMESPACES = [
   SONG_PUZZLE_I18N_NAMESPACE,
   STAMP_MAKER_I18N_NAMESPACE,
   TEAM_BUILDER_I18N_NAMESPACE,
+  EVENT_TRACKER_I18N_NAMESPACE,
 ] as const;
 
 export type MainI18nNamespace = (typeof I18N_NAMESPACES)[number];
 
 /** Explicit semantic domains; feature payloads never inject unrelated scalar leaves. */
 const namespaceRootKeys: Readonly<Record<MainI18nNamespace, readonly string[]>> = {
-  common: ["common", "navigation", "settings", "media.audio", "media.images.actions", "media.capture", "catalog.bands.names"],
+  common: ["common", "navigation", "settings", "media.audio", "media.images.actions", "media.capture", "catalog.bands.names", "community.page.forums"],
   catalog: ["catalog", "editors.chart.labels.notes", "editors.chart.labels.combo"],
   home: ["home"],
   download: ["download"],
@@ -79,6 +81,7 @@ const namespaceRootKeys: Readonly<Record<MainI18nNamespace, readonly string[]>> 
   songSlidePuzzle: ["tools.songPuzzle"],
   stampMaker: ["tools.stampMaker"],
   teamBuilder: ["tools.teamBuilder"],
+  eventTracker: ["tools.eventTracker"],
 };
 
 const pathValue = (source: MessageCatalog, path: string): MessageNode | undefined => {
@@ -154,6 +157,7 @@ export const featureNamespaceForRoute = (route = "/"): MainI18nNamespace => {
     return STAMP_MAKER_I18N_NAMESPACE;
   if (pathname === "/song-puzzle" || pathname.startsWith("/song-puzzle/")) return SONG_PUZZLE_I18N_NAMESPACE;
   if (pathname === "/team-builder" || pathname.startsWith("/team-builder/")) return TEAM_BUILDER_I18N_NAMESPACE;
+  if (/^\/(?:catalog\/)?events\/tracker(?:\/|$)/u.test(pathname)) return EVENT_TRACKER_I18N_NAMESPACE;
   if (pathname.includes("anon-tokyo")) return ANON_I18N_NAMESPACE;
   if (pathname.includes("chart-editor") || pathname.includes("story-editor")) return EDITOR_I18N_NAMESPACE;
   if (pathname.includes("stories")) return STORY_I18N_NAMESPACE;
@@ -171,6 +175,7 @@ const namespaceDependencies: Partial<Record<MainI18nNamespace, readonly MainI18n
   voice: ["catalog", "media"], editor: ["catalog", "media", "story"],
   anon: ["catalog", "media"], spine: ["catalog", "media"], live2d: ["catalog", "media"],
   songSlidePuzzle: ["catalog"], stampMaker: ["catalog", "media"], teamBuilder: ["catalog", "media"],
+  eventTracker: ["catalog", "media"],
   community: ["catalog", "media", "story"], admin: ["catalog", "community"],
 };
 export const namespaceDependencyClosure = (requested: readonly MainI18nNamespace[]): readonly MainI18nNamespace[] => {

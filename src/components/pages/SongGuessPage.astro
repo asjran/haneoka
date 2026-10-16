@@ -1,9 +1,15 @@
 ---
 import type { Locale } from "../../i18n/locales";
+import { publicSongsPageData } from "../../server/tool-page-data";
+import { renderSongGuessPage } from "../../server/render-tools";
+import { serializePageData } from "../../lib/page-data";
 const { locale } = Astro.props as { locale: Locale };
+const payload = await publicSongsPageData("intl");
+const page = await renderSongGuessPage(payload, locale);
 ---
 
-<song-guess locale={locale}></song-guess>
+<song-guess locale={locale} data-page-data="song-guess-page" data-prerendered set:html={page.body}></song-guess>
+<script id="song-guess-page" type="application/json" set:html={serializePageData(payload)}></script>
 <script>
   import "../../lit/song-guess";
 </script>

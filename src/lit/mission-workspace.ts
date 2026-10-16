@@ -11,10 +11,13 @@ import { SYSTEM_LABEL_PATHS } from "../i18n/system-labels";
  */
 
 import { LitElement, html, nothing } from "lit";
+import { readPageData } from "../lib/page-data";
+import { adoptPrerenderedWorkspace } from "../lib/workspace-page-data";
+import type { CatalogSystemPayload } from "../lib/catalog-system-data";
 import { clearAppBarActions } from "../lib/app-bar";
 import { syncEntityNavigation, updateEntityHeading } from "../lib/detail-navigation";
 import { beginLoading, type LoadingReporter } from "../lib/loading-progress";
-import { entityHref, parseResourceRoute, type ReleaseServer } from "../lib/resource-route";
+import { entityHref, parseResourceRoute, resourcePath, type ReleaseServer } from "../lib/resource-route";
 import { fetchCrossServerCatalog } from "../lib/cross-server/fetch";
 import { crossCatalogPresentation, type CrossCatalogPresentation } from "../lib/cross-server/presentation";
 import { OFFICIAL_CATALOG_SERVERS, type OfficialCatalogServer } from "../lib/cross-server/catalog";
@@ -110,6 +113,32 @@ export class MissionWorkspace extends LitElement {
   createRenderRoot() {
     return this;
   }
+  preparePage(payload: CatalogSystemPayload, locale: string) {
+    adoptPrerenderedWorkspace(this);
+    this.locale = locale;
+    this.server = payload.server;
+    if (payload.entityId) {
+      this.entityId = payload.entityId;
+      this.unionMissions = undefined;
+      this.applyDocument(payload.document!);
+      return;
+    }
+    const document = payload.catalog ? this.applyCatalog(payload.catalog) : payload.document!;
+    this.applyDocument(document);
+  }
+  private applyCatalog(dto: NonNullable<CatalogSystemPayload["catalog"]>): JsonRecord {
+    this.unionMissions = crossCatalogPresentation(dto);
+    return { entries: Object.fromEntries(this.unionMissions.items.map((mission) => [String(mission.id), mission])) };
+  }
+  private applyDocument(document: JsonRecord) {
+    if (this.entityId) {
+      if (String(document.id || "") !== this.entityId) throw new Error(uiText(this.locale, "common.states.unavailable"));
+      this.missions = [document as Mission];
+    } else {
+      this.missions = recordValues(document.entries) as Mission[];
+    }
+    this.phase = "ready";
+  }
   connectedCallback() {
     super.connectedCallback();
     this.locale = preferredLocale(this.locale);
@@ -170,6 +199,11 @@ export class MissionWorkspace extends LitElement {
     syncEntityNavigation();
   }
   private async load() {
+    const page = readPageData<CatalogSystemPayload>(this);
+    if (page?.schema === "haneoka-catalog-system-v1" && page.kind === "missions" && (page.entityId || "") === this.entityId) {
+      this.preparePage(page, this.locale);
+      return;
+    }
     this.request?.abort();
     this.loading?.cancel();
     const controller = new AbortController();
@@ -183,8 +217,7 @@ export class MissionWorkspace extends LitElement {
       if (!this.entityId && OFFICIAL_CATALOG_SERVERS.includes(this.server as OfficialCatalogServer)) {
         const dto = await fetchCrossServerCatalog("missions", this.server as OfficialCatalogServer, this.locale, { signal: controller.signal });
         if (Object.values(dto.sourceAvailability).every((value) => value !== "loaded")) throw new Error("Mission catalog unavailable");
-        this.unionMissions = crossCatalogPresentation(dto);
-        document = { entries: Object.fromEntries(this.unionMissions.items.map((mission) => [String(mission.id), mission])) };
+        document = this.applyCatalog(dto);
       } else {
         this.unionMissions = undefined;
         document = await fetchJson<JsonRecord>(catalogUrl("missions", this.entityId, this.server), { signal: controller.signal });
@@ -193,13 +226,7 @@ export class MissionWorkspace extends LitElement {
         progress.cancel();
         return;
       }
-      if (this.entityId) {
-        if (String(document.id || "") !== this.entityId) throw new Error(uiText(this.locale, "common.states.unavailable"));
-        this.missions = [document as Mission];
-      } else {
-        this.missions = recordValues(document.entries) as Mission[];
-      }
-      this.phase = "ready";
+      this.applyDocument(document);
       this.syncEntityHeading();
       progress.finish();
     } catch (error) {
@@ -324,9 +351,10 @@ export class MissionWorkspace extends LitElement {
     this.sync();
   }
   private groupHref(key: string) {
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(this.isConnected ? location.search : "");
     params.set("group", key);
-    return `${location.pathname}?${params}`;
+    const pathname = this.isConnected ? location.pathname : resourcePath({ server: this.server, locale: this.locale as Locale, kind: "missions" });
+    return `${pathname}?${params}`;
   }
   private groupCard(group: Group) {
     const totals = this.rewardTotals(group.rows);

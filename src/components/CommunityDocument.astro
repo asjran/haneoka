@@ -3,10 +3,15 @@ import Base from "../layouts/Base.astro";
 import AppShell from "./AppShell.astro";
 import { type Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
+import { playlistPageData, serializedPlaylistPage } from "../server/playlist-page-data";
+import { renderPlaylistHub } from "../server/render-playlist-hub";
+import { renderPublicForumDirectory } from "../server/render-community";
+import { serializePageData } from "../lib/page-data";
+import { STATIC_DOCUMENT_UNDERLAY_START, STATIC_DOCUMENT_UNDERLAY_END } from "../lib/static-documents";
 import "../lit/community-workspace";
 import "../styles/catalog.css";
 import "../styles/community.css";
-const { locale, path } = Astro.props as { locale: Locale; path?: string };
+const { locale, path, playlist = "", playlistServer = "intl" } = Astro.props as { locale: Locale; path?: string; playlist?: string; playlistServer?: string };
 const mode = path || "feeds";
 const route = `/community${path ? `/${path}` : ""}`;
 const modeTitleKeys: Record<string, string> = {
@@ -16,9 +21,12 @@ const modeTitleKeys: Record<string, string> = {
 };
 const titleKey = modeTitleKeys[mode] || "navigation.community";
 const title = t(locale, titleKey, mode === "feeds" ? "Community" : mode);
+const playlistPayload = mode === "playlists" ? await playlistPageData() : undefined;
+const playlistPage = playlistPayload ? await renderPlaylistHub(playlistPayload, locale, playlist, playlistServer) : undefined;
+const forum = mode === "forums" ? await renderPublicForumDirectory(locale) : undefined;
 
 ---
-<Base locale={locale} route={route} title={title} titleKey={titleKey}>
+<Base locale={locale} route={route} title={playlistPage?.selectedTitle || title} titleKey={playlist ? undefined : titleKey} canonicalRoute={playlist ? `/${locale}/community/playlists/?${new URLSearchParams({ playlist })}` : undefined}>
 <script slot="head-early" is:inline>
   // Start the community bootstrap read while stylesheets and the module graph
   // are still downloading. <community-workspace> adopts it only when it would
@@ -88,7 +96,7 @@ const title = t(locale, titleKey, mode === "feeds" ? "Community" : mode);
     } catch {}
   })();
 </script>
-<AppShell locale={locale} route={route} title={title} titleKey={titleKey}>{mode === "playlists" ? <playlist-hub locale={locale}></playlist-hub> : <community-workspace locale={locale} mode={mode}></community-workspace>}</AppShell></Base>
+<AppShell locale={locale} route={route} title={title} titleKey={titleKey} appBar={playlistPage?.appBar || forum?.page.appBar} entity={playlist ? { title, backHref: `/${locale}/community/playlists/`, menuFirst: true } : undefined}>{mode === "playlists" ? <><Fragment set:html={STATIC_DOCUMENT_UNDERLAY_START} /><script is:inline type="application/json" id="playlist-page-data" set:html={serializedPlaylistPage(playlistPayload!)}></script><Fragment set:html={STATIC_DOCUMENT_UNDERLAY_END} /><playlist-hub locale={locale} data-page-data="playlist-page-data" data-prerendered set:html={playlistPage?.body || ""}></playlist-hub></> : forum ? <><script is:inline type="application/json" id="community-forums-page" set:html={serializePageData(forum.directory)}></script><community-workspace locale={locale} mode={mode} data-page-data="community-forums-page" data-prerendered set:html={forum.page.body}></community-workspace></> : <community-workspace locale={locale} mode={mode}></community-workspace>}</AppShell></Base>
 <script>import "../lit/community-workspace";</script>
 <script>
   // Playlists are their own element; its module loads only where it is used.

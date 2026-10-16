@@ -1,4 +1,6 @@
-import { LitElement, html, nothing } from "lit";
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
 import "../styles/chart-creation-collections.css";
 import { live } from "lit/directives/live.js";
 import { repeat } from "lit/directives/repeat.js";
@@ -82,6 +84,13 @@ export class ChartCreationCollections extends LitElement {
   }
   createRenderRoot() {
     return this;
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
   }
   private t(key: string) {
     return clientText(this.locale, `editors.chart.collections.${key}`);

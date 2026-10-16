@@ -9,6 +9,9 @@
  */
 
 import { LitElement, html, nothing } from "lit";
+import { readPageData } from "../lib/page-data";
+import { adoptPrerenderedWorkspace } from "../lib/workspace-page-data";
+import type { CatalogSystemPayload } from "../lib/catalog-system-data";
 import { fetchCrossServerCatalog } from "../lib/cross-server/fetch";
 import { crossServerPublicCache } from "../lib/cross-server/cache";
 import { crossCatalogPresentation, pinCrossCatalogValue, type CrossCatalogPresentation } from "../lib/cross-server/presentation";
@@ -85,6 +88,42 @@ export class TgwCardWorkspace extends LitElement {
   createRenderRoot() {
     return this;
   }
+  preparePage(payload: CatalogSystemPayload, locale: string, hash = "") {
+    adoptPrerenderedWorkspace(this);
+    this.locale = locale;
+    this.server = payload.server;
+    if (payload.entityId) {
+      this.entityId = payload.entityId;
+      this.unionTiers = undefined;
+      this.applyTiers([payload.document as Tier], payload.pointName, hash);
+      return;
+    }
+    const { entities, pointName } = this.applyCatalog(payload.catalog!, payload.tierDetails!);
+    this.applyTiers(entities, pointName, hash);
+  }
+  private applyCatalog(dto: NonNullable<CatalogSystemPayload["catalog"]>, details: Record<string, JsonRecord>) {
+    const presentation = crossCatalogPresentation(dto);
+    const full = new Map<string, Tier>();
+    for (const entry of dto.entries) {
+      const server = entry.displayServer, identity = dto.identities[server]!;
+      const detail = details[entry.key], source = entry.perServer[server]!;
+      if (!detail || String(detail.id) !== source.id) throw new Error("T.G.W detail unavailable");
+      const row = pinCrossCatalogValue({ ...source.row, ...detail }, identity) as Tier;
+      presentation.entries.set(row, entry); full.set(entry.key, row);
+    }
+    this.unionTiers = presentation;
+    return {
+      entities: dto.entries.map((entry) => full.get(entry.key)!).sort((a, b) => a.rank - b.rank),
+      pointName: ((dto.documents[this.server as OfficialCatalogServer] || Object.values(dto.documents)[0]) as JsonRecord | undefined)?.pointName,
+    };
+  }
+  private applyTiers(entities: Tier[], pointName: unknown, hash: string) {
+    this.tiers = entities;
+    this.pointName = pointName;
+    const hashed = Number(/^#tgw-rank-(\d+)$/u.exec(hash)?.[1] || 0);
+    this.selectedRank = entities.some((tier) => tier.rank === hashed) ? hashed : entities[0]?.rank || 0;
+    this.phase = "ready";
+  }
   connectedCallback() {
     super.connectedCallback();
     this.locale = preferredLocale(this.locale);
@@ -133,6 +172,11 @@ export class TgwCardWorkspace extends LitElement {
     syncEntityNavigation();
   }
   private async load() {
+    const page = readPageData<CatalogSystemPayload>(this);
+    if (page?.schema === "haneoka-catalog-system-v1" && page.kind === "tgw-card" && (page.entityId || "") === this.entityId) {
+      this.preparePage(page, this.locale, location.hash);
+      return;
+    }
     this.request?.abort();
     const controller = new AbortController();
     this.request = controller;
@@ -154,8 +198,7 @@ export class TgwCardWorkspace extends LitElement {
       } else if (OFFICIAL_CATALOG_SERVERS.includes(this.server as OfficialCatalogServer)) {
         const dto = await fetchCrossServerCatalog("tgw-card", this.server as OfficialCatalogServer, this.locale, { signal: controller.signal });
         if (Object.values(dto.sourceAvailability).every((value) => value !== "loaded")) throw new Error("T.G.W catalog unavailable");
-        const presentation = crossCatalogPresentation(dto);
-        const full = new Map<string, Tier>();
+        const full: Record<string, JsonRecord> = {};
         await Promise.all(OFFICIAL_CATALOG_SERVERS.map(async (server) => {
           const identity = dto.identities[server];
           const selected = dto.entries.filter((entry) => entry.displayServer === server);
@@ -166,14 +209,11 @@ export class TgwCardWorkspace extends LitElement {
             for (const entry of chunk) {
               const id = entry.perServer[server]!.id, detail = details.items?.[id];
               if (!detail || String(detail.id) !== id) throw new Error("T.G.W detail unavailable");
-              const row = pinCrossCatalogValue({ ...entry.perServer[server]!.row, ...detail }, identity) as Tier;
-              presentation.entries.set(row, entry); full.set(entry.key, row);
+              full[entry.key] = detail;
             }
           }
         }));
-        this.unionTiers = presentation;
-        entities = dto.entries.map((entry) => full.get(entry.key)!).sort((a, b) => a.rank - b.rank);
-        pointName = ((dto.documents[this.server as OfficialCatalogServer] || Object.values(dto.documents)[0]) as JsonRecord | undefined)?.pointName;
+        ({ entities, pointName } = this.applyCatalog(dto, full));
       } else {
         const document = await fetchJson<JsonRecord>(catalogUrl("tgw-card", "", this.server), {
           signal: controller.signal,
@@ -202,11 +242,7 @@ export class TgwCardWorkspace extends LitElement {
         progress.cancel();
         return;
       }
-      this.tiers = entities;
-      this.pointName = pointName;
-      const hashed = Number(/^#tgw-rank-(\d+)$/u.exec(location.hash)?.[1] || 0);
-      this.selectedRank = entities.some((tier) => tier.rank === hashed) ? hashed : entities[0]?.rank || 0;
-      this.phase = "ready";
+      this.applyTiers(entities, pointName, location.hash);
       this.syncEntityHeading();
       progress.finish();
     } catch (error) {

@@ -1,4 +1,9 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { hydrateWorkspace } from "./shared/hydrate-workspace";
+import type { CubismModelMetadata } from "../lib/cubism-model-metadata";
 import { readPageData } from "../lib/page-data";
+import { canUseStaticCatalogScope } from "../lib/test-server-visibility";
+import type { WorkspaceCollectionPayload } from "../lib/workspace-page-data";
 import { navigationDocumentUrl } from "../lib/document-url";
 import { canvasToPngBlob, downloadBlob } from "../lib/canvas-capture";
 import { facet } from "./ui/facet";
@@ -318,6 +323,38 @@ export class Live2DWorkspace extends LitElement {
   createRenderRoot() {
     return this;
   }
+  protected update(changed: import("lit").PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrateWorkspace(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  public prepareCollection(payload: WorkspaceCollectionPayload, locale: string, _mode?: string): void {
+    if (!this.hasUpdated) this.docked = false;
+    this.locale = locale;
+    this.unionModels = crossCatalogPresentation(payload.catalogs.live2d!);
+    this.models = this.unionModels.items;
+    this.characters = crossCatalogPresentation(payload.catalogs.characters!).items;
+    this.bands = crossCatalogPresentation(payload.catalogs.bands!).items;
+    this.phase = "ready";
+  }
+  public prepareEntity(model: Value, locale: string, id: string, previewSrc = ""): void {
+    if (!this.hasUpdated) this.docked = false;
+    this.locale = locale;
+    this.entityId = id;
+    this.previewSrc = previewSrc;
+    this.models = [model];
+    this.selected = id;
+    this.detail = model;
+    const coreMetadata = model.coreMetadata as CubismModelMetadata | undefined;
+    if (coreMetadata?.schema === "haneoka-cubism-model-metadata-v1" && this.modelPhase !== "ready") {
+      this.parameters = coreMetadata.parameters.map((parameter) => ({ ...parameter }));
+      this.parts = coreMetadata.parts.map((part) => ({ ...part }));
+    }
+    this.phase = "ready";
+    if (this.modelPhase === "idle") this.modelPhase = "loading";
+  }
   private isAbortError(error: unknown): boolean {
     return (
       (typeof DOMException !== "undefined" && error instanceof DOMException && error.name === "AbortError") ||
@@ -354,12 +391,21 @@ export class Live2DWorkspace extends LitElement {
     this.packagingError = "";
   }
   connectedCallback() {
-    super.connectedCallback();
-    this.fullscreen.connect();
     const selection = parseEntitySelection(navigationDocumentUrl().pathname);
     if (selection?.source === "canonical" && selection.route.kind === "live2d") this.entityId = selection.route.id;
     this.locale = preferredLocale(this.locale);
-    this.disposeMedia = watchMedia(EXPANDED, (value) => (this.docked = value));
+    const page = readPageData<
+      { schema: "haneoka-model-page-v1"; id: string; model: Value } | WorkspaceCollectionPayload
+    >(this);
+    if (page?.schema === "haneoka-workspace-collection-v1" && page.resource === "live2d" && !this.entityId)
+      this.prepareCollection(page, this.locale);
+    if (page?.schema === "haneoka-model-page-v1" && page.id === this.entityId)
+      this.prepareEntity(page.model, this.locale, page.id, this.previewSrc);
+    super.connectedCallback();
+    this.fullscreen.connect();
+    void this.updateComplete.then(() => {
+      if (this.isConnected) this.disposeMedia = watchMedia(EXPANDED, (value) => (this.docked = value));
+    });
     void Promise.all([
       import("@material/web/select/outlined-select.js"),
       import("@material/web/select/select-option.js"),
@@ -372,7 +418,7 @@ export class Live2DWorkspace extends LitElement {
     this.initializationTimer = window.setTimeout(() => {
       this.initializationTimer = undefined;
       if (!this.isConnected) return;
-      const params = new URLSearchParams(location.search);
+      const params = navigationDocumentUrl().searchParams;
       this.selected = this.entityId || params.get("model") || "";
       this.query = params.get("q") || "";
       this.view = collectionView(params.get("view"));
@@ -479,10 +525,16 @@ export class Live2DWorkspace extends LitElement {
     return catalogUrl("live2d", path);
   }
   private async loadCatalog() {
-    const page = readPageData<{ schema: string; id: string; model: Value }>(this);
+    const page = readPageData<
+      { schema: "haneoka-model-page-v1"; id: string; model: Value } | WorkspaceCollectionPayload
+    >(this);
+    if (page?.schema === "haneoka-workspace-collection-v1" && page.resource === "live2d" && !this.entityId && canUseStaticCatalogScope()) {
+      this.prepareCollection(page, this.locale);
+      if (this.selected && this.modelPhase !== "ready") void this.select(this.selected, false);
+      return;
+    }
     if (page?.schema === "haneoka-model-page-v1" && page.id === this.entityId) {
-      this.models = [page.model];
-      this.phase = "ready";
+      this.prepareEntity(page.model, this.locale, page.id, this.previewSrc);
       if (this.modelPhase !== "ready") void this.select(page.id, false, page.model);
       return;
     }
@@ -507,11 +559,10 @@ export class Live2DWorkspace extends LitElement {
         if (controller.signal.aborted || this.catalogAbortController !== controller || !this.isConnected) return;
         if (Object.values(catalogs.live2d?.sourceAvailability || {}).every((value) => value !== "loaded"))
           throw new Error("Live2D catalog unavailable");
-        this.unionModels = crossCatalogPresentation(catalogs.live2d!);
-        this.models = this.unionModels.items;
-        this.characters = crossCatalogPresentation(catalogs.characters!).items;
-        this.bands = crossCatalogPresentation(catalogs.bands!).items;
-        this.phase = "ready";
+        this.prepareCollection(
+          { schema: "haneoka-workspace-collection-v1", resource: "live2d", server, catalogs },
+          this.locale,
+        );
         return;
       }
       this.unionModels = undefined;
@@ -550,6 +601,9 @@ export class Live2DWorkspace extends LitElement {
       );
       return;
     }
+    const page = readPageData<{ schema: "haneoka-model-page-v1"; id: string; model: Value }>(this);
+    const inline = page?.schema === "haneoka-model-page-v1" && page.id === key ? page.model : undefined;
+    const metadata = (prepared || inline)?.coreMetadata as CubismModelMetadata | undefined;
     const generation = ++this.generation;
     this.dataset.entityReady = "false";
     this.selectionAbortController?.abort();
@@ -562,7 +616,7 @@ export class Live2DWorkspace extends LitElement {
     this.detail = null;
     this.modelPhase = "loading";
     this.modelError = "";
-    this.parameters = [];
+    this.parameters = metadata?.parameters.map((parameter) => ({ ...parameter })) || [];
     this.parameterOverrides = {};
     this.parameterMode = "none";
     this.parametersExpanded = false;
@@ -570,7 +624,7 @@ export class Live2DWorkspace extends LitElement {
     this.pendingPoseCapture = false;
     this.loopMotion = false;
     this.selectedMotion = "";
-    this.parts = [];
+    this.parts = metadata?.parts.map((part) => ({ ...part })) || [];
     this.initialPartOpacities = {};
     this.partOverrides = {};
     this.poses = this.readPoses(key);
@@ -583,7 +637,7 @@ export class Live2DWorkspace extends LitElement {
       history.replaceState(history.state, "", `${location.pathname}?${params}`);
     }
     try {
-      const detail = prepared || (await fetchJson<Value>(this.url(key), { signal: controller.signal }));
+      const detail = prepared || inline || (await fetchJson<Value>(this.url(key), { signal: controller.signal }));
       if (!this.isActiveSelection(generation, controller, key)) return;
       this.detail = detail;
       await this.loadViewer(detail, generation, controller, key);
@@ -1990,6 +2044,7 @@ export class Live2DWorkspace extends LitElement {
                 ? accordion({
                     id: `${this.editorId}-parameters`,
                     className: "viewer-parameter-editor",
+                    hidden: !modelReady,
                     label: uiText(this.locale, "media.models.labels.parameters"),
                     metadata: this.parameters.length,
                     headingLevel: 3,
@@ -2159,6 +2214,7 @@ export class Live2DWorkspace extends LitElement {
                 ? accordion({
                     id: `${this.editorId}-parts`,
                     className: "viewer-parameter-editor viewer-part-editor",
+                    hidden: !modelReady,
                     label: uiText(this.locale, "media.models.labels.partsVisibility"),
                     metadata: this.parts.length,
                     headingLevel: 3,

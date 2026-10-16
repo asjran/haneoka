@@ -6,15 +6,21 @@ import type { ReleaseServer } from "../lib/release-server";
 import { t } from "../i18n/messages";
 import "../styles/stamp-maker.css";
 import "../styles/settings.css";
+import { stampMakerPageData } from "../server/tool-page-data";
+import { renderStampMakerPage } from "../server/render-tools";
+import { serializePageData } from "../lib/page-data";
 
 const { locale, server, textlessSrc } = Astro.props as { locale: Locale; server?: ReleaseServer; textlessSrc?: string };
 const title = t(locale, "tools.stampMaker.title", "Stamp maker");
 const route = "/stamp-maker";
+const payload = await stampMakerPageData();
+const page = await renderStampMakerPage(payload, locale);
 ---
 
 <Base locale={locale} route={route} title={title} titleKey="tools.stampMaker.title">
-  <AppShell locale={locale} route={route} title={title} titleKey="tools.stampMaker.title" server={server}>
-    <stamp-maker locale={locale} server={server} textless-src={textlessSrc}></stamp-maker>
+  <AppShell locale={locale} route={route} title={title} titleKey="tools.stampMaker.title" server={server} appBar={page.appBar}>
+    <stamp-maker locale={locale} server={server} textless-src={textlessSrc} data-page-data="stamp-maker-page" data-prerendered set:html={page.body}></stamp-maker>
+    <script id="stamp-maker-page" type="application/json" set:html={serializePageData(payload)}></script>
   </AppShell>
 </Base>
 <script>import "../lit/stamp-maker";</script>

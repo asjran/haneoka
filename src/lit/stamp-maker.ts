@@ -1,3 +1,8 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { canUseStaticCatalogScope } from "../lib/test-server-visibility";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
+import { readPageData } from "../lib/page-data";
+import type { StampMakerPageData } from "../server/tool-page-data";
 import { readStampDraft, writeStampDraft, clearStampDraft, type StampDraft } from "../lib/stamp-maker/draft";
 import { LitElement, html, nothing } from "lit";
 import { live } from "lit/directives/live.js";
@@ -167,7 +172,7 @@ export class StampMaker extends LitElement {
   declare importedFonts: StampFont[];
   declare fontError: boolean;
   declare private expandedSections: Record<"font" | "style" | "background", boolean>;
-  private readonly sectionId = `stamp-options-${crypto.randomUUID()}`;
+  private sectionId = `stamp-options-${crypto.randomUUID()}`;
   declare imageLanguage: string;
   declare pickerBrowsingLocale: string;
   declare pickerOriginal: boolean;
@@ -185,7 +190,7 @@ export class StampMaker extends LitElement {
   declare activeLayerId: string;
   declare backgroundCharacter: string;
   declare textOverflow: boolean;
-  private readonly layerMenuId = `stamp-layer-menu-${crypto.randomUUID()}`;
+  private layerMenuId = `stamp-layer-menu-${crypto.randomUUID()}`;
   private exportFonts = new Set<string>();
   private colorWasChosen = false;
   private characterRequest?: AbortController;
@@ -242,7 +247,9 @@ export class StampMaker extends LitElement {
   declare draftSourceMissing: boolean;
   declare catalogSettled: boolean;
   declare manifestSettled: boolean;
-  private readonly draftMenuId = `stamp-draft-menu-${crypto.randomUUID()}`;
+  private draftMenuId = `stamp-draft-menu-${crypto.randomUUID()}`;
+  private pageData?: StampMakerPageData;
+  private staticPreview = false;
   private didReadDraft = false;
   private draftEnabled = false;
   private preserveDraftColors = false;
@@ -413,13 +420,17 @@ export class StampMaker extends LitElement {
   }
 
   connectedCallback() {
+    const selectedServer = this.server || readReleaseServer();
+    const payload = readPageData<StampMakerPageData>(this);
+    if (payload?.schema === "haneoka-stamp-maker-page-v1" && !this.hasUpdated) this.preparePage(payload);
     super.connectedCallback();
     this.classList.add("stamp-maker-host");
     window.addEventListener("haneoka:locale-ready", this.localeReady);
     if (!this.server) this.server = readReleaseServer();
     if (!this.didReadDraft) {
       this.didReadDraft = true;
-      this.restoreDraft();
+      if (this.pageData) void this.updateComplete.then(() => { this.server = selectedServer; this.restoreDraft(); });
+      else this.restoreDraft();
     }
     window.addEventListener("pagehide", this.pageHide);
     if (this.hasUpdated) {
@@ -429,6 +440,32 @@ export class StampMaker extends LitElement {
       void this.loadBands();
       void this.refreshFont();
     }
+  }
+  preparePage(payload: StampMakerPageData) {
+    this.pageData = payload;
+    this.server = payload.server;
+    this.catalog = payload.catalog;
+    this.characters = payload.characters;
+    this.bands = payload.bands;
+    this.textless = payload.textless;
+    this.catalogSettled = this.manifestSettled = this.manifestReady = true;
+    this.imageLanguage = this.defaultImageLanguage;
+    if (!textlessChoices(this.originals, this.textless, STAMP_SOURCE_SERVER).length) this.mode = "original";
+    this.selected = this.choices[0]?.id || "";
+    this.sectionId = `stamp-options-${payload.uiId}`;
+    this.layerMenuId = `stamp-layer-menu-${payload.uiId}`;
+    this.draftMenuId = `stamp-draft-menu-${payload.uiId}`;
+    this.layers = this.layers.map((layer, index) => ({ ...layer, id: `stamp-layer-${payload.uiId}-${index}` }));
+    this.activeLayerId = this.layers[1]!.id;
+    this.staticPreview = true;
+    this.defaultCharacterColor();
+  }
+  protected override update(changed: import("lit").PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
   }
 
   disconnectedCallback() {
@@ -605,6 +642,7 @@ export class StampMaker extends LitElement {
     });
   }
   private async loadBands() {
+    if (this.pageData && canUseStaticCatalogScope()) { this.bands = this.pageData.bands; return; }
     this.bandRequest?.abort();
     const request = (this.bandRequest = new AbortController());
     try {
@@ -669,6 +707,12 @@ export class StampMaker extends LitElement {
   }
 
   private async loadCatalog() {
+    if (this.pageData && canUseStaticCatalogScope()) {
+      this.catalog = Object.fromEntries(stampSourceServers().flatMap(server =>
+        Object.entries(this.pageData!.catalogs[server] ?? {})).reverse());
+      this.catalogSettled = true;
+      return;
+    }
     this.catalogRequest?.abort();
     const request = new AbortController();
     this.catalogRequest = request;
@@ -704,6 +748,7 @@ export class StampMaker extends LitElement {
     return stampCharacterColors(this.characters, this.locale);
   }
   private async loadCharacters() {
+    if (this.pageData && canUseStaticCatalogScope()) { this.characters = this.pageData.characters; return; }
     this.characterRequest?.abort();
     const request = new AbortController();
     this.characterRequest = request;
@@ -752,6 +797,11 @@ export class StampMaker extends LitElement {
   }
 
   private async loadManifest() {
+    if (this.pageData && !this.textlessSrc && canUseStaticCatalogScope()) {
+      this.textless = mergeTextlessStampManifests(stampSourceServers().map(server => this.pageData!.textlessByServer[server]));
+      this.manifestReady = this.manifestSettled = true;
+      return;
+    }
     this.manifestRequest?.abort();
     this.manifestReady = false;
     this.textless = undefined;
@@ -912,6 +962,7 @@ export class StampMaker extends LitElement {
       this.activeLayerId,
       this.effectiveSize,
     );
+    if (this.staticPreview) { this.staticPreview = false; canvas.style.backgroundImage = ""; }
     if (this.textOverflow !== overflow) this.textOverflow = overflow;
   }
 
@@ -1339,7 +1390,7 @@ export class StampMaker extends LitElement {
   private get textFrameDimensions() {
     if (this.settings.frame)
       return { width: (512 * this.settings.frame.width) / 100, height: (512 * this.settings.frame.height) / 100 };
-    const canvas = this.querySelector<HTMLCanvasElement>("canvas");
+    const canvas = this.querySelector?.<HTMLCanvasElement>("canvas");
     if (canvas) {
       const geometry = stampTextFrameGeometry(canvas, this.settings, this.fallbackFont);
       return { width: geometry.width, height: geometry.height };
@@ -1444,7 +1495,7 @@ export class StampMaker extends LitElement {
             <canvas
               width="512"
               height="512"
-              style="touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none"
+              style=${`touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none${this.staticPreview ? `;background-image:url(${JSON.stringify(this.choice?.sources[0] || "")});background-size:contain;background-position:center;background-repeat:no-repeat` : ""}`}
               tabindex="0"
               role="img"
               aria-label=${this.t("preview")}

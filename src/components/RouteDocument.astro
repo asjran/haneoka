@@ -10,6 +10,13 @@ import NoticePage from "./pages/NoticePage.astro";
 import EventTrackerPage from "./pages/EventTrackerPage.astro";
 import { nativeMetaPublicationFor } from "../server/native-meta-publication";
 import { staticCatalogRelease } from "../lib/static-catalog-source";
+import { catalogCollectionData, catalogCollectionDescription } from "../server/catalog-collection";
+import { renderCatalogCollection } from "../server/render-catalog";
+import { serializePageData } from "../lib/page-data";
+import { catalogSystemData } from "../server/catalog-system-data";
+import { renderCatalogSystem } from "../server/render-catalog-systems";
+import { eventTrackerPageData } from "../server/event-tracker-page-data";
+import { renderEventTracker } from "../server/render-event-tracker";
 import { catalogConfig } from "../config/catalog-labels";
 import { legalPageMessageRoot, type RouteDefinition } from "../config/routes";
 import { LOCALES, type Locale } from "../i18n/locales";
@@ -17,9 +24,6 @@ import { t } from "../i18n/messages";
 import { resourceCollectionHref } from "../lib/resource-route";
 import type { ReleaseServer } from "../lib/release-server";
 import "../lit/catalog-screen";
-import "../lit/tgw-card-workspace";
-import "../lit/studio-workspace";
-import "../lit/mission-workspace";
 import "../styles/catalog.css";
 import "../styles/about.css";
 
@@ -53,6 +57,19 @@ const screenConfig =
       })
     : "";
 const canonicalRoute = explicitCanonicalRoute ?? (server ? resourceCollectionHref(entry.route, server, locale) : undefined);
+const collectionPayload = entry.kind === "catalog" && entry.resource
+  ? await catalogCollectionData(entry.resource, server || "intl", locale)
+  : undefined;
+const collectionPage = collectionPayload ? renderCatalogCollection(screenConfig, collectionPayload, locale) : undefined;
+const collectionDataId = `catalog-collection-${entry.resource}`;
+const collectionDescription = collectionPayload ? catalogCollectionDescription(collectionPayload, locale, title) : undefined;
+const systemPayload = entry.kind === "missions" || entry.kind === "studio" || entry.kind === "tgw-card"
+  ? await catalogSystemData(entry.kind, server || "intl", locale)
+  : undefined;
+const systemPage = systemPayload ? await renderCatalogSystem(systemPayload, locale) : undefined;
+const systemDataId = `catalog-system-${entry.kind}`;
+const trackerPayload = entry.kind === "event-tracker" ? await eventTrackerPageData() : undefined;
+const trackerPage = trackerPayload ? await renderEventTracker(trackerPayload, locale, server || "intl") : undefined;
 
 ---
 
@@ -62,10 +79,10 @@ const canonicalRoute = explicitCanonicalRoute ?? (server ? resourceCollectionHre
   canonicalRoute={canonicalRoute}
   title={title}
   titleKey={entry.titleKey}
-  description={documentDescriptionValues?.[locale] ?? title}
+  description={collectionDescription ?? documentDescriptionValues?.[locale] ?? title}
   seoDescriptionValues={documentDescriptionValues}
 >
-  <AppShell locale={locale} route={entry.route} title={title} titleKey={entry.titleKey} server={server}>
+  <AppShell locale={locale} route={entry.route} title={title} titleKey={entry.titleKey} server={server} appBar={collectionPage?.appBar || systemPage?.appBar || trackerPage?.appBar}>
     {entry.kind === "download" && <DownloadPage locale={locale} />}
     {entry.kind === "index" && <CatalogIndexPage locale={locale} server={server} />}
     {entry.kind === "legal" && entry.page === "aboutPage" && <AboutPage locale={locale} />}
@@ -77,12 +94,16 @@ const canonicalRoute = explicitCanonicalRoute ?? (server ? resourceCollectionHre
       <NoticePage locale={locale} title={title} titleKey={entry.titleKey} route={entry.route} />
     )}
     {entry.kind === "catalog" && (
-      <catalog-screen config={screenConfig}></catalog-screen>
+      <>
+        <script is:inline type="application/json" id={collectionDataId} set:html={serializePageData(collectionPayload)}></script>
+        <catalog-screen config={screenConfig} data-prerendered data-page-data={collectionDataId} set:html={collectionPage?.body || ""}></catalog-screen>
+      </>
     )}
-    {entry.kind === "tgw-card" && <tgw-card-workspace locale={locale}></tgw-card-workspace>}
-    {entry.kind === "studio" && <studio-workspace locale={locale}></studio-workspace>}
-    {entry.kind === "missions" && <mission-workspace locale={locale}></mission-workspace>}
-    {entry.kind === "event-tracker" && <EventTrackerPage locale={locale} server={server} />}
+    {systemPayload && <script is:inline type="application/json" id={systemDataId} set:html={serializePageData(systemPayload)}></script>}
+    {entry.kind === "tgw-card" && <tgw-card-workspace locale={locale} data-page-data={systemDataId} data-prerendered set:html={systemPage?.body || ""}></tgw-card-workspace>}
+    {entry.kind === "studio" && <studio-workspace locale={locale} data-page-data={systemDataId} data-prerendered set:html={systemPage?.body || ""}></studio-workspace>}
+    {entry.kind === "missions" && <mission-workspace locale={locale} data-page-data={systemDataId} data-prerendered set:html={systemPage?.body || ""}></mission-workspace>}
+    {entry.kind === "event-tracker" && <EventTrackerPage locale={locale} server={server} payload={trackerPayload} page={trackerPage} />}
   </AppShell>
 </Base>
 <script>

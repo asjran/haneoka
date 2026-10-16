@@ -25,6 +25,23 @@ import {
 import { localReleaseFile, releaseWorkspace, type ReleaseWorkspace } from "./releaseWorkspace.ts";
 import { sonolusShareRedirectTarget } from "../worker/sonolus-share.ts";
 import { announcementDocumentRequest, rewriteAnnouncementDocument } from "../src/lib/announcement-document.ts";
+import { createGunzip, createGzip } from "node:zlib";
+import {
+  staticDocumentLookupPath,
+  coreStaticDocumentPath,
+  staticDocumentShard,
+  staticDocumentChunks,
+  isStaticDocumentRecord,
+  acceptsGzip,
+  STATIC_DOCUMENT_SCHEMA,
+  type StaticDocumentRecord,
+} from "../src/lib/static-documents.ts";
+import { providerEntityFromUrl } from "../src/lib/provider-entity-routing.ts";
+import { providerEntityHtmlPath } from "../src/lib/provider-entity-data.ts";
+import { staticViewFromUrl } from "../src/lib/static-view-routing.ts";
+import { assetStaticDocumentFromUrl } from "../src/lib/asset-static-routing.ts";
+import { playlistStaticDocumentFromUrl } from "../src/lib/playlists/static-routing.ts";
+import { isCommunityForumDetailPath, restoreCommunityForumDetailShell } from "../src/lib/community-forum-document.ts";
 import { eventArtworkIndex } from "../src/lib/event-artwork-index.ts";
 import {
   isReleaseServer,
@@ -350,7 +367,10 @@ async function requestBody(req: IncomingMessage): Promise<Buffer | undefined> {
 type TeamBuilderDataHandler = (
   request: Request,
   readCatalog: (request: Request) => Promise<Response | null>,
-  readRuntimeMaster: (identity: { server: string; releaseId: string; sourceId: string }, sourceTable: string) => Promise<unknown | null>,
+  readRuntimeMaster: (
+    identity: { server: string; releaseId: string; sourceId: string },
+    sourceTable: string,
+  ) => Promise<unknown | null>,
 ) => Promise<Response | null>;
 let teamBuilderDataHandler: Promise<TeamBuilderDataHandler> | undefined;
 
@@ -1171,9 +1191,112 @@ function localReleaseRegistry(): JsonObject {
   };
 }
 
+function servePackedStaticDocument(req: IncomingMessage, res: ServerResponse, url: URL): boolean {
+  const provider = providerEntityFromUrl(url);
+  const corePath = staticDocumentLookupPath(staticViewFromUrl(url) || url.pathname);
+  let pathname = assetStaticDocumentFromUrl(url) || playlistStaticDocumentFromUrl(url) ||
+    (provider ? providerEntityHtmlPath(provider) : corePath);
+  const shared = /^\/provider-static\/data\/([a-f0-9]{64})\.json$/u.exec(url.pathname);
+  const redirect = !url.pathname.endsWith("/") && !!coreStaticDocumentPath(`${url.pathname}/`);
+  if (redirect) pathname = coreStaticDocumentPath(`${url.pathname}/`);
+  if (!pathname && !shared) return false;
+  let record: StaticDocumentRecord | undefined;
+  if (pathname) {
+    const candidates = [pathname];
+    if (provider && !redirect && corePath && corePath !== pathname) candidates.push(corePath);
+    for (const candidate of candidates) {
+      const indexFile = safeFile(DIST, `provider-static/index/${staticDocumentShard(candidate)}.json`);
+      if (!indexFile) continue;
+      const index = JSON.parse(fs.readFileSync(indexFile, "utf8")) as {
+        schema: string;
+        entries: Record<string, StaticDocumentRecord>;
+      };
+      if (index.schema !== STATIC_DOCUMENT_SCHEMA) throw new Error("Invalid static document index");
+      record = index.entries[candidate];
+      if (record) break;
+    }
+    if (!record) return false;
+    if (redirect) {
+      res.writeHead(308, { Location: `${url.pathname}/${url.search}`, "Cache-Control": "public, max-age=86400" });
+      res.end();
+      return true;
+    }
+    if (!isStaticDocumentRecord(record)) throw new Error("Invalid static document record");
+  }
+  const sha256 = shared?.[1] || record!.sha256;
+  if (!/^[a-f0-9]{64}$/u.test(sha256)) throw new Error("Invalid static document digest");
+  const chunks = record ? staticDocumentChunks(record) : [{ sha256 }];
+  const files = chunks.map((chunk) =>
+    safeFile(
+      path.join(ROOT, ".output", "static-documents", "content"),
+      `${chunk.sha256.slice(0, 2)}/${chunk.sha256}.gz`,
+    ),
+  );
+  if (files.some((file) => !file)) {
+    json(res, 503, { error: { code: "static_document_unavailable", message: "Static document unavailable" } });
+    return true;
+  }
+  const headers: Record<string, string> = {
+    "Content-Type": record?.contentType || "application/json; charset=utf-8",
+    "Cache-Control": shared ? "public, max-age=31536000, immutable" : "no-cache",
+    ETag: `W/"${sha256}"`,
+    Vary: "Accept-Encoding",
+    "X-Content-Type-Options": "nosniff",
+  };
+  if (req.headers["if-none-match"] === headers.ETag) {
+    res.writeHead(304, headers);
+    res.end();
+    return true;
+  }
+  const gzip = acceptsGzip(req.headers["accept-encoding"] || null);
+  if (gzip) {
+    headers["Content-Encoding"] = "gzip";
+    if (files.length === 1) headers["Content-Length"] = String(fs.statSync(files[0]!).size);
+  }
+  res.writeHead(200, headers);
+  if (req.method === "HEAD") res.end();
+  else {
+    if (gzip && files.length === 1)
+      fs.createReadStream(files[0]!)
+        .once("error", (error) => res.destroy(error))
+        .pipe(res);
+    else {
+      const stream = Readable.from(
+        (async function* () {
+          for (const file of files) {
+            const source = fs.createReadStream(file!);
+            const decoded = createGunzip();
+            source.once("error", (error) => decoded.destroy(error));
+            try {
+              for await (const chunk of source.pipe(decoded)) yield chunk;
+            } finally {
+              source.destroy();
+              decoded.destroy();
+            }
+          }
+        })(),
+      );
+      stream.once("error", (error) => res.destroy(error));
+      const body = gzip ? stream.pipe(createGzip()) : stream;
+      body.once("error", (error) => res.destroy(error));
+      res.once("close", () => {
+        stream.destroy();
+        body.destroy();
+      });
+      body.pipe(res);
+    }
+  }
+  return true;
+}
+
 function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerResponse, url: URL): boolean {
   const announcement = announcementDocumentRequest(url.pathname);
   if (announcement) {
+    const direct = safeFile(DIST, `${url.pathname.replace(/^\/+|\/+$/gu, "")}/index.html`);
+    if (direct) {
+      sendFile(req, res, direct, "no-cache");
+      return true;
+    }
     const file = safeFile(DIST, `${announcement.shellPath.slice(1)}index.html`);
     if (!file) {
       json(res, 404, { error: { code: "document_not_found", message: "Announcement document not found" } });
@@ -1328,6 +1451,10 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     "/runtime/",
     "/sonolus/",
     "/auth",
+    "/provider-static/",
+    "/static-views/",
+    "/asset-static/",
+    "/playlist-static/",
   ];
   if (
     !localePattern.test(url.pathname) &&
@@ -1372,6 +1499,15 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
 
+  if (servePackedStaticDocument(req, res, url)) return;
+  const staticView = staticViewFromUrl(url);
+  if (staticView) {
+    const file = safeFile(DIST, `${staticView.slice(1)}index.html`);
+    if (file) {
+      sendFile(req, res, file, "no-cache");
+      return;
+    }
+  }
   if (serveCanonicalResourceDocument(req, res, url)) return;
 
   if (isBestdoriProviderApiRequest(url.pathname)) {
@@ -1697,12 +1833,23 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     (url.pathname.includes("/catalog/assets/") || url.pathname.includes("/community/"))
   ) {
     const locales = ["ja", "en", "zh-TW", "zh-CN", "ko"].filter((locale) => locale !== prefixLocale);
+    const forumDetail = isCommunityForumDetailPath(url.pathname);
     for (const locale of [prefixLocale, ...locales]) {
       const entryPath = url.pathname.includes("/catalog/assets/")
         ? `${locale}/catalog/assets/index.html`
-        : `${locale}/community/index.html`;
+        : forumDetail ? `${locale}/community/forums/index.html` : `${locale}/community/index.html`;
       const entry = safeFile(DIST, entryPath);
       if (entry) {
+        if (forumDetail) {
+          const body = restoreCommunityForumDetailShell(fs.readFileSync(entry, "utf8"));
+          res.writeHead(200, {
+            "Content-Type": "text/html; charset=utf-8",
+            "Content-Length": Buffer.byteLength(body),
+            "Cache-Control": "no-cache",
+          });
+          res.end(req.method === "HEAD" ? undefined : body);
+          return;
+        }
         sendFile(req, res, entry, "no-cache");
         return;
       }

@@ -1,0 +1,37 @@
+---
+import CatalogEntityPage from "../../../../components/entities/CatalogEntityPage.astro";
+import HelpDocument from "../../../../components/HelpDocument.astro";
+import { LOCALES, type Locale } from "../../../../i18n/locales";
+import { staticCatalogPageServers } from "../../../../lib/entity-graph";
+import { searchableCatalogPages, type SearchableCatalogPage } from "../../../../lib/searchable-catalog";
+import { CHARACTER_DETAIL_SECTIONS } from "../../../../lib/static-view-routing";
+import { workspaceCollectionData } from "../../../../server/workspace-page-data";
+import { helpStaticViews } from "../../../../server/render-help";
+import type { ReleaseServer } from "../../../../lib/release-server";
+import type { HelpViewState } from "../../../../lit/help-workspace";
+import { entityHref, type EntityLink } from "../../../../lib/resource-route";
+
+type Props = { server: ReleaseServer; locale: Locale; page?: SearchableCatalogPage; section?: string; helpView?: HelpViewState; previous?: EntityLink; next?: EntityLink };
+export async function getStaticPaths() {
+  const paths: Array<{ params: Record<string, string>; props: Props }> = [];
+  for (const server of await staticCatalogPageServers(true)) {
+    const characters = (await searchableCatalogPages(server)).filter(page => page.collection === "characters");
+    for (const locale of LOCALES) {
+      for (const [index, page] of characters.entries()) for (const section of CHARACTER_DETAIL_SECTIONS.filter(value => value !== "profile")) {
+        const link = (peer: SearchableCatalogPage | undefined): EntityLink | undefined => peer ? {
+          href: entityHref({ server, locale, kind: "characters", id: peer.id }), title: peer.titles[locale],
+        } : undefined;
+        paths.push({ params: { server, locale, view: `characters/${page.id}/${section}` }, props: { server, locale, page, section, previous: link(characters[index - 1]), next: link(characters[index + 1]) } });
+      }
+      const payload = await workspaceCollectionData("help", server, locale);
+      for (const helpView of helpStaticViews(payload).filter(value => value.mode === "tips" || value.topic)) {
+        const name = helpView.mode === "tips" ? "tips" : `manual-${helpView.topic}`;
+        paths.push({ params: { server, locale, view: `help/${name}` }, props: { server, locale, helpView } });
+      }
+    }
+  }
+  return paths;
+}
+const { server, locale, page, section, helpView, previous, next } = Astro.props as Props;
+---
+{page ? <CatalogEntityPage page={page} server={server} locale={locale} canonical section={section} previous={previous} next={next} /> : <HelpDocument server={server} locale={locale} view={helpView} />}

@@ -46,6 +46,10 @@
       "/objects/*",
       "/runtime/*",
       "/sonolus/*",
+      "/provider-static/*",
+      "/static-views/*",
+      "/asset-static/*",
+      "/playlist-static/*",
     ],
   },
 

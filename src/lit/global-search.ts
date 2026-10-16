@@ -1,4 +1,6 @@
-import { LitElement, html, nothing } from "lit";
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { clientText } from "../i18n/client";
 import { communityExcerpt } from "../lib/community-markup";
@@ -15,6 +17,9 @@ import { JsonResponseError } from "./shared/catalog";
 const uiLabelPaths: Readonly<Record<string, string>> = {
   "all": "common.states.all",
   "community": "navigation.community",
+  "catalog": "navigation.catalog",
+  "stories": "navigation.stories",
+  "help": "navigation.help",
   "empty": "common.states.empty",
   "loadMore": "common.actions.loadMore",
   "loading": "common.states.loading",
@@ -115,6 +120,18 @@ export class GlobalSearch extends LitElement {
   }
   connectedCallback() {
     super.connectedCallback();
+    if (this.hasAttribute("data-prerendered")) void this.updateComplete.then(() => this.connectSearch());
+    else this.connectSearch();
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  private connectSearch() {
+    if (!this.isConnected) return;
     this.lifetime = new AbortController();
     const params = new URLSearchParams(location.search);
     this.query = params.get("q") || "";

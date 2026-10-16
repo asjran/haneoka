@@ -63,7 +63,7 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
 ---
 
 <!doctype html>
-<html lang={localeTag(locale)} data-locale={locale} data-seed="haneoka" transition:animate="none">
+<html lang={localeTag(locale)} data-locale={locale} data-seed="haneoka" data-nav="expanded" data-density="comfortable" transition:animate="none">
   <head>
     <style is:inline>
       @layer tokens, reset, base, layout, components, shell, patterns, motion, pages, utilities, accessibility;
@@ -164,18 +164,15 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
     <slot />
     <audio-dock transition:persist="haneoka-audio"></audio-dock>
     <script>
+      import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
       import { installI18nDom } from "../i18n/dom";
       import { installUiFonts } from "../lib/ui-fonts";
       import { installUpdateCheck } from "../lib/update-check";
       installUiFonts();
       installI18nDom();
       installUpdateCheck();
-    </script>
-    <script>
       if ("serviceWorker" in navigator)
         addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}), { once: true });
-    </script>
-    <script>
       const restoreAudioDock = async () => {
         try {
           const value = JSON.parse(localStorage.getItem("haneoka:audio:v2") || "null");
@@ -190,8 +187,6 @@ const i18nSeed = serializeI18nSeed(createServerI18nContext(locale, route).seed()
       };
       void restoreAudioDock();
       document.addEventListener("astro:page-load", restoreAudioDock);
-    </script>
-    <script>
       import { SEED_KEY, isSeed, syncThemeColor } from "../lib/tuning";
       import { installRipple } from "../lib/ripple";
       import { installLoadingProgress } from "../lib/loading-progress";

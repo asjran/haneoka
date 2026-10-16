@@ -21,6 +21,7 @@ export interface AccordionOptions {
   region?: boolean;
   disabled?: boolean;
   className?: string;
+  hidden?: boolean;
 }
 
 /** Controlled Material disclosure. Its content stays mounted across toggles. */
@@ -28,7 +29,7 @@ export function accordion(options: AccordionOptions): TemplateResult {
   const triggerId = `${options.id}-trigger`;
   const panelId = `${options.id}-panel`;
   return html`
-    <section class=${`md-accordion${options.className ? ` ${options.className}` : ""}`}>
+    <section class=${`md-accordion${options.className ? ` ${options.className}` : ""}`} ?hidden=${options.hidden}>
       <div
         class="md-accordion__heading"
         role=${options.headingLevel ? "heading" : nothing}
@@ -44,16 +45,36 @@ export function accordion(options: AccordionOptions): TemplateResult {
           @click=${(event: MouseEvent) => {
             if (options.disabled) return;
             // Motion is for the reader's own toggles, never for first render.
-            (event.currentTarget as HTMLElement).closest<HTMLElement>(".md-accordion")?.setAttribute("data-toggled", "");
+            (event.currentTarget as HTMLElement)
+              .closest<HTMLElement>(".md-accordion")
+              ?.setAttribute("data-toggled", "");
             options.onExpandedChange(!options.expanded, event);
           }}
         >
-          ${options.leading == null ? nothing : html`<span class="md-accordion__leading" aria-hidden="true">${options.leading}</span>`}
+          ${
+            options.leading == null
+              ? nothing
+              : html`
+                  <span class="md-accordion__leading" aria-hidden="true">${options.leading}</span>
+                `
+          }
           <span class="md-accordion__identity">
             <span class="md-accordion__label">${options.label}</span>
-            ${options.supportingText == null ? nothing : html`<span class="md-accordion__supporting">${options.supportingText}</span>`}
+            ${
+              options.supportingText == null
+                ? nothing
+                : html`
+                    <span class="md-accordion__supporting">${options.supportingText}</span>
+                  `
+            }
           </span>
-          ${options.metadata == null ? nothing : html`<span class="md-accordion__metadata">${options.metadata}</span>`}
+          ${
+            options.metadata == null
+              ? nothing
+              : html`
+                  <span class="md-accordion__metadata">${options.metadata}</span>
+                `
+          }
           <span class="md-accordion__chevron" aria-hidden="true">${icon("expand_more")}</span>
         </button>
       </div>
@@ -70,7 +91,9 @@ export function accordion(options: AccordionOptions): TemplateResult {
         role=${options.region ? "region" : nothing}
         aria-labelledby=${triggerId}
         ?hidden=${!options.expanded}
-      >${options.content}</div>
+      >
+        ${options.content}
+      </div>
     </section>
   `;
 }

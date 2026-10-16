@@ -19,7 +19,7 @@ jobs:
   deploy:
     name: Build and deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
     permissions:
       contents: read
 
@@ -75,6 +75,35 @@ jobs:
           key: embed-compat-v1-${{ runner.os }}-${{ github.run_id }}
           restore-keys: embed-compat-v1-${{ runner.os }}-
 
+      - name: Restore verified provider HTTP responses
+        id: provider-http-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: data/provider-static/http-cache
+          key: provider-http-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: provider-http-v1-${{ runner.os }}-
+
+      - name: Restore this run's captured provider inputs
+        id: provider-snapshot-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            data/provider-static/snapshots
+            data/provider-static/entities/payloads
+            data/provider-static/entities/receipts
+          key: provider-snapshot-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: provider-snapshot-v1-${{ runner.os }}-${{ github.run_id }}-
+
+      - name: Reuse verified provider payloads and static document content
+        uses: actions/cache@v6
+        with:
+          path: |
+            data/provider-static/entities/payloads
+            data/provider-static/entities/receipts
+            .output/static-documents/content
+          key: static-documents-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: static-documents-v1-${{ runner.os }}-
+
       - name: Build production assets before database changes
         run: |
           pnpm build:packages
@@ -87,8 +116,36 @@ jobs:
           done
           test -s .output/public/embed/manifest.json
         env:
+          STATIC_PAGE_GROUPS: core
           STATIC_RESOURCE_SERVERS: intl,jp
           STATIC_CATALOG_SOURCE: http
+          PROVIDER_STATIC_SNAPSHOT: data/provider-static/snapshots/${{ github.run_id }}
+
+      - name: Save verified provider HTTP responses after interrupted builds
+        if: always() && steps.provider-http-cache.outputs.cache-primary-key != '' && steps.provider-http-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: data/provider-static/http-cache
+          key: ${{ steps.provider-http-cache.outputs.cache-primary-key }}
+
+      - name: Save this run's captured provider inputs and payloads
+        if: always() && steps.provider-snapshot-cache.outputs.cache-primary-key != '' && steps.provider-snapshot-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            data/provider-static/snapshots
+            data/provider-static/entities/payloads
+            data/provider-static/entities/receipts
+          key: ${{ steps.provider-snapshot-cache.outputs.cache-primary-key }}
+
+      - name: Publish complete static documents before switching the Worker
+        run: |
+          aws configure set default.s3.max_concurrent_requests 64
+          node scripts/build/publish-static-documents.mjs
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
       - name: Check resource pipeline
         run: |

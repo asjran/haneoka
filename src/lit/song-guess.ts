@@ -1,4 +1,8 @@
-import { LitElement, html, nothing } from "lit";
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
+import { readPageData } from "../lib/page-data";
+import type { PublicSongsPageData } from "../server/tool-page-data";
 import { beginLoading } from "../lib/loading-progress";
 import { resourcePath } from "../lib/resource-route";
 import { songTitle } from "../lib/song-display";
@@ -35,6 +39,7 @@ export class SongGuess extends LitElement {
   declare pool: Pool;
   declare round: { answer: Song; options: Song[]; misses: number[]; focus: [number, number]; solved: boolean } | null;
   private songs: Song[] = [];
+  private pageData?: PublicSongsPageData;
   private server: ReleaseServer = "intl";
   private stats = { played: 0, firstTry: 0, streak: 0, best: 0 };
   constructor() {
@@ -48,27 +53,53 @@ export class SongGuess extends LitElement {
     return this;
   }
   connectedCallback() {
+    const payload = readPageData<PublicSongsPageData>(this);
+    if (payload?.schema === "haneoka-public-songs-page-v1") this.preparePage(payload);
     super.connectedCallback();
     this.locale = preferredLocale(this.locale);
-    this.server = currentReleaseServer() as ReleaseServer;
-    void this.load();
+    if (payload) void this.updateComplete.then(() => {
+      this.server = currentReleaseServer() as ReleaseServer;
+      void this.load();
+    });
+    else {
+      this.server = currentReleaseServer() as ReleaseServer;
+      void this.load();
+    }
+  }
+  preparePage(payload: PublicSongsPageData, server = payload.server) {
+    this.pageData = payload;
+    this.server = server as ReleaseServer;
+    const source = payload.variants[server];
+    if (!source) { this.phase = "error"; this.round = null; return; }
+    this.applySongs(source.songs);
+    this.phase = "ready";
+    // A stable initial round lets hydration adopt the final HTML. Each visit then uses next().
+    const options = this.songs.slice(0, 4);
+    this.round = options.length === 4 ? { answer: options[0]!, options, misses: [], focus: [50, 50], solved: false } : null;
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  private applySongs(songs: Record<string, Record<string, unknown>>) {
+    this.songs = Object.values(songs)
+      .map(song => ({ id: Number(song.musicId), title: songTitle(song, this.locale).text,
+        band: localizedText(song.bandName, this.locale), bandId: Number(song.bandId || 0),
+        jacket: String(song.jacketUrl || song.jacketThumbUrl || "") }))
+      .filter(song => song.id && song.jacket && song.title);
   }
   private text(key: string, fallback: string) {
     return clientText(this.locale, `catalog.songGuess.${key}`, fallback);
   }
   private async load() {
+    if (this.pageData?.variants[this.server]) { this.preparePage(this.pageData, this.server); this.next(); return; }
     const progress = beginLoading(uiText(this.locale, "common.states.loading"), { scope: "owner" });
     try {
       const songs = await fetchJson<Record<string, Record<string, unknown>>>(catalogUrl("songs", "", this.server));
-      this.songs = Object.values(songs)
-        .map((song) => ({
-          id: Number(song.musicId),
-          title: songTitle(song, this.locale).text,
-          band: localizedText(song.bandName, this.locale),
-          bandId: Number(song.bandId || 0),
-          jacket: String(song.jacketUrl || song.jacketThumbUrl || ""),
-        }))
-        .filter((song) => song.id && song.jacket && song.title);
+      this.applySongs(songs);
       this.phase = "ready";
       this.next();
       progress.finish();

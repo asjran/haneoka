@@ -83,6 +83,7 @@ export interface EntityPayload {
   gameItems: RecordValue[];
   /** Collection-level document fields a detail reads (item reward sources). */
   document?: RecordValue;
+  collection?: RecordValue;
   /** Per-difficulty chart metrics for songs (`/song-meta/{id}`). */
   songMeta?: RecordValue;
   /** The `detailAux` sections, pre-filtered to this entity. */
@@ -231,7 +232,8 @@ interface Graph {
   stories: RecordValue;
   live2d: Array<[string, RecordValue]>;
   friendships: Array<[string, RecordValue]>;
-  missionCount: number;
+  missions: RecordValue;
+  voices: Array<[string, RecordValue]>;
 }
 
 const graphs = new Map<ReleaseServer, Promise<Graph>>();
@@ -261,6 +263,7 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     live2d,
     friendships,
     missions,
+    voices,
   ] = await Promise.all([
     required("characters"),
     required("bands"),
@@ -283,7 +286,9 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     required("live2d"),
     required("friendships"),
     fetchOptionalStaticCatalog("character-missions", server, release),
+    required("voices"),
   ]);
+  const voiceDetails = await fetchStaticCatalogBatch("voices", entries(voices, "entries").map(([id]) => id), server, release);
   return {
     server,
     release,
@@ -314,7 +319,8 @@ async function loadGraph(server: ReleaseServer): Promise<Graph> {
     stories: asRecord(stories) || {},
     live2d: entries(live2d),
     friendships: entries(friendships, "friendships"),
-    missionCount: rows(missions.value, "missions").length,
+    missions: asRecord(missions.value) || {},
+    voices: [...voiceDetails],
   };
 }
 
@@ -678,7 +684,6 @@ export async function buildEntityPayloads(
     let aux: RecordValue = {};
     let document: RecordValue | undefined;
     let songMeta: RecordValue | undefined;
-    let deferred: EntityPayload["deferred"];
     let characterRows: Rows | undefined;
 
     if (resource === "cards" || resource === "support-cards") {
@@ -726,21 +731,8 @@ export async function buildEntityPayloads(
       await friendshipRewards(graph, aux);
       related.bandIds.forEach((band) => bandIds.add(band));
       characterRows = compactCharacters(graph, allCharacterIds(graph));
-      const voiceCount = Object.keys(
-        asRecord(
-          await fetchStaticCatalog(`voices/relations/character/${encodeURIComponent(id)}`, server, graph.release),
-        ) || {},
-      ).length;
-      deferred = {
-        voices: {
-          url: `/api/v1/servers/${encodeURIComponent(server)}/voices/relations/character/${encodeURIComponent(id)}?release=${graph.release.releaseId}`,
-          count: voiceCount,
-        },
-        "character-missions": {
-          url: `/api/v1/servers/${encodeURIComponent(server)}/character-missions?release=${graph.release.releaseId}`,
-          count: graph.missionCount,
-        },
-      };
+      aux.voices = { entries: Object.fromEntries(graph.voices.filter(([, voice]) => characterIdsOf(voice).includes(Number(id)))) };
+      aux["character-missions"] = graph.missions;
     }
 
     // Every cost/reward item is a compact same-release record, including currencies.
@@ -797,9 +789,9 @@ export async function buildEntityPayloads(
         return row ? [pick(row, ITEM_FIELDS)] : [];
       }),
       ...(document ? { document } : {}),
+      ...(resource === "songs" ? { collection: Object.fromEntries(graph.collections.get("songs") || []) } : {}),
       ...(songMeta ? { songMeta } : {}),
       aux,
-      ...(deferred ? { deferred } : {}),
     });
   }
   return output;

@@ -1,4 +1,6 @@
-import { LitElement, html, nothing } from "lit";
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
 import "@material/web/textfield/outlined-text-field.js";
 import { chooserFacet, chooserGroup } from "./ui/chooser-filters";
 import { selectionPane } from "./ui/selection-pane";
@@ -7,7 +9,8 @@ import { difficultyPicker } from "./ui/difficulty-picker";
 import { LazyImages } from "./ui/lazy-images";
 import { clientText, initializeI18nClient } from "../i18n/client";
 import { localizedFallbacks, resolveLocalizedText } from "../lib/localized-text";
-import { creationSongCard, defaultCreationDifficulty, loadPublicCreationSongCardData, type CreationSongCardData } from "../lib/chart-creation/song-card";
+import { creationSongCard, createCreationSongCardData, defaultCreationDifficulty, loadPublicCreationSongCardData, type CreationSongCardData } from "../lib/chart-creation/song-card";
+import type { PublicSongsPageData } from "../server/tool-page-data";
 import { songTitle } from "../lib/song-display";
 import { readReleaseServer } from "../lib/release-server";
 import { beginLoading } from "../lib/loading-progress";
@@ -40,6 +43,7 @@ export class ChartCreationLibrary extends LitElement {
     provider: { state: true },
     bestdoriRegion: { state: true },
     onImport: { attribute: false },
+    pageData: { attribute: false },
     opened: { state: true },
     busy: { state: true },
     error: { state: true },
@@ -58,6 +62,7 @@ export class ChartCreationLibrary extends LitElement {
   declare private provider: CreationLibraryProvider;
   declare private bestdoriRegion: BestdoriServer;
   declare onImport: ((value: PublicChartImport, signal: AbortSignal) => Promise<void>) | undefined;
+  declare pageData: PublicSongsPageData | undefined;
   declare private opened: boolean;
   declare private busy: boolean;
   declare private error: string;
@@ -109,6 +114,13 @@ export class ChartCreationLibrary extends LitElement {
   }
   createRenderRoot() {
     return this;
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
   }
   connectedCallback() {
     super.connectedCallback();
@@ -214,8 +226,10 @@ export class ChartCreationLibrary extends LitElement {
     const report = beginLoading(this.t("serverLibrary"), { signal: controller.signal, scope: "owner" });
     try {
       const provider = this.provider, region = this.bestdoriRegion;
+      const seed = provider === "haneoka" ? this.pageData?.variants[this.server] : undefined;
       const page = provider === "bestdori"
         ? await listBestdoriCreatorSongs({ region, locale: this.locale, signal: controller.signal })
+        : seed ? { items: Object.entries(seed.songs).map(([id, value]) => ({ id, value: value as PublicCreationSong })), release: seed.identity }
         : await this.catalogue.load({ server: this.server, locale: this.apiLocale(), signal: controller.signal });
       controller.signal.throwIfAborted();
       if (this.controller !== controller || !this.isConnected || !this.opened) return;
@@ -244,8 +258,12 @@ export class ChartCreationLibrary extends LitElement {
     this.filtersLoading = true;
     this.filtersError = false;
     try {
+      const seed = provider === "haneoka" ? this.pageData?.variants[this.server] : undefined;
       const context = provider === "bestdori"
         ? await loadBestdoriCreationSongCardData({ region, locale, signal: controller.signal })
+        : seed ? createCreationSongCardData({ provider: "haneoka", identity: seed.identity,
+          bands: seed.bands, characters: seed.characters, marks: seed.marks,
+          assetUrl: value => typeof value === "string" && value ? pinnedPublicUrl(value.startsWith("runtime/") ? `/runtime/${seed.identity.server}/${value.slice("runtime/".length)}` : value, seed.identity) : "" })
         : await loadPublicCreationSongCardData({ identity: identity!, locale: this.apiLocale(), signal: controller.signal });
       controller.signal.throwIfAborted();
       if (this.filterController !== controller || this.identity !== identity || this.provider !== provider || this.bestdoriRegion !== region || this.locale !== locale || this.items !== items || !this.opened || !this.isConnected) return;

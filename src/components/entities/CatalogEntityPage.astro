@@ -17,7 +17,7 @@ import type { ReleaseServer } from "../../lib/release-server";
 import type { SearchableCatalogPage } from "../../lib/searchable-catalog";
 import "../../lit/catalog-screen";
 import "../../styles/catalog.css";
-import { renderCatalog } from "../../server/render-catalog";
+import { renderCatalogPage } from "../../server/render-catalog";
 import { catalogEntityData, type EntityPayload } from "../../lib/entity-graph";
 import { serializePageData } from "../../lib/page-data";
 import { loadStaticCrossServerEntry } from "../../lib/cross-server/static";
@@ -34,8 +34,9 @@ interface Props {
   previous?: EntityLink;
   next?: EntityLink;
   chartPage?: boolean;
+  section?: string;
 }
-const { page, locale, server = "intl", canonical = false, returnTo, previous, next, chartPage = false } = Astro.props;
+const { page, locale, server = "intl", canonical = false, returnTo, previous, next, chartPage = false, section } = Astro.props;
 const collectionRoute = findRoute(page.route);
 if (!collectionRoute) throw new Error(`Missing route definition for ${page.route}`);
 const sectionTitle = titleOf(collectionRoute, locale);
@@ -85,7 +86,8 @@ const screenConfig = catalogConfig({
   ...(chartPage ? { chartPage: true } : {}),
   aspectRatio: page.resource === "cards" ? "224 / 294" : "1",
 });
-const body = await renderCatalog(screenConfig,payload,locale);
+const rendered = await renderCatalogPage(screenConfig,payload,locale,section);
+const body = rendered.body;
 const entity = canonical
   ? {
       title: page.titles[locale],
@@ -100,7 +102,7 @@ const entity = canonical
   locale={locale}
   route={route}
   canonicalRoute={canonical ? canonicalHref : undefined}
-  noindex={chartPage}
+  noindex={chartPage || !!section}
   title={sectionTitle}
   titleKey={collectionRoute.titleKey}
   description={page.descriptions[locale]}
@@ -116,6 +118,7 @@ const entity = canonical
     title={canonical ? page.titles[locale] : sectionTitle}
     titleKey={canonical ? undefined : collectionRoute.titleKey}
     entity={entity}
+    appBar={rendered.appBar}
   >
     <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
     <catalog-screen config={screenConfig} data-prerendered data-page-data={pageDataId} set:html={body}></catalog-screen>

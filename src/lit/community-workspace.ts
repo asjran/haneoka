@@ -1,4 +1,7 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import type { CommunityForumDirectory } from "../lib/community-forum-directory";
+import { readPageData } from "../lib/page-data";
+import { hydrateWorkspace } from "./shared/hydrate-workspace";
 import { communityLinkBootstrapUrl, readCommunityBootstrap } from "../lib/community-bootstrap";
 import { prefetchEarlyRead } from "../lib/early-read";
 import { interpolateMessage, type MessageParams } from "@haneoka/i18n";
@@ -627,6 +630,22 @@ export class CommunityWorkspace extends LitElement {
   createRenderRoot() {
     return this;
   }
+  preparePublicForums(directory: Pick<CommunityForumDirectory, "forums" | "groups">, locale: string) {
+    this.locale = locale;
+    this.mode = "forums";
+    this.routeKind = "collection";
+    this.routeUrl = `/${locale}/community/forums/`;
+    this.forums = directory.forums;
+    this.forumGroups = directory.groups;
+    this.phase = "ready";
+  }
+  protected update(changed: import("lit").PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrateWorkspace(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
   private announced = { error: "", message: "", toast: null as unknown, facets: "", retry: false };
   /** Status changes surface as one snackbar; nothing is inserted into the page. */
   private announce() {
@@ -802,6 +821,8 @@ export class CommunityWorkspace extends LitElement {
     else if (event.type !== "pointerover") start();
   };
   connectedCallback() {
+    const directory = readPageData<Pick<CommunityForumDirectory, "forums" | "groups">>(this);
+    if (directory && this.mode === "forums") this.preparePublicForums(directory, preferredLocale(this.locale));
     super.connectedCallback();
     this.lifetime = new AbortController();
     window.addEventListener(

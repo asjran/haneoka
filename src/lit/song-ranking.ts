@@ -1,3 +1,5 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { hydrateWorkspace } from "./shared/hydrate-workspace";
 import { GameRecordsCardsElement } from "./shared/game-records-cards";
 import { playerProfileHref, validPlayerProfileId } from "../lib/player-profile-route";
 import { navigateDetailPage } from "../lib/detail-navigation";
@@ -117,10 +119,27 @@ export class SongRanking extends GameRecordsCardsElement {
   }
 
   connectedCallback() {
+    if (this.hasAttribute("data-static-initial")) this.preparePage(readPageData<typeof this.cardCatalogs>(this) || {});
     super.connectedCallback();
     this.lifetime = new AbortController();
     addEventListener("haneoka:locale-ready", this.onLocale, { signal: this.lifetime.signal });
-    this.initializePage();
+    if (this.hasAttribute("data-prerendered")) void this.updateComplete.then(() => { if (this.isConnected) this.initializePage(); });
+    else this.initializePage();
+  }
+  preparePage(cards: Partial<Record<"jp" | "intl", RankingCardCatalog>>) {
+    this.cardCatalogs = cards;
+    this.region = defaultRegion(this.server, this.locale);
+    this.phase = "loading";
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrateWorkspace(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  renderStaticChrome() {
+    if (!this.embedded) setAppBarActions(this.pageAppBarOwner, this.renderPageActions(), this);
   }
 
   disconnectedCallback() {

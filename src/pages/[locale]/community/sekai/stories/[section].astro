@@ -1,4 +1,8 @@
 ---
+import { providerCollectionData } from "../../../../../server/provider-page-data";
+import { renderProviderStories } from "../../../../../server/render-provider";
+import { serializePageData } from "../../../../../lib/page-data";
+import { collectionDescription } from "../../../../../lib/collection-description";
 import Base from "../../../../../layouts/Base.astro";
 import AppShell from "../../../../../components/AppShell.astro";
 import { LOCALES, type Locale } from "../../../../../i18n/locales";
@@ -17,11 +21,16 @@ const { locale, section } = Astro.props as { locale: Locale; section: string };
 const route = `/community/sekai/stories/${section}`;
 const titleKey = `community.page.sekai.stories.${section}`;
 const title = t(locale, titleKey, section);
+const payload = await providerCollectionData("sekai", locale, `stories/${section}`);
+const rendered = renderProviderStories(payload, locale, section, route);
+const pageDataId = "provider-collection";
+const description = collectionDescription(Object.values(payload.document), locale, title);
 ---
 
-<Base locale={locale} route={route} title={title} titleKey={titleKey} description={title}>
-  <AppShell locale={locale} route={route} title={title} titleKey={titleKey}>
-    <story-workspace locale={locale} mode={section} origin="sekai"></story-workspace>
+<Base locale={locale} route={route} title={title} titleKey={titleKey} description={description}>
+  <AppShell locale={locale} route={route} title={title} titleKey={titleKey} appBar={rendered.appBar}>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    <story-workspace locale={locale} mode={section} origin="sekai" data-page-data={pageDataId} data-prerendered set:html={rendered.body}></story-workspace>
   </AppShell>
 </Base>
 <script>

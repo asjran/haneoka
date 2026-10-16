@@ -4,26 +4,19 @@ import AppShell from "./AppShell.astro";
 import { t } from "../i18n/messages";
 import type { Locale } from "../i18n/locales";
 import type { ReleaseServer } from "../lib/resource-route";
-import { resolveLocalizedText } from "../lib/localized-text";
-import { skillCatalogPayload, skillPageId } from "../server/skill-catalog";
+import { skillCatalogPayload } from "../server/skill-catalog";
 import { serializePageData } from "../lib/page-data";
-import { resourcePath } from "../lib/resource-route";
+import { renderSkillsWorkspace } from "../server/render-skills";
 import "../styles/catalog.css";
 const { locale, server } = Astro.props as { locale: Locale; server: ReleaseServer };
 const title = t(locale, "catalog.cards.fields.skills", "Skills");
 const payload = await skillCatalogPayload(server);
-const name = (value: unknown) => resolveLocalizedText(value, locale).text;
+const page = await renderSkillsWorkspace(payload, locale);
 ---
 <Base locale={locale} route="/catalog/skills" canonicalRoute={`/${server}/${locale}/skills/`} title={title} titleKey="catalog.cards.fields.skills">
-  <AppShell locale={locale} route="/catalog/skills" title={title} titleKey="catalog.cards.fields.skills" server={server}>
-    <script type="application/json" id="skill-catalog-data" set:html={serializePageData(payload)}></script>
-    <skills-workspace locale={locale} data-page-data="skill-catalog-data">
-      <ul class="list collection-list">
-        {payload.entries.filter((entry) => entry.cards.length).map((entry) => (
-          <li><a class="list-item" href={resourcePath({ server, locale, kind: "skills", id: skillPageId(entry) })}>{name(entry.name) || entry.key}</a></li>
-        ))}
-      </ul>
-    </skills-workspace>
+  <AppShell locale={locale} route="/catalog/skills" title={title} titleKey="catalog.cards.fields.skills" server={server} appBar={page.appBar}>
+    <script is:inline type="application/json" id="skill-catalog-data" set:html={serializePageData(payload)}></script>
+    <skills-workspace locale={locale} data-page-data="skill-catalog-data" data-prerendered set:html={page.body}></skills-workspace>
   </AppShell>
 </Base>
 <script>import "../lit/skills-workspace";</script>

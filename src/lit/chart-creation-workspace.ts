@@ -1,5 +1,9 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { snackbar } from "../lib/snackbar";
-import { LitElement, html, nothing } from "lit";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
+import { readPageData } from "../lib/page-data";
+import type { PublicSongsPageData } from "../server/tool-page-data";
 import {
   DEFAULT_RENDER_SETTINGS,
   OUR_NOTES_NOTE_SKINS,
@@ -177,6 +181,8 @@ interface SelectionGesture {
   mergeKey: string;
 }
 
+let chartCreationOwnerSequence = 0;
+
 // Authored source stays in Project. This workspace's playback is a presentation preview.
 export class ChartCreationWorkspace extends LitElement {
   static properties = {
@@ -266,6 +272,7 @@ export class ChartCreationWorkspace extends LitElement {
   declare private visualProfilesAvailable: boolean;
   private visualProfileProbe?: Promise<void>;
   private previewIdentity?: HaneokaReleaseIdentity;
+  private pageData?: PublicSongsPageData;
   private canvasTheme?: OurNotesCreationCanvasSkin;
   private canvasThemeKey = "";
   private canvasController?: AbortController;
@@ -341,7 +348,7 @@ export class ChartCreationWorkspace extends LitElement {
   private panelMedia?: MediaQueryList;
   private releasePanelFocus?: () => void;
   private focusedPanel?: HTMLElement;
-  private readonly toolbarOwner = `chart-creation-${crypto.randomUUID()}`;
+  private readonly toolbarOwner = `chart-creation-${++chartCreationOwnerSequence}`;
   private mediaChanged = () => {
     this.narrow = this.panelMedia?.matches ?? false;
     this.leftOpen = !this.narrow && innerWidth >= 1280;
@@ -419,7 +426,29 @@ export class ChartCreationWorkspace extends LitElement {
     return this.warningSnapshot.value;
   }
   connectedCallback() {
+    const payload = readPageData<PublicSongsPageData>(this);
+    if (payload?.schema === "haneoka-public-songs-page-v1") this.preparePage(payload);
     super.connectedCallback();
+    if (payload) void this.updateComplete.then(() => this.connectEditor());
+    else this.connectEditor();
+  }
+  preparePage(payload: PublicSongsPageData) {
+    this.pageData = payload;
+    this.previewIdentity = payload.variants[payload.server]?.identity;
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  renderStaticChrome() {
+    setAppBarActions(this.toolbarOwner, this.renderAppActions(), this);
+  }
+  private connectEditor() {
+    if (!this.isConnected) return;
+    if (this.pageData) this.previewIdentity = this.pageData.variants[readReleaseServer()]?.identity;
     document.addEventListener("fullscreenchange", this.fullscreenChanged);
     this.panelMedia = matchMedia("(max-width: 959px)");
     this.panelMedia.addEventListener("change", this.mediaChanged);
@@ -3117,6 +3146,7 @@ export class ChartCreationWorkspace extends LitElement {
       }
 
       <chart-creation-library
+        .pageData=${this.pageData}
         .locale=${this.locale as HaneokaLocale}
         .onImport=${this.libraryImport}
       ></chart-creation-library>

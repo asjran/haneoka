@@ -6,9 +6,9 @@ import { t } from "../../i18n/messages";
 import { rankingPath, resourcePath } from "../../lib/resource-route";
 import type { ReleaseServer } from "../../lib/release-server";
 import type { SearchableCatalogPage } from "../../lib/searchable-catalog";
-import "../../lit/song-ranking";
 import "../../styles/song-ranking.css";
-import { rankingCardCatalog } from "../../lib/ranking-card-catalog";
+import { rankingCardsPageData } from "../../server/tool-page-data";
+import { renderSongRankingPage } from "../../server/render-tools";
 import { serializePageData } from "../../lib/page-data";
 
 interface Props {
@@ -19,8 +19,8 @@ interface Props {
 }
 
 const { page, locale, server, returnTo } = Astro.props;
-const [intlCards, jpCards] = await Promise.all([rankingCardCatalog("intl"), rankingCardCatalog("jp")]);
-const cards = {intl:intlCards, jp:jpCards};
+const cards = await rankingCardsPageData();
+const workspacePage = await renderSongRankingPage(cards, locale, server, page.id);
 const pageDataId = `ranking-cards-${page.id}`;
 const rankingTitles = Object.fromEntries(
   LOCALES.map((target) => [target, t(target, "catalog.rankings.songs.title", "Song ranking")]),
@@ -54,12 +54,15 @@ const seoDescriptionValues = Object.fromEntries(
     server={server}
     title={seoTitleValues[locale]}
     entity={{ title: seoTitleValues[locale], backHref }}
+    appBar={workspacePage.appBar}
   >
     <song-ranking
       data-page-data={pageDataId}
       locale={locale}
       server={server}
       song-id={page.id}
+      data-static-initial data-prerendered
+      set:html={workspacePage.body}
     ></song-ranking>
     <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(cards)}></script>
   </AppShell>

@@ -1,0 +1,9 @@
+---
+import AssetsDocument from "../../../../components/AssetsDocument.astro";
+import { assetStaticPaths } from "../../../../server/asset-page-data";
+import { assetStaticLocation } from "../../../../lib/asset-static-routing";
+export const getStaticPaths = assetStaticPaths;
+const location = assetStaticLocation(Astro.params.server, Astro.params.locale, Astro.params.id?.replace(/\.html$/u, "") || "");
+if (!location) throw new Error("Invalid asset static document");
+---
+<AssetsDocument locale={location.locale} server={location.server} path={location.path} selected={location.selected} />

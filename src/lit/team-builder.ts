@@ -1,4 +1,8 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
+import { readPageData } from "../lib/page-data";
+import type { TeamBuilderPageData } from "../server/tool-page-data";
 import "@material/web/checkbox/checkbox.js";
 import "@material/web/select/outlined-select.js";
 import "@material/web/select/select-option.js";
@@ -8,7 +12,8 @@ import { clientText } from "../i18n/client";
 import { beginLoading } from "../lib/loading-progress";
 import { readReleaseServer } from "../lib/release-server";
 import { fetchCatalogVisuals } from "../lib/catalog-visuals";
-import { fetchCrossServerTeamBuilderData } from "../lib/team-builder/data/cross-server";
+import { fetchCrossServerTeamBuilderData, mergeTeamBuilderData } from "../lib/team-builder/data/cross-server";
+import { canUseStaticCatalogScope, visibleContentServers } from "../lib/test-server-visibility";
 import type { TeamBuilderData } from "../lib/team-builder/data";
 import { compileFromTeamData, type EngineMaster } from "../lib/team-builder/engine/master";
 import { maxMemberGrowth, maxSnapGrowth } from "../lib/team-builder/engine/box";
@@ -102,6 +107,7 @@ export class TeamBuilder extends LitElement {
   private dataController?: AbortController;
   private visualsController?: AbortController;
   catalogMetadataError = false;
+  private pageData?: TeamBuilderPageData;
 
   constructor() {
     super();
@@ -112,8 +118,31 @@ export class TeamBuilder extends LitElement {
     return this;
   }
   connectedCallback() {
+    const payload = readPageData<TeamBuilderPageData>(this);
+    if (payload?.schema === "haneoka-team-builder-page-v1") this.preparePage(payload);
     super.connectedCallback();
     void this.load(readReleaseServer() || this.server);
+  }
+  preparePage(payload: TeamBuilderPageData, server = payload.server, allowedServers?: readonly string[]) {
+    this.pageData = payload;
+    this.server = server;
+    const visible = allowedServers ?? payload.sources.map((source) => source.identity.server).filter((peer) => !peer.includes("-test") || peer === server);
+    const sources = [...payload.sources].filter((source) => visible.includes(source.identity.server));
+    sources.sort((a, b) => Number(b.identity.server === server) - Number(a.identity.server === server));
+    if (sources[0]?.identity.server !== server) throw new Error("Static team source unavailable");
+    this.data = mergeTeamBuilderData(sources, payload.unavailableServers);
+    this.master = compileFromTeamData(this.data);
+    this.catalog = new Catalog(this, this.data, this.master);
+    const visuals = payload.visuals[server]!;
+    this.catalog.setVisuals({ ...visuals, marks: new Map(visuals.marks) });
+    this.view = readBox({});
+  }
+  protected override update(changed: import("lit").PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
   }
   disconnectedCallback() {
     super.disconnectedCallback();
@@ -191,14 +220,24 @@ export class TeamBuilder extends LitElement {
     this.loadedServer = server;
     this.loadError = "";
     this.requestUpdate();
-    const loading = beginLoading(this.t("loadingData", "Loading card data"));
+    const staticScope = canUseStaticCatalogScope();
+    const loading = this.pageData && staticScope ? undefined : beginLoading(this.t("loadingData", "Loading card data"));
     try {
-      const data = await fetchCrossServerTeamBuilderData(server, loadController.signal);
+      if (this.pageData && staticScope) {
+        await this.updateComplete;
+        const visible = visibleContentServers(this.pageData.sources.map((source) => source.identity.server));
+        if (this.data?.identity.server !== server || Object.keys(this.data.crossServer?.identities ?? {}).sort().join() !== [...visible].sort().join())
+          this.preparePage(this.pageData, server, visible);
+      }
+      const seeded = staticScope && this.data?.identity.server === server && this.catalog?.visuals;
+      const data = seeded ? this.data! : await fetchCrossServerTeamBuilderData(server, loadController.signal);
       if (this.loadedServer !== server) return;
       this.data = data;
       this.master = compileFromTeamData(data);
-      this.catalog = new Catalog(this, data, this.master);
+      if (!seeded) this.catalog = new Catalog(this, data, this.master);
       this.pt = new PtController(this);
+      await this.updateComplete;
+      if (!this.isConnected || this.loadedServer !== server) return;
       this.engine?.dispose();
       this.engine = new EngineClient(data);
       // Compile the release in every Worker while the reader sets up the search.
@@ -210,14 +249,15 @@ export class TeamBuilder extends LitElement {
       this.store = new BoxStore({ server });
       this.unsubscribe = this.store.subscribe((snapshot) => this.adopt(snapshot));
       void this.store.start();
-      void this.loadCatalogMetadata();
+      if (!seeded) void this.loadCatalogMetadata();
     } catch {
       if (this.loadedServer === server) {
         this.loadError = this.t("loadFailed", "Card data could not be loaded.");
         this.loadedServer = "";
+        if (this.pageData) { this.data = null; this.catalog = null; this.view = null; }
       }
     } finally {
-      loading.finish();
+      loading?.finish();
       this.requestUpdate();
     }
   }
@@ -513,6 +553,7 @@ export class TeamBuilder extends LitElement {
       this.releaseSearch = undefined;
     }
   }
+  renderStaticChrome() { this.syncAppBar(); }
   render(): TemplateResult {
     if (!this.data || !this.catalog || !this.view) {
       return html`

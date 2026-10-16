@@ -6,21 +6,25 @@ import { localePath, type Locale } from "../i18n/locales";
 import { t } from "../i18n/messages";
 import { resourceCollectionHref } from "../lib/resource-route";
 import type { ReleaseServer } from "../lib/release-server";
+import { publicForumNavigation } from "../server/public-forum-navigation";
+import { serializePageData } from "../lib/page-data";
 interface Props {
   locale: Locale;
   route: string;
   title: string;
   titleKey?: string;
   server?: ReleaseServer;
+  appBar?: { actions: string; identity: string; search: string };
   entity?: {
     title: string;
     titleLanguage?: string;
     backHref: string;
+    menuFirst?: boolean;
     previous?: { href: string; title?: string };
     next?: { href: string; title?: string };
   };
 }
-const { locale, route, title, titleKey, server, entity } = Astro.props;
+const { locale, route, title, titleKey, server, entity, appBar } = Astro.props;
 const shellTitle = entity?.title ?? title;
 const shellTitleKey = entity ? undefined : titleKey;
 const itemActive = (target: string) => target === "/community" ? ["/community", "/community/feeds"].includes(route) : isRouteActive(target, route);
@@ -46,9 +50,12 @@ const informationPages = INFORMATION_DESTINATIONS;
 const hasSearch = Astro.slots.has("search");
 const searchIndexable = !["/account", "/admin", "/settings", "/search", "/community"].some(prefix => route === prefix || route.startsWith(`${prefix}/`));
 const inInformation = route === "/about" || informationPages.some((item) => itemActive(item.route));
+const publicForums = await publicForumNavigation(locale, route);
+const publicForumsDataId = "shell-public-forums";
 ---
 
 <div class="app-shell" data-shell data-route={route}>
+  <script is:inline type="application/json" id={publicForumsDataId} set:html={serializePageData(publicForums.snapshot)}></script>
   <a class="skip-link" href="#main-content">
     <I18nText keyName="common.fields.content" fallback="Content" locale={locale} />
   </a>
@@ -186,6 +193,7 @@ const inInformation = route === "/about" || informationPages.some((item) => item
                                 {forums && (
                                   <div class="nav__items--nested nav__forums">
                                     <community-forum-navigation locale={locale} data-community-forum-directory
+                                      data-prerendered data-page-data={publicForumsDataId} set:html={publicForums.body}
                                       transition:persist="community-forum-navigation"></community-forum-navigation>
                                   </div>
                                 )}
@@ -285,17 +293,20 @@ const inInformation = route === "/about" || informationPages.some((item) => item
       <!-- An entity's identity marks (band logo, attribute, rarity) follow its
            title: they arrive after hydration, and after the title they can
            appear without moving it. -->
-      <div class="top-app-bar__identity" data-top-app-bar-identity></div>
+      <div class="top-app-bar__identity" data-top-app-bar-identity set:html={appBar?.identity || ""}></div>
       <slot name="search" />
       <!-- The trailing row fills the rest of the bar and packs its controls
            to the end, so controls that arrive after hydration never move the
            row's box. Compact windows have no rail: the collapsed player's
            now-playing button sits at the start of this row. -->
       <div class="top-app-bar__actions" data-top-app-bar-actions>
+        {appBar && <Fragment set:html={appBar.search} />}
+        {entity?.menuFirst && <div class="top-app-bar__group" data-entity-menu-first-group><button class="icon-button top-app-bar__menu" type="button" data-entity-menu-first data-nav-toggle aria-controls="global-navigation" aria-expanded="false" aria-label={t(locale, "navigation.menu", "Menu")} data-i18n-aria-label="navigation.menu" data-i18n-aria-label-fallback="Menu"><Icon name="menu" /></button></div>}
         <div class="top-app-bar__player" data-app-bar-player></div>
-        {entity && (
+        {appBar && <Fragment set:html={appBar.actions} />}
+        {entity && (!entity.menuFirst || entity.previous || entity.next) && (
           <div class="top-app-bar__secondary-actions">
-            <button
+            {!entity.menuFirst && <button
               class="icon-button top-app-bar__menu"
               type="button"
               data-app-bar-overflow-compact
@@ -306,7 +317,7 @@ const inInformation = route === "/about" || informationPages.some((item) => item
               data-i18n-aria-label="navigation.menu" data-i18n-aria-label-fallback="Menu"
             >
               <Icon name="menu" />
-            </button>
+            </button>}
             {entity.previous && (
               <a
                 class="icon-button"
@@ -349,6 +360,7 @@ const inInformation = route === "/about" || informationPages.some((item) => item
   </div>
 </div>
 <script>
+  import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
   import "../lit/community-forum-navigation";
   import { trapFocus } from "../lib/overlay";
   import { syncEntityNavigation } from "../lib/detail-navigation";

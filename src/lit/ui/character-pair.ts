@@ -13,6 +13,7 @@ export interface PairCharacter {
 }
 interface PairOptions {
   locale: string;
+  server?: string;
   characters: PairCharacter[];
   bands?: { id: number; label: string; image?: string }[];
   first: string;
@@ -79,7 +80,7 @@ class CharacterPairBoard extends LitElement {
       [...new Set(characters.map((item) => item.bandId || 0))]
         .filter(Boolean)
         .map((id) => ({ id, label: String(id), image: "" }));
-    const root = `/assets/${currentReleaseServer()}/Assets/AddressableResources`;
+    const root = `/assets/${o.server || currentReleaseServer()}/Assets/AddressableResources`;
     return html`
       <section class="character-pair" aria-label=${uiText(o.locale, "navigation.characters")}>
         ${

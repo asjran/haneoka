@@ -1,4 +1,8 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
+import { hydrateWorkspace } from "./shared/hydrate-workspace";
 import { readPageData } from "../lib/page-data";
+import { canUseStaticCatalogScope } from "../lib/test-server-visibility";
+import type { WorkspaceCollectionPayload } from "../lib/workspace-page-data";
 import { navigationDocumentUrl } from "../lib/document-url";
 import "../styles/model-tile.css";
 import { canvasToPngBlob, downloadBlob } from "../lib/canvas-capture";
@@ -28,26 +32,26 @@ import { StageFullscreen, StageGestures } from "./ui/stage-fullscreen";
 
 /** Message paths for this view's finite control/metadata identifiers. */
 const uiLabelPaths: Readonly<Record<string, string>> = {
-  "costumeId": "story.labels.costumeId",
-  "error": "common.states.error",
-  "family": "media.models.labels.family",
-  "grid": "common.layout.grid",
-  "id": "common.fields.id",
-  "loading": "common.states.loading",
-  "model": "media.models.labels.model",
-  "no": "common.states.no",
-  "order": "common.layout.order",
-  "preview": "common.actions.preview",
-  "quality": "media.models.labels.quality",
-  "sort": "common.actions.sort",
-  "source": "common.fields.source",
-  "spine": "navigation.spine",
-  "stage": "media.models.labels.stage",
-  "subCharacter": "story.labels.subCharacter",
-  "table": "common.layout.table",
-  "version": "media.models.labels.version",
-  "view": "common.actions.view",
-  "yes": "common.states.yes"
+  costumeId: "story.labels.costumeId",
+  error: "common.states.error",
+  family: "media.models.labels.family",
+  grid: "common.layout.grid",
+  id: "common.fields.id",
+  loading: "common.states.loading",
+  model: "media.models.labels.model",
+  no: "common.states.no",
+  order: "common.layout.order",
+  preview: "common.actions.preview",
+  quality: "media.models.labels.quality",
+  sort: "common.actions.sort",
+  source: "common.fields.source",
+  spine: "navigation.spine",
+  stage: "media.models.labels.stage",
+  subCharacter: "story.labels.subCharacter",
+  table: "common.layout.table",
+  version: "media.models.labels.version",
+  view: "common.actions.view",
+  yes: "common.states.yes",
 };
 
 type Value = Record<string, unknown>;
@@ -200,13 +204,48 @@ export class SpineWorkspace extends LitElement {
   createRenderRoot() {
     return this;
   }
+  protected update(changed: import("lit").PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrateWorkspace(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  public prepareCollection(payload: WorkspaceCollectionPayload, locale: string, _mode?: string): void {
+    if (!this.hasUpdated) this.docked = false;
+    this.locale = locale;
+    this.unionModels = crossCatalogPresentation(payload.catalogs.spine!);
+    this.models = this.unionModels.items;
+    this.phase = "ready";
+  }
+  public prepareEntity(model: Value, locale: string, id: string, previewSrc = ""): void {
+    if (!this.hasUpdated) this.docked = false;
+    this.locale = locale;
+    this.entityId = id;
+    this.previewSrc = previewSrc;
+    this.models = [model];
+    this.selected = id;
+    this.detail = model;
+    if (this.modelPhase !== "ready") this.prepareSkins(model);
+    this.phase = "ready";
+    if (this.modelPhase === "idle") this.modelPhase = "loading";
+  }
   connectedCallback() {
-    super.connectedCallback();
-    this.fullscreen.connect();
     const selection = parseEntitySelection(navigationDocumentUrl().pathname);
     if (selection?.source === "canonical" && selection.route.kind === "spine") this.entityId = selection.route.id;
     this.locale = preferredLocale(this.locale);
-    this.disposeMedia = watchMedia(EXPANDED, (value) => (this.docked = value));
+    const page = readPageData<
+      { schema: "haneoka-model-page-v1"; id: string; model: Value } | WorkspaceCollectionPayload
+    >(this);
+    if (page?.schema === "haneoka-workspace-collection-v1" && page.resource === "spine" && !this.entityId)
+      this.prepareCollection(page, this.locale);
+    if (page?.schema === "haneoka-model-page-v1" && page.id === this.entityId)
+      this.prepareEntity(page.model, this.locale, page.id, this.previewSrc);
+    super.connectedCallback();
+    this.fullscreen.connect();
+    void this.updateComplete.then(() => {
+      if (this.isConnected) this.disposeMedia = watchMedia(EXPANDED, (value) => (this.docked = value));
+    });
     void Promise.all([
       import("@material/web/select/outlined-select.js"),
       import("@material/web/select/select-option.js"),
@@ -218,7 +257,7 @@ export class SpineWorkspace extends LitElement {
     this.initializationTimer = window.setTimeout(() => {
       this.initializationTimer = undefined;
       if (!this.isConnected) return;
-      const params = new URLSearchParams(location.search);
+      const params = navigationDocumentUrl().searchParams;
       this.selected = this.entityId || params.get("model") || "";
       this.query = params.get("q") || "";
       this.view = collectionView(params.get("view"));
@@ -254,10 +293,16 @@ export class SpineWorkspace extends LitElement {
     return catalogUrl("spine", id);
   }
   private async loadCatalog() {
-    const page = readPageData<{ schema: string; id: string; model: Value }>(this);
+    const page = readPageData<
+      { schema: "haneoka-model-page-v1"; id: string; model: Value } | WorkspaceCollectionPayload
+    >(this);
+    if (page?.schema === "haneoka-workspace-collection-v1" && page.resource === "spine" && !this.entityId && canUseStaticCatalogScope()) {
+      this.prepareCollection(page, this.locale);
+      if (this.selected && this.modelPhase !== "ready") void this.select(this.selected, false);
+      return;
+    }
     if (page?.schema === "haneoka-model-page-v1" && page.id === this.entityId) {
-      this.models = [page.model];
-      this.phase = "ready";
+      this.prepareEntity(page.model, this.locale, page.id, this.previewSrc);
       if (this.modelPhase !== "ready") void this.select(page.id, false, page.model);
       return;
     }
@@ -272,12 +317,16 @@ export class SpineWorkspace extends LitElement {
     try {
       const server = readReleaseServer();
       if (!this.entityId && OFFICIAL_CATALOG_SERVERS.includes(server as OfficialCatalogServer)) {
-        const catalog = await fetchCrossServerCatalog("spine", server as OfficialCatalogServer, this.locale, { signal: controller.signal });
+        const catalog = await fetchCrossServerCatalog("spine", server as OfficialCatalogServer, this.locale, {
+          signal: controller.signal,
+        });
         if (!this.isConnected || controller.signal.aborted || this.catalogRequest !== controller) return;
-        if (Object.values(catalog.sourceAvailability).every((value) => value !== "loaded")) throw new Error("Spine catalog unavailable");
-        this.unionModels = crossCatalogPresentation(catalog);
-        this.models = this.unionModels.items;
-        this.phase = "ready";
+        if (Object.values(catalog.sourceAvailability).every((value) => value !== "loaded"))
+          throw new Error("Spine catalog unavailable");
+        this.prepareCollection(
+          { schema: "haneoka-workspace-collection-v1", resource: "spine", server, catalogs: { spine: catalog } },
+          this.locale,
+        );
         return;
       }
       this.unionModels = undefined;
@@ -321,6 +370,8 @@ export class SpineWorkspace extends LitElement {
       );
       return;
     }
+    const page = readPageData<{ schema: "haneoka-model-page-v1"; id: string; model: Value }>(this);
+    const inline = page?.schema === "haneoka-model-page-v1" && page.id === id ? page.model : undefined;
     const generation = ++this.generation;
     this.selectionRequest?.abort();
     const controller = new AbortController();
@@ -332,8 +383,7 @@ export class SpineWorkspace extends LitElement {
     this.captureMessage = "";
     this.modelPhase = "loading";
     this.endDrag();
-    this.skins = [];
-    this.skin = "";
+    this.prepareSkins(prepared || inline);
     this.resetPlacement();
     this.stage?.dispose();
     this.stage = undefined;
@@ -343,7 +393,7 @@ export class SpineWorkspace extends LitElement {
       history.replaceState(history.state, "", `${location.pathname}?${params}`);
     }
     try {
-      const detail = prepared || (await fetchJson<Value>(this.url(id), { signal: controller.signal }));
+      const detail = prepared || inline || (await fetchJson<Value>(this.url(id), { signal: controller.signal }));
       if (generation !== this.generation || controller.signal.aborted || !this.isConnected) return;
       this.detail = detail;
       await this.updateComplete;
@@ -443,6 +493,12 @@ export class SpineWorkspace extends LitElement {
     if (!this.stage?.setSkin(name)) return;
     this.skin = name;
   }
+  private prepareSkins(model?: Value) {
+    this.skins = Array.isArray(model?.skins)
+      ? model.skins.filter((name): name is string => typeof name === "string" && Boolean(name))
+      : [];
+    this.skin = ["skin", "default", ...this.skins].find((name) => this.skins.includes(name)) || "";
+  }
   private sync() {
     const params = new URLSearchParams();
     if (this.selected) params.set("model", this.selected);
@@ -472,11 +528,11 @@ export class SpineWorkspace extends LitElement {
       }
       if (counts.size < 2) return nothing;
       return facet(
-        uiText(this.locale, (uiLabelPaths[key] ?? key)),
+        uiText(this.locale, uiLabelPaths[key] ?? key),
         this.locale,
         [...counts].map(([value, count]) => ({
           value,
-          label: ["yes", "no"].includes(value) ? uiText(this.locale, (uiLabelPaths[value] ?? value)) : value,
+          label: ["yes", "no"].includes(value) ? uiText(this.locale, uiLabelPaths[value] ?? value) : value,
           count,
         })),
         this.metaFilters[key] ? [this.metaFilters[key]] : [],
@@ -613,7 +669,9 @@ export class SpineWorkspace extends LitElement {
         results:
           this.phase === "loading"
             ? this.view === "grid"
-              ? html`${collectionSkeleton("model")}${loadingState(uiText(this.locale, "common.states.loading"))}`
+              ? html`
+                  ${collectionSkeleton("model")}${loadingState(uiText(this.locale, "common.states.loading"))}
+                `
               : loadingState(uiText(this.locale, "common.states.loading"))
             : this.phase === "error"
               ? errorState(
@@ -703,8 +761,16 @@ export class SpineWorkspace extends LitElement {
                     label: uiText(this.locale, "common.layout.order"),
                     value: this.order,
                     options: [
-                      { value: "asc" as const, label: uiText(this.locale, "common.layout.ascending"), icon: "arrow_upward" },
-                      { value: "desc" as const, label: uiText(this.locale, "common.layout.descending"), icon: "arrow_downward" },
+                      {
+                        value: "asc" as const,
+                        label: uiText(this.locale, "common.layout.ascending"),
+                        icon: "arrow_upward",
+                      },
+                      {
+                        value: "desc" as const,
+                        label: uiText(this.locale, "common.layout.descending"),
+                        icon: "arrow_downward",
+                      },
                     ],
                     onSelect: (order) => {
                       this.order = order;
@@ -789,7 +855,10 @@ export class SpineWorkspace extends LitElement {
         title: this.modelTitle(model),
         subtitle: this.familyName(model.family || model.spineVersion || "Spine"),
         image: this.preview(model),
-        trailing: (() => { const entry = this.unionModels?.entries.get(model); return entry?.exclusive ? serverAvailabilityBadge([entry.exclusive], this.locale) : nothing; })(),
+        trailing: (() => {
+          const entry = this.unionModels?.entries.get(model);
+          return entry?.exclusive ? serverAvailabilityBadge([entry.exclusive], this.locale) : nothing;
+        })(),
         onOpen: () => this.select(String(model.id)),
       })),
     );
@@ -815,7 +884,10 @@ export class SpineWorkspace extends LitElement {
             }
             <span class="table-entity__copy">
               <strong>${this.modelTitle(model)}</strong>
-              ${(() => { const entry = this.unionModels?.entries.get(model); return entry?.exclusive ? serverAvailabilityBadge([entry.exclusive], this.locale) : nothing; })()}
+              ${(() => {
+                const entry = this.unionModels?.entries.get(model);
+                return entry?.exclusive ? serverAvailabilityBadge([entry.exclusive], this.locale) : nothing;
+              })()}
               <small>${this.familyName(model.family)}</small>
             </span>
           </button>
@@ -850,7 +922,11 @@ export class SpineWorkspace extends LitElement {
             ? nothing
             : html`
                 <header>
-                  <button class="icon-button" @click=${this.closeDetail} aria-label=${uiText(this.locale, "common.actions.close")}>
+                  <button
+                    class="icon-button"
+                    @click=${this.closeDetail}
+                    aria-label=${uiText(this.locale, "common.actions.close")}
+                  >
                     <svg class="material-icon" width="24" height="24"><use href="/icons.svg#arrow_back"></use></svg>
                   </button>
                   <span>
@@ -868,7 +944,11 @@ export class SpineWorkspace extends LitElement {
                     >
                       <svg class="material-icon" width="20" height="20"><use href="/icons.svg#chevron_left"></use></svg>
                     </button>
-                    <button class="icon-button" @click=${this.closeDetail} aria-label=${uiText(this.locale, "common.layout.grid")}>
+                    <button
+                      class="icon-button"
+                      @click=${this.closeDetail}
+                      aria-label=${uiText(this.locale, "common.layout.grid")}
+                    >
                       <svg class="material-icon" width="20" height="20"><use href="/icons.svg#grid_view"></use></svg>
                     </button>
                     <button
@@ -980,7 +1060,9 @@ export class SpineWorkspace extends LitElement {
                         title=${uiText(this.locale, this.stageFullscreen ? "common.actions.fullscreenExit" : "common.actions.fullscreen")}
                       >
                         <svg class="material-icon" width="22" height="22">
-                          <use href=${this.stageFullscreen ? "/icons.svg#fullscreen_exit" : "/icons.svg#fullscreen"}></use>
+                          <use
+                            href=${this.stageFullscreen ? "/icons.svg#fullscreen_exit" : "/icons.svg#fullscreen"}
+                          ></use>
                         </svg>
                       </button>
                     </div>
@@ -1044,7 +1126,7 @@ export class SpineWorkspace extends LitElement {
                 ></md-slider>
               </label>
             </section>
-            <section ?hidden=${!this.skins.length}>
+            <section ?hidden=${!this.skins.length || this.modelPhase !== "ready"}>
               <h3>${uiText(this.locale, "media.spine.skins")}</h3>
               <md-outlined-select
                 data-spine-skin

@@ -1,6 +1,10 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { disambiguateTitles } from "../lib/title-disambiguation";
 import { LOCALES, type Locale } from "../i18n/locales";
 import { LitElement, html, nothing } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
+import { readPageData } from "../lib/page-data";
+import type { SongPuzzlePageData } from "../server/tool-page-data";
 import { live } from "lit/directives/live.js";
 import "@material/web/select/outlined-select.js";
 import "@material/web/select/select-option.js";
@@ -89,6 +93,7 @@ export class SongPuzzle extends LitElement {
   private coverReady = false;
   private coverFailed = false;
   private catalogController?: AbortController;
+  private pageData?: SongPuzzlePageData;
   constructor() {
     super();
     this.locale = "en";
@@ -103,11 +108,47 @@ export class SongPuzzle extends LitElement {
     this.requestUpdate();
   };
   connectedCallback() {
+    const payload = readPageData<SongPuzzlePageData>(this);
+    if (payload?.schema === "haneoka-song-puzzle-page-v1") this.preparePage(payload);
     super.connectedCallback();
     this.locale = getI18nClient()?.committed || this.locale;
     window.addEventListener("haneoka:locale-ready", this.localeReady);
-    this.server = readReleaseServer();
-    void this.loadSongs();
+    if (!this.pageData) this.server = readReleaseServer();
+    if (this.loaded) void this.updateComplete.then(() => {
+      const selectedServer = readReleaseServer();
+      if (selectedServer !== this.server && this.pageData) {
+        const songs = this.pageData.variants[selectedServer];
+        if (!songs) { this.loaded = false; this.message = "loadError"; this.requestUpdate(); return; }
+        this.preparePage({ ...this.pageData, server: selectedServer, songs });
+      }
+      this.resetBoard(true);
+      this.checkCover(true);
+      this.requestUpdate();
+    });
+    else void this.loadSongs();
+  }
+  preparePage(payload: SongPuzzlePageData) {
+    this.pageData = payload;
+    this.server = payload.server;
+    this.songs = Object.entries(payload.songs).flatMap(([id, value]) => {
+      const cover = String(value.jacketUrl || value.jacketThumbUrl || "");
+      return /^\d+$/u.test(id) && cover.startsWith("/assets/") && !cover.includes("\\")
+        ? [{ id, title: value.musicTitle, labels: {} as Record<Locale, string>, band: value.bandName,
+          artist: value.artistName, name: localizedText(value.musicTitle, this.locale) || id, cover }]
+        : [];
+    });
+    this.nameSongs();
+    this.song = this.songs[0]?.id ?? "";
+    this.tiles = [...payload.tiles];
+    this.loaded = true;
+    this.coverReady = true;
+  }
+  protected override update(changed: import("lit").PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
   }
   disconnectedCallback() {
     window.removeEventListener("haneoka:locale-ready", this.localeReady);
@@ -292,8 +333,8 @@ export class SongPuzzle extends LitElement {
     }
     this.requestUpdate();
   }
-  private checkCover() {
-    this.coverReady = false;
+  private checkCover(preserveBoard = false) {
+    if (!preserveBoard) this.coverReady = false;
     this.coverFailed = false;
     const song = this.songs.find((entry) => entry.id === this.song);
     if (!song) return;
@@ -620,7 +661,7 @@ export class SongPuzzle extends LitElement {
     this.suppressClick = true;
     this.requestUpdate();
   }
-  protected render() {
+  render() {
     const goal = this.position().goal,
       song = this.songs.find((entry) => entry.id === this.song),
       valid = solvable(this.position());

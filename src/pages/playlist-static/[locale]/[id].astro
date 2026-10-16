@@ -1,0 +1,10 @@
+---
+import CommunityDocument from "../../../components/CommunityDocument.astro";
+import { playlistStaticPaths } from "../../../server/playlist-page-data";
+import { playlistStaticLocation } from "../../../lib/playlists/static-routing";
+export const getStaticPaths = playlistStaticPaths;
+const selected = playlistStaticLocation(Astro.params.locale, Astro.params.id?.replace(/\.html$/u, "") || "");
+if (!selected) throw new Error("Invalid public playlist document");
+const { server } = Astro.props as { server: string };
+---
+<CommunityDocument locale={selected.locale} path="playlists" playlist={selected.id} playlistServer={server} />

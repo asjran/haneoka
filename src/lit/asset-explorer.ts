@@ -1,13 +1,26 @@
+import "@lit-labs/ssr-client/lit-element-hydrate-support.js";
 import { navigationDocumentUrl } from "../lib/document-url";
-import { LitElement, html, nothing } from "lit";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
+import { hydrateWorkspace as hydrate } from "./shared/hydrate-workspace";
+import { readPageData } from "../lib/page-data";
+import { assetOutputKind, type AssetPageData, type AssetViewData } from "../lib/asset-page-data";
 import { emptyState, errorState, loadingState } from "./ui/state";
 import { catalogUrl, fetchJson, currentReleaseServer, preferredLocale, uiText } from "./shared/catalog";
 import { localizedFallbacks } from "../lib/localized-text";
 import { localeFromPath } from "../i18n/locales";
 import { clearAppBarIdentity, setAppBarIdentity, setAppBarSearch } from "../lib/app-bar";
 import { icon } from "./ui/icon";
-import { indexSourceTree, plainSourceName, searchSourceTree, sourceEntries, sourceVariant, type SourceNode as AssetNode, type SourceSearchRow } from "../lib/source-tree-search";
+import {
+  indexSourceTree,
+  plainSourceName,
+  searchSourceTree,
+  sourceEntries,
+  sourceVariant,
+  type SourceNode as AssetNode,
+  type SourceSearchRow,
+} from "../lib/source-tree-search";
 type Descriptor = { outputs?: Array<{ path?: string }>; objectArchive?: { path?: string } };
+const treeIndexes = new WeakMap<Record<string, AssetNode>, Map<string, SourceSearchRow[]>>();
 
 export class AssetExplorer extends LitElement {
   static properties = {
@@ -31,6 +44,8 @@ export class AssetExplorer extends LitElement {
   private columnSignature = "";
   private rows: SourceSearchRow[] = [];
   private releaseSearch?: () => void;
+  private sourceServer?: AssetPageData["server"];
+  private sourceRelease?: string;
   constructor() {
     super();
     this.tree = {};
@@ -45,16 +60,76 @@ export class AssetExplorer extends LitElement {
   createRenderRoot() {
     return this;
   }
-  updated() {
+  preparePage(page: AssetPageData, view?: AssetViewData) {
+    this.sourceServer = page.server;
+    this.sourceRelease = page.releaseId;
+    if (view?.schema === "haneoka-asset-view-v1" && view.server === page.server && view.releaseId === page.releaseId) {
+      this.path = [...view.path];
+      this.files = view.files;
+      this.selected = view.selected;
+      this.textPreview = view.textPreview;
+    }
+    this.applyTree(page.tree);
+  }
+  private applyTree(tree: Record<string, AssetNode>) {
+    this.tree = tree;
+    const locale = preferredLocale();
+    let indexes = treeIndexes.get(tree);
+    if (!indexes) {
+      indexes = new Map();
+      treeIndexes.set(tree, indexes);
+    }
+    let rows = indexes.get(locale);
+    if (!rows) {
+      rows = indexSourceTree(this.tree, localizedFallbacks(locale));
+      indexes.set(locale, rows);
+    }
+    this.rows = rows;
+    this.phase = "ready";
+    this.rebuildVariants(this.siblingNames());
+  }
+  renderStaticChrome() {
+    this.syncSearch();
+    this.syncIdentity();
+  }
+  protected update(changed: PropertyValues) {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrate(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
+  }
+  private syncIdentity() {
     if (this.path.length || this.selected)
       setAppBarIdentity(
         "asset-explorer",
-        html`<div class="browse__crumbs">${this.path.map(
-          (part, index) => html`${icon("chevron_right", 20)}<button type="button" class="chip" @click=${() => this.choose(this.path.slice(0, index + 1))}>${AssetExplorer.plainName(part)}</button>`,
-        )}${this.selected ? html`${icon("chevron_right", 20)}<span class="chip">${AssetExplorer.plainName(this.displayName(this.selected).split("/").at(-1) || "")}</span>` : nothing}</div>`,
+        html`
+          <div class="browse__crumbs">
+            ${this.path.map(
+              (part, index) => html`
+                ${icon("chevron_right", 20)}
+                <button type="button" class="chip" @click=${() => this.choose(this.path.slice(0, index + 1))}>
+                  ${AssetExplorer.plainName(part)}
+                </button>
+              `,
+            )}${
+              this.selected
+                ? html`
+                    ${icon("chevron_right", 20)}
+                    <span class="chip">
+                      ${AssetExplorer.plainName(this.displayName(this.selected).split("/").at(-1) || "")}
+                    </span>
+                  `
+                : nothing
+            }
+          </div>
+        `,
         this,
       );
     else clearAppBarIdentity("asset-explorer");
+  }
+  updated() {
+    this.syncIdentity();
     requestAnimationFrame(() => {
       const crumbs = document.querySelector<HTMLElement>(".top-app-bar .browse__crumbs");
       if (crumbs) crumbs.scrollLeft = crumbs.scrollWidth;
@@ -123,6 +198,9 @@ export class AssetExplorer extends LitElement {
     if (this.selected) void this.prepareSelected(this.selected);
   };
   connectedCallback() {
+    const page = readPageData<AssetPageData>(this);
+    const view = readPageData<AssetViewData>(this, "data-view-data");
+    if (page?.schema === "haneoka-asset-page-v1") this.preparePage(page, view);
     super.connectedCallback();
     addEventListener("haneoka:locale-ready", this.onLocale);
     void import("@material/web/progress/circular-progress.js");
@@ -132,12 +210,34 @@ export class AssetExplorer extends LitElement {
       /^\/(?:(?:jp|intl|jp-cbt|intl-cbt)\/(?:ja|en|zh-TW|zh-CN|ko)\/assets|(?:ja|en|zh-TW|zh-CN|ko)\/catalog\/assets)\/?/u,
       "",
     );
-    this.path = (routePath || params.get("path") || "")
+    const path = (routePath || params.get("path") || "")
       .split("/")
       .filter(Boolean)
       .map((part) => decodeURIComponent(part));
-    this.selected = params.get("file") || "";
-    this.query = params.get("q") || "";
+    const selected = params.get("file") || "";
+    const prepared = !!view && JSON.stringify(view.path) === JSON.stringify(path) && view.selected === selected;
+    const query = params.get("q") || "";
+    if (prepared && page) {
+      this.syncSearch();
+      if (this.selected && this.kind(this.selected) === "model") void import("./runtime/model-preview");
+      if (query)
+        void this.updateComplete.then(() => {
+          this.query = query;
+          this.syncSearch();
+        });
+    } else {
+      const start = () => {
+        this.path = path;
+        this.selected = selected;
+        this.query = query;
+        this.syncSearch();
+        void this.loadTree();
+      };
+      if (view && page) void this.updateComplete.then(start);
+      else start();
+    }
+  }
+  private syncSearch() {
     this.releaseSearch = setAppBarSearch("asset-explorer", {
       value: this.query,
       label: uiText(preferredLocale(), "common.actions.search"),
@@ -146,7 +246,6 @@ export class AssetExplorer extends LitElement {
         this.sync();
       },
     });
-    void this.loadTree();
   }
   disconnectedCallback() {
     removeEventListener("haneoka:locale-ready", this.onLocale);
@@ -185,10 +284,9 @@ export class AssetExplorer extends LitElement {
   }
   private async loadTree() {
     try {
-      this.tree = await fetchJson<Record<string, AssetNode>>(catalogUrl("sources/tree"));
-      this.rows = indexSourceTree(this.tree, localizedFallbacks(preferredLocale()));
-      this.phase = "ready";
-      this.rebuildVariants(this.siblingNames());
+      const page = readPageData<AssetPageData>(this);
+      if (page?.schema === "haneoka-asset-page-v1") this.preparePage(page);
+      else this.applyTree(await fetchJson<Record<string, AssetNode>>(catalogUrl("sources/tree")));
       if (typeof this.node() === "number") await this.loadFiles();
       if (this.selected) await this.prepareSelected(this.selected);
     } catch (error) {
@@ -217,7 +315,12 @@ export class AssetExplorer extends LitElement {
     try {
       this.rebuildVariants(this.siblingNames());
       const path = this.path.join("/");
-      const descriptor = await fetchJson<Descriptor>(catalogUrl(`sources/${this.localized(path)}`));
+      const url = new URL(
+        catalogUrl(`sources/${this.localized(path)}`, "", this.server()),
+        navigationDocumentUrl().origin,
+      );
+      if (this.sourceRelease) url.searchParams.set("release", this.sourceRelease);
+      const descriptor = await fetchJson<Descriptor>(url.toString());
       if (this.path.join("/") !== path) return;
       this.files = [
         ...(descriptor.outputs || []).map((value) => String(value.path || "")).filter(Boolean),
@@ -230,20 +333,14 @@ export class AssetExplorer extends LitElement {
   private url(file: string) {
     const [root, ...parts] = this.localized(file).split("/").filter(Boolean);
     return ["assets", "runtime", "objects"].includes(root || "")
-      ? `/${root}/${encodeURIComponent(this.server())}/${parts.map(encodeURIComponent).join("/")}`
+      ? `/${root}/${encodeURIComponent(this.server())}/${parts.map(encodeURIComponent).join("/")}${this.sourceRelease ? `?release=${encodeURIComponent(this.sourceRelease)}` : ""}`
       : "";
   }
   private server() {
-    return currentReleaseServer();
+    return this.sourceServer || currentReleaseServer();
   }
   private kind(file: string) {
-    const ext = file.split(".").pop()?.toLowerCase();
-    if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext || "")) return "image";
-    if (["mp3", "wav", "ogg", "m4a"].includes(ext || "")) return "audio";
-    if (["mp4", "webm"].includes(ext || "")) return "video";
-    if (["glb", "gltf"].includes(ext || "")) return "model";
-    if (["json", "txt", "xml", "csv", "md", "atlas"].includes(ext || "")) return "text";
-    return "binary";
+    return assetOutputKind(file);
   }
   private async select(file: string) {
     this.selected = file;
@@ -287,43 +384,60 @@ export class AssetExplorer extends LitElement {
                 )
               : html`
                   <div class="asset-columns">
-                    ${matches && !matches.length ? emptyState({ title: uiText(preferredLocale(), "common.states.empty"), icon: "search" }) : matches ? html`
-                      <section class="asset-column asset-column--results">
-                        ${matches.map(
-                          (row) => html`
-                            <button class=${this.path.join("/") === row.path ? "selected" : ""} title=${row.label} @click=${() => this.choose([...row.parts])}>
-                              <svg class="material-icon" width="20" height="20"><use href="/icons.svg#inventory_2"></use></svg>
-                              <span>${row.label.split("/").at(-1)}<small>${row.label.split("/").slice(0, -1).join("/")}</small></span>
-                              <svg class="material-icon" width="18" height="18"><use href="/icons.svg#chevron_right"></use></svg>
-                            </button>
-                          `,
-                        )}
-                      </section>
-                    ` : columns.map(
-                      (column, index) => html`
-                        <section class="asset-column">
-                          ${column.entries.map(
-                            ({ name, label, value }) => html`
-                              <button
-                                class=${this.path[index] === name ? "selected" : ""}
-                                @click=${() => this.choose([...column.parts, name])}
-                              >
-                                <svg class="material-icon" width="20" height="20">
-                                  <use
-                                    href=${typeof value === "number" ? "/icons.svg#inventory_2" : "/icons.svg#folder"}
-                                  ></use>
-                                </svg>
-                                <span>${label}</span>
-                                <small>${typeof value === "number" ? value : Object.keys(value).length}</small>
-                                <svg class="material-icon" width="18" height="18">
-                                  <use href="/icons.svg#chevron_right"></use>
-                                </svg>
-                              </button>
-                            `,
-                          )}
-                        </section>
-                      `,
-                    )}${
+                    ${
+                      matches && !matches.length
+                        ? emptyState({ title: uiText(preferredLocale(), "common.states.empty"), icon: "search" })
+                        : matches
+                          ? html`
+                              <section class="asset-column asset-column--results">
+                                ${matches.map(
+                                  (row) => html`
+                                    <button
+                                      class=${this.path.join("/") === row.path ? "selected" : ""}
+                                      title=${row.label}
+                                      @click=${() => this.choose([...row.parts])}
+                                    >
+                                      <svg class="material-icon" width="20" height="20">
+                                        <use href="/icons.svg#inventory_2"></use>
+                                      </svg>
+                                      <span>
+                                        ${row.label.split("/").at(-1)}
+                                        <small>${row.label.split("/").slice(0, -1).join("/")}</small>
+                                      </span>
+                                      <svg class="material-icon" width="18" height="18">
+                                        <use href="/icons.svg#chevron_right"></use>
+                                      </svg>
+                                    </button>
+                                  `,
+                                )}
+                              </section>
+                            `
+                          : columns.map(
+                              (column, index) => html`
+                                <section class="asset-column">
+                                  ${column.entries.map(
+                                    ({ name, label, value }) => html`
+                                      <button
+                                        class=${this.path[index] === name ? "selected" : ""}
+                                        @click=${() => this.choose([...column.parts, name])}
+                                      >
+                                        <svg class="material-icon" width="20" height="20">
+                                          <use
+                                            href=${typeof value === "number" ? "/icons.svg#inventory_2" : "/icons.svg#folder"}
+                                          ></use>
+                                        </svg>
+                                        <span>${label}</span>
+                                        <small>${typeof value === "number" ? value : Object.keys(value).length}</small>
+                                        <svg class="material-icon" width="18" height="18">
+                                          <use href="/icons.svg#chevron_right"></use>
+                                        </svg>
+                                      </button>
+                                    `,
+                                  )}
+                                </section>
+                              `,
+                            )
+                    }${
                       typeof this.node() === "number"
                         ? html`
                             <section class="asset-column">
@@ -338,7 +452,9 @@ export class AssetExplorer extends LitElement {
                                         href=${`/icons.svg#${this.kind(file) === "image" ? "image" : this.kind(file) === "audio" ? "graphic_eq" : this.kind(file) === "video" ? "movie" : this.kind(file) === "model" ? "view_in_ar" : this.kind(file) === "text" ? "data_object" : "draft"}`}
                                       ></use>
                                     </svg>
-                                    <span>${AssetExplorer.plainName(this.displayName(file).split("/").at(-1) || "")}</span>
+                                    <span>
+                                      ${AssetExplorer.plainName(this.displayName(file).split("/").at(-1) || "")}
+                                    </span>
                                   </button>
                                 `,
                               )}
@@ -357,7 +473,15 @@ export class AssetExplorer extends LitElement {
       kind = this.kind(this.selected);
     return html`
       <section class="asset-preview">
-        <a class="icon-button asset-preview__download" href=${url} download aria-label=${uiText(preferredLocale(), "common.actions.download")} title=${uiText(preferredLocale(), "common.actions.download")}>${icon("download", 20)}</a>
+        <a
+          class="icon-button asset-preview__download"
+          href=${url}
+          download
+          aria-label=${uiText(preferredLocale(), "common.actions.download")}
+          title=${uiText(preferredLocale(), "common.actions.download")}
+        >
+          ${icon("download", 20)}
+        </a>
         <div>
           ${
             kind === "image"

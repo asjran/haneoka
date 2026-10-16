@@ -1,3 +1,4 @@
+import { cubismModelMetadata } from "../server/cubism-model-metadata";
 import { LOCALES, type Locale } from "../i18n/locales";
 import { resolveLocalizedText } from "./localized-text";
 import {
@@ -74,7 +75,8 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
     release,
   );
 
-  const live2dPages = live2dModels.map(([key, model]) => {
+  const live2dPages: SearchableModelPage[] = [];
+  for (const [key, model] of live2dModels) {
     const detail = live2dDetails.get(key) ?? model;
     const character = localizedAll(model.characterName);
     const costumes = localizedAll(model.title);
@@ -105,7 +107,9 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
       }),
     ) as Record<Locale, Array<{ key: string; value: string }>>;
     const mergedModel = { ...model, ...detail };
-    return {
+    const coreMetadata = await cubismModelMetadata(mergedModel, release);
+    if (coreMetadata) mergedModel.coreMetadata = coreMetadata;
+    live2dPages.push({
       kind: "live2d" as const,
       id: key,
       route: `/catalog/live2d/${key}`,
@@ -123,10 +127,11 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
       facts,
       image: modelPreviewSources(mergedModel)[0] || "",
       model: mergedModel,
-    };
-  });
+    });
+  }
 
-  const spinePages = spineModels.map(([key, model]) => {
+  const spinePages = spineModels.map(([key, index]) => {
+    const model = { ...index, ...spineDetails.get(key) };
     const id = String(model.id ?? key);
     const animations = (Array.isArray(model.animations) ? model.animations : [])
       .map((name) => text(name, "ja"))
@@ -165,7 +170,7 @@ async function buildSearchableModelPages(server: ReleaseServer): Promise<Searcha
       ) as Record<Locale, string>,
       facts,
       image: previewPath.startsWith("/") ? previewPath : previewPath ? `/${previewPath}` : "",
-      model: { ...model, ...spineDetails.get(key) },
+      model,
     };
   });
 

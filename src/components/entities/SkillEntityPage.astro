@@ -7,7 +7,7 @@ import { serializePageData } from "../../lib/page-data";
 import { resolveLocalizedText } from "../../lib/localized-text";
 import { resourcePath, type EntityLink } from "../../lib/resource-route";
 import { skillPageId, type SkillCatalogEntry, type SkillCatalogPayload } from "../../server/skill-catalog";
-import "../../lit/skills-workspace";
+import { renderSkillsWorkspace } from "../../server/render-skills";
 import "../../styles/catalog.css";
 
 interface Props {
@@ -32,6 +32,7 @@ const descriptions = Object.fromEntries(
 const canonicalHref = resourcePath({ server, locale, kind: "skills", id });
 const pageDataId = `skill-page-${id}`;
 const payload = { ...catalog, entries: [entry] };
+const rendered = await renderSkillsWorkspace(payload, locale, id);
 ---
 
 <Base
@@ -51,10 +52,11 @@ const payload = { ...catalog, entries: [entry] };
     route="/catalog/skills"
     server={server}
     title={titles[locale]}
+    appBar={rendered.appBar}
     entity={{ title: titles[locale], backHref: returnTo || resourcePath({ server, locale, kind: "skills" }), previous, next }}
   >
-    <script type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
-    <skills-workspace locale={locale} data-page-data={pageDataId} entity-id={id}></skills-workspace>
+    <script is:inline type="application/json" id={pageDataId} set:html={serializePageData(payload)}></script>
+    <skills-workspace locale={locale} data-page-data={pageDataId} entity-id={id} data-prerendered set:html={rendered.body}></skills-workspace>
   </AppShell>
 </Base>
 <script>

@@ -5,7 +5,7 @@ import { LABEL_ENTRIES } from "../config/catalog-labels";
 import { resolveLocalizedText } from "./localized-text";
 import { disambiguateTitles } from "./title-disambiguation";
 import { formatMoney, shopPaymentPrices, moneyName, shopPriceEntries } from "./shop-currency";
-import { resourcePath } from "./resource-route";
+import { resourcePath, resourceKindForCollection } from "./resource-route";
 import {
   asRecord,
   fetchOptionalStaticCatalog,
@@ -63,6 +63,10 @@ interface CollectionDefinition {
  * SEO pages are never silently dropped.
  */
 const COLLECTIONS: CollectionDefinition[] = [
+  { collection: "circle", resource: "circle", route: "/catalog/circle", selectionParam: "entry", kind: "system", document: "entries", titleField: "title", subtitle: "kind", optional: true },
+  { collection: "challenge", resource: "challenge", route: "/catalog/challenge", selectionParam: "entry", kind: "system", document: "entries", titleField: "title", subtitle: "kind", optional: true },
+  { collection: "missions", resource: "missions", route: "/catalog/missions", selectionParam: "entry", kind: "system", document: "entries", titleField: "description", subtitle: "kind" },
+  { collection: "tgw-card", resource: "tgw-card", route: "/catalog/tgw-card", selectionParam: "entry", kind: "system", document: "entries", titleField: "title", subtitle: "" },
   {
     collection: "songs",
     resource: "songs",
@@ -342,10 +346,10 @@ function catalogImage(kind: SearchableCatalogPage["kind"], value: RecordValue): 
 }
 
 function isStaticEntityId(definition: CollectionDefinition, id: string, server: ReleaseServer): boolean {
-  if (/^\d+$/u.test(id)) return true;
-  if (definition.collection !== "passes") return false;
+  const kind = resourceKindForCollection(definition.collection);
+  if (!kind) return false;
   try {
-    resourcePath({ server, locale: LOCALES[0], kind: "passes", id });
+    resourcePath({ server, locale: LOCALES[0], kind, id });
     return true;
   } catch {
     return false;

@@ -12,7 +12,11 @@ import {
   parseAnnouncementRoute,
   type Announcement,
 } from "../lib/announcements";
-import { announcementBodyFragment, safeAnnouncementUrl } from "../lib/announcement-body";
+import { announcementBodyFragment, announcementBodyMarkup, safeAnnouncementUrl } from "../lib/announcement-body";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
+import { readPageData } from "../lib/page-data";
+import { adoptPrerenderedWorkspace } from "../lib/workspace-page-data";
+import type { AnnouncementPageData } from "../lib/announcement-page-data";
 import { updateEntityHeading } from "../lib/detail-navigation";
 import { navigationDocumentUrl } from "../lib/document-url";
 import { RequestScope } from "../lib/request-scope";
@@ -31,7 +35,9 @@ export class AnnouncementDetail extends LitElement {
   private requests = new RequestScope();
   private loadedLocale?: string;
   private body?: HTMLDivElement;
-  private route = parseAnnouncementRoute(typeof location === "undefined" ? "" : navigationDocumentUrl().pathname);
+  private staticBody?: ReturnType<typeof announcementBodyMarkup>;
+  private pageAdopted = false;
+  private route = parseAnnouncementRoute(typeof location === "undefined" || !document.documentElement?.dataset ? "" : navigationDocumentUrl().pathname);
   private localeListener = (event: Event) => {
     const locale = (event as CustomEvent).detail;
     if (isLocale(locale)) this.locale = locale;
@@ -43,6 +49,31 @@ export class AnnouncementDetail extends LitElement {
   }
   createRenderRoot() {
     return this;
+  }
+  preparePage(page: AnnouncementPageData, locale: Locale, id?: number) {
+    adoptPrerenderedWorkspace(this);
+    this.locale = locale;
+    this.loadedLocale = locale;
+    this.route = parseAnnouncementRoute(announcementPath(page.server, locale, id));
+    const entry = page.detailErrors?.includes(id || 0) ? undefined : page.entries.find(row => row.id === id);
+    this.entry = entry;
+    this.phase = entry ? "ready" : page.phase === "error" || page.detailErrors?.includes(id || 0) ? "error" : "missing";
+    if (entry) {
+      if (this.isConnected) this.applyEntry(entry);
+      else this.staticBody = announcementBodyMarkup(entry.html || "", announcementText(locale, "table", "Announcement table"), entry.title);
+    }
+  }
+  private applyEntry(entry: Announcement) {
+    const body = document.createElement("div");
+    body.className = "prose announcement-body";
+    body.lang = announcementLanguage(entry, this.route!.server);
+    body.append(announcementBodyFragment(entry.html || "", announcementText(this.locale, "table", "Announcement table")));
+    const firstHeading = body.querySelector("h1, h2");
+    if (firstHeading && firstHeading.textContent?.replace(/\s+/gu, " ").trim() === entry.title.replace(/\s+/gu, " ").trim()) firstHeading.remove();
+    this.body = body;
+    this.staticBody = undefined;
+    this.entry = entry;
+    this.phase = "ready";
   }
   connectedCallback() {
     super.connectedCallback();
@@ -121,6 +152,13 @@ export class AnnouncementDetail extends LitElement {
     }
   }
   private async load() {
+    const page = readPageData<AnnouncementPageData>(this);
+    const route = parseAnnouncementRoute(navigationDocumentUrl().pathname);
+    if (!this.pageAdopted && page?.schema === "haneoka-announcement-page-v1" && page.locale === this.locale && (!route?.id || page.entries.some(entry => entry.id === route.id)) && !page.detailErrors?.includes(route?.id || 0)) {
+      this.pageAdopted = true;
+      this.preparePage(page, this.locale, route?.id);
+      return;
+    }
     this.loadedLocale = this.locale;
     const signal = this.requests.begin();
     this.route = parseAnnouncementRoute(navigationDocumentUrl().pathname);
@@ -136,21 +174,7 @@ export class AnnouncementDetail extends LitElement {
     try {
       const entry = await fetchAnnouncement(this.route.server, this.route.id, signal, this.locale);
       if (!this.requests.current(signal)) return;
-      const body = document.createElement("div");
-      body.className = "prose announcement-body";
-      body.lang = announcementLanguage(entry, this.route.server);
-      body.append(
-        announcementBodyFragment(entry.html || "", announcementText(this.locale, "table", "Announcement table")),
-      );
-      const firstHeading = body.querySelector("h1, h2");
-      if (
-        firstHeading &&
-        firstHeading.textContent?.replace(/\s+/gu, " ").trim() === entry.title.replace(/\s+/gu, " ").trim()
-      )
-        firstHeading.remove();
-      this.body = body;
-      this.entry = entry;
-      this.phase = "ready";
+      this.applyEntry(entry);
     } catch (error) {
       if (!this.requests.current(signal)) return;
       this.phase = error instanceof AnnouncementRequestError && error.status === 404 ? "missing" : "error";
@@ -168,7 +192,7 @@ export class AnnouncementDetail extends LitElement {
       `;
     const image = entry.bodyImage ? safeAnnouncementUrl(entry.bodyImage, true) : "";
     const includesImage =
-      image && [...(this.body?.querySelectorAll("img") || [])].some((node) => node.getAttribute("src") === image);
+      image && (this.staticBody?.images.includes(image) || [...(this.body?.querySelectorAll("img") || [])].some((node) => node.getAttribute("src") === image));
     return html`
       <article class="announcement-page announcement-detail" aria-labelledby="announcement-title">
         <section
@@ -222,9 +246,9 @@ export class AnnouncementDetail extends LitElement {
                 `
               : nothing
           }
-          ${this.body}
+          ${this.body || (this.staticBody ? html`<div class="prose announcement-body" lang=${announcementLanguage(entry, this.route.server)}>${unsafeHTML(this.staticBody.markup)}</div>` : nothing)}
           ${
-            !image && !this.body?.textContent?.trim() && !this.body?.querySelector("img")
+            !image && !this.staticBody?.text.trim() && !this.staticBody?.images.length && !this.body?.textContent?.trim() && !this.body?.querySelector("img")
               ? html`
                   <p class="md-body-medium md-on-surface-variant" role="status">
                     ${announcementText(this.locale, "bodyUnavailable", "The announcement content is unavailable.")}

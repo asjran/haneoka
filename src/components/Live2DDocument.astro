@@ -1,15 +1,25 @@
 ---
 import Base from "../layouts/Base.astro";
 import AppShell from "./AppShell.astro";
-import { t } from "../i18n/messages";
 import type { Locale } from "../i18n/locales";
+import { t } from "../i18n/messages";
 import { resourcePath } from "../lib/resource-route";
 import type { ReleaseServer } from "../lib/release-server";
-import "../lit/live2d-workspace";
+import { serializePageData } from "../lib/page-data";
+import { workspaceCollectionData } from "../server/workspace-page-data";
+import { renderCollectionWorkspace } from "../server/render-collection-workspaces";
 import "../styles/catalog.css";
 import "../styles/viewer.css";
 const { locale, server } = Astro.props as { locale: Locale; server?: ReleaseServer };
 const title = t(locale, "navigation.live2d", "Live2D");
+const payload = await workspaceCollectionData("live2d", server || "intl", locale);
+const page = await renderCollectionWorkspace(payload, locale);
+const dataId = "live2d-collection-" + payload.server + "-" + locale;
 ---
-<Base locale={locale} route="/catalog/live2d" canonicalRoute={server ? resourcePath({ server, locale, kind: "live2d" }) : undefined} title={title} titleKey="navigation.live2d"><AppShell locale={locale} route="/catalog/live2d" title={title} titleKey="navigation.live2d" server={server}><live2d-workspace locale={locale}></live2d-workspace></AppShell></Base>
+<Base locale={locale} route="/catalog/live2d" canonicalRoute={server ? resourcePath({ server, locale, kind: "live2d" }) : undefined} title={title} titleKey="navigation.live2d">
+  <AppShell locale={locale} route="/catalog/live2d" title={title} titleKey="navigation.live2d" server={server} appBar={page.appBar}>
+    <script is:inline type="application/json" id={dataId} set:html={serializePageData(payload)}></script>
+    <live2d-workspace locale={locale} data-page-data={dataId} data-prerendered set:html={page.body}></live2d-workspace>
+  </AppShell>
+</Base>
 <script>import "../lit/live2d-workspace";</script>
