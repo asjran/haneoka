@@ -1408,6 +1408,11 @@ def prune_garupa_master_snapshots(
     return prune_snapshots(store, server=server, retain=retain)
 
 
+def _same_modified_time(actual: object, expected: datetime) -> bool:
+    # S3 HEAD uses an HTTP date (whole seconds); LIST retains fractional seconds.
+    return isinstance(actual, datetime) and actual.replace(microsecond=0) == expected.replace(microsecond=0)
+
+
 def prune_package_leases(
     store: R2Store,
     config: ServerConfig,
@@ -1436,7 +1441,7 @@ def prune_package_leases(
             retained.append(key)
             continue
         current = store.head(key)
-        if current is None or current.get("LastModified") != modified or current.get("ETag") != item.get("ETag") or current.get("ContentLength") != item.get("Size"):
+        if current is None or not _same_modified_time(current.get("LastModified"), modified) or current.get("ETag") != item.get("ETag") or current.get("ContentLength") != item.get("Size"):
             changed.append(key)
             continue
         planned.append(key)
@@ -1775,19 +1780,19 @@ def garbage_collect_cas(
 
     def unchanged_candidate(
         item: tuple[str, tuple[datetime, int, str]],
-    ) -> tuple[str, str, list[str]]:
+    ) -> tuple[str, str, list[str], bool]:
         key, (expected_modified, expected_size, expected_etag) = item
         metadata = store.head(key)
         if metadata is None:
-            return key, "missing", []
+            return key, "missing", [], False
         digest = parse_cas_key(key)
         object_metadata = metadata.get("Metadata")
         reasons = []
         modified = metadata.get("LastModified")
-        if modified != expected_modified:
+        same_modified = _same_modified_time(modified, expected_modified)
+        precision_adjusted = same_modified and modified != expected_modified
+        if not same_modified:
             reasons.append("lastModified")
-            if isinstance(modified, datetime) and modified.replace(microsecond=0) == expected_modified.replace(microsecond=0):
-                reasons.append("lastModifiedSubsecond")
         if metadata.get("ContentLength") != expected_size:
             reasons.append("size")
         if metadata.get("ETag") != expected_etag:
@@ -1795,11 +1800,12 @@ def garbage_collect_cas(
         recorded_digest = object_metadata.get("sha256") if isinstance(object_metadata, dict) else None
         if recorded_digest != digest:
             reasons.append("sha256Missing" if recorded_digest is None else "sha256Mismatch")
-        return key, "changed" if reasons else "unchanged", reasons
+        return key, "changed" if reasons else "unchanged", reasons, precision_adjusted
 
     garbage: list[str] = []
     changed: list[str] = []
     changed_reasons: dict[str, int] = defaultdict(int)
+    timestamp_precision_adjusted = 0
     missing: list[str] = []
     deleted = 0
     candidate_items = sorted(candidates.items())
@@ -1807,7 +1813,8 @@ def garbage_collect_cas(
         for offset in range(0, len(candidate_items), 1000):
             batch = candidate_items[offset : offset + 1000]
             verified: list[str] = []
-            for key, state, reasons in executor.map(unchanged_candidate, batch):
+            for key, state, reasons, precision_adjusted in executor.map(unchanged_candidate, batch):
+                timestamp_precision_adjusted += precision_adjusted
                 if state == "unchanged":
                     verified.append(key)
                 elif state == "changed":
@@ -1842,6 +1849,7 @@ def garbage_collect_cas(
         "newlyReferencedObjects": len(newly_referenced),
         "changedObjects": len(changed),
         "changedObjectReasons": dict(sorted(changed_reasons.items())),
+        "timestampPrecisionAdjustedObjects": timestamp_precision_adjusted,
         "missingObjects": len(missing),
         "garbageObjects": len(garbage),
         "garbageBytes": garbage_bytes,
