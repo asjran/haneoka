@@ -1,6 +1,6 @@
 import { createEmbedLoader, memoryDataSource } from "@haneoka/embed-core";
 import { createHaneokaBranding } from "@haneoka/embed-core/branding";
-import type { VegaEngine, VegaPlayerHandle } from "@haneoka/vega/engine";
+import type { VegaEngine, VegaPlayerHandle } from "@haneoka/vega/web";
 import { collectPlaybackUrls, resolveStoryUrls } from "./story-urls.js";
 import { createPlaybackUrls } from "./playback-urls.js";
 import type {
@@ -231,7 +231,7 @@ export function mountStory(container: HTMLElement, options: MountStoryOptions): 
         { vegaPortableUiPlugin },
         { createVegaRichTextPlugin },
       ] = await Promise.all([
-        import("@haneoka/vega/engine"),
+        import("@haneoka/vega/web"),
         import("@haneoka/vega/plugin"),
         import("@haneoka/vega-renderer-three"),
         import("@haneoka/vega-ui-portable"),

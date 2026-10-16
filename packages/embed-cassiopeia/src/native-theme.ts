@@ -48,7 +48,8 @@ export async function createNativeTheme(
   const manifest = createOurNotesAssetManifest(
     {
       ...context.skin,
-      currentQuality: context.skin.currentQuality ?? 2,
+      gekisouLaneAvailable: files.some((path) => path.endsWith("/lane_tap_excellenet_view.prefab")),
+      currentQuality: context.skin.currentQuality ?? 0,
       fontAtlasTextureUrl: output(font, "Texture2D"),
       hud: {
         judgementImages: Object.fromEntries(

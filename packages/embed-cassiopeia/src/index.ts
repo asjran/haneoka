@@ -44,6 +44,8 @@ export function mountChart(container: HTMLElement, options: MountChartOptions): 
   let skin = { ...options.skin };
   let playback: ChartPlaybackOptions = {
     mode: options.mode ?? "watch",
+    ...(options.gekisou === undefined ? {} : { gekisou: options.gekisou }),
+    ...(options.watchVisualReplay === undefined ? {} : { watchVisualReplay: options.watchVisualReplay }),
     settings: options.settings ?? {},
     volume: options.volume ?? 0.8,
     rate: options.rate ?? 1,
@@ -58,10 +60,12 @@ export function mountChart(container: HTMLElement, options: MountChartOptions): 
   let chartUpdating = false;
   let mutations: Promise<void> = Promise.resolve();
   const enqueueMutation = (action: () => Promise<void>) => {
-    const pending = mutations.catch(() => {}).then(() => {
-      controller.signal.throwIfAborted();
-      return action();
-    });
+    const pending = mutations
+      .catch(() => {})
+      .then(() => {
+        controller.signal.throwIfAborted();
+        return action();
+      });
     mutations = pending;
     return pending;
   };
@@ -153,12 +157,28 @@ export function mountChart(container: HTMLElement, options: MountChartOptions): 
           signal.throwIfAborted();
           candidate = await createVuePlayer(
             element,
-            { ...document, ...(background === undefined ? {} : { background }) },
+            {
+              ...document,
+              ...(background === undefined ? {} : { background }),
+            },
             resolved,
             playback,
             options.labels,
             signal,
             playerEvent,
+            {
+              ...(options.runtime ? { runtime: options.runtime } : {}),
+              resources: {
+                async readJson(url, owner) {
+                  const bytes = await loader.resourceBytes(url, {
+                    signal: AbortSignal.any([signal, owner]),
+                  });
+                  return JSON.parse(new TextDecoder().decode(bytes));
+                },
+                resolveUrl: (url, owner) =>
+                  resolveNativeResourceUrl(url, loader, AbortSignal.any([signal, owner]), nativeUrls),
+              },
+            },
           );
         }
         if (signal.aborted) {
@@ -237,57 +257,85 @@ export function mountChart(container: HTMLElement, options: MountChartOptions): 
       };
       await active.setOptions(playback);
     },
-    ...(!options.rendererAdapter ? {
-      getPresentation: () => phase === "ready" && !chartUpdating && !controller.signal.aborted
-        ? driver?.getPresentation?.() : undefined,
-      async setChart(chart, value = {}) {
-        required();
-        if (!Array.isArray(chart?.notes) || !Array.isArray(chart.lines) || !Number.isFinite(chart.durationMs) || chart.durationMs < 0)
-          throw new TypeError("Chart document requires notes, lines and a nonnegative durationMs");
-        if (value.bgmOffsetMs !== undefined && !Number.isFinite(value.bgmOffsetMs))
-          throw new RangeError("bgmOffsetMs requires finite milliseconds");
-        return enqueueMutation(async () => {
-          const active = required(), epoch = driverEpoch, position = time;
-          const profileOnly = chart === document.chart && (value.bgmOffsetMs === undefined || value.bgmOffsetMs === (document.bgmOffsetMs ?? 0));
-          if (!active.setChart) throw new Error("This player does not support chart replacement");
-          active.pause();
-          playing = false;
-          if (profileOnly && value.visualProfiles === document.visualProfiles) { publish(); return; }
-          chartUpdating = true;
-          publish();
-          try {
-            await active.setChart(chart, value);
-            controller.signal.throwIfAborted();
-            if (driver !== active || driverEpoch !== epoch) throw new DOMException("Chart player changed", "AbortError");
-            active.pause();
-            const target = Math.min(position, Math.max(0, duration));
-            const rendered = active.waitForPresentation?.();
-            void rendered?.catch(() => {});
-            if (!profileOnly) active.seek(target);
-            await rendered;
-            controller.signal.throwIfAborted();
-            if (driver !== active || driverEpoch !== epoch) throw new DOMException("Chart player changed", "AbortError");
-            const { visualProfiles: _previousProfiles, ...retained } = document;
-            document = { ...retained, chart, ...(value.bgmOffsetMs === undefined ? {} : { bgmOffsetMs: value.bgmOffsetMs }),
-              ...(value.visualProfiles === undefined ? {} : { visualProfiles: value.visualProfiles }) };
-            time = target;
-            playing = false;
-          } catch (error) {
-            if (!(error instanceof ChartReplacementRejectedError) && driver === active && driverEpoch === epoch) failure(error);
-            throw error;
-          } finally {
-            chartUpdating = false;
-            if (phase === "ready" && driver === active && driverEpoch === epoch) publish();
-          }
-        });
-      },
-    } satisfies Pick<ChartEmbedHandle, "getPresentation" | "setChart"> : {}),
+    ...(!options.rendererAdapter
+      ? ({
+          getPresentation: () =>
+            phase === "ready" && !chartUpdating && !controller.signal.aborted ? driver?.getPresentation?.() : undefined,
+          async setChart(chart, value = {}) {
+            required();
+            if (
+              !Array.isArray(chart?.notes) ||
+              !Array.isArray(chart.lines) ||
+              !Number.isFinite(chart.durationMs) ||
+              chart.durationMs < 0
+            )
+              throw new TypeError("Chart document requires notes, lines and a nonnegative durationMs");
+            if (value.bgmOffsetMs !== undefined && !Number.isFinite(value.bgmOffsetMs))
+              throw new RangeError("bgmOffsetMs requires finite milliseconds");
+            return enqueueMutation(async () => {
+              const active = required(),
+                epoch = driverEpoch,
+                position = time;
+              const profileOnly =
+                chart === document.chart &&
+                (value.gekisou === undefined || value.gekisou === document.gekisou) &&
+                (value.bgmOffsetMs === undefined || value.bgmOffsetMs === (document.bgmOffsetMs ?? 0));
+              if (!active.setChart) throw new Error("This player does not support chart replacement");
+              active.pause();
+              playing = false;
+              if (profileOnly && value.visualProfiles === document.visualProfiles) {
+                publish();
+                return;
+              }
+              chartUpdating = true;
+              publish();
+              try {
+                await active.setChart(chart, value);
+                controller.signal.throwIfAborted();
+                if (driver !== active || driverEpoch !== epoch)
+                  throw new DOMException("Chart player changed", "AbortError");
+                active.pause();
+                const target = Math.min(position, Math.max(0, duration));
+                const rendered = active.waitForPresentation?.();
+                void rendered?.catch(() => {});
+                if (!profileOnly) active.seek(target);
+                await rendered;
+                controller.signal.throwIfAborted();
+                if (driver !== active || driverEpoch !== epoch)
+                  throw new DOMException("Chart player changed", "AbortError");
+                const { visualProfiles: _previousProfiles, gekisou: _previousGekisou, ...retained } = document;
+                document = {
+                  ...retained,
+                  chart,
+                  ...(value.bgmOffsetMs === undefined ? {} : { bgmOffsetMs: value.bgmOffsetMs }),
+                  ...(value.visualProfiles === undefined ? {} : { visualProfiles: value.visualProfiles }),
+                  ...((profileOnly && value.gekisou === undefined ? document.gekisou : value.gekisou) === undefined
+                    ? {}
+                    : {
+                        gekisou: (profileOnly && value.gekisou === undefined ? document.gekisou : value.gekisou)!,
+                      }),
+                };
+                time = target;
+                playing = false;
+              } catch (error) {
+                if (!(error instanceof ChartReplacementRejectedError) && driver === active && driverEpoch === epoch)
+                  failure(error);
+                throw error;
+              } finally {
+                chartUpdating = false;
+                if (phase === "ready" && driver === active && driverEpoch === epoch) publish();
+              }
+            });
+          },
+        } satisfies Pick<ChartEmbedHandle, "getPresentation" | "setChart">)
+      : {}),
     async setSkin(value) {
       required();
       if (!options.theme || options.rendererAdapter) throw new Error("setSkin requires a default-player theme factory");
       return enqueueMutation(async () => {
         required();
         const position = time;
+        const previousDuration = duration;
         driver!.pause();
         stop();
         const epoch = driverEpoch;
@@ -302,13 +350,16 @@ export function mountChart(container: HTMLElement, options: MountChartOptions): 
             throw new DOMException("Chart player changed", "AbortError");
           }
           driver = candidate;
-          const target = duration > 0 ? Math.min(position, duration) : position;
+          // The same media can report only chart duration while its new element loads metadata.
+          duration = Math.max(previousDuration, duration);
+          const target = position;
           const rendered = driver.waitForPresentation?.();
           void rendered?.catch(() => {});
           driver.seek(target);
           await rendered;
           controller.signal.throwIfAborted();
-          if (driver !== candidate || driverEpoch !== epoch) throw new DOMException("Chart player changed", "AbortError");
+          if (driver !== candidate || driverEpoch !== epoch)
+            throw new DOMException("Chart player changed", "AbortError");
           phase = "ready";
           time = target;
           publish();

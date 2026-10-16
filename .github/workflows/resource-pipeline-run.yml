@@ -634,6 +634,8 @@ jobs:
             .gitmodules
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
+      - name: Set up the locked Vega Rust and WASM toolchain
+        uses: ./.dependencies/vega/.github/actions/setup-wasm
       - name: Install workspace dependencies
         # build-api bundles the Sonolus chart converter
         # (packages/sonolus/src/convert/index.ts) through esbuild at build

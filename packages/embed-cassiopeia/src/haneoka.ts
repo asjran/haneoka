@@ -11,6 +11,7 @@ export interface HaneokaChartSourceOptions {
 }
 interface Song {
   musicUrl: string;
+  gekisou?: { missionTypes?: readonly number[] };
   difficulty: Array<{ difficultyName: string; file: string }>;
 }
 
@@ -37,12 +38,22 @@ export function haneokaChartSource(options: HaneokaChartSourceOptions): DataSour
         if (event.type === "progress") context.progress(event);
       });
       try {
-        const bytes = await chartLoader.resourceBytes(selected.file, { signal: context.signal });
+        const bytes = await chartLoader.resourceBytes(selected.file, {
+          signal: context.signal,
+        });
         const { parseScore, buildChart } = await import("@haneoka/cassiopeia-plugin-our-notes");
         context.signal.throwIfAborted();
         return {
           chart: buildChart(parseScore(new TextDecoder("utf-8", { fatal: true }).decode(bytes))),
           audio: song.musicUrl,
+          ...(song.gekisou?.missionTypes
+            ? {
+                gekisou: {
+                  enabled: false,
+                  missionTypes: song.gekisou.missionTypes,
+                },
+              }
+            : {}),
         };
       } finally {
         unsubscribe();
@@ -54,11 +65,20 @@ export function haneokaChartSource(options: HaneokaChartSourceOptions): DataSour
 
 /** Optional original visual/audio theme; independent from the document's origin. */
 export function haneokaChartTheme(
-  options: { readonly apiBase?: string; readonly publicBase?: string; readonly server?: string } = {},
+  options: {
+    readonly apiBase?: string;
+    readonly publicBase?: string;
+    readonly server?: string;
+  } = {},
 ): ChartTheme {
   const apiBase = new URL(options.apiBase ?? "https://haneoka.org/api/v1/");
   if (!apiBase.pathname.endsWith("/")) apiBase.pathname += "/";
   const publicBase = new URL(options.publicBase ?? "/", apiBase);
   return (context) =>
-    createNativeTheme({ ...context, apiBase, publicBase, server: options.server ?? context.loader.server ?? "intl" });
+    createNativeTheme({
+      ...context,
+      apiBase,
+      publicBase,
+      server: options.server ?? context.loader.server ?? "intl",
+    });
 }

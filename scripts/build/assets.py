@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -29,11 +31,200 @@ RUNTIME_PROJECTION_PREFIXES = (
     "Assets/AddressableResources/Effect/Live/",
 )
 RUNTIME_PROJECTION_TYPES = {"AnimationClip", "ParticleSystem", "Sprite", "SpriteAtlas", "SpriteRenderer"}
+# Exactly the four Sprite sources referenced by each original intro prefab.
+LIVE_INTRO_SPRITE_SOURCES = {
+    f"Assets/AddressableResources/Band/{band}/timeline/{asset}.png"
+    for band in range(6)
+    for asset in ("white_line_antialiasing", "ef_star_icon", "white_square", "live_game_white")
+}
+LIVE_INTRO_ANIMATION_SOURCES = {
+    f"Assets/AddressableResources/Band/{band}/timeline/{name}.anim"
+    for band in range(6)
+    for name in ("UILiveStartCanvas_hide", "UILiveStartCanvas_show", "live_game_view_in", "live_game_view_init",
+                 "camera_track", "moving_light_root", "live_background_view", "live_game_lane_effect_in", "live_game_lane_effect_init")
+}
+# Original live intro data only. Shader programs are never projected here.
+LIVE_INTRO_RUNTIME_SOURCES = {
+    *LIVE_INTRO_SPRITE_SOURCES,
+    *LIVE_INTRO_ANIMATION_SOURCES,
+    "Assets/AddressableResources/Live/Images/NonAtlas/LiveStartAnim/lane_mesh.fbx",
+    "Assets/AddressableResources/Live/Materials/LiveStartAnim/white_line.mat",
+    "Assets/AddressableResources/Live/Materials/LiveStartAnim/white_star.mat",
+    *(
+        f"Assets/AddressableResources/Band/{band}/timeline/{asset}"
+        for band in range(6)
+        for asset in ("live_start_playable_timeline.prefab", "live_start_timeline_asset.playable", "white_line_center.mat", "white_line.mat", "white_star.mat")
+    ),
+}
+LIVE_INTRO_PROJECTION_TYPES = {
+    "GameObject", "Transform", "RectTransform", "SkinnedMeshRenderer", "Mesh",
+    "Animator", "AnimatorController", "MonoBehaviour", "PlayableDirector",
+    "AnimationClip", "ParticleSystem", "ParticleSystemRenderer", "SpriteRenderer", "SortingGroup", "Material",
+}
+LIVE_INTRO_PROJECTION_POLICY = "live-intro-data-v4"
+# Stable source and semantic object paths; serialized identities are discovered from each real build.
+FX_SHARED_PREFAB_PARTICLE_PATHS = {'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                              'root/ef_splash/ef_particle_star',
+                                                                                              'root/ef_splash/ef_wall_center',
+                                                                                              'root/ef_splash_move/ef_particl_splash',
+                                                                                              'root/ef_splash_move/ef_particl_splash_line',
+                                                                                              'root/ef_splash_move/ef_particl_splash_line02',
+                                                                                              'root/ef_splash_move/ef_particle_point01',
+                                                                                              'root/ef_splash_move/ef_particle_point02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                   'root/ef_splash/ef_particle_star',
+                                                                                                   'root/ef_splash/ef_wall_center',
+                                                                                                   'root/ef_splash_move/ef_splash',
+                                                                                                   'root/ef_splash_move/ef_splash/ef_splash02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                    'root/ef_splash/ef_particle_star',
+                                                                                                    'root/ef_splash/ef_wall_center',
+                                                                                                    'root/ef_splash_move/ef_splash',
+                                                                                                    'root/ef_splash_move/ef_splash/ef_splash02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_just.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                             'root/ef_splash/ef_particle_star',
+                                                                                             'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_normal.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                               'root/ef_splash/ef_particle_star',
+                                                                                               'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                              'root/ef_splash/ef_particle_star',
+                                                                                              'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_connect.prefab': frozenset({'root/ef_splash',
+                                                                                                      'root/ef_splash/ef_particle_point',
+                                                                                                      'root/ef_splash/ef_particle_star',
+                                                                                                      'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_loop.prefab': frozenset({'root/ef_slide_loop/ef_particle_point',
+                                                                                                   'root/ef_slide_loop/ef_particle_point_frame',
+                                                                                                   'root/ef_slide_loop/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                              'root/ef_splash/ef_particle_star',
+                                                                                                              'root/ef_splash/ef_wall_center',
+                                                                                                              'root/ef_splash_move/ef_splash',
+                                                                                                              'root/ef_splash_move/ef_splash/ef_splash02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                         'root/ef_splash/ef_particle_star',
+                                                                                                         'root/ef_splash/ef_wall_center',
+                                                                                                         'root/ef_splash_move/ef_particl_splash',
+                                                                                                         'root/ef_splash_move/ef_particl_splash_line',
+                                                                                                         'root/ef_splash_move/ef_particl_splash_line02',
+                                                                                                         'root/ef_splash_move/ef_particle_point01',
+                                                                                                         'root/ef_splash_move/ef_particle_point02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                               'root/ef_splash/ef_particle_star',
+                                                                                                               'root/ef_splash/ef_wall_center',
+                                                                                                               'root/ef_splash_move/ef_splash',
+                                                                                                               'root/ef_splash_move/ef_splash/ef_splash02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_just_light.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                        'root/ef_splash/ef_particle_star',
+                                                                                                        'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_normal_light.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                          'root/ef_splash/ef_particle_star',
+                                                                                                          'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_connect_light.prefab': frozenset({'root/ef_splash',
+                                                                                                                 'root/ef_splash/ef_particle_point',
+                                                                                                                 'root/ef_splash/ef_particle_star',
+                                                                                                                 'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_light.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                         'root/ef_splash/ef_particle_star',
+                                                                                                         'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_loop_light.prefab': frozenset({'root/ef_slide_loop/ef_particle_point',
+                                                                                                              'root/ef_slide_loop/ef_particle_point_frame',
+                                                                                                              'root/ef_slide_loop/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_left_simple.prefab': frozenset({'root/ef_splash/ef_wall_center',
+                                                                                                                'root/ef_splash_move/ef_splash',
+                                                                                                                'root/ef_splash_move/ef_splash/ef_splash02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_right_simple.prefab': frozenset({'root/ef_splash/ef_wall_center',
+                                                                                                                 'root/ef_splash_move/ef_splash',
+                                                                                                                 'root/ef_splash_move/ef_splash/ef_splash02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_simple.prefab': frozenset({'root/ef_splash/ef_wall_center',
+                                                                                                           'root/ef_splash_move/ef_particle_point01',
+                                                                                                           'root/ef_splash_move/ef_particle_point02'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_groove_simple.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                            'root/ef_splash/ef_particle_point_center',
+                                                                                                            'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_normal_simple.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                            'root/ef_splash/ef_particle_point_center',
+                                                                                                            'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple.prefab': frozenset({'root/ef_splash/ef_particle_point',
+                                                                                                           'root/ef_splash/ef_particle_point_center',
+                                                                                                           'root/ef_splash/ef_wall_center'}),
+ 'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple_loop.prefab': frozenset({'root/ef_slide_loop/ef_particle_point ',
+                                                                                                                'root/ef_slide_loop/ef_particle_point_',
+                                                                                                                'root/ef_slide_loop/ef_wall_center'})}
+FX_SHARED_RUNTIME_SOURCES = frozenset({'Assets/AddressableResources/Effect/Live/NoteEffect/common/Material/ef_tap_normal_glow.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/Material/ef_tap_normal_long_glow.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/Material/ef_tap_pillar_glow.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/Material/ef_tap_pillar_glow02.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/Material/ef_tap_strong_glow.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/Material/ef_tap_wall.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/MaterialLight/tap_flame_light.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/MaterialLight/tap_normal_glow_light.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/MaterialLight/tap_pillar_light.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/MaterialLight/tap_wall_light.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/MaterialSimple/note_point_simple.mat',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/Texture/ef_tap_line.png',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/Texture/ef_tap_pillar.png',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/common/TextureLight/ef_tap_line_light.png',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_just.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_normal.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_connect.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_loop.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_just_light.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_normal_light.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_connect_light.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_light.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_loop_light.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_left_simple.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_right_simple.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_simple.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_groove_simple.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_normal_simple.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple.prefab',
+           'Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple_loop.prefab',
+           'Assets/AddressableResources/Live/Fbx/tap_wall_effect.fbx'})
+LIVE_TAP_FADE_SOURCE = "Assets/AddressableResources/Scene/Live.unity"
+TYPED_DATA_RUNTIME_SOURCES = LIVE_INTRO_RUNTIME_SOURCES | FX_SHARED_RUNTIME_SOURCES | {LIVE_TAP_FADE_SOURCE}
+
+def _typed_data_projection_policy(source_path: str) -> str:
+    if source_path == LIVE_TAP_FADE_SOURCE:
+        return "live-tap-fade-data-v1"
+    return "live-fx-shared-data-v2" if source_path in FX_SHARED_RUNTIME_SOURCES else LIVE_INTRO_PROJECTION_POLICY
+
 HUD_FONT_RUNTIME_SOURCES = {
     "Assets/AddressableResources/Font/VibeMOPro-Medium/VibeMOPro-Medium SDF.asset",
     "Packages/com.fromtokyo.sirius-asset/AddressableResources/Font/"
     "VibeMOPro-Medium/VibeMOPro-Medium SDF.asset",
 }
+
+
+def _intro_projection_value(value: Any) -> Any:
+    """Keep original 64-bit PPtr identity through JavaScript and Dart JSON readers."""
+    if isinstance(value, list):
+        return [_intro_projection_value(item) for item in value]
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            if key == "m_PostExtrapolationTime" and isinstance(item, float) and item == math.inf:
+                # Timeline's authored unbounded Hold range; valid JSON retains its scalar type explicitly.
+                result[key] = {"$unityFloat": "Infinity"}
+            else:
+                result[key] = _intro_projection_value(item)
+        if "m_FileID" in value and "m_PathID" in value:
+            path_id = value["m_PathID"]
+            if isinstance(path_id, int) and not isinstance(path_id, bool):
+                result["m_PathID"] = str(path_id)
+        return result
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("non-finite Unity scalar requires its own field-specific runtime contract")
+    return value
 
 
 def _merge_tree(source: Path, target: Path) -> None:
@@ -214,6 +405,156 @@ def _archive_records(file: Path) -> dict[str, dict[str, dict[str, Any]]]:
     return dict(records)
 
 
+def _discover_shared_fx_records(layout, sources: list[dict[str, Any]]) -> dict[str, dict[tuple[str, str], str]]:
+    """Resolve the shared renderer graph from this build's actual declared object identities."""
+    available = {source["sourcePath"]: source for source in sources if source["sourcePath"] in FX_SHARED_RUNTIME_SOURCES}
+    prefabs = set(available) & FX_SHARED_PREFAB_PARTICLE_PATHS.keys()
+    if not prefabs:
+        if available:
+            raise ValueError("shared FX projection requires the coherent prefab source closure")
+        return {}
+    missing_sources = FX_SHARED_RUNTIME_SOURCES - available.keys()
+    if missing_sources:
+        raise ValueError(f"shared FX projection source closure missing: {sorted(missing_sources)}")
+    loaded: dict[str, dict[str, dict[str, Any]]] = {}
+    selected: dict[str, dict[tuple[str, str], str]] = defaultdict(dict)
+
+    def records_for(source_path: str) -> dict[str, dict[str, Any]]:
+        if source_path not in loaded:
+            source = available[source_path]
+            digest = source["selectedBundle"]
+            archive = layout.objects / "unity" / f"{digest}.jsonl.gz"
+            declared = source["objectArchive"]
+            if (declared.get("path") != f"objects/unity/{digest}.jsonl.gz" or
+                    not archive.is_file() or archive.stat().st_size != declared.get("bytes") or
+                    sha256_file(archive) != declared.get("sha256")):
+                raise ValueError(f"shared FX original archive identity mismatch: {source_path}")
+            records = _archive_records(archive).get(source["serializedFile"], {})
+            declared_ids = set(source["rootObjects"]) | set(source.get("preloadObjects", []))
+            loaded[source_path] = {key: value for key, value in records.items() if key in declared_ids}
+        return loaded[source_path]
+
+    def take(source_path: str, path_id: str, expected_type: str) -> dict[str, Any]:
+        record = records_for(source_path).get(path_id)
+        if not record or record.get("type") != expected_type:
+            raise ValueError(f"shared FX original declared object mismatch: {source_path}:{path_id}:{expected_type}")
+        selected[source_path][(record["serializedFile"], path_id)] = expected_type
+        return record
+
+    external_references: dict[tuple[str, str], dict[str, Any]] = {}
+    def collect_external(value: Any) -> None:
+        if isinstance(value, dict):
+            reference = value.get("reference")
+            if isinstance(reference, dict) and reference.get("type") in {"Material", "Sprite", "Mesh"}:
+                if reference.get("status") != "resolved" or str(value.get("m_PathID")) != reference.get("pathId"):
+                    raise ValueError("shared FX external PPtr identity is unresolved")
+                external_references[(reference["serializedFile"], reference["pathId"])] = reference
+            for child in value.values():
+                collect_external(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect_external(child)
+
+    for source_path in sorted(prefabs):
+        records = records_for(source_path)
+        transforms: dict[str, str] = {}
+        sorting: dict[str, list[str]] = defaultdict(list)
+        renderers: dict[str, list[str]] = defaultdict(list)
+        def local_pointer(value: Any) -> str:
+            if not isinstance(value, dict) or value.get("m_FileID") != 0:
+                raise ValueError(f"shared FX prefab hierarchy pointer is not local: {source_path}")
+            return str(value["m_PathID"])
+        for path_id, record in records.items():
+            kind = record.get("type")
+            if kind in {"Transform", "RectTransform", "SortingGroup", "ParticleSystemRenderer"}:
+                owner = local_pointer(record["data"]["m_GameObject"])
+                if kind in {"Transform", "RectTransform"}:
+                    if owner in transforms:
+                        raise ValueError(f"shared FX GameObject has duplicate transforms: {source_path}:{owner}")
+                    transforms[owner] = path_id
+                elif kind == "SortingGroup":
+                    sorting[owner].append(path_id)
+                else:
+                    renderers[owner].append(path_id)
+        def object_path(owner: str) -> str:
+            names = []
+            visited = set()
+            while owner != "0":
+                if owner in visited or owner not in transforms:
+                    raise ValueError(f"shared FX transform hierarchy is cyclic or incomplete: {source_path}")
+                visited.add(owner)
+                game_object = records.get(owner)
+                if not game_object or game_object.get("type") != "GameObject":
+                    raise ValueError(f"shared FX hierarchy GameObject missing: {source_path}:{owner}")
+                names.append(game_object["data"]["m_Name"])
+                parent = local_pointer(records[transforms[owner]]["data"]["m_Father"])
+                if parent == "0":
+                    break
+                owner = local_pointer(records[parent]["data"]["m_GameObject"])
+            return "/".join(reversed(names[:-1]))
+        def take_hierarchy(owner: str) -> None:
+            visited = set()
+            while owner != "0":
+                if owner in visited or owner not in transforms:
+                    raise ValueError(f"shared FX transform ancestry is cyclic or incomplete: {source_path}")
+                visited.add(owner)
+                take(source_path, owner, "GameObject")
+                transform = records[transforms[owner]]
+                take(source_path, transforms[owner], transform["type"])
+                for group in sorting.get(owner, []):
+                    take(source_path, group, "SortingGroup")
+                parent = local_pointer(transform["data"]["m_Father"])
+                owner = "0" if parent == "0" else local_pointer(records[parent]["data"]["m_GameObject"])
+        expected_paths = FX_SHARED_PREFAB_PARTICLE_PATHS[source_path]
+        found_paths = set()
+        for path_id, record in records.items():
+            kind = record.get("type")
+            if kind not in {"ParticleSystem", "SpriteRenderer"}:
+                continue
+            owner = local_pointer(record["data"]["m_GameObject"])
+            if kind == "ParticleSystem":
+                path = object_path(owner)
+                if path not in expected_paths:
+                    continue
+                if path in found_paths or len(renderers.get(owner, [])) != 1:
+                    raise ValueError(f"shared FX active particle path/renderer is ambiguous: {source_path}:{path}")
+                found_paths.add(path)
+                take(source_path, path_id, kind)
+                shape = record["data"].get("ShapeModule")
+                if not isinstance(shape, dict):
+                    raise ValueError(f"shared FX particle ShapeModule missing: {source_path}:{path}")
+                for geometry_field, geometry_type in (("m_Mesh", "Mesh"), ("m_Sprite", "Sprite")):
+                    pointer = shape.get(geometry_field)
+                    if not isinstance(pointer, dict) or "m_PathID" not in pointer:
+                        raise ValueError(f"shared FX particle geometry pointer missing: {source_path}:{geometry_field}")
+                    if str(pointer["m_PathID"]) == "0":
+                        continue
+                    if pointer.get("m_FileID") == 0:
+                        take(source_path, str(pointer["m_PathID"]), geometry_type)
+                    elif not isinstance(pointer.get("reference"), dict) or pointer["reference"].get("type") != geometry_type:
+                        raise ValueError(f"shared FX particle geometry class/reference unresolved: {source_path}:{geometry_field}")
+                for unsupported_geometry_field in ("m_MeshRenderer", "m_SkinnedMeshRenderer", "m_SpriteRenderer", "m_Texture"):
+                    pointer = shape.get(unsupported_geometry_field)
+                    if not isinstance(pointer, dict) or "m_PathID" not in pointer or str(pointer["m_PathID"]) != "0":
+                        raise ValueError(f"shared FX particle geometry requires another explicit source contract: {source_path}:{unsupported_geometry_field}")
+                collect_external(record["data"])
+                renderer = take(source_path, renderers[owner][0], "ParticleSystemRenderer")
+                collect_external(renderer["data"])
+            else:
+                take(source_path, path_id, kind)
+                collect_external(record["data"])
+            take_hierarchy(owner)
+        if found_paths != expected_paths:
+            raise ValueError(f"shared FX semantic particle paths missing: {source_path}:{sorted(expected_paths - found_paths)}")
+    for (owner_file, path_id), reference in external_references.items():
+        matches = [source_path for source_path, source in available.items()
+                   if source["serializedFile"] == owner_file and path_id in records_for(source_path)]
+        if len(matches) != 1:
+            raise ValueError(f"shared FX external object has no unique declared source: {owner_file}:{path_id}")
+        take(matches[0], path_id, reference["type"])
+    return dict(selected)
+
+
 def _runtime_projections(
     layout,
     sources: list[dict[str, Any]],
@@ -231,12 +572,19 @@ def _runtime_projections(
     identity before any of its fields are trusted.
     """
 
+    fx_records = _discover_shared_fx_records(layout, sources)
+    fx_selection_documents = {
+        path: [{"serializedFile": owner, "pathId": identity, "type": kind}
+               for (owner, identity), kind in sorted(records.items())]
+        for path, records in fx_records.items()
+    }
     by_bundle: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for source in sources:
         source_path = source["sourcePath"]
         if (
             source_path.startswith(RUNTIME_PROJECTION_PREFIXES)
             or source_path in HUD_FONT_RUNTIME_SOURCES
+            or source_path in TYPED_DATA_RUNTIME_SOURCES
         ):
             by_bundle[source["selectedBundle"]].append(source)
     output_count = 0
@@ -266,32 +614,81 @@ def _runtime_projections(
                     f"base descriptor does not match the recomputed source identity: "
                     f"{source['sourcePath']} ({field})"
                 )
+        if source["sourcePath"] in TYPED_DATA_RUNTIME_SOURCES and document.get("runtimeProjectionPolicy") != _typed_data_projection_policy(source["sourcePath"]):
+            return None
+        expected_fx = fx_selection_documents.get(source["sourcePath"])
+        if expected_fx is not None and document.get("sharedFxProjectionRecords") != expected_fx:
+            return None
         projections = document.get("runtimeObjects")
         if not isinstance(projections, list):
             return None
         return deepcopy(projections)
 
     for digest, bundle_sources in sorted(by_bundle.items()):
-        if delta is not None and delta.reusable(digest):
-            for source in bundle_sources:
+        pending_sources = []
+        for source in bundle_sources:
+            if delta is not None and delta.reusable(digest):
                 projections = adopt(source)
-                if projections is None:
+                if projections is not None:
+                    source["runtimeObjects"] = projections
+                    if source["sourcePath"] in TYPED_DATA_RUNTIME_SOURCES:
+                        source["runtimeProjectionPolicy"] = _typed_data_projection_policy(source["sourcePath"])
+                    if source["sourcePath"] in fx_selection_documents:
+                        source["sharedFxProjectionRecords"] = fx_selection_documents[source["sourcePath"]]
+                    adopted_count += len(projections)
+                    continue
+                if source["sourcePath"] not in TYPED_DATA_RUNTIME_SOURCES:
                     raise ValueError(
                         f"base descriptor could not provide runtime projections: "
                         f"{source['sourcePath']}"
                     )
-                source["runtimeObjects"] = projections
-                adopted_count += len(projections)
+            pending_sources.append(source)
+        if not pending_sources:
             continue
-        records_by_file = _archive_records(
-            layout.objects / "unity" / f"{digest}.jsonl.gz"
-        )
-        for source in bundle_sources:
+        archive_path = layout.objects / "unity" / f"{digest}.jsonl.gz"
+        if not archive_path.is_file():
+            raise ValueError(
+                f"runtime projection policy requires the original local object archive: {digest}; "
+                "refresh this real bundle's archive before rebuilding live intro projections"
+            )
+        for source in pending_sources:
+            if source["sourcePath"] not in TYPED_DATA_RUNTIME_SOURCES:
+                continue
+            declared = source["objectArchive"]
+            if (
+                declared.get("path") != f"objects/unity/{digest}.jsonl.gz"
+                or archive_path.stat().st_size != declared.get("bytes")
+                or sha256_file(archive_path) != declared.get("sha256")
+            ):
+                raise ValueError(f"live intro object archive identity mismatch: {source['sourcePath']}")
+        records_by_file = _archive_records(archive_path)
+        for source in pending_sources:
             records = records_by_file.get(source["serializedFile"], {})
             object_ids = sorted(
                 set(source["rootObjects"]) | set(source.get("preloadObjects", [])),
                 key=int,
             )
+            tap_ids: set[str] | None = None
+            if source["sourcePath"] == LIVE_TAP_FADE_SOURCE:
+                owners = [r for r in records.values() if r.get("type") == "MonoBehaviour"
+                          and r.get("data", {}).get("m_Script", {}).get("reference", {}).get("name") == "LiveLaneView"
+                          and "_tapAreaFadeInDuration" in r.get("data", {})]
+                if len(owners) != 1:
+                    raise ValueError("original tap-area fade owner is ambiguous or absent")
+                owner = owners[0]
+                tap_ids = {str(owner["pathId"])}
+                for field, kind in (("m_GameObject", "GameObject"), ("_tapAreaAlphaController", "MonoBehaviour"),
+                                    ("_tapAreaSpriteRenderer", "SpriteRenderer")):
+                    pointer = owner["data"][field]
+                    identity = str(pointer.get("m_PathID"))
+                    if pointer.get("m_FileID") != 0 or records.get(identity, {}).get("type") != kind:
+                        raise ValueError("original tap-area fade local owner pointer is unresolved")
+                    tap_ids.add(identity)
+                if len(tap_ids) != 4:
+                    raise ValueError("original tap-area fade owner identities overlap")
+                # Scene sources have no asset rootObjects: select only these four
+                # records inside the exact descriptor-owned serialized file.
+                object_ids = sorted(tap_ids, key=int)
             counters: dict[str, int] = defaultdict(int)
             projected = []
             for object_id in object_ids:
@@ -299,12 +696,24 @@ def _runtime_projections(
                 if not record:
                     continue
                 object_type = str(record.get("type") or "")
+                identity = (str(record.get("serializedFile") or ""), str(record.get("pathId") or ""))
+                declared_fx = fx_records.get(source["sourcePath"])
                 allowed = object_type in RUNTIME_PROJECTION_TYPES
+                if declared_fx is not None:
+                    allowed = allowed or declared_fx.get(identity) == object_type
                 # The live HUD consumes this one TMP_FontAsset descriptor.
                 # Do not make MonoBehaviour a global projection type: Live
                 # bundles contain many unrelated script objects.
-                if source["sourcePath"] in HUD_FONT_RUNTIME_SOURCES:
+                if tap_ids is not None:
+                    allowed = object_id in tap_ids
+                elif source["sourcePath"] in HUD_FONT_RUNTIME_SOURCES:
                     allowed = object_type == "MonoBehaviour"
+                elif source["sourcePath"] in LIVE_INTRO_ANIMATION_SOURCES:
+                    allowed = object_type == "AnimationClip"
+                elif source["sourcePath"] in LIVE_INTRO_SPRITE_SOURCES:
+                    allowed = object_type == "Sprite"
+                elif source["sourcePath"] in LIVE_INTRO_RUNTIME_SOURCES:
+                    allowed = object_type in LIVE_INTRO_PROJECTION_TYPES
                 if not allowed:
                     continue
                 ordinal = counters[object_type]
@@ -313,7 +722,49 @@ def _runtime_projections(
                 relative = PurePosixPath("unity-json", source["sourcePath"], filename)
                 output = layout.runtime / Path(*relative.parts)
                 output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_text(stable_json(record), "utf-8")
+                projection_record = (
+                    _intro_projection_value(record)
+                    if source["sourcePath"] in LIVE_INTRO_RUNTIME_SOURCES or tap_ids is not None or (declared_fx is not None and identity in declared_fx)
+                    else record
+                )
+                if source["sourcePath"] in LIVE_INTRO_RUNTIME_SOURCES and object_type == "Material":
+                    shader_pointer = record.get("data", {}).get("m_Shader", {})
+                    if shader_pointer.get("m_FileID") == 0:
+                        shader_id = str(shader_pointer.get("m_PathID") or "")
+                        if not shader_id or shader_id == "0":
+                            raise ValueError(f"intro material shader pointer is null: {identity}")
+                        shader = records_by_file.get(identity[0], {}).get(shader_id)
+                        if (
+                            not shader or shader.get("type") != "Shader"
+                            or shader.get("serializedFile") != identity[0]
+                            or str(shader.get("pathId")) != shader_id
+                        ):
+                            raise ValueError(f"intro material local shader identity is unresolved: {identity}")
+                        shader_data = shader.get("data", {})
+                        root_name = shader_data.get("m_Name")
+                        parsed_name = shader_data.get("m_ParsedForm", {}).get("m_Name")
+                        if (not isinstance(root_name, str) or not isinstance(parsed_name, str)
+                            or (root_name and parsed_name and root_name != parsed_name)
+                            or not (root_name or parsed_name)):
+                            raise ValueError(f"intro material shader name metadata is invalid: {identity}")
+                        # Only original identity/name metadata crosses this boundary.
+                        # Shader source, variants, subprograms and binary code remain in the verified archive.
+                        projection_record["nativeShader"] = {
+                            "type": "Shader", "name": root_name or parsed_name,
+                            "serializedFile": identity[0], "pathId": shader_id,
+                        }
+                if source["sourcePath"] in TYPED_DATA_RUNTIME_SOURCES and object_type in {"Mesh", "Sprite"}:
+                    geometry_data = projection_record.get("data", {})
+                    if object_type == "Sprite":
+                        geometry_data = geometry_data.get("m_RD", {})
+                    vertex_data = geometry_data.get("m_VertexData", {})
+                    packed = vertex_data.get("m_DataSize")
+                    if isinstance(packed, str) and packed.startswith(("b'", 'b"')):
+                        packed_bytes = ast.literal_eval(packed)
+                        if not isinstance(packed_bytes, bytes):
+                            raise ValueError(f"live intro mesh vertex bytes are invalid: {source['sourcePath']}")
+                        vertex_data["m_DataSize"] = list(packed_bytes)
+                output.write_text(stable_json(projection_record), "utf-8")
                 projected.append(
                     {
                         "pathId": object_id,
@@ -324,6 +775,10 @@ def _runtime_projections(
                 )
                 output_count += 1
             source["runtimeObjects"] = projected
+            if source["sourcePath"] in TYPED_DATA_RUNTIME_SOURCES:
+                source["runtimeProjectionPolicy"] = _typed_data_projection_policy(source["sourcePath"])
+            if source["sourcePath"] in fx_selection_documents:
+                source["sharedFxProjectionRecords"] = fx_selection_documents[source["sourcePath"]]
     return output_count, adopted_count
 
 

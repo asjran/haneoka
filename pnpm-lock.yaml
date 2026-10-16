@@ -405,10 +405,10 @@ importers:
       '@haneoka/cassiopeia':
         specifier: ^0.1.0
         version: link:../cassiopeia
+    devDependencies:
       '@haneoka/cassiopeia-plugin-our-notes':
         specifier: ^0.1.0
         version: link:../cassiopeia-plugin-our-notes
-    devDependencies:
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
@@ -505,6 +505,9 @@ importers:
       '@haneoka/cassiopeia-plugin-our-notes':
         specifier: ^0.1.0
         version: link:../cassiopeia-plugin-our-notes
+      fast-png:
+        specifier: ^8.0.0
+        version: 8.0.0
     devDependencies:
       '@types/node':
         specifier: ^26.1.0
@@ -526,20 +529,19 @@ importers:
         version: 7.3.6(@types/node@26.1.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.49.0)(yaml@2.9.0)
 
   .dependencies/cassiopeia-ui-vue:
-    dependencies:
+    devDependencies:
       '@haneoka/cassiopeia':
-        specifier: ^0.1.0
+        specifier: workspace:^
         version: link:../cassiopeia
       '@haneoka/cassiopeia-host-web':
-        specifier: ^0.1.0
+        specifier: workspace:^
         version: link:../cassiopeia-host-web
       '@haneoka/cassiopeia-plugin-our-notes':
-        specifier: ^0.1.0
+        specifier: workspace:^
         version: link:../cassiopeia-plugin-our-notes
       '@haneoka/cassiopeia-renderer-three':
-        specifier: ^0.1.0
+        specifier: workspace:^
         version: link:../cassiopeia-renderer-three
-    devDependencies:
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
@@ -638,10 +640,10 @@ importers:
       '@haneoka/vega-protocol':
         specifier: workspace:*
         version: link:packages/protocol
+    devDependencies:
       '@lucide/vue':
         specifier: ^1.27.0
         version: 1.28.0(vue@3.5.39(typescript@6.0.3))
-    devDependencies:
       '@types/howler':
         specifier: ^2.2.13
         version: 2.2.13
@@ -786,6 +788,9 @@ importers:
 
   .dependencies/vega-theme-haneoka:
     dependencies:
+      '@haneoka/vega-plugin-haneoka':
+        specifier: ^0.1.0
+        version: link:../vega-plugin-haneoka
       '@haneoka/vega-plugin-richtext':
         specifier: ^0.1.0
         version: link:../vega-plugin-richtext
@@ -822,6 +827,9 @@ importers:
         specifier: ^3.1.2
         version: 3.1.3
     devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -3732,6 +3740,9 @@ packages:
   fast-levenshtein@2.0.6:
     resolution: {integrity: sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==}
 
+  fast-png@8.0.0:
+    resolution: {integrity: sha512-gCysNasJ8KEMgfdYIKd/wTDo6ENK1PWT0RJO7O+0pgmuHPw2O6tA1WvdxFRJoLf9V8yFYpG0FA1YgI8X97OhJA==}
+
   fast-uri@3.1.7:
     resolution: {integrity: sha512-dOvZVzjdZdz7phd9v6jCbwxrBW3fK6n8Rc0CtdmM4bumzMnxywBYhuph6J819RRw/ku+rLbelwfMunktuzVVHg==}
 
@@ -3924,6 +3935,9 @@ packages:
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
+
+  iobuffer@6.0.1:
+    resolution: {integrity: sha512-SZWYkWNfjIXIBYSDpXDYIgshqtbOPsi4lviawAEceR1Kqk+sHDlcQjWrzNQsii80AyBY0q5c8HCTNjqo74ul+Q==}
 
   ioredis@5.11.1:
     resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
@@ -7964,6 +7978,11 @@ snapshots:
 
   fast-levenshtein@2.0.6: {}
 
+  fast-png@8.0.0:
+    dependencies:
+      fflate: 0.8.3
+      iobuffer: 6.0.1
+
   fast-uri@3.1.7: {}
 
   fdir@6.5.0(picomatch@4.0.5):
@@ -8220,6 +8239,8 @@ snapshots:
   imurmurhash@0.1.4: {}
 
   inherits@2.0.4: {}
+
+  iobuffer@6.0.1: {}
 
   ioredis@5.11.1:
     dependencies:

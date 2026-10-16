@@ -507,6 +507,23 @@
   .chart-runtime__hud {
     z-index: 2;
   }
+  .chart-runtime__pause-hit {
+    --pause-target: max(48px, calc(80px * var(--chart-hud-scale, 1)));
+    position: absolute;
+    z-index: 3;
+    top: max(0px, calc(59px * var(--chart-hud-scale, 1) - var(--pause-target) / 2));
+    right: max(0px, calc(60px * var(--chart-hud-scale, 1) - var(--pause-target) / 2));
+    width: var(--pause-target);
+    height: var(--pause-target);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .chart-runtime__pause-hit:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: -2px;
+  }
   .chart-runtime__settings {
     position: absolute;
     z-index: 20;

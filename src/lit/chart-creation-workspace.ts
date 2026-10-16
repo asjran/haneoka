@@ -1755,16 +1755,18 @@ export class ChartCreationWorkspace extends LitElement {
       ctx.save();
       if (previewing) ctx.globalAlpha = 0.4;
       const native=projection.chart, byId=new Map(native.notes.map(note=>[note.id,note]));
-      const styles={slide:createChartCanvasRibbonStyle(ctx,"slide",height,24),guide:createChartCanvasRibbonStyle(ctx,"guide",height,24)};
       for(const line of native.lines){
         const points=line.noteIds.map(id=>byId.get(id)).filter((note):note is ChartNote=>Boolean(note)&&note!.indexInLine!==null).sort((a,b)=>a.timeMs-b.timeMs||a.id-b.id);
+        if(points.length<2)continue;
+        const top=nativeY(points.at(-1)!.timeMs),lineHeight=nativeY(points[0].timeMs)-top;
+        const style=createChartCanvasRibbonStyle(ctx,line.kind==="guide"?"guide":"slide",lineHeight,24,top,skin.slideLineStyle);
         for(let i=1;i<points.length;i++){
           const head=points[i-1],tail=points[i];
           const start=Math.max(head.timeMs,(this.windowStart-chart.audioOffset)*1000),end=Math.min(tail.timeMs,(this.windowStart+this.secondsPerScreen-chart.audioOffset)*1000);
           if(end<=start)continue;
           const steps=Math.max(2,Math.ceil((end-start)/25)),samples=[];
           for(let step=0;step<=steps;step++){const time=start+(end-start)*step/steps,shape=interpolateNoteLine(head,tail,time);samples.push({left:x(shape.pos/24*chart.laneBasis),right:x((shape.pos+shape.size)/24*chart.laneBasis),y:nativeY(time)})}
-          drawChartCanvasRibbon(ctx,samples,line.kind==="guide"?styles.guide:styles.slide,.6);
+          drawChartCanvasRibbon(ctx,samples,style,.6);
         }
       }
       for(const note of native.notes){

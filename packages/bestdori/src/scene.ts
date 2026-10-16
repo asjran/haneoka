@@ -1,4 +1,4 @@
-import { DEFAULT_SCENE_GEOMETRY, scenePlaneSize, scenePointFromNdc } from "@haneoka/vega-protocol/coordinates";
+import { scenePlaneSize, scenePointFromNdc } from "@haneoka/vega-protocol/coordinates";
 
 /** Pure scene geometry used by the scenario adapter. */
 
@@ -7,6 +7,20 @@ export interface BestdoriSceneVector3 {
   y: number;
   z: number;
 }
+
+const calibratedPoint = (x: number, y = 0, z = 0) => Object.freeze({ x, y, z });
+const calibratedAnchors = Object.freeze(
+  Object.fromEntries([-1.6, -1.2, -0.8, -0.4, 0, 0.4, 0.8, 1.2, 1.6].map((x, index) => [index + 1, calibratedPoint(x)])) as Record<number, BestdoriSceneVector3>,
+);
+/** The adapter owns its default calibration; callers can supply a scene profile. */
+export const BESTDORI_SCENE_CALIBRATION = Object.freeze({
+  fov: 39.6,
+  characterFieldPosition: calibratedPoint(0, -0.45, 5.5),
+  backgroundFieldPosition: calibratedPoint(0, 0, 16),
+  characterFieldScale: 4,
+  focusAnchors: calibratedAnchors,
+  positions: Object.freeze(Object.fromEntries([1, 3, 5, 7, 9].map(slot => [slot, calibratedAnchors[slot]!]))),
+});
 
 export interface BestdoriPerspectiveScene {
   aspect: number;
@@ -60,10 +74,10 @@ export const bestdoriBackgroundStageRef = (aspectRatio: number): string =>
 /** Fixed calibration for imported model positions and canvas proportions. */
 export const BESTDORI_PERSPECTIVE_SCENE: Readonly<BestdoriPerspectiveScene> = Object.freeze({
   aspect: 16 / 9,
-  fovYDegrees: DEFAULT_SCENE_GEOMETRY.fov,
+  fovYDegrees: BESTDORI_SCENE_CALIBRATION.fov,
   cameraPosition: Object.freeze({ x: 0, y: 0, z: 0 }),
-  characterPlaneZ: DEFAULT_SCENE_GEOMETRY.characterFieldPosition.z,
-  backgroundPlaneZ: DEFAULT_SCENE_GEOMETRY.backgroundFieldPosition.z,
+  characterPlaneZ: BESTDORI_SCENE_CALIBRATION.characterFieldPosition.z,
+  backgroundPlaneZ: BESTDORI_SCENE_CALIBRATION.backgroundFieldPosition.z,
   characterCenterNdcY: -0.12,
   characterCanvasScale: 1.25,
   backgroundOverscan: 1.1,
@@ -142,12 +156,12 @@ export const createBestdoriSceneRuntime = (
   const backgroundHalfHeight = halfHeightAtPlane(scene.backgroundPlaneZ, scene);
   const backgroundWidth = 2 * backgroundHalfHeight * scene.aspect * scene.backgroundOverscan;
   const backgroundHeight = backgroundWidth / scene.aspect;
-  const characterFieldPosition = { ...DEFAULT_SCENE_GEOMETRY.characterFieldPosition, z: scene.characterPlaneZ };
+  const characterFieldPosition = { ...BESTDORI_SCENE_CALIBRATION.characterFieldPosition, z: scene.characterPlaneZ };
   const focusAnchors = Object.fromEntries(
-    Object.entries(DEFAULT_SCENE_GEOMETRY.focusAnchors).map(([key, point]) => [key, { ...point }]),
+    Object.entries(BESTDORI_SCENE_CALIBRATION.focusAnchors).map(([key, point]) => [key, { ...point }]),
   );
   const positions = Object.fromEntries(
-    Object.entries(DEFAULT_SCENE_GEOMETRY.positions).map(([key, point]) => [key, { ...point }]),
+    Object.entries(BESTDORI_SCENE_CALIBRATION.positions).map(([key, point]) => [key, { ...point }]),
   );
   const minX = positions[1]!.x;
   const maxX = positions[9]!.x;
@@ -162,7 +176,7 @@ export const createBestdoriSceneRuntime = (
     initialCameraRotation: { x: 0, y: 0, z: 0 },
     characterFieldPosition,
     backgroundFieldPosition: { x: 0, y: 0, z: scene.backgroundPlaneZ },
-    characterFieldScale: DEFAULT_SCENE_GEOMETRY.characterFieldScale,
+    characterFieldScale: BESTDORI_SCENE_CALIBRATION.characterFieldScale,
     backgroundFieldScale: 1,
     backgroundFit: "camera-width",
     backgroundOverscan: scene.backgroundOverscan,

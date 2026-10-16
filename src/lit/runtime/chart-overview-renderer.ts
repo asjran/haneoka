@@ -232,9 +232,18 @@ export function drawDetailedChartOverview(
       );
     });
 
-    const slideStyle = createChartCanvasRibbonStyle(context, "slide", height, presentation.laneWidth);
-    const guideStyle = createChartCanvasRibbonStyle(context, "guide", height, presentation.laneWidth);
     lines.forEach((line) => {
+      if (line.nodes.length < 2) return;
+      const top = yAt(line.nodes.at(-1)!.timeMs, panel);
+      const lineHeight = yAt(line.nodes[0]!.timeMs, panel) - top;
+      const style = createChartCanvasRibbonStyle(
+        context,
+        line.kind === "guide" ? "guide" : "slide",
+        lineHeight,
+        presentation.laneWidth,
+        top,
+        skin.slideLineStyle,
+      );
       for (let index = 0; index < line.nodes.length - 1; index += 1) {
         const head = line.nodes[index]!;
         const tail = line.nodes[index + 1]!;
@@ -248,12 +257,7 @@ export function drawDetailedChartOverview(
           const shape = interpolateNoteLine(head, tail, time);
           samples.push({ left: localX(shape.pos), right: localX(shape.pos + shape.size), y: yAt(time, panel) });
         }
-        drawChartCanvasRibbon(
-          context,
-          samples,
-          line.kind === "guide" ? guideStyle : slideStyle,
-          presentation.longAlpha,
-        );
+        drawChartCanvasRibbon(context, samples, style, presentation.longAlpha);
       }
     });
     notes.forEach((note) => {

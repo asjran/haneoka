@@ -35,8 +35,10 @@ const maps = new Set([
   "iconImagesByAsset",
   "sprites",
   "uiSprites",
+  "textures",
   "dataRootsByWindowAsset",
 ]);
+const urlArrays = new Set(["textures", "pptrTextures"]);
 
 /** Collect without cloning: shared records remain intact until preparation finishes. */
 export function collectPlaybackUrls(story: AdvStory, signal: AbortSignal): Set<string> {
@@ -69,15 +71,14 @@ export async function resolveStoryUrls(
 ): Promise<AdvStory> {
   const seen = new WeakMap<object, unknown>();
   const resolve = (value: string) => (value ? loader.resourceUrl(value, { signal }) : Promise.resolve(value));
-  const visit = async (value: unknown, field = "", parent = ""): Promise<unknown> => {
+  const visit = async (value: unknown, field = "", parent = "", mapValue = false): Promise<unknown> => {
     signal.throwIfAborted();
     if (typeof value === "string") {
       if (
         urls.has(field) ||
         (field === "source" && ["fonts", "motions", "expressions", "textureVariants"].includes(parent)) ||
         (field === "runtime" && ["motions", "expressions"].includes(parent)) ||
-        maps.has(parent) ||
-        parent === "textures"
+        mapValue
       )
         return field === "playableUrl" && playbackUrl ? playbackUrl(value) : resolve(value);
       return value;
@@ -87,7 +88,7 @@ export async function resolveStoryUrls(
     if (Array.isArray(value)) {
       const output: unknown[] = [];
       seen.set(value, output);
-      for (const item of value) output.push(await visit(item, "", field));
+      for (const item of value) output.push(await visit(item, "", field, urlArrays.has(field)));
       return output;
     }
     if (field === "windowRectsByDataRoot") {
@@ -100,7 +101,8 @@ export async function resolveStoryUrls(
     seen.set(value, output);
     for (const [key, entry] of Object.entries(value)) {
       // Array elements carry their declaration kind into the resource record.
-      output[key] = await visit(entry, key, field || parent);
+      // Map values can be URLs; nested record fields keep their own semantics.
+      output[key] = await visit(entry, key, field || parent, maps.has(field));
     }
     return output;
   };

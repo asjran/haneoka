@@ -46,7 +46,8 @@
       "rename": "名前を変更",
       "confirm": "確認",
       "moreActions": "その他のオプション",
-      "reload": "再読み込み"
+      "reload": "再読み込み",
+      "fullscreenExit": "全画面表示を終了"
     },
     "fields": {
       "duration": "再生時間",
@@ -1310,7 +1311,7 @@
       "title": "ボイス"
     },
     "chartPlayer": {
-      "play": "プレイ",
+      "play": "再生",
       "pause": "一時停止",
       "loop": "ループ",
       "fullscreen": "全画面",
@@ -1347,7 +1348,11 @@
       "noteFlick": "フリック",
       "noteSlide": "スライド",
       "loading": "読み込み中…",
-      "runtimeError": "アワーノーツの譜面ランタイムを読み込めませんでした。"
+      "runtimeError": "アワーノーツの譜面ランタイムを読み込めませんでした。",
+      "continuationEffects": "コンボ演出",
+      "liveMode": "ライブモード",
+      "normalLive": "通常ライブ",
+      "gekisouLive": "撃奏ライブ"
     }
   },
   "tools": {

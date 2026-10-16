@@ -277,6 +277,7 @@ class BuildData:
         }
         source_index = self.root / "metadata" / "source-index.json"
         source_index_document = read_json(source_index) if source_index.is_file() else {}
+        self.source_id = str(source_index_document.get("sourceId") or "")
         source_entries = source_index_document.get("sources", {})
         if not isinstance(source_entries, dict):
             raise ValueError(f"Unity source index has invalid sources: {source_index}")
@@ -3079,6 +3080,49 @@ def _stage_runtime(data: BuildData, asset_name: str) -> dict[str, Any]:
             }
         )
 
+    # Keep source collection indices, including empty groups. Current release
+    # stages author no particle effects; the template's nonempty graph uses the
+    # same ParticleSystem IR as command effects and frame overlays.
+    particle_groups = []
+    particle_runtime = None
+    for group in raw.get("_particleEffectGroupCollection", {}).get("_groups", []):
+        effects = []
+        for pointer in group.get("_particleEffects", []):
+            wrapper = objects.get(_unity_pointer_id(pointer) or "", {})
+            node_id = _unity_pointer_id(wrapper.get("data", {}).get("m_GameObject"))
+            if not node_id:
+                raise ValueError(f"ADV stage particle effect has no node: {source_path}")
+            if particle_runtime is None:
+                particle_runtime = serialize_unity_effect(data, source_path)
+            descendants = {node_id}
+            pending = [node_id]
+            children: dict[str, list[str]] = {}
+            for node in particle_runtime["nodes"]:
+                children.setdefault(str(node.get("parentId") or ""), []).append(node["id"])
+            while pending:
+                for child in children.get(pending.pop(), []):
+                    if child not in descendants:
+                        descendants.add(child)
+                        pending.append(child)
+            root_node = next(node for node in particle_runtime["nodes"] if node["id"] == node_id)
+            world = _unity_world_transform(objects, root_node["transformId"], source_path, transform_cache)
+            runtime = {
+                **particle_runtime,
+                "rootNodeId": node_id,
+                "nodes": [
+                    {**node, "parentId": None,
+                     "position": _unity_vector_document(world["position"], "xyz"),
+                     "rotation": _unity_vector_document(world["rotation"], "xyzw"),
+                     "scale": _unity_vector_document(world["scale"], "xyz")}
+                    if node["id"] == node_id else node
+                    for node in particle_runtime["nodes"] if node["id"] in descendants
+                ],
+                **{key: [entry for entry in particle_runtime[key] if entry["nodeId"] in descendants]
+                   for key in ("particleSystems", "particleRenderers", "meshRenderers", "spriteRenderers")},
+            }
+            effects.append({"runtime": runtime})
+        particle_groups.append({"effects": effects})
+
     focus_groups = [
         entry.get("_focusPointPositions", [])
         for entry in raw.get("_focusPointsCollection", {}).get("_entries", [])
@@ -3100,6 +3144,7 @@ def _stage_runtime(data: BuildData, asset_name: str) -> dict[str, Any]:
         "usingFocusDataSettingsKey": str(raw.get("_usingFocusDataSettingsKey") or ""),
         "environmentPostEffectRefs": profile_refs,
         "environmentLightGroups": light_groups,
+        "particleEffectGroups": particle_groups,
         "shadowTextureUv": raw.get("_shadowTextureUv"),
         "shadowTextureAmplitude": raw.get("_shadowTextureAmplitude"),
         "shadowTextureFrequency": float(raw.get("_shadowTextureFrequency") or 0),
@@ -3220,6 +3265,464 @@ def _frame_game_objects(
     }
 
 
+def _native_story_resolution_limits(data: BuildData) -> list[int] | None:
+    if hasattr(data, "_native_story_resolution_limits_cache"):
+        return data._native_story_resolution_limits_cache
+    source_path = "Assets/AddressableResources/Common/Config/GameDetailConfigDefaultData.asset"
+    if source_path not in data.source_path_set:
+        data._native_story_resolution_limits_cache = None
+        return None
+    _, objects = data.source_objects(source_path)
+    records = [record["data"] for record in objects.values()
+               if all(key in record.get("data", {}) for key in
+                      ("_worstQualityMode", "_lowQualityMode", "_middleQualityMode", "_highQualityMode", "_bestQualityMode"))]
+    if len(records) != 1:
+        raise ValueError(f"Story resolution quality data must resolve uniquely: {source_path}")
+    limits = [records[0][key]["<ResolutionBaseLengthMax>k__BackingField"] for key in
+              ("_worstQualityMode", "_lowQualityMode", "_middleQualityMode", "_highQualityMode", "_bestQualityMode")]
+    if any(type(value) is not int or value <= 0 for value in limits):
+        raise ValueError(f"Story resolution quality limits are invalid: {source_path}")
+    data._native_story_resolution_limits_cache = limits
+    return limits
+
+
+def _native_story_canvas_cameras(data: BuildData) -> dict[str, dict[str, Any]]:
+    cached = getattr(data, "_native_story_canvas_cameras_cache", None)
+    if cached is not None:
+        return cached
+    source_path = "Assets/AddressableResources/UI/Prefab/UIAdvWidget.prefab"
+    descriptor, objects = data.source_objects(source_path)
+    widgets = [record["data"] for record in objects.values() if "_videoAndStillCamera" in record.get("data", {})]
+    if len(widgets) != 1:
+        raise ValueError(f"Story screen camera controller must resolve uniquely: {source_path}")
+    pointer = widgets[0]["_videoAndStillCamera"]
+    camera = data.unity_object(pointer, str(descriptor["serializedFile"]), "Camera")
+    if not isinstance(camera, dict) or camera.get("type") != "Camera":
+        raise ValueError(f"Story screen camera is unresolved: {source_path}")
+    raw = camera["data"]
+    if raw.get("orthographic") or not raw.get("m_Enabled"):
+        raise ValueError(f"Story screen camera must be enabled perspective: {source_path}")
+    result: dict[str, dict[str, Any]] = {}
+    for name, order in (("video", 301), ("still", 302)):
+        canvases = [record["data"] for record in objects.values()
+                    if record.get("type") == "Canvas" and record["data"].get("m_SortingOrder") == order
+                    and record["data"].get("m_Enabled") and record["data"].get("m_RenderMode") == 1
+                    and _unity_pointer_id(record["data"].get("m_Camera")) == _unity_pointer_id(pointer)]
+        if len(canvases) != 1:
+            raise ValueError(f"Story {name} camera canvas must resolve uniquely: {source_path}")
+        canvas = canvases[0]
+        game_id = _unity_pointer_id(canvas["m_GameObject"])
+        scalers = [record["data"] for record in objects.values()
+                   if _unity_pointer_id(record.get("data", {}).get("m_GameObject")) == game_id
+                   and "m_UiScaleMode" in record.get("data", {}) and record["data"].get("m_Enabled")]
+        if len(scalers) != 1 or int(scalers[0]["m_UiScaleMode"]) != 1:
+            raise ValueError(f"Story {name} canvas scaler must resolve uniquely: {source_path}")
+        scaler = scalers[0]
+        reference = scaler["m_ReferenceResolution"]
+        value = {
+            "fieldOfView": float(raw["field of view"]), "nearClip": float(raw["near clip plane"]),
+            "farClip": float(raw["far clip plane"]), "planeDistance": float(canvas["m_PlaneDistance"]),
+            "hdr": bool(raw.get("m_HDR")),
+            "referenceResolution": [float(reference["x"]), float(reference["y"])],
+            "screenMatchMode": int(scaler["m_ScreenMatchMode"]),
+            "matchWidthOrHeight": float(scaler["m_MatchWidthOrHeight"]),
+        }
+        if "_maxAspectThreshold" in scaler:
+            value["maxAspectThreshold"] = float(scaler["_maxAspectThreshold"])
+        result[name] = value
+    data._native_story_canvas_cameras_cache = result
+    return result
+
+
+def _portable_unity_ids(value: Any, key: str = "") -> Any:
+    """Keep Unity object identities exact through JavaScript JSON readers."""
+    if key in {"pathId", "m_PathID"}:
+        if type(value) is not int and not (isinstance(value, str) and re.fullmatch(r"-?\d+", value)):
+            raise ValueError("Unity object ID must be an integer or decimal string")
+        return str(int(value))
+    if isinstance(value, dict):
+        return {name: _portable_unity_ids(part, name) for name, part in value.items()}
+    if isinstance(value, list):
+        return [_portable_unity_ids(part) for part in value]
+    return value
+
+
+def _native_still_external_layout(data: BuildData) -> dict[str, Any]:
+    cached = getattr(data, "_native_still_external_layout_cache", None)
+    if cached is not None:
+        return cached
+    source_path = "Assets/AddressableResources/UI/Prefab/UIAdvWidget.prefab"
+    descriptor, objects = data.source_objects(source_path)
+    owner = str(descriptor["serializedFile"])
+
+    def script_name(record: dict[str, Any]) -> str | None:
+        if record.get("type") != "MonoBehaviour":
+            return None
+        pointer = record.get("data", {}).get("m_Script")
+        if not isinstance(pointer, dict):
+            raise ValueError(f"Still external component has no script: {source_path}")
+        identity = data.unity_pointer_identity(pointer, owner)
+        reference = pointer.get("reference") or {}
+        if (identity is None or reference.get("status") != "resolved"
+                or reference.get("type") != "MonoScript"
+                or (str(reference.get("serializedFile") or ""), str(reference.get("pathId") or "")) != identity):
+            raise ValueError(f"Still external script identity is unresolved: {source_path}")
+        return str(reference.get("name") or "")
+
+    roots = [objects[str(int(value))] for value in descriptor.get("rootObjects", [])]
+    widgets = [objects[identity] for root in roots if root.get("type") == "GameObject"
+               for identity in _unity_component_ids(root["data"])
+               if script_name(objects[identity]) == "UIAdvWidget"]
+    if len(widgets) != 1:
+        raise ValueError(f"Still external widget must resolve uniquely: {source_path}")
+    widget = widgets[0]
+    view = data.unity_object(widget["data"]["_stillView"], owner, "MonoBehaviour")
+    if view is None or view.get("serializedFile") != owner or script_name(view) != "AdvStillView":
+        raise ValueError(f"Still external view binding is invalid: {source_path}")
+    target = data.unity_object(view["data"]["_target"], owner, "RectTransform")
+    if target is None or target.get("serializedFile") != owner:
+        raise ValueError(f"Still external Target binding is invalid: {source_path}")
+    selected: dict[str, dict[str, Any]] = {}
+    ancestry: list[dict[str, Any]] = []
+    cursor = target
+    while cursor is not None:
+        identity = str(cursor["pathId"])
+        if identity in selected or len(ancestry) >= 64:
+            raise ValueError(f"Still external ancestry is cyclic/unbounded: {source_path}::{identity}")
+        if cursor.get("type") not in {"Transform", "RectTransform"}:
+            raise ValueError(f"Still external parent has invalid transform kind: {source_path}::{identity}")
+        game = data.unity_object(cursor["data"]["m_GameObject"], owner, "GameObject")
+        if game is None or game.get("serializedFile") != owner:
+            raise ValueError(f"Still external GameObject binding is invalid: {source_path}::{identity}")
+        components = _unity_component_ids(game["data"])
+        if identity not in components:
+            raise ValueError(f"Still external transform component is unbound: {source_path}::{identity}")
+        selected[str(game["pathId"])] = game
+        for component_id in components:
+            component = objects.get(component_id)
+            if component is None or component.get("serializedFile") != owner:
+                raise ValueError(f"Still external component is unresolved: {source_path}::{component_id}")
+            selected[component_id] = component
+        ancestry.append(cursor)
+        parent = _unity_pointer_id(cursor["data"].get("m_Father"))
+        cursor = objects.get(parent) if parent else None
+        if parent and cursor is None:
+            raise ValueError(f"Still external parent is unresolved: {source_path}::{parent}")
+    if (len(ancestry) < 3
+            or _unity_pointer_id(ancestry[1]["data"]["m_GameObject"]) != _unity_pointer_id(view["data"]["m_GameObject"])
+            or _unity_pointer_id(ancestry[-1]["data"]["m_GameObject"]) != _unity_pointer_id(widget["data"]["m_GameObject"])):
+        raise ValueError(f"Still external view/Target ancestry differs: {source_path}")
+    canvases = [record for record in selected.values() if record.get("type") == "Canvas"]
+    if len(canvases) != 1:
+        raise ValueError(f"Still external canvas must resolve uniquely: {source_path}")
+    canvas = canvases[0]
+    canvas_game = _unity_pointer_id(canvas["data"]["m_GameObject"])
+    canvas_rects = [record for record in ancestry if record.get("type") == "RectTransform"
+                    and _unity_pointer_id(record["data"]["m_GameObject"]) == canvas_game]
+    scalers = [record for record in selected.values()
+               if record.get("type") == "MonoBehaviour"
+               and _unity_pointer_id(record["data"]["m_GameObject"]) == canvas_game
+               and script_name(record) in {"CanvasScaler", "ClampedCanvasScaler"}]
+    if len(canvas_rects) != 1 or len(scalers) != 1 or not data.source_id:
+        raise ValueError(f"Still external scaler/source must resolve uniquely: {source_path}")
+    records = [_portable_unity_ids(selected[identity]) for identity in sorted(selected, key=int)]
+    records_hash = hashlib.sha256(json.dumps(records, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
+    result = {
+        "schema": "haneoka-still-external-layout-v1",
+        "sourceId": data.source_id,
+        "sourcePath": source_path,
+        "sourceHash": descriptor["contentSha256"],
+        "serializedFile": owner,
+        "recordsSHA256": records_hash,
+        "canvasRectId": str(canvas_rects[0]["pathId"]),
+        "scalerId": str(scalers[0]["pathId"]),
+        "viewComponentId": str(view["pathId"]),
+        "records": records,
+    }
+    data._native_still_external_layout_cache = result
+    return result
+
+
+def _native_still_sequence_callbacks(
+    objects: dict[str, dict[str, Any]],
+    native: dict[str, Any],
+    sequences: list[dict[str, Any]],
+) -> None:
+    """Bind serialized UnityEvents to named programs without executing native methods."""
+    if not any(sequence["nativeActions"] for sequence in sequences):
+        return
+    identities = [_unity_pointer_id(pointer) for pointer in native.get("_doTweenSequences", [])]
+    names = {identity: str(index) for index, identity in enumerate(identities)}
+    for sequence, identity in zip(sequences, identities, strict=True):
+        raw = objects[identity]["data"]
+        sequence["componentId"] = identity
+        sequence["killWith"] = list(dict.fromkeys(
+            names[target] for command in raw.get("_list", [])
+            if (target := _unity_pointer_id(command.get("_tweenAnimation"))) in names and target != identity
+        ))
+        bindings: list[dict[str, Any]] = []
+        unresolved: list[dict[str, Any]] = []
+        for action in sequence["nativeActions"]:
+            command = action["command"]
+            if int(command.get("_commandType", -1)) != 1:
+                unresolved.append(action)
+                continue
+            calls = command.get("_tweenEvent", {}).get("m_PersistentCalls", {}).get("m_Calls", [])
+            for call in calls:
+                state = int(call.get("m_CallState", 0))
+                if state == 0:
+                    continue
+                if state not in (1, 2):
+                    unresolved.append({"at": action["at"], "call": call})
+                    continue
+                target = _unity_pointer_id(call.get("m_Target"))
+                if (call.get("m_MethodName") == "DOPlay" and int(call.get("m_Mode", -1)) == 1
+                    and str(call.get("m_TargetAssemblyTypeName", "")).split(",")[0] == "Fwk.Tween.DOTweenSequence"
+                    and target in names):
+                    bindings.append({"at": action["at"], "operation": "restart", "sequence": names[target]})
+                else:
+                    unresolved.append({"at": action["at"], "call": call})
+        sequence["timelineActions"] = bindings
+        sequence["unhandledNativeActions"] = unresolved
+
+
+def _native_still_presentation(data: BuildData, target_asset: str) -> dict[str, Any] | None:
+    """Release-owned still layout and native transforms from validated archives.
+
+    Component identifiers remain decimal strings. The projection preserves
+    authored three-dimensional values and unsupported tween records so a
+    renderer can distinguish absent animation from an unsupported action.
+    """
+    source_path = f"{ADV_STILL_ROOT}/{target_asset}.prefab"
+    if source_path not in data.source_path_set:
+        return None
+    cache = getattr(data, "_native_still_presentation_cache", None)
+    if cache is None:
+        cache = {}
+        data._native_still_presentation_cache = cache
+    if source_path in cache:
+        return cache[source_path]
+    descriptor, objects = data.source_objects(source_path)
+    roots = [str(int(value)) for value in descriptor.get("rootObjects", [])]
+    if len(roots) != 1 or objects[roots[0]].get("type") != "GameObject":
+        raise ValueError(f"Invalid still prefab root: {source_path}")
+    root_transform = _frame_component(objects, objects[roots[0]], "RectTransform") or _frame_component(objects, objects[roots[0]], "Transform")
+    if root_transform is None:
+        raise ValueError(f"Still root has no transform: {source_path}")
+    tree: list[dict[str, Any]] = []
+    sibling_indices: dict[str, int] = {}
+    pending = [(str(root_transform["pathId"]), 0)]
+    while pending:
+        transform_id, sibling_index = pending.pop()
+        if transform_id in sibling_indices:
+            raise ValueError(f"Cyclic/duplicate still transform: {source_path}::{transform_id}")
+        transform = objects.get(transform_id)
+        if not transform or transform.get("type") not in {"RectTransform", "Transform"}:
+            raise ValueError(f"Missing still child transform: {source_path}::{transform_id}")
+        sibling_indices[transform_id] = sibling_index
+        game = objects.get(_unity_pointer_id(transform.get("data", {}).get("m_GameObject")) or "")
+        if not game or game.get("type") != "GameObject":
+            raise ValueError(f"Missing still transform GameObject: {source_path}::{transform_id}")
+        tree.append(game)
+        children = transform.get("data", {}).get("m_Children", [])
+        pending.extend((_unity_pointer_id(child) or "", index) for index, child in reversed(list(enumerate(children))))
+    transforms = {
+        str(transform["pathId"]): (game, transform)
+        for game in tree
+        if (transform := _frame_component(objects, game, "RectTransform") or _frame_component(objects, game, "Transform"))
+    }
+
+    def values(raw: dict[str, Any], field: str, axes: str | tuple[str, ...], defaults: tuple[float, ...]) -> list[float]:
+        value = raw.get(field) or {}
+        result = [float(value.get(axis, default)) for axis, default in zip(axes, defaults, strict=True)]
+        if not all(math.isfinite(value) for value in result):
+            raise ValueError(f"Non-finite still {field}: {source_path}")
+        return result
+
+    tree_components = [objects[component_id] for game in tree for component_id in _unity_component_ids(game.get("data", {})) if component_id in objects]
+    nodes: list[dict[str, Any]] = []
+    for identity, (game, transform) in transforms.items():
+        raw = transform.get("data") or {}
+        parent = _unity_pointer_id(raw.get("m_Father"))
+        rect = transform.get("type") == "RectTransform"
+        group = _frame_component(objects, game, "CanvasGroup")
+        position = values(raw, "m_AnchoredPosition" if rect else "m_LocalPosition", "xy", (0, 0))
+        scale = values(raw, "m_LocalScale", "xyz", (1, 1, 1))
+        quaternion = values(raw, "m_LocalRotation", "xyzw", (0, 0, 0, 1))
+        local_position = values(raw, "m_LocalPosition", "xyz", (0, 0, 0))
+        node = {
+            "id": identity,
+            "transformKind": "rect" if rect else "transform",
+            "siblingIndex": sibling_indices[identity],
+            **({"parent": parent} if parent in transforms else {}),
+            "anchorMin": values(raw, "m_AnchorMin", "xy", (0.5, 0.5)),
+            "anchorMax": values(raw, "m_AnchorMax", "xy", (0.5, 0.5)),
+            "pivot": values(raw, "m_Pivot", "xy", (0.5, 0.5)),
+            "position": position,
+            "size": values(raw, "m_SizeDelta", "xy", (0, 0)),
+            "scale": scale[:2],
+            "rotation": _unity_rotation_z(raw.get("m_LocalRotation")),
+            "positionZ": local_position[2],
+            "scaleZ": scale[2],
+            "rotationQuaternion": quaternion,
+            "opacity": float((group or {}).get("data", {}).get("m_Alpha", 1)),
+            "active": bool(game.get("data", {}).get("m_IsActive", True)),
+        }
+        for component_id in _unity_component_ids(game.get("data", {})):
+            component = objects.get(component_id, {}).get("data", {})
+            if "m_AspectMode" in component and component.get("m_Enabled", True):
+                node["aspect"] = {"mode": int(component["m_AspectMode"]), "ratio": float(component.get("m_AspectRatio", 0))}
+        image = _frame_image_component(objects, game)
+        if image is not None:
+            image_raw = image.get("data") or {}
+            sprite = image_raw.get("m_Sprite")
+            texture = data.unity_output_url(sprite, str(descriptor["serializedFile"]), "Sprite") if _unity_pointer_id(sprite) else None
+            sprite_geometry = None
+            if texture:
+                owner_file = str(descriptor["serializedFile"])
+                sprite_identity = data.unity_pointer_identity(sprite, owner_file)
+                sprite_record = data.unity_object(sprite, owner_file, "Sprite")
+                sprite_raw = sprite_record["data"]
+                render_data = sprite_raw["m_RD"]
+                rect_values = values(sprite_raw, "m_Rect", "xy", (0, 0)) + values(
+                    sprite_raw, "m_Rect", ("width", "height"), (0, 0)
+                )
+                trim_values = values(render_data, "textureRect", "xy", (0, 0)) + values(
+                    render_data, "textureRect", ("width", "height"), (0, 0)
+                )
+                trim_offset = values(render_data, "textureRectOffset", "xy", (0, 0))
+                ppu = float(sprite_raw["m_PixelsToUnits"])
+                settings = int(render_data["settingsRaw"])
+                if min(*rect_values[2:], *trim_values[2:], ppu) <= 0 or not math.isfinite(ppu):
+                    raise ValueError(f"Invalid still Sprite geometry: {source_path}::{identity}")
+                outputs = data._unity_output_index[(*sprite_identity, "Sprite")]
+                unique_outputs = {
+                    (path, str(output["path"])): output for path, output in outputs
+                }
+                if len(unique_outputs) != 1:
+                    raise ValueError(f"Ambiguous still Sprite output: {source_path}::{identity}")
+                (sprite_source, _), output = next(iter(unique_outputs.items()))
+                sprite_descriptor = data.source_descriptor(sprite_source)
+                sprite_geometry = {
+                    "serializedFile": sprite_identity[0],
+                    "objectId": sprite_identity[1],
+                    "sourcePath": sprite_source,
+                    "sourceHash": sprite_descriptor["contentSha256"],
+                    "outputSHA256": output["sha256"],
+                    "rect": rect_values,
+                    "textureRect": trim_values,
+                    "trimOffset": trim_offset,
+                    "padding": [trim_offset[0], trim_offset[1],
+                        rect_values[2] - trim_offset[0] - trim_values[2],
+                        rect_values[3] - trim_offset[1] - trim_values[3]],
+                    "pixelsPerUnit": ppu,
+                    "pivot": values(sprite_raw, "m_Pivot", "xy", (0.5, 0.5)),
+                    "border": values(sprite_raw, "m_Border", "xyzw", (0, 0, 0, 0)),
+                    "settingsRaw": settings,
+                    "packingRotation": (settings >> 2) & 15,
+                    "packed": bool(settings & 1),
+                }
+            node["image"] = {
+                "enabled": bool(image_raw.get("m_Enabled", True)),
+                **({"texture": texture, "sprite": sprite_geometry} if texture else {}),
+                "color": values(image_raw, "m_Color", "rgba", (1, 1, 1, 1)),
+                "blend": "normal",
+                "preserveAspect": bool(image_raw.get("m_PreserveAspect")),
+                "type": int(image_raw.get("m_Type", 0)),
+                "useSpriteMesh": bool(image_raw.get("m_UseSpriteMesh", False)),
+            }
+        nodes.append(node)
+    camera_doc = _native_story_canvas_cameras(data)["still"]
+    actions: list[dict[str, Any]] = []
+    sequences: list[dict[str, Any]] = []
+    native_components = [record.get("data", {}) for record in tree_components if "_doTweenSequences" in record.get("data", {})]
+    if len(native_components) != 1:
+        raise ValueError(f"Still controller must resolve uniquely: {source_path}")
+    native = native_components[0]
+
+    def project_sequence(raw: dict[str, Any], ancestry: set[str], offset: float = 0) -> tuple[list[dict[str, Any]], float]:
+        tracks: list[dict[str, Any]] = []
+        cursor = 0.0
+        for command in raw.get("_list", []):
+            kind = int(command.get("_commandType", -1))
+            if kind == 0:
+                pointer = _unity_pointer_id(command.get("_tweenAnimation"))
+                component = objects.get(pointer or "")
+                if component is None or pointer in ancestry:
+                    raise ValueError(f"Unresolved/cyclic still tween: {source_path}::{pointer}")
+                game = objects.get(_unity_pointer_id(component.get("data", {}).get("m_GameObject")) or "", {})
+                candidates = [objects.get(_unity_pointer_id(part.get("component")) or "", {}) for part in game.get("data", {}).get("m_Component", [])]
+                candidates = [value.get("data", {}) for value in candidates if "animationType" in value.get("data", {}) or "_list" in value.get("data", {})]
+                index = int(command.get("_tweenIndex", 0))
+                if not 0 <= index < len(candidates):
+                    raise ValueError(f"Invalid still tween component index: {source_path}::{pointer}")
+                animation = candidates[index]
+                if "_list" in animation:
+                    nested, _ = project_sequence(animation, ancestry | {pointer}, offset + cursor)
+                    tracks.extend(nested)
+                else:
+                    target = _unity_pointer_id(animation.get("target"))
+                    target_record = objects.get(target or "", {})
+                    target_data = target_record.get("data", {})
+                    target_kind = "image" if "m_Sprite" in target_data else "canvas-group" if target_record.get("type") == "CanvasGroup" or "m_Alpha" in target_data else "transform"
+                    if target_record.get("type") not in {"RectTransform", "Transform"}:
+                        target_game = target_record if target_record.get("type") == "GameObject" else objects.get(_unity_pointer_id(target_record.get("data", {}).get("m_GameObject")) or "", {})
+                        target_record = _frame_component(objects, target_game, "RectTransform") or _frame_component(objects, target_game, "Transform") or {}
+                        target = str(target_record.get("pathId") or "")
+                    tracks.append({
+                        "node": target,
+                        "at": offset + cursor + float(animation.get("delay", 0)),
+                        "duration": float(animation.get("duration", 0)),
+                        "ease": int(animation.get("easeType", 0)),
+                        "animationType": int(animation["animationType"]),
+                        "targetKind": target_kind,
+                        "raw": _portable_unity_ids(animation),
+                    })
+            elif kind != 2:
+                actions.append({"at": offset + cursor, "command": _portable_unity_ids(command)})
+            cursor += max(0, float(command.get("_duration", 0)))
+        return tracks, cursor
+
+    for index, pointer in enumerate(native.get("_doTweenSequences", [])):
+        identity = _unity_pointer_id(pointer)
+        sequence = objects.get(identity or "")
+        if sequence is None:
+            raise ValueError(f"Unresolved still sequence: {source_path}::{identity}")
+        action_start = len(actions)
+        tracks, duration = project_sequence(sequence.get("data", {}), {identity or ""})
+        def tween_end(track: dict[str, Any]) -> float:
+            loops = int(track["raw"].get("loops", 1))
+            iterations = 2147483647 if loops == -1 else max(1, loops)
+            return track["at"] + track["duration"] * iterations
+
+        sequences.append({"id": str(index), "duration": max([duration] + [tween_end(track) for track in tracks]), "loop": bool(sequence.get("data", {}).get("_isLoop")), "nativeTweens": tracks, "nativeActions": actions[action_start:]})
+    _native_still_sequence_callbacks(objects, native, sequences)
+    result = {
+        "schema": "haneoka-still-presentation-v1",
+        "sourcePath": source_path,
+        "sourceHash": descriptor.get("contentSha256"),
+        "layout": {"referenceWidth": camera_doc["referenceResolution"][0], "camera": camera_doc, "nodes": nodes,
+                   "stillExternalLayout": _native_still_external_layout(data)},
+        "sequences": sequences,
+        "nativeActions": actions,
+        "unsupportedFeatures": sorted({
+            record["type"] for record in tree_components
+            if record.get("type") in {"ParticleSystem", "ParticleSystemRenderer"}
+        } | {
+            "canvas-text" for record in tree_components
+            if "m_Text" in record.get("data", {}) and "m_FontAsset" in record.get("data", {})
+        } | {
+            "canvas-mask" for record in tree_components
+            if "m_ShowMaskGraphic" in record.get("data", {})
+        } | {
+            "sliced-or-filled-image" for record in tree_components
+            if "m_Sprite" in record.get("data", {}) and int(record.get("data", {}).get("m_Type", 0)) != 0
+        }),
+    }
+    cache[source_path] = result
+    return result
+
+
 def _frame_component(
     objects: dict[str, dict[str, Any]], game_object: dict[str, Any], component_type: str
 ) -> dict[str, Any] | None:
@@ -3268,10 +3771,13 @@ _FRAME_ANIMATION_PROPERTIES = {
     (224, zlib.crc32(b"m_SizeDelta.x")): ("sizeX", 1),
     (224, zlib.crc32(b"m_SizeDelta.y")): ("sizeY", 1),
     (4, 3): ("scale", 3),
+    (4, 4): ("rotationEuler", 3),
+    (4, 2): ("rotationQuaternion", 4),
     (1, zlib.crc32(b"m_IsActive")): ("active", 1),
     (114, zlib.crc32(b"m_Color.r")): ("imageR", 1),
     (114, zlib.crc32(b"m_Color.g")): ("imageG", 1),
     (114, zlib.crc32(b"m_Color.b")): ("imageB", 1),
+    (114, zlib.crc32(b"m_Color.a")): ("imageA", 1),
 }
 
 
@@ -3279,6 +3785,7 @@ def _frame_animation(
     data: BuildData,
     target_asset: str,
     objects: dict[str, dict[str, Any]],
+    authored_clip: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     group = PurePosixPath(target_asset).parts[0]
     leaf = PurePosixPath(target_asset).name.casefold()
@@ -3305,20 +3812,18 @@ def _frame_animation(
                     candidates.append((rank * 2, raw))
                 elif name == f"{stem}_loop":
                     candidates.append((rank * 2 + 1, raw))
-    if not candidates:
+    if not candidates and authored_clip is None:
         return None
     candidates.sort(key=lambda entry: entry[0])
-    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+    if authored_clip is None and len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
         return None
-    clip = candidates[0][1]
+    clip = authored_clip if authored_clip is not None else candidates[0][1]
     muscle = clip.get("m_MuscleClip", {})
     clip_data = muscle.get("m_Clip", {}).get("data", {})
     streamed = clip_data.get("m_StreamedClip", {})
     words = streamed.get("data", [])
     constants = clip_data.get("m_ConstantClip", {}).get("data", [])
     bindings = clip.get("m_ClipBindingConstant", {}).get("genericBindings", [])
-    if not words or not bindings:
-        return None
 
     game_names = {
         object_id: str(record.get("data", {}).get("m_Name") or "")
@@ -3377,13 +3882,69 @@ def _frame_animation(
         raise ValueError(f"ADV animation curve count is invalid: {target_asset}")
     packed = struct.pack(f"<{len(words)}I", *(int(word) & 0xFFFFFFFF for word in words))
     return {
+        "name": str(clip.get("m_Name") or ""),
         "duration": float(muscle["m_StopTime"]),
         "loop": bool(muscle.get("m_LoopTime")),
-        "streamedCurveCount": int(streamed["curveCount"]),
+        "streamedCurveCount": int(streamed.get("curveCount") or 0),
         "constantValues": [float(value) for value in constants],
         "stream": base64.b64encode(packed).decode("ascii"),
         "bindings": projected,
     }
+
+
+def _frame_animator(
+    data: BuildData,
+    target_asset: str,
+    objects: dict[str, dict[str, Any]],
+    owner_file: str,
+) -> dict[str, Any] | None:
+    """Project actual layer-zero controller state/clip bindings, not clip-name guesses."""
+    animators = [entry for entry in objects.values() if entry.get("type") == "Animator"]
+    if len(animators) != 1:
+        return None
+    controller = data.unity_object(animators[0].get("data", {}).get("m_Controller"), owner_file, "AnimatorController")
+    if controller is None:
+        return None
+    raw = controller.get("data", {})
+    controller_file = str(controller.get("serializedFile") or owner_file)
+    core = raw.get("m_Controller", {})
+    layers = core.get("m_LayerArray", [])
+    machines = core.get("m_StateMachineArray", [])
+    if not layers:
+        return None
+    machine_index = int(layers[0].get("data", {}).get("m_StateMachineIndex") or 0)
+    machine = machines[machine_index].get("data", {})
+    clips = [data.unity_object(pointer, controller_file, "AnimationClip") for pointer in raw.get("m_AnimationClips", [])]
+    names = dict(raw.get("m_TOS", []))
+    states = {}
+    ordered_names = []
+    for entry in machine.get("m_StateConstantArray", []):
+        state = entry.get("data", {})
+        name = str(names.get(state.get("m_NameID")) or "")
+        ordered_names.append(name)
+        trees = state.get("m_BlendTreeConstantArray", [])
+        leaves = [node.get("data", {}) for tree in trees for node in tree.get("data", {}).get("m_NodeArray", [])]
+        if len(leaves) > 1:
+            raise ValueError(f"ADV frame state has a blend tree: {target_asset}:{name}")
+        clip_index = int(leaves[0].get("m_ClipID") or 0) if leaves else -1
+        clip = clips[clip_index] if 0 <= clip_index < len(clips) else None
+        clip_raw = clip.get("data", {}) if clip else None
+        value = {
+            "duration": float(leaves[0].get("m_Duration") or 0) if leaves else 0,
+            "speed": float(state.get("m_Speed", 1)),
+            "loop": bool(state.get("m_Loop")),
+        }
+        if clip_raw:
+            value["clipName"] = str(clip_raw.get("m_Name") or "")
+            muscle = clip_raw.get("m_MuscleClip", {})
+            value["duration"] = max(0, float(muscle.get("m_StopTime") or 0) - float(muscle.get("m_StartTime") or 0))
+            animation = _frame_animation(data, target_asset, objects, clip_raw)
+            if animation:
+                # Controller loop policy is independent of the clip's import flag.
+                value["animation"] = {**animation, "loop": value["loop"]}
+        states[name] = value
+    default = int(machine.get("m_DefaultState") or 0)
+    return {"defaultState": ordered_names[default], "states": states}
 
 
 def _unity_min_max(value: Any) -> dict[str, Any]:
@@ -3587,6 +4148,7 @@ def _frame_runtime(data: BuildData, target_asset: str) -> dict[str, Any]:
         if not all(textures.values()):
             raise ValueError(f"ADV fog frame textures are incomplete: {source_path}")
         result.update(type="fog", textures=textures, referenceWidth=1920, referenceHeight=1080)
+        result.update(_authored_frame_fallback(data, target_asset, source_path, objects, game_objects))
     elif lower.startswith("adv_frame_lensflare"):
         texture_paths = {
             "flare01": "adv_frame_lensflare_1_flare_01.png",
@@ -3605,6 +4167,7 @@ def _frame_runtime(data: BuildData, target_asset: str) -> dict[str, Any]:
         if not all(textures.values()):
             raise ValueError(f"ADV lens flare textures are incomplete: {source_path}")
         result.update(type="lensflare", textures=textures, referenceWidth=1920, referenceHeight=1080)
+        result.update(_authored_frame_fallback(data, target_asset, source_path, objects, game_objects))
     else:
         result.update(_authored_frame_fallback(data, target_asset, source_path, objects, game_objects))
     group = PurePosixPath(target_asset).parts[0]
@@ -3651,6 +4214,15 @@ def _frame_runtime(data: BuildData, target_asset: str) -> dict[str, Any]:
                 states[state_name] = state_animation
         if states:
             result["animationStates"] = dict(sorted(states.items()))
+    animator = _frame_animator(data, target_asset, objects, str(descriptor.get("serializedFile") or ""))
+    if animator:
+        result["animator"] = animator
+        result["animationStates"] = {
+            name: state["animation"] for name, state in animator["states"].items() if "animation" in state
+        }
+        default_animation = animator["states"][animator["defaultState"]].get("animation")
+        if default_animation and isinstance(result.get("layout"), dict):
+            result["animation"] = default_animation
     data._adv_frame_cache[target_asset] = result
     return result
 
@@ -3690,7 +4262,7 @@ def _frame_transform_tree(
             ordered.append(game_object)
         pending.extend(
             _unity_pointer_id(child)
-            for child in transforms[transform_id].get("data", {}).get("m_Children", [])
+            for child in reversed(transforms[transform_id].get("data", {}).get("m_Children", []))
         )
     return ordered
 
@@ -3737,12 +4309,15 @@ def _authored_frame_fallback(
     rect_ids = {
         str(rect["pathId"])
         for game_object in tree_game_objects
-        if (rect := _frame_component(objects, game_object, "RectTransform")) is not None
+        if (rect := (_frame_component(objects, game_object, "RectTransform") or
+                     _frame_component(objects, game_object, "Transform"))) is not None
     }
     nodes: list[dict[str, Any]] = []
     textures: dict[str, str] = {}
+    unsupported_images: set[str] = set()
     for game_object in tree_game_objects:
-        rect = _frame_component(objects, game_object, "RectTransform")
+        rect = (_frame_component(objects, game_object, "RectTransform") or
+                _frame_component(objects, game_object, "Transform"))
         if rect is None:
             continue
         raw = rect.get("data") or {}
@@ -3757,6 +4332,7 @@ def _authored_frame_fallback(
 
         node: dict[str, Any] = {
             "id": identity,
+            "transformKind": "rect" if rect["type"] == "RectTransform" else "transform",
             **({"parent": parent_id} if parent_id in rect_ids else {}),
             "anchorMin": vector("m_AnchorMin", (0, 0)),
             "anchorMax": vector("m_AnchorMax", (1, 1)),
@@ -3767,16 +4343,99 @@ def _authored_frame_fallback(
             "rotation": _unity_rotation_z(raw.get("m_LocalRotation")),
             "opacity": opacity,
             "active": bool(game_object.get("data", {}).get("m_IsActive", True)),
+            "positionZ": float((raw.get("m_LocalPosition") or {}).get("z", 0)),
+            "scaleZ": float((raw.get("m_LocalScale") or {}).get("z", 1)),
+            "rotationQuaternion": list(_unity_quaternion(raw.get("m_LocalRotation"))),
         }
+        if rect["type"] == "Transform":
+            node["position"] = vector("m_LocalPosition", (0, 0))
         image = _frame_image_component(objects, game_object)
         if image is not None:
             image_data = image.get("data") or {}
+            owner_file = str(data.source_descriptor(source_path)["serializedFile"])
+            material = data.unity_object(image_data.get("m_Material"), owner_file, "Material")
+            shader_name = str(((material or {}).get("data", {}).get("m_Shader", {}).get("reference") or {}).get("name") or "")
+            blend = "additive" if shader_name in {"Mobile/Particles/Additive", "Particles/Additive"} else "normal"
             color = image_data.get("m_Color") or {}
             sprite = image_data.get("m_Sprite") or {}
             sprite_name = str((sprite.get("reference") or {}).get("name") or "")
             texture = texture_for(sprite_name)
+            tile_size: list[float] | None = None
+            slice_border: list[float] | None = None
+            slice_uv_border: list[float] | None = None
+            sliced = int(image_data.get("m_Type") or 0) == 1
+            if sliced:
+                owner_file = str(data.source_descriptor(source_path)["serializedFile"])
+                sprite_record = data.unity_object(sprite, owner_file, "Sprite")
+                sprite_raw = (sprite_record or {}).get("data") or {}
+                border = sprite_raw.get("m_Border") or {}
+                if any(float(value) for value in border.values()):
+                    rect = sprite_raw.get("m_Rect") or {}
+                    render_data = sprite_raw.get("m_RD") or {}
+                    texture_rect = render_data.get("textureRect") or {}
+                    offset = render_data.get("textureRectOffset") or {}
+                    if (any(float(offset.get(axis) or 0) for axis in ("x", "y"))
+                            or any(float(texture_rect.get(axis) or 0) != float(rect.get(axis) or 0)
+                                   for axis in ("width", "height"))):
+                        unsupported_images.add("Image.Sliced.TrimmedSprite")
+                    else:
+                        reference_ppu = getattr(data, "_adv_frame_reference_ppu", None)
+                        if reference_ppu is None:
+                            _, widget_objects = data.source_objects("Assets/AddressableResources/UI/Prefab/UIAdvWidget.prefab")
+                            values = {float(record["data"]["m_ReferencePixelsPerUnit"])
+                                      for record in widget_objects.values()
+                                      if record.get("data", {}).get("m_Enabled")
+                                      and "m_ReferencePixelsPerUnit" in record.get("data", {})}
+                            if len(values) != 1 or next(iter(values)) <= 0:
+                                raise ValueError("Story frame Canvas reference PPU is ambiguous")
+                            reference_ppu = next(iter(values))
+                            data._adv_frame_reference_ppu = reference_ppu
+                        ppu = (float(sprite_raw.get("m_PixelsToUnits") or 0) / reference_ppu
+                               * float(image_data.get("m_PixelsPerUnitMultiplier") or 0))
+                        width, height = (float(rect.get(axis) or 0) for axis in ("width", "height"))
+                        if ppu <= 0 or width <= 0 or height <= 0:
+                            raise ValueError(f"Story sliced Image has invalid Sprite dimensions: {source_path}")
+                        border_values = [float(border.get(axis) or 0) for axis in ("x", "y", "z", "w")]
+                        slice_border = [value / ppu for value in border_values]
+                        slice_uv_border = [value / dimension for value, dimension
+                                           in zip(border_values, (width, height, width, height))]
+                        texture = data.unity_output_url(sprite, owner_file, "Sprite")
+                elif sprite_record is None and sprite_name:
+                    unsupported_images.add("Image.Sliced.MissingSprite")
+            if int(image_data.get("m_Type") or 0) == 2:
+                owner_file = str(data.source_descriptor(source_path)["serializedFile"])
+                sprite_record = data.unity_object(sprite, owner_file, "Sprite")
+                sprite_raw = (sprite_record or {}).get("data") or {}
+                if any(float(value) for value in (sprite_raw.get("m_Border") or {}).values()):
+                    unsupported_images.add("Image.Tiled.Border")
+                elif sprite_record is not None:
+                    reference_ppu = getattr(data, "_adv_frame_reference_ppu", None)
+                    if reference_ppu is None:
+                        _, widget_objects = data.source_objects("Assets/AddressableResources/UI/Prefab/UIAdvWidget.prefab")
+                        values = {float(record["data"]["m_ReferencePixelsPerUnit"])
+                                  for record in widget_objects.values()
+                                  if record.get("data", {}).get("m_Enabled")
+                                  and "m_ReferencePixelsPerUnit" in record.get("data", {})}
+                        if len(values) != 1 or next(iter(values)) <= 0:
+                            raise ValueError("Story frame Canvas reference PPU is ambiguous")
+                        reference_ppu = next(iter(values))
+                        data._adv_frame_reference_ppu = reference_ppu
+                    ppu = (float(sprite_raw.get("m_PixelsToUnits") or 0) / reference_ppu
+                           * float(image_data.get("m_PixelsPerUnitMultiplier") or 0))
+                    rect_size = sprite_raw.get("m_Rect") or {}
+                    if ppu <= 0 or float(rect_size.get("width") or 0) <= 0 or float(rect_size.get("height") or 0) <= 0:
+                        raise ValueError(f"Story tiled Image has invalid Sprite dimensions: {source_path}")
+                    tile_size = [float(rect_size[axis]) / ppu for axis in ("width", "height")]
+                    texture = data.unity_output_url(sprite, owner_file, "Sprite")
+                else:
+                    unsupported_images.add("Image.Tiled.MissingSprite")
             if texture:
-                textures[sprite_name] = texture
+                if sprite_name in textures and textures[sprite_name] != texture:
+                    # Keep both real URLs; each Image already pins its own texture.
+                    textures[identity] = texture
+                    unsupported_images.add("Image.Sprite.MixedTileURL")
+                else:
+                    textures[sprite_name] = texture
             elif sprite_name:
                 # A missing sprite must not become an opaque color rectangle.
                 node["active"] = False
@@ -3784,8 +4443,12 @@ def _authored_frame_fallback(
                 node["image"] = {
                     **({"texture": texture} if texture else {}),
                     "color": [float(color.get(channel, 1)) for channel in ("r", "g", "b", "a")],
-                    "blend": "additive" if "glow" in sprite_name.casefold() else "normal",
-                    "preserveAspect": bool(image_data.get("m_PreserveAspect")),
+                    "blend": blend,
+                    "preserveAspect": False if sliced else bool(image_data.get("m_PreserveAspect")),
+                    **({"tileSize": tile_size} if tile_size is not None else {}),
+                    **({"sliceBorder": slice_border, "sliceUvBorder": slice_uv_border,
+                        "fillCenter": bool(image_data.get("m_FillCenter"))}
+                       if slice_border is not None else {}),
                 }
         nodes.append(node)
 
@@ -3809,7 +4472,7 @@ def _authored_frame_fallback(
             })
     if not any("image" in node for node in nodes) and not has_particle_systems:
         raise ValueError(f"ADV frame has no renderable image or texture: {source_path}")
-    unsupported = sorted({
+    unsupported = sorted(unsupported_images | {
         record["type"] for record in objects.values()
         if record.get("type") in {"Animator", "ParticleSystem", "ParticleSystemRenderer"}
     })
@@ -3894,6 +4557,46 @@ def _frame_particles(
         )
     if not particles:
         raise ValueError(f"ADV frame has ParticleSystems without renderers: {source_path}")
+    descriptor, source_objects = data.source_objects(source_path)
+    owner_file = str(descriptor["serializedFile"])
+    ui_particles: list[dict[str, Any]] = []
+    system_ids = {str(system["id"]) for system in runtime["particleSystems"]}
+    for record in source_objects.values():
+        raw = record.get("data") or {}
+        if (raw.get("m_Script") or {}).get("reference", {}).get("name") != "UIParticle":
+            continue
+        node_id = _unity_pointer_id(raw.get("m_GameObject"))
+        if node_id not in transform_ids:
+            raise ValueError(f"UIParticle owner node is absent from runtime: {source_path}")
+        refs: list[str] = []
+        for pointer in raw.get("m_Particles") or []:
+            system = data.unity_object(pointer, owner_file, "ParticleSystem")
+            identity = str((system or {}).get("pathId") or "")
+            if identity not in system_ids:
+                raise ValueError(f"UIParticle system reference is absent from runtime: {source_path}")
+            refs.append(identity)
+        mode = int(raw.get("m_AutoScalingMode") or 0)
+        if raw.get("m_IgnoreCanvasScaler") or raw.get("m_AutoScaling"):
+            mode = 2
+        position_mode = 1 if raw.get("m_AbsoluteMode") else int(raw.get("m_PositionMode") or 0)
+        ui_particles.append({
+            "id": str(record["pathId"]), "node": node_id,
+            "layoutNode": transform_ids[node_id],
+            "enabled": bool(raw.get("m_Enabled")),
+            "autoScalingMode": mode, "positionMode": position_mode,
+            "scale3D": _unity_vector_document(_unity_vector3(raw.get("m_Scale3D")), "xyz"),
+            "timeScaleMultiplier": float(raw.get("m_TimeScaleMultiplier", 1)),
+            "meshSharing": int(raw.get("m_MeshSharing") or 0),
+            "groupId": int(raw.get("m_GroupId") or 0),
+            "groupMaxId": int(raw.get("m_GroupMaxId") or 0),
+            "useCustomView": bool(raw.get("m_UseCustomView")),
+            "customViewSize": float(raw.get("m_CustomViewSize", 0)),
+            "animatableProperties": raw.get("m_AnimatableProperties") or [],
+            "color": raw.get("m_Color"), "particleSystems": refs,
+        })
+    if ui_particles:
+        result["uiParticles"] = ui_particles
+        result["uiParticleCanvas"] = _frame_ui_particle_canvas(data)
     result["particles"] = particles
     result["particleRuntime"] = runtime
     unsupported = [
@@ -3904,6 +4607,72 @@ def _frame_particles(
     result["unsupportedFeatures"] = unsupported
     result["approximation"] = "static-frame-layout" if unsupported else "none"
 
+
+
+def _frame_ui_particle_canvas(data: BuildData) -> dict[str, Any]:
+    """Expose the actual UIManager camera used by Coffee canvas baking."""
+    cached = getattr(data, "_adv_frame_ui_particle_canvas", None)
+    if cached is not None:
+        return cached
+    source = "Assets/AddressableResources/Common/Prefab/UIManager.prefab"
+    widget_source = "Assets/AddressableResources/UI/Prefab/UIAdvWidget.prefab"
+    if source not in data.source_path_set or widget_source not in data.source_path_set:
+        return {"status": "source-missing", "cameraSourcePath": source, "requiresRuntimeBinding": True}
+    descriptor, objects = data.source_objects(source)
+    controllers = [record for record in objects.values() if "_uiCamera" in (record.get("data") or {})]
+    if len(controllers) != 1:
+        raise ValueError("UIManager particle camera controller must resolve uniquely")
+    camera = data.unity_object(controllers[0]["data"]["_uiCamera"], str(descriptor["serializedFile"]), "Camera")
+    if camera is None:
+        raise ValueError("UIManager particle camera pointer is missing")
+    raw = camera["data"]
+    camera_game = objects.get(_unity_pointer_id(raw.get("m_GameObject")) or "")
+    transform = _frame_component(objects, camera_game, "Transform") if camera_game else None
+    if transform is None:
+        raise ValueError("UIManager particle camera Transform is missing")
+    camera_world = _unity_world_transform(objects, str(transform["pathId"]), source, {})
+    widget_descriptor, widget_objects = data.source_objects(widget_source)
+    canvases = [record for record in widget_objects.values()
+                if record.get("type") == "Canvas" and record["data"].get("m_SortingOrder") == 303
+                and record["data"].get("m_Enabled") and record["data"].get("m_RenderMode") == 1]
+    if len(canvases) != 1:
+        raise ValueError("Story FrameCanvas must resolve uniquely")
+    canvas_game_id = _unity_pointer_id(canvases[0]["data"]["m_GameObject"])
+    scalers = [record for record in widget_objects.values()
+               if _unity_pointer_id(record.get("data", {}).get("m_GameObject")) == canvas_game_id
+               and "m_UiScaleMode" in record.get("data", {}) and record["data"].get("m_Enabled")]
+    if len(scalers) != 1 or int(scalers[0]["data"]["m_UiScaleMode"]) != 1:
+        raise ValueError("Story FrameCanvas scaler must resolve uniquely")
+    scaler = scalers[0]["data"]
+    reference = scaler["m_ReferenceResolution"]
+    canvas_scaler = {
+        "referenceResolution": [float(reference["x"]), float(reference["y"])],
+        "screenMatchMode": int(scaler["m_ScreenMatchMode"]),
+        "matchWidthOrHeight": float(scaler["m_MatchWidthOrHeight"]),
+    }
+    if "_maxAspectThreshold" in scaler:
+        canvas_scaler["maxAspectThreshold"] = float(scaler["_maxAspectThreshold"])
+    result = {
+        "status": "resolved-source", "cameraSourcePath": source,
+        "cameraSourceHash": descriptor["contentSha256"], "cameraId": str(camera["pathId"]),
+        "cameraControllerId": str(controllers[0]["pathId"]),
+        "cameraTransformId": str(transform["pathId"]),
+        "sourceCameraWorldPosition": _unity_vector_document(camera_world["position"], "xyz"),
+        "sourceCameraWorldRotation": _unity_vector_document(camera_world["rotation"], "xyzw"),
+        "sourceCameraWorldScale": _unity_vector_document(camera_world["scale"], "xyz"),
+        "orthographic": bool(raw.get("orthographic")),
+        "orthographicSize": float(raw.get("orthographic size", 0)),
+        "nearClip": float(raw.get("near clip plane", 0)),
+        "farClip": float(raw.get("far clip plane", 0)), "hdr": bool(raw.get("m_HDR")),
+        "canvasSourcePath": widget_source, "canvasSourceHash": widget_descriptor["contentSha256"],
+        "canvasId": str(canvases[0]["pathId"]),
+        "canvasScalerId": str(scalers[0]["pathId"]), "canvasScaler": canvas_scaler,
+        "planeDistance": float(canvases[0]["data"].get("m_PlaneDistance", 0)),
+        "sourceCanvasCameraPointer": canvases[0]["data"].get("m_Camera"),
+        "requiresRuntimeBinding": True,
+    }
+    data._adv_frame_ui_particle_canvas = result
+    return result
 
 def _effect_runtime(data: BuildData, target_asset: str) -> dict[str, Any]:
     """Resolve any AdvEffectCommand target through the shared Unity runtime."""
@@ -4135,7 +4904,7 @@ def _story_assets(
             if icon_asset:
                 command["chatIconAssetName"] = icon_asset
             chat_sound_id = int(chat_master.get("_chatSoundId") or 0)
-            if chat_sound_id and code in {37, 38, 65}:
+            if chat_sound_id and code in {36, 37, 38, 65}:
                 candidate = resolve_chat_sound(chat_sound_id)
                 if candidate is None:
                     # Launch MasterAdvChat references some sounds omitted from
@@ -4155,6 +4924,23 @@ def _story_assets(
                         chat_sound,
                         f"{asset_name}::{command.get('index')}::chatSoundId={chat_sound_id}",
                     )
+                    register_sound(
+                        chat_sound_id,
+                        chat_sound,
+                        f"{asset_name}::{command.get('index')}::chatSoundId={chat_sound_id}",
+                    )
+            window_sound_id = int(chat_master.get("_inOutSoundId") or 0)
+            if window_sound_id and code == 36:
+                candidate = resolve_chat_sound(window_sound_id)
+                label = f"{asset_name}::{command.get('index')}::inOutSoundId={window_sound_id}"
+                if candidate is None:
+                    command["chatWindowSoundUnavailableId"] = window_sound_id
+                    if window_sound_id not in data.missing_chat_sound_ids:
+                        data.missing_chat_sound_ids.add(window_sound_id)
+                        sys.stderr.write(f"warning: chat sound {window_sound_id} is absent from all sound tables\n")
+                else:
+                    window_sound = _require_story_sound_role(candidate, 1, label)
+                    command["chatWindowSoundRef"] = register_sound(window_sound_id, window_sound, label)
         if code == 43 and target_asset:
             post_effect_source = f"{ADV_POST_EFFECT_ROOT}/{target_asset}.asset"
             if post_effect_source not in data.source_path_set:
@@ -4218,7 +5004,8 @@ def _story_assets(
                     {"sourcePath": value, "url": url}
                     for value, url in zip(source_paths, urls, strict=True)
                 ],
-                **({"presentation": "first-of-sequence"} if len(urls) > 1 else {}),
+                presentation=_native_still_presentation(data, target_asset),
+                **({"imageSequencePresentation": "first-of-sequence"} if len(urls) > 1 else {}),
             )
             if still.get("url"):
                 stills[target_asset] = still
@@ -5807,9 +6594,12 @@ def _story_runtime(data: BuildData, stories: dict[str, Any]) -> dict[str, Any]:
             if profile is None:
                 raise ValueError(f"ADV stage references an unknown post effect: {name}")
             post_effects[str(name)] = profile
+    resolution_limits = _native_story_resolution_limits(data)
     return {
         **_adv_player_settings(data),
         "uiSprites": _story_ui_sprites(data),
+        "screenCamera": _native_story_canvas_cameras(data)["video"],
+        **({"resolutionBaseLengthMaxByQuality": resolution_limits} if resolution_limits is not None else {}),
         "chatAssets": _adv_chat_assets(data),
         "postEffects": dict(sorted(post_effects.items())),
         "stages": stages,
@@ -5978,6 +6768,7 @@ def _story_assets_catalog(
                     "assetName": asset_name,
                     "url": url,
                     "sourcePath": source_path,
+                    "presentation": _native_still_presentation(data, f"{asset_name}/{relative[1]}"),
                 }
             continue
         if (
@@ -7431,7 +8222,7 @@ def _options(data: BuildData) -> dict[str, Any]:
         "MasterLiveJudgementParameter", "MasterLiveJudgementSprite",
         "MasterLiveNoteParameter", "MasterLiveNoteSe", "MasterLiveNoteSeGroup",
         "MasterLiveNoteSkin", "MasterLiveNoteEffectSkin", "MasterLiveLaneSkin",
-        "MasterLiveQualitySettings", "MasterLiveCharacterOption",
+        "MasterLiveQualitySettings", "MasterLiveCharacterOption", "MasterLiveSe",
     ]
     return {
         "optionItemTypes": _enum_document("App.Options.OptionItemType", OPTION_ITEM_TYPES),
@@ -7454,6 +8245,15 @@ def _options(data: BuildData) -> dict[str, Any]:
         ),
         "noteParameters": exact("MasterLiveNoteParameter", "_noteOperateType", "_id"),
         "noteSe": note_se,
+        "liveSe": [
+            _raw_record(
+                "MasterLiveSe", row,
+                liveSeId=int(row.get("_id") or 0),
+                liveSeType=int(row.get("_liveSeType") or 0),
+                sound=data.sound(int(row.get("_seId") or 0)),
+            )
+            for row in _sorted_rows(data, "MasterLiveSe", "_liveSeType", "_id")
+        ],
         "noteSeGroups": exact("MasterLiveNoteSeGroup"),
         "noteSkins": exact("MasterLiveNoteSkin"),
         "noteEffectSkins": exact("MasterLiveNoteEffectSkin"),

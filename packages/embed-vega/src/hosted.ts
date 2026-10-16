@@ -222,8 +222,10 @@ export function mountHaneokaStory(container: HTMLElement, options: HaneokaStoryO
         typeof core.createEmbedLoader !== "function" ||
         typeof sdk.mountStory !== "function" ||
         typeof sdk.haneokaStorySource !== "function" ||
+        typeof sdk.haneokaSourceAssetUrl !== "function" ||
         typeof sdk.cubismStoryPlugin !== "function" ||
-        !Array.isArray(theme.haneokaStoryPlugins)
+        !Array.isArray(theme.haneokaStoryPlugins) ||
+        typeof theme.createHaneokaThemeAssetsPlugin !== "function"
       )
         throw new TypeError("Incompatible SDK module contract");
       let runtime = options.runtime;
@@ -265,13 +267,37 @@ export function mountHaneokaStory(container: HTMLElement, options: HaneokaStoryO
       controller.signal.throwIfAborted();
       change("data");
       const playerOptions = options.playerOptions ?? {};
+      const server = options.server ?? "intl";
+      const source = sdk.haneokaStorySource({
+        id: options.id,
+        ...(options.apiBase ? { apiBase: options.apiBase } : {}),
+      });
+      const sourceAssets = theme.createHaneokaThemeAssetsPlugin({
+        resolveSourceAsset: (path: string) =>
+          /^(?:Assets|Packages)\//u.test(path)
+            ? sdk.haneokaSourceAssetUrl(path, source.assetsBase, server)
+            : /^(?:https?:\/\/|blob:|data:|\/)/iu.test(path)
+              ? new URL(path, source.assetsBase).href
+              : "",
+      });
+      // Both current and legacy host adapters retain ownership of custom assets.
+      const assetPlugins = playerOptions.plugins?.some(
+        (plugin) => plugin.manifest.id === sourceAssets.manifest.id || plugin.manifest.id === "haneoka.theme-host",
+      )
+        ? []
+        : [sourceAssets];
       child = sdk.mountStory(container, {
         ...playerOptions,
-        source: sdk.haneokaStorySource({ id: options.id, ...(options.apiBase ? { apiBase: options.apiBase } : {}) }),
-        server: options.server ?? "intl",
+        source,
+        server,
         locale: options.locale ?? "ja",
         theme: playerOptions.theme ?? "haneoka",
-        plugins: [...theme.haneokaStoryPlugins, sdk.cubismStoryPlugin(runtime), ...(playerOptions.plugins ?? [])],
+        plugins: [
+          ...theme.haneokaStoryPlugins,
+          ...assetPlugins,
+          sdk.cubismStoryPlugin(runtime),
+          ...(playerOptions.plugins ?? []),
+        ],
         fetcher,
         ...(options.headers === undefined ? {} : { headers: options.headers }),
         ...(options.credentials === undefined ? {} : { credentials: options.credentials }),
@@ -280,8 +306,7 @@ export function mountHaneokaStory(container: HTMLElement, options: HaneokaStoryO
         onEvent(event: StoryEmbedEvent) {
           if (event.type === "load" && event.event.type === "ready" && event.event.key === "$data") change("resources");
           if (phase !== "disposed" && phase !== "cancelled") {
-            if (event.type === "error" || (event.type === "state" && event.snapshot.phase === "error"))
-              phase = "error";
+            if (event.type === "error" || (event.type === "state" && event.snapshot.phase === "error")) phase = "error";
           }
           // Child readiness precedes this bootstrap's ready transition.
           emit(event.type === "state" ? { ...event, snapshot: { ...event.snapshot, phase } } : event);

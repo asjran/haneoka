@@ -976,8 +976,8 @@ export class SpineWorkspace extends LitElement {
                           void this.fullscreen.toggle(
                             (event.currentTarget as HTMLElement).closest<HTMLElement>(".viewer-stage"),
                           )}
-                        aria-label=${uiText(this.locale, this.stageFullscreen ? "story.labels.fullscreenExit" : "common.actions.fullscreen")}
-                        title=${uiText(this.locale, this.stageFullscreen ? "story.labels.fullscreenExit" : "common.actions.fullscreen")}
+                        aria-label=${uiText(this.locale, this.stageFullscreen ? "common.actions.fullscreenExit" : "common.actions.fullscreen")}
+                        title=${uiText(this.locale, this.stageFullscreen ? "common.actions.fullscreenExit" : "common.actions.fullscreen")}
                       >
                         <svg class="material-icon" width="22" height="22">
                           <use href=${this.stageFullscreen ? "/icons.svg#fullscreen_exit" : "/icons.svg#fullscreen"}></use>

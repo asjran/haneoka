@@ -24,47 +24,46 @@ import { openDetailLocation, updateEntityHeading } from "../lib/detail-navigatio
 import type { Locale } from "@haneoka/i18n";
 import { viewerBufferSize } from "./runtime/viewer-resolution";
 import { segmented } from "./ui/controls";
-import { CUBISM_CORE_URLS, CUBISM_WEB_RUNTIME_URL } from "../lib/cubism-runtime";
+import { CUBISM_CORE_URLS, loadCubismWebRuntime } from "../lib/cubism-runtime";
 import type { CubismTextureVariant } from "@haneoka/vega-plugin-cubism";
 import { loadingIndicator } from "./ui/loading-indicator";
 import { StageFullscreen, StageGestures } from "./ui/stage-fullscreen";
 
 /** Message paths for this view's finite control/metadata identifiers. */
 const uiLabelPaths: Readonly<Record<string, string>> = {
-  "band": "catalog.fields.band",
-  "bands": "catalog.fields.bands",
-  "blink": "media.models.labels.blink",
-  "breath": "media.models.labels.breath",
-  "capture": "common.actions.capture",
-  "character": "catalog.fields.character",
-  "characters": "navigation.characters",
-  "costumeId": "story.labels.costumeId",
-  "error": "common.states.error",
-  "grid": "common.layout.grid",
-  "id": "common.fields.id",
-  "live": "catalog.songs.fields.live",
-  "live2d": "navigation.live2d",
-  "loading": "common.states.loading",
-  "loop": "common.actions.loop",
-  "model": "media.models.labels.model",
-  "no": "common.states.no",
-  "none": "common.states.none",
-  "order": "common.layout.order",
-  "pose": "media.models.labels.pose",
-  "preview": "common.actions.preview",
-  "quality": "media.models.labels.quality",
-  "sort": "common.actions.sort",
-  "subCharacter": "story.labels.subCharacter",
-  "sway": "media.models.labels.sway",
-  "table": "common.layout.table",
-  "title": "common.fields.title",
-  "type": "catalog.fields.type",
-  "view": "common.actions.view",
-  "yes": "common.states.yes",
-  "invalidModelPackage": "media.models.labels.invalidModelPackage",
-  "emptyModelResource": "media.models.labels.emptyModelResource"
+  band: "catalog.fields.band",
+  bands: "catalog.fields.bands",
+  blink: "media.models.labels.blink",
+  breath: "media.models.labels.breath",
+  capture: "common.actions.capture",
+  character: "catalog.fields.character",
+  characters: "navigation.characters",
+  costumeId: "story.labels.costumeId",
+  error: "common.states.error",
+  grid: "common.layout.grid",
+  id: "common.fields.id",
+  live: "catalog.songs.fields.live",
+  live2d: "navigation.live2d",
+  loading: "common.states.loading",
+  loop: "common.actions.loop",
+  model: "media.models.labels.model",
+  no: "common.states.no",
+  none: "common.states.none",
+  order: "common.layout.order",
+  pose: "media.models.labels.pose",
+  preview: "common.actions.preview",
+  quality: "media.models.labels.quality",
+  sort: "common.actions.sort",
+  subCharacter: "story.labels.subCharacter",
+  sway: "media.models.labels.sway",
+  table: "common.layout.table",
+  title: "common.fields.title",
+  type: "catalog.fields.type",
+  view: "common.actions.view",
+  yes: "common.states.yes",
+  invalidModelPackage: "media.models.labels.invalidModelPackage",
+  emptyModelResource: "media.models.labels.emptyModelResource",
 };
-
 
 type Value = Record<string, unknown>;
 type Parameter = { id: string; value: number; minimum: number; maximum: number; defaultValue: number };
@@ -499,7 +498,12 @@ export class Live2DWorkspace extends LitElement {
     try {
       const server = readReleaseServer();
       if (!this.entityId && OFFICIAL_CATALOG_SERVERS.includes(server as OfficialCatalogServer)) {
-        const catalogs = await fetchCrossServerCatalogs(["live2d", "characters", "bands"], server as OfficialCatalogServer, this.locale, { signal: controller.signal });
+        const catalogs = await fetchCrossServerCatalogs(
+          ["live2d", "characters", "bands"],
+          server as OfficialCatalogServer,
+          this.locale,
+          { signal: controller.signal },
+        );
         if (controller.signal.aborted || this.catalogAbortController !== controller || !this.isConnected) return;
         if (Object.values(catalogs.live2d?.sourceAvailability || {}).every((value) => value !== "loaded"))
           throw new Error("Live2D catalog unavailable");
@@ -616,7 +620,7 @@ export class Live2DWorkspace extends LitElement {
         detail.defaultExpressionName ||
         "",
     );
-    const runtime = (await import(/* @vite-ignore */ CUBISM_WEB_RUNTIME_URL)) as unknown as {
+    const runtime = (await loadCubismWebRuntime()) as {
       CubismModelViewer: new (options: {
         canvas: HTMLCanvasElement;
         onFrame?(): void;
@@ -1148,11 +1152,11 @@ export class Live2DWorkspace extends LitElement {
       }
       if (counts.size < 2) return nothing;
       return facet(
-        uiText(this.locale, (uiLabelPaths[key] ?? key)),
+        uiText(this.locale, uiLabelPaths[key] ?? key),
         this.locale,
         [...counts].map(([value, count]) => ({
           value,
-          label: ["yes", "no"].includes(value) ? uiText(this.locale, (uiLabelPaths[value] ?? value)) : value,
+          label: ["yes", "no"].includes(value) ? uiText(this.locale, uiLabelPaths[value] ?? value) : value,
           count,
         })),
         this.metaFilters[key] ? [this.metaFilters[key]] : [],
@@ -1343,7 +1347,7 @@ export class Live2DWorkspace extends LitElement {
       if (this.packagingAbortController === controller) {
         this.packagingError =
           exporter && error instanceof exporter.Live2DExportError
-            ? uiText(this.locale, (uiLabelPaths[error.messageKey] ?? error.messageKey))
+            ? uiText(this.locale, uiLabelPaths[error.messageKey] ?? error.messageKey)
             : error instanceof Error
               ? error.message
               : String(error);
@@ -1398,7 +1402,9 @@ export class Live2DWorkspace extends LitElement {
         results:
           this.phase === "loading"
             ? this.view === "grid"
-              ? html`${collectionSkeleton("model")}${loadingState(uiText(this.locale, "common.states.loading"))}`
+              ? html`
+                  ${collectionSkeleton("model")}${loadingState(uiText(this.locale, "common.states.loading"))}
+                `
               : loadingState(uiText(this.locale, "common.states.loading"))
             : this.phase === "error"
               ? errorState(
@@ -1562,7 +1568,10 @@ export class Live2DWorkspace extends LitElement {
         title: this.modelTitle(model),
         subtitle: this.characterName(model),
         image: this.preview(model),
-        trailing: (() => { const entry = this.unionModels?.entries.get(model); return entry?.exclusive ? serverAvailabilityBadge([entry.exclusive], this.locale) : nothing; })(),
+        trailing: (() => {
+          const entry = this.unionModels?.entries.get(model);
+          return entry?.exclusive ? serverAvailabilityBadge([entry.exclusive], this.locale) : nothing;
+        })(),
         onOpen: () => this.select(this.key(model)),
       })),
     );
@@ -1588,7 +1597,10 @@ export class Live2DWorkspace extends LitElement {
             }
             <span class="table-entity__copy">
               <strong>${this.modelTitle(model)}</strong>
-              ${(() => { const entry = this.unionModels?.entries.get(model); return entry?.exclusive ? serverAvailabilityBadge([entry.exclusive], this.locale) : nothing; })()}
+              ${(() => {
+                const entry = this.unionModels?.entries.get(model);
+                return entry?.exclusive ? serverAvailabilityBadge([entry.exclusive], this.locale) : nothing;
+              })()}
               <small>${this.characterName(model)}</small>
             </span>
           </button>
@@ -1624,7 +1636,11 @@ export class Live2DWorkspace extends LitElement {
             ? nothing
             : html`
                 <header>
-                  <button class="icon-button" @click=${this.closeDetail} aria-label=${uiText(this.locale, "common.actions.close")}>
+                  <button
+                    class="icon-button"
+                    @click=${this.closeDetail}
+                    aria-label=${uiText(this.locale, "common.actions.close")}
+                  >
                     <svg class="material-icon" width="24" height="24"><use href="/icons.svg#arrow_back"></use></svg>
                   </button>
                   ${
@@ -1647,7 +1663,11 @@ export class Live2DWorkspace extends LitElement {
                     >
                       <svg class="material-icon" width="20" height="20"><use href="/icons.svg#chevron_left"></use></svg>
                     </button>
-                    <button class="icon-button" @click=${this.closeDetail} aria-label=${uiText(this.locale, "common.layout.grid")}>
+                    <button
+                      class="icon-button"
+                      @click=${this.closeDetail}
+                      aria-label=${uiText(this.locale, "common.layout.grid")}
+                    >
                       <svg class="material-icon" width="20" height="20"><use href="/icons.svg#grid_view"></use></svg>
                     </button>
                     <button
@@ -1773,11 +1793,13 @@ export class Live2DWorkspace extends LitElement {
                           void this.fullscreen.toggle(
                             (event.currentTarget as HTMLElement).closest<HTMLElement>(".viewer-stage"),
                           )}
-                        aria-label=${uiText(this.locale, this.stageFullscreen ? "story.labels.fullscreenExit" : "common.actions.fullscreen")}
-                        title=${uiText(this.locale, this.stageFullscreen ? "story.labels.fullscreenExit" : "common.actions.fullscreen")}
+                        aria-label=${uiText(this.locale, this.stageFullscreen ? "common.actions.fullscreenExit" : "common.actions.fullscreen")}
+                        title=${uiText(this.locale, this.stageFullscreen ? "common.actions.fullscreenExit" : "common.actions.fullscreen")}
                       >
                         <svg class="material-icon" width="22" height="22">
-                          <use href=${this.stageFullscreen ? "/icons.svg#fullscreen_exit" : "/icons.svg#fullscreen"}></use>
+                          <use
+                            href=${this.stageFullscreen ? "/icons.svg#fullscreen_exit" : "/icons.svg#fullscreen"}
+                          ></use>
                         </svg>
                       </button>
                       <button
@@ -1831,12 +1853,12 @@ export class Live2DWorkspace extends LitElement {
               ).map(
                 ([key, selected]) => html`
                   <label>
-                    <span>${uiText(this.locale, (uiLabelPaths[key] ?? key))}</span>
+                    <span>${uiText(this.locale, uiLabelPaths[key] ?? key)}</span>
                     <md-switch
                       .selected=${selected}
                       ?disabled=${key === "loop" && !this.selectedMotion}
                       @change=${() => this.toggle(key)}
-                      aria-label=${uiText(this.locale, (uiLabelPaths[key] ?? key))}
+                      aria-label=${uiText(this.locale, uiLabelPaths[key] ?? key)}
                     ></md-switch>
                   </label>
                 `,
@@ -2012,7 +2034,7 @@ export class Live2DWorkspace extends LitElement {
                             value: this.parameterMode,
                             options: (["none", "capture", "pose"] as const).map((value) => ({
                               value,
-                              label: uiText(this.locale, (uiLabelPaths[value] ?? value)),
+                              label: uiText(this.locale, uiLabelPaths[value] ?? value),
                             })),
                             onSelect: (mode) => this.setParameterMode(mode),
                           })}
@@ -2057,7 +2079,9 @@ export class Live2DWorkspace extends LitElement {
                                         )}
                                     >
                                       <md-select-option value="">
-                                        <div slot="headline">${uiText(this.locale, "media.models.labels.defaultPose")}</div>
+                                        <div slot="headline">
+                                          ${uiText(this.locale, "media.models.labels.defaultPose")}
+                                        </div>
                                       </md-select-option>
                                       ${Object.entries(this.poses).map(
                                         ([id, pose]) => html`

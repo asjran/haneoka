@@ -17,21 +17,33 @@ const metadataPath = metadataArg ? path.resolve(metadataArg.slice("--metadata=".
 if (metadataPath?.startsWith(path.join(root, "public") + path.sep))
   throw new Error("Build metadata belongs outside public");
 const regenerate = !process.argv.includes("--verify");
+const localChanges = process.argv.includes("--allow-local-changes");
 const producerReceiptArg = process.argv.find((arg) => arg.startsWith("--producer-receipt="));
+const modulesArg = process.argv.find((arg) => arg.startsWith("--modules="));
+const runtimeOnly = process.argv.includes("--runtime-only");
 if (
   process.argv.some(
     (arg) =>
       arg.startsWith("--") &&
       arg !== metadataArg &&
       arg !== producerReceiptArg &&
+      arg !== modulesArg &&
       arg !== "--regenerate" &&
+      arg !== "--allow-local-changes" &&
+      arg !== "--runtime-only" &&
       arg !== "--verify",
   )
 )
-  throw new Error("Usage: node scripts/build-embeds.mjs [--verify | --regenerate [--metadata=/absolute/report.json]]");
+  throw new Error(
+    "Usage: node scripts/build-embeds.mjs [--verify | --regenerate [--modules=cassiopeia | --runtime-only] [--allow-local-changes] [--metadata=/absolute/report.json]]",
+  );
 if (process.argv.includes("--regenerate") && process.argv.includes("--verify"))
   throw new Error("Choose verify or regenerate");
+if (runtimeOnly && modulesArg) throw new Error("Choose module regeneration or runtime-only regeneration");
 if (!regenerate) {
+  if (runtimeOnly) throw new Error("--runtime-only requires regeneration");
+  if (modulesArg) throw new Error("--modules requires regeneration");
+  if (localChanges) throw new Error("--allow-local-changes requires regeneration");
   if (metadataArg) throw new Error("--metadata records regeneration inputs; use --regenerate explicitly");
   const manifest = JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"));
   if (!/^r-[a-f0-9]{16}$/u.test(manifest.release)) throw new Error("Invalid frozen embed release");
@@ -137,7 +149,7 @@ for (const [name, { directory }] of packages) {
     .split("\n")
     .filter(Boolean)
     .filter((file) => !(name === "@haneoka/vega-plugin-cubism" && file.startsWith("src/web-runtime/")));
-  if (dirty.length)
+  if (dirty.length && !localChanges)
     throw new Error(`Commit/pin the reviewed producer source before regeneration: ${name}: ${dirty.join(", ")}`);
 }
 const compatibility = await restorePublishedEmbedCompatibility(output);
@@ -178,6 +190,17 @@ const entries = {
     }
   `,
 };
+// A renderer can ship without rebuilding the other engine's reviewed epoch.
+// Retain its complete frozen closure, including shared chunks and assets.
+const moduleNames = Object.keys(entries);
+const selectedModules = runtimeOnly ? [] : modulesArg ? modulesArg.slice("--modules=".length).split(",") : moduleNames;
+if ((!runtimeOnly && !selectedModules.length) || selectedModules.some((name) => !moduleNames.includes(name)))
+  throw new Error("Unknown embed module selection");
+let retainedManifest;
+if (modulesArg || runtimeOnly) {
+  execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--verify"], { stdio: "inherit" });
+  retainedManifest = JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"));
+}
 const assets = new Map();
 const consumedInputs = new Map();
 const assetPlugin = {
@@ -246,41 +269,100 @@ const assetPlugin = {
   },
 };
 
-const result = await build({
-  entryPoints: Object.keys(entries).map((name) => ({ in: `embed-entry:${name}`, out: name })),
-  absWorkingDir: root,
-  outdir: virtualOutput,
-  bundle: true,
-  splitting: true,
-  format: "esm",
-  platform: "browser",
-  target: "es2022",
-  minify: true,
-  write: false,
-  metafile: true,
-  legalComments: "linked",
-  charset: "utf8",
-  entryNames: "[name]",
-  chunkNames: "chunks/[name]-[hash]",
-  assetNames: "../assets/[name]-[hash]",
-  loader: { ".wasm": "file", ".woff2": "file", ".png": "file", ".svg": "file" },
-  nodePaths: [path.join(root, "node_modules")],
-  plugins: [assetPlugin],
-  logLevel: "warning",
-});
+const result = selectedModules.length
+  ? await build({
+      entryPoints: selectedModules.map((name) => ({ in: `embed-entry:${name}`, out: name })),
+      absWorkingDir: root,
+      outdir: virtualOutput,
+      bundle: true,
+      splitting: true,
+      format: "esm",
+      platform: "browser",
+      target: "es2022",
+      minify: true,
+      write: false,
+      metafile: true,
+      legalComments: "linked",
+      charset: "utf8",
+      entryNames: "[name]",
+      chunkNames: "chunks/[name]-[hash]",
+      assetNames: "../assets/[name]-[hash]",
+      loader: { ".wasm": "file", ".woff2": "file", ".png": "file", ".svg": "file" },
+      nodePaths: [path.join(root, "node_modules")],
+      plugins: [assetPlugin],
+      logLevel: "warning",
+    })
+  : { outputFiles: [], metafile: { inputs: {}, outputs: {} } };
 const files = new Map(
   result.outputFiles.map((file) => [
     path.relative(virtualOutput, file.path).split(path.sep).join("/"),
     Buffer.from(file.contents),
   ]),
 );
-// Runtime metadata belongs to this hashed SDK epoch; licensed files stay in
-// their existing provisioned locations and exact eight-file production set.
+if (retainedManifest) {
+  for (const [name, expected] of Object.entries(retainedManifest.files)) {
+    const bytes = await readFile(path.join(output, retainedManifest.release, name));
+    if (bytes.length !== expected.bytes || hash(bytes) !== expected.sha256)
+      throw new Error(`Retained embed artifact changed: ${name}`);
+    const replacement = files.get(name);
+    if (!replacement) files.set(name, bytes);
+    else if (
+      !selectedModules.some((module) => name === `${module}.js` || name === `${module}.js.LEGAL.txt`) &&
+      !replacement.equals(bytes)
+    )
+      throw new Error(`Shared embed artifact collision: ${name}`);
+  }
+}
+// Publish complete SDK directories before their URLs enter runtime metadata.
 const cubismLock = JSON.parse(await readFile(path.join(root, "config/cubism-runtime.lock.json"), "utf8"));
+execFileSync(process.execPath, [path.join(root, "scripts/cubism-runtime.mjs"), "verify"], { stdio: "inherit" });
+const cubismDirectories = new Map();
+for (const file of cubismLock.files) {
+  if (!file.output) continue;
+  let bytes;
+  try {
+    bytes = await readFile(path.join(root, file.target));
+  } catch (error) {
+    if (error.code === "ENOENT" && process.env.HANEOKA_CUBISM_RUNTIME_POLICY === "optional") continue;
+    throw error;
+  }
+  if (bytes.length !== file.bytes || hash(bytes) !== file.sha256)
+    throw new Error(`Pinned Cubism runtime differs: ${file.target}`);
+  const target = path.join(root, ".generated-public", file.output);
+  const directory = path.dirname(target);
+  if (!cubismDirectories.has(directory)) cubismDirectories.set(directory, []);
+  cubismDirectories.get(directory).push({ target, bytes });
+}
+for (const [directory, entries] of cubismDirectories) {
+  let exists = true;
+  try {
+    await access(directory);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    exists = false;
+  }
+  if (!exists) {
+    const temporary = `${directory}.stage-${process.pid}`;
+    await mkdir(temporary, { recursive: true });
+    for (const { target, bytes } of entries) await writeFile(path.join(temporary, path.basename(target)), bytes);
+    await rename(temporary, directory);
+    continue;
+  }
+  for (const { target, bytes } of entries) {
+    try {
+      if ((await readFile(target)).equals(bytes)) continue;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const temporary = `${target}.stage-${process.pid}`;
+    await writeFile(temporary, bytes);
+    await rename(temporary, target);
+  }
+}
 const cubismFile = (source) => {
   const file = cubismLock.files.find((item) => item.source === source && item.output);
   if (!file) throw new Error(`Missing pinned Cubism runtime source: ${source}`);
-  return { url: `/${file.output}`, bytes: file.bytes, sha256: file.sha256 };
+  return { url: `/${file.output}?v=${file.sha256}`, bytes: file.bytes, sha256: file.sha256 };
 };
 files.set(
   "runtime.json",
@@ -333,7 +415,64 @@ for (const [name, sha256] of consumedInputs) {
   if (hash(await readFile(path.resolve(root, name))) !== sha256)
     throw new Error(`Source changed while building embed artifacts: ${name}`);
 }
+// A selective rebuild keeps the other entry points byte-for-byte. Carry only
+// their reachable dependency closure into the new immutable release; obsolete
+// chunks remain available under their original release URLs.
+const reachable = new Set();
+const pending = [...moduleNames.map((name) => `${name}.js`), "runtime.json"];
+const follow = (owner, specifier, required = false) => {
+  if (!specifier.startsWith(".")) return;
+  const relative = specifier.split(/[?#]/u, 1)[0];
+  const target = path.posix.normalize(path.posix.join(path.posix.dirname(owner), relative));
+  if (files.has(target)) pending.push(target);
+  else if (required) throw new Error(`Missing embed dependency: ${owner} → ${specifier}`);
+};
+while (pending.length) {
+  const name = pending.pop();
+  if (reachable.has(name)) continue;
+  const bytes = files.get(name);
+  if (!bytes) throw new Error(`Missing embed entry: ${name}`);
+  reachable.add(name);
+  if (!name.endsWith(".js")) continue;
+  const legal = `${name}.LEGAL.txt`;
+  if (files.has(legal)) reachable.add(legal);
+  const source = ts.createSourceFile(name, bytes.toString("utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const visit = (node) => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      follow(name, node.moduleSpecifier.text, true);
+    } else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      follow(name, node.arguments[0].text, true);
+    } else if (ts.isStringLiteralLike(node)) {
+      // esbuild's file loader stores asset URLs in ordinary string bindings.
+      follow(name, node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+}
+let omittedRetainedFiles = 0;
+for (const name of files.keys()) {
+  if (!reachable.has(name) && !name.startsWith("licenses/")) {
+    files.delete(name);
+    omittedRetainedFiles++;
+  }
+}
 const ordered = [...files].sort(([left], [right]) => left.localeCompare(right, "en"));
+const distributionAssetBytes = ordered.reduce(
+  (sum, [name, bytes]) => sum + (name.startsWith("../assets/") ? bytes.length : 0),
+  0,
+);
+if (distributionAssetBytes > 64 * 1024 * 1024)
+  throw new Error(`Embed asset closure exceeds the 64 MiB distribution budget: ${distributionAssetBytes}`);
 const releaseHash = hash(ordered.map(([name, bytes]) => `${name}\0${hash(bytes)}\n`).join(""));
 const release = `r-${releaseHash.slice(0, 16)}`;
 const releaseDirectory = path.join(output, release);
@@ -354,7 +493,7 @@ const manifest = {
   schemaVersion: 1,
   release,
   sha256: releaseHash,
-  modules: Object.fromEntries(Object.keys(entries).map((name) => [name, `./${release}/${name}.js`])),
+  modules: Object.fromEntries(moduleNames.map((name) => [name, `./${release}/${name}.js`])),
   runtimes: { cubism: `./${release}/runtime.json` },
   files: Object.fromEntries(ordered.map(([name, bytes]) => [name, { bytes: bytes.length, sha256: hash(bytes) }])),
 };
@@ -382,10 +521,15 @@ if (metadataArg) {
       {
         ...manifest,
         assetBytes,
+        distributionAssetBytes,
+        omittedRetainedFiles,
         assets: Object.fromEntries(assets),
         inputs: inputHashes,
         metafile: result.metafile,
         chartStylesInlined: true,
+        rebuiltModules: selectedModules,
+        runtimeOnly,
+        retainedRelease: retainedManifest?.release ?? null,
         compatibility,
       },
       null,

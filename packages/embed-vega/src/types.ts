@@ -1,5 +1,5 @@
 import type { DataSource, EmbedEvent, EmbedLoaderOptions } from "@haneoka/embed-core";
-import type { AdvStory, VegaPlayerHandle, VegaPlayerShellOptions } from "@haneoka/vega/engine";
+import type { AdvStory, VegaPlayerHandle, VegaPlayerShellOptions } from "@haneoka/vega/web";
 import type { VegaPlugin } from "@haneoka/vega/plugin";
 import type { ThreeRendererPluginOptions } from "@haneoka/vega-renderer-three";
 

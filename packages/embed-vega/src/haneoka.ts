@@ -27,6 +27,14 @@ const mergeRuntime = (base: RecordValue, authored: RecordValue): RecordValue => 
   return output;
 };
 
+/** Resolve authored Unity paths using this data source's deployment origin. */
+export function haneokaSourceAssetUrl(path: string, assetsBase: string | URL, server = "intl"): string {
+  return /^(?:Assets|Packages)\//u.test(path)
+    ? new URL(`/assets/${encodeURIComponent(server)}/${path.split("/").map(encodeURIComponent).join("/")}`, assetsBase)
+        .href
+    : path;
+}
+
 /** Resolve one current public story and only its declared model metadata. */
 export function haneokaStorySource(options: { readonly id: string; readonly apiBase?: string }): DataSource<AdvStory> {
   const common = options.apiBase === undefined ? {} : { apiBase: options.apiBase };
@@ -52,15 +60,8 @@ export function haneokaStorySource(options: { readonly id: string; readonly apiB
       }
       const resolvedRuntime = mergeRuntime(runtime, record(story.runtime ?? {}));
       const chat = record(resolvedRuntime.chatAssets ?? {});
-      const sourceAsset = (value: unknown): string => {
-        const path = String(value ?? "");
-        return /^(?:Assets|Packages)\//u.test(path)
-          ? new URL(
-              `/assets/${encodeURIComponent(context.server ?? "intl")}/${path.split("/").map(encodeURIComponent).join("/")}`,
-              storySource.assetsBase,
-            ).href
-          : path;
-      };
+      const sourceAsset = (value: unknown): string =>
+        haneokaSourceAssetUrl(String(value ?? ""), storySource.assetsBase!, context.server);
       const roots = Object.fromEntries(
         Object.entries(record(chat.dataRootsByWindowAsset ?? {})).map(([key, value]) => [key, sourceAsset(value)]),
       );

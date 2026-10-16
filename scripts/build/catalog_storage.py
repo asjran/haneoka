@@ -1002,7 +1002,19 @@ def compile_catalog_storage(
                     or base_summary.get("server") != server or base_summary.get("sourceId") != source_id):
                 raise ValueError("partial catalog base belongs to a different source")
             resources = dict(base_manifest["resources"])
-            counts = {name: base_summary["resources"][name]["count"] for name in CATALOG_RESOURCES}
+            missing_base = {
+                name for name in CATALOG_RESOURCES
+                if name not in resources or name not in base_summary["resources"]
+            }
+            if missing_base - selected:
+                raise ValueError("partial catalog base is missing an unselected resource")
+            for name in missing_base:
+                if not (source / f"{name}.json").is_file():
+                    raise ValueError(f"new selected catalog resource is missing: {name}")
+            counts = {
+                name: base_summary["resources"][name]["count"]
+                for name in CATALOG_RESOURCES if name not in missing_base
+            }
             for file in walk_files(base):
                 relative = file.relative_to(base)
                 if relative.parts[0] in selected or relative.as_posix() in {"manifest.json", "summary.json"}:

@@ -46,7 +46,8 @@
       "rename": "이름 변경",
       "confirm": "확인",
       "moreActions": "옵션 더보기",
-      "reload": "새로고침"
+      "reload": "새로고침",
+      "fullscreenExit": "전체 화면 종료"
     },
     "fields": {
       "duration": "재생 시간",
@@ -1310,7 +1311,7 @@
       "title": "보이스"
     },
     "chartPlayer": {
-      "play": "플레이",
+      "play": "재생",
       "pause": "일시 정지",
       "loop": "반복",
       "fullscreen": "전체 화면",
@@ -1347,7 +1348,11 @@
       "noteFlick": "플릭",
       "noteSlide": "슬라이드",
       "loading": "불러오는 중…",
-      "runtimeError": "Our Notes 채보 런타임을 불러오지 못했습니다."
+      "runtimeError": "Our Notes 채보 런타임을 불러오지 못했습니다.",
+      "continuationEffects": "콤보 연출",
+      "liveMode": "라이브 모드",
+      "normalLive": "일반 라이브",
+      "gekisouLive": "격주 라이브"
     }
   },
   "tools": {

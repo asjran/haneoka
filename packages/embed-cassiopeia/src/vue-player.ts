@@ -1,5 +1,12 @@
-import { RenderFrameBuilder, NativeChartVisualProfilesError, type OurNotesAssetManifest } from "@haneoka/cassiopeia-plugin-our-notes";
+import {
+  OurNotesGekisouPlayback,
+  RenderFrameBuilder,
+  NativeChartVisualProfilesError,
+  type OurNotesAssetManifest,
+} from "@haneoka/cassiopeia-plugin-our-notes";
 import type { ChartPlayerExpose } from "@haneoka/cassiopeia-ui-vue/player";
+import type { CassiopeiaRuntime } from "@haneoka/cassiopeia/plugin";
+import type { PresentationResourcePort } from "@haneoka/cassiopeia-host-web";
 import type { PlayerDriver, PlayerEvent } from "./driver.js";
 import { ChartReplacementRejectedError } from "./driver.js";
 import type { ChartEmbedDocument, ChartPlaybackOptions, MountChartOptions } from "./types.js";
@@ -8,8 +15,12 @@ import type { ChartEmbedDocument, ChartPlaybackOptions, MountChartOptions } from
 export async function supportsNativeVisualProfiles(): Promise<boolean> {
   const { ChartPlayer } = await import("@haneoka/cassiopeia-ui-vue/player");
   const declaredProps: unknown = Reflect.get(ChartPlayer, "props");
-  return typeof RenderFrameBuilder.prototype.setVisualProfiles === "function"
-    && !!declaredProps && typeof declaredProps === "object" && Object.hasOwn(declaredProps, "visualProfiles");
+  return (
+    typeof RenderFrameBuilder.prototype.setVisualProfiles === "function" &&
+    !!declaredProps &&
+    typeof declaredProps === "object" &&
+    Object.hasOwn(declaredProps, "visualProfiles")
+  );
 }
 
 export async function createVuePlayer(
@@ -20,6 +31,10 @@ export async function createVuePlayer(
   labels: MountChartOptions["labels"],
   signal: AbortSignal,
   event: PlayerEvent,
+  host?: {
+    readonly runtime?: CassiopeiaRuntime;
+    readonly resources?: PresentationResourcePort;
+  },
 ): Promise<PlayerDriver> {
   const [{ createApp, h, shallowReactive, nextTick }, { ChartPlayer }] = await Promise.all([
     import("vue"),
@@ -31,12 +46,33 @@ export async function createVuePlayer(
   let playError: unknown;
   let chartUpdateError: unknown;
   let chartUpdateInProgress = false;
-  const frameWaiters = new Set<{ resolve(): void; reject(error: unknown): void }>();
+  const frameWaiters = new Set<{
+    resolve(): void;
+    reject(error: unknown): void;
+  }>();
   const rejectFrames = (error: unknown) => {
     for (const waiter of frameWaiters) waiter.reject(error);
     frameWaiters.clear();
   };
-  const props = shallowReactive({ ...options, chart: document.chart, bgmOffsetMs: document.bgmOffsetMs ?? 0, visualProfiles: document.visualProfiles });
+  let gekisouOptions = options.gekisou;
+  let documentGekisou = document.gekisou;
+  const gekisou = (source = documentGekisou) =>
+    gekisouOptions
+      ? {
+          ...source,
+          ...gekisouOptions,
+          missionTypes: gekisouOptions.missionTypes ?? source?.missionTypes ?? [],
+        }
+      : source;
+  const props = shallowReactive({
+    ...options,
+    chart: document.chart,
+    gekisou: gekisou(),
+    ...(host?.runtime ? { runtime: host.runtime } : {}),
+    ...(host?.resources ? { presentationResources: host.resources } : {}),
+    bgmOffsetMs: document.bgmOffsetMs ?? 0,
+    ...(document.visualProfiles === undefined ? {} : { visualProfiles: document.visualProfiles }),
+  });
   let resolveReady!: () => void;
   let rejectReady!: (error: unknown) => void;
   const ready = new Promise<void>((resolve, reject) => {
@@ -50,9 +86,11 @@ export async function createVuePlayer(
       event(name, ...args);
     };
   const app = createApp({
-    render: () =>
-      h(ChartPlayer, {
-        ...props,
+    render: () => {
+      const { gekisou: configuration, ...playerProps } = props;
+      return h(ChartPlayer, {
+        ...playerProps,
+        ...(configuration === undefined ? {} : { gekisou: configuration }),
         assets,
         audioUrl: document.audio ?? "",
         backgroundUrl: document.background ?? "",
@@ -86,7 +124,8 @@ export async function createVuePlayer(
         onSkill: on("skill"),
         onFever: on("fever"),
         onCallchange: on("callchange"),
-      }),
+      });
+    },
   });
   const dispose = () => {
     if (disposed) return;
@@ -117,13 +156,19 @@ export async function createVuePlayer(
     },
     pause: () => player?.pause(),
     seek: (seconds) => player!.seek(seconds),
-    getPresentation: () => disposed || signal.aborted ? undefined : player?.getPresentation(),
+    getPresentation: () => (disposed || signal.aborted ? undefined : player?.getPresentation()),
     waitForPresentation() {
       if (disposed || signal.aborted) return Promise.reject(new DOMException("Chart player disposed", "AbortError"));
       return new Promise<void>((resolve, reject) => {
         const waiter = {
-          resolve: () => { clearTimeout(timer); resolve(); },
-          reject: (error: unknown) => { clearTimeout(timer); reject(error); },
+          resolve: () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          reject: (error: unknown) => {
+            clearTimeout(timer);
+            reject(error);
+          },
         };
         const timer = setTimeout(() => {
           frameWaiters.delete(waiter);
@@ -136,29 +181,54 @@ export async function createVuePlayer(
       if (disposed) throw new Error("Chart player has been disposed");
       signal.throwIfAborted();
       if (value.visualProfiles !== undefined) {
-        try { new RenderFrameBuilder(chart, { visualProfiles: value.visualProfiles }); }
-        catch (error) {
+        try {
+          new RenderFrameBuilder(chart, {
+            visualProfiles: value.visualProfiles,
+          });
+        } catch (error) {
           if (error instanceof NativeChartVisualProfilesError) throw new ChartReplacementRejectedError(error);
           throw error;
         }
+      }
+      const nextGekisou = chart === props.chart && value.gekisou === undefined ? documentGekisou : value.gekisou;
+      try {
+        new OurNotesGekisouPlayback(chart, gekisou(nextGekisou), () => 1);
+      } catch (error) {
+        throw new ChartReplacementRejectedError(error);
       }
       player!.pause();
       chartUpdateError = undefined;
       chartUpdateInProgress = true;
       try {
         // Vue's joint chart/profile watcher consumes one matching compilation epoch.
-        Object.assign(props, { chart, visualProfiles: value.visualProfiles });
+        if (nextGekisou !== documentGekisou) {
+          documentGekisou = nextGekisou;
+          props.gekisou = gekisou();
+        }
+        props.chart = chart;
+        if (value.visualProfiles === undefined) delete props.visualProfiles;
+        else props.visualProfiles = value.visualProfiles;
         if (value.bgmOffsetMs !== undefined) props.bgmOffsetMs = value.bgmOffsetMs;
         await nextTick();
+        await player!.preparePresentation();
         signal.throwIfAborted();
         if (disposed) throw new Error("Chart player has been disposed");
         if (chartUpdateError !== undefined) throw chartUpdateError;
-      } finally { chartUpdateInProgress = false; }
+      } finally {
+        chartUpdateInProgress = false;
+      }
     },
     async setOptions(value) {
       if (disposed) throw new Error("Chart player has been disposed");
+      playError = undefined;
       Object.assign(props, value);
+      if (value.gekisou !== undefined) {
+        gekisouOptions = value.gekisou;
+        props.gekisou = gekisou();
+      }
       await nextTick();
+      await player!.preparePresentation();
+      if (playError !== undefined) throw playError;
     },
     dispose,
   };

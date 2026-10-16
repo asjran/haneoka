@@ -47,6 +47,33 @@ play.onclick = () => chart.play().catch(console.error);
 
 The source reads the current public song entity, selects its returned difficulty file, parses that score through the Our Notes plugin and uses its returned music URL. The theme discovers current source descriptors and exact runtime outputs. No release identifier or login is required. `server` selects the resource server; `locale` is an independent author/UI language string. The default theme selects lightweight quality 2. Original visual and note-audio assets are fetched from the public resource origin.
 
+## Gekisou presentation
+
+Enable the source game's Gekisou missions and stage on the default player:
+
+```js
+const chart = mountChart(element, {
+  source: haneokaChartSource({ songId: "100043", difficulty: "expert" }),
+  theme: haneokaChartTheme(),
+  gekisou: { enabled: true },
+  mode: "watch",
+});
+await chart.ready;
+await chart.setOptions({ gekisou: { enabled: true, effectMode: 1 } });
+```
+
+The Haneoka source supplies the song's Master mission types. Authored documents provide
+`gekisou: { enabled: true, missionTypes: [...] }` with their chart. Effect modes are
+0 (off), 1 (light) and 2 (standard); graphics quality remains a separate setting.
+The Our Notes plugin owns the mission plan, score policy, HUD and stage projection.
+The host owns cancellation and resource transport; the renderer owns GPU passes.
+
+Pass `runtime` to use a caller-owned Cassiopeia composition, including the existing Rust
+Watch session factory. The embed keeps ownership of its session and preserves ownership
+of the runtime. `watchVisualReplay` accepts the kernel's explicit source-clock contract
+for seek reconstruction. Custom themes expose the existing `presentationAssets` resolver
+through `createOurNotesAssetManifest(media, resolver)`.
+
 ## Bring a chart and audio
 
 A standard `ChartDocument` contains `version`, `bpmChanges`, `signatureChanges`, `timeScaleChanges`, `notes`, `lines`, `timeline` and `durationMs`, as exported by `@haneoka/cassiopeia`. Supply exactly one `document` or `source`. An author document can use one language and arbitrary Unicode resource names.

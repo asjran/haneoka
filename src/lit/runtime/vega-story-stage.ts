@@ -10,7 +10,7 @@ import { story as enRelationships } from "../../../public/i18n/en.json";
 import { story as zhTWRelationships } from "../../../public/i18n/zh-TW.json";
 import { story as zhCNRelationships } from "../../../public/i18n/zh-CN.json";
 import { story as koRelationships } from "../../../public/i18n/ko.json";
-import { CUBISM_CORE_URLS, CUBISM_WEB_RUNTIME_URL } from "../../lib/cubism-runtime";
+import { CUBISM_CORE_URLS, loadCubismWebRuntime } from "../../lib/cubism-runtime";
 import { fetchJson, uiText } from "../shared/catalog";
 import { PlaybackControlsController } from "../ui/playback-controls";
 import { ViewportFullscreenController } from "./viewport-fullscreen";
@@ -21,7 +21,7 @@ import {
   type AdvStory,
   type VegaEngine,
   type VegaPlayerHandle,
-} from "@haneoka/vega/engine";
+} from "@haneoka/vega/web";
 import type { StoryResolvedText } from "@haneoka/vega/runtime";
 import { iterateAdvCommands } from "@haneoka/vega/renderer-kit";
 import type { CubismRuntimeAdapter } from "@haneoka/vega-plugin-cubism";
@@ -67,17 +67,11 @@ type CubismProvision = {
   createCubismWebRuntimeAdapter(options: RecordValue): CubismRuntimeAdapter;
 };
 
-let provision: Promise<CubismProvision> | undefined;
 const cubismAdapter = (): CubismRuntimeAdapter => {
   let resolved: CubismRuntimeAdapter | undefined;
   const runtime = async () => {
-    provision ??= (
-      import(/* @vite-ignore */ new URL(CUBISM_WEB_RUNTIME_URL, document.baseURI).href) as Promise<CubismProvision>
-    ).catch((error: unknown) => {
-      provision = undefined;
-      throw error;
-    });
-    resolved ??= (await provision).createCubismWebRuntimeAdapter({
+    const provision = await loadCubismWebRuntime<CubismProvision>();
+    resolved ??= provision.createCubismWebRuntimeAdapter({
       id: "haneoka.web-cubism-runtime",
       runtime: CUBISM_CORE_URLS,
     });
@@ -141,6 +135,7 @@ export class VegaStoryStage extends LitElement {
     fullscreenActive: { state: true },
     transportCollapsed: { state: true },
     started: { state: true },
+    completed: { state: true },
   };
   declare story: RecordValue;
   declare server: string;
@@ -158,6 +153,7 @@ export class VegaStoryStage extends LitElement {
   declare fullscreenActive: boolean;
   declare transportCollapsed: boolean;
   declare started: boolean;
+  declare completed: boolean;
   private loadedKey = "";
   private appliedLocale = "";
   private engine?: VegaEngine;
@@ -196,6 +192,7 @@ export class VegaStoryStage extends LitElement {
     this.fullscreenActive = false;
     this.transportCollapsed = false;
     this.started = false;
+    this.completed = false;
     this.viewportFullscreen = new ViewportFullscreenController({
       owner: this,
       onChange: () => this.syncFullscreenState(),
@@ -661,6 +658,7 @@ export class VegaStoryStage extends LitElement {
       this.transportVisibility.setPlaying(Boolean(state.playing && !state.paused));
       if (visible !== this.transportVisible) this.transportVisible = visible;
       if (state.autoPlay !== this.autoMode) this.autoMode = state.autoPlay;
+      if (Boolean(state.finished) !== this.completed) this.completed = Boolean(state.finished);
       if (timeline.maximum !== this.maximum) this.maximum = timeline.maximum;
       if (!this.scrubbing && timeline.ordinal !== this.ordinal) this.ordinal = timeline.ordinal;
       this.transportFrame = requestAnimationFrame(paint);
@@ -675,6 +673,11 @@ export class VegaStoryStage extends LitElement {
   };
 
   private toggleAutoMode() {
+    if (this.completed) {
+      this.completionEmitted = false;
+      void this.handle?.shell?.start();
+      return;
+    }
     if (!this.started) {
       this.startPlayback();
       return;
@@ -844,6 +847,7 @@ export class VegaStoryStage extends LitElement {
     this.handle = undefined;
     this.transportVisible = false;
     this.autoMode = false;
+    this.completed = false;
     this.transportVisibility.setPlaying(false);
     this.transportVisibility.setScrubbing(false);
     this.ordinal = 0;
@@ -970,13 +974,13 @@ export class VegaStoryStage extends LitElement {
           <button
             class="icon-button"
             type="button"
-            aria-pressed=${this.started ? this.autoMode : nothing}
-            aria-label=${this.started ? this.ui("auto") : uiText(this.locale, "common.actions.play")}
-            .title=${this.started ? this.ui("auto") : uiText(this.locale, "common.actions.play")}
+            aria-pressed=${this.started && !this.completed ? this.autoMode : nothing}
+            aria-label=${this.completed ? uiText(this.locale, "common.actions.replay") : this.started ? this.ui("auto") : uiText(this.locale, "common.actions.play")}
+            .title=${this.completed ? uiText(this.locale, "common.actions.replay") : this.started ? this.ui("auto") : uiText(this.locale, "common.actions.play")}
             @click=${this.toggleAutoMode}
           >
             <svg class="material-icon" width="24" height="24">
-              <use href=${`/icons.svg#${this.autoMode ? "pause" : "play_arrow"}`}></use>
+              <use href=${`/icons.svg#${this.completed ? "replay" : this.autoMode ? "pause" : "play_arrow"}`}></use>
             </svg>
           </button>
           <div class="chart-runtime__timeline">
@@ -1002,8 +1006,8 @@ export class VegaStoryStage extends LitElement {
               class="icon-button"
               type="button"
               aria-pressed=${this.fullscreenActive}
-              aria-label=${uiText(this.locale, this.fullscreenActive ? "story.labels.fullscreenExit" : "common.actions.fullscreen")}
-              title=${uiText(this.locale, this.fullscreenActive ? "story.labels.fullscreenExit" : "common.actions.fullscreen")}
+              aria-label=${uiText(this.locale, this.fullscreenActive ? "common.actions.fullscreenExit" : "common.actions.fullscreen")}
+              title=${uiText(this.locale, this.fullscreenActive ? "common.actions.fullscreenExit" : "common.actions.fullscreen")}
               @click=${() => void this.toggleFullscreen()}
             >
               <svg class="material-icon" width="20" height="20">

@@ -46,7 +46,8 @@
       "rename": "Rename",
       "confirm": "Confirm",
       "moreActions": "More options",
-      "reload": "Reload"
+      "reload": "Reload",
+      "fullscreenExit": "Exit fullscreen"
     },
     "fields": {
       "duration": "Duration",
@@ -1347,7 +1348,11 @@
       "noteFlick": "Flick",
       "noteSlide": "Slide",
       "loading": "Loading…",
-      "runtimeError": "Unable to load the Our Notes chart runtime."
+      "runtimeError": "Unable to load the Our Notes chart runtime.",
+      "continuationEffects": "Combo effects",
+      "liveMode": "Live mode",
+      "normalLive": "Normal Live",
+      "gekisouLive": "Gekisou Live"
     }
   },
   "tools": {

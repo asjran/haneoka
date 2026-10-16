@@ -1,5 +1,5 @@
-import type { ChartDocument, ChartMode, SessionSnapshot } from "@haneoka/cassiopeia";
-import type { CassiopeiaSessionPort } from "@haneoka/cassiopeia/plugin";
+import type { ChartDocument, ChartMode, SessionSnapshot, WatchVisualReplayContract } from "@haneoka/cassiopeia";
+import type { CassiopeiaSessionPort, CassiopeiaRuntime } from "@haneoka/cassiopeia/plugin";
 import type { NativeChartPresentation } from "@haneoka/cassiopeia-renderer-three";
 import type { EmbedEvent, EmbedLoader, EmbedLoaderOptions } from "@haneoka/embed-core";
 import type {
@@ -9,10 +9,13 @@ import type {
   OurNotesNoteSeGroup,
   RenderSettings,
   NativeChartVisualProfiles,
+  OurNotesGekisouPlaybackConfiguration,
 } from "@haneoka/cassiopeia-plugin-our-notes";
 
 export interface ChartEmbedDocument {
   readonly chart: ChartDocument;
+  /** Original Master mission data; default playback remains ordinary until enabled. */
+  readonly gekisou?: OurNotesGekisouPlaybackConfiguration;
   /** Resource key, absolute URL, or local key resolved by embed-core. */
   readonly audio?: string;
   readonly background?: string;
@@ -27,7 +30,12 @@ export interface ChartSkin {
   readonly noteSeGroup?: OurNotesNoteSeGroup;
   readonly currentQuality?: 0 | 1 | 2;
 }
+export type ChartGekisouOptions = Omit<OurNotesGekisouPlaybackConfiguration, "missionTypes"> & {
+  readonly missionTypes?: readonly number[];
+};
 export interface ChartPlaybackOptions {
+  readonly gekisou?: ChartGekisouOptions;
+  readonly watchVisualReplay?: WatchVisualReplayContract;
   readonly mode?: ChartMode;
   readonly settings?: Partial<RenderSettings> & { judgementOffsetMs?: number };
   readonly volume?: number;
@@ -37,6 +45,7 @@ export interface ChartPlaybackOptions {
   readonly noteSoundVolume?: number;
 }
 export interface ChartUpdateOptions {
+  readonly gekisou?: OurNotesGekisouPlaybackConfiguration;
   readonly bgmOffsetMs?: number;
   /** Replaces the whole profile set; omitted clears profiles for the new chart epoch. */
   readonly visualProfiles?: NativeChartVisualProfiles;
@@ -76,7 +85,11 @@ export interface ChartEmbedSnapshot {
 export type ChartEmbedEvent =
   | { readonly type: "load"; readonly event: EmbedEvent }
   | { readonly type: "state"; readonly snapshot: ChartEmbedSnapshot }
-  | { readonly type: "player"; readonly name: string; readonly args: readonly unknown[] }
+  | {
+      readonly type: "player";
+      readonly name: string;
+      readonly args: readonly unknown[];
+    }
   | { readonly type: "error"; readonly error: unknown };
 export type MountChartOptions = Omit<EmbedLoaderOptions<ChartEmbedDocument>, "source"> &
   ChartPlaybackOptions & {
@@ -85,11 +98,17 @@ export type MountChartOptions = Omit<EmbedLoaderOptions<ChartEmbedDocument>, "so
     readonly theme?: ChartTheme;
     readonly skin?: ChartSkin;
     readonly rendererAdapter?: ChartRendererAdapter;
+    /** Optional assembled kernel/rules/renderer/host services, including a Rust watch kernel. Caller owns it. */
+    readonly runtime?: CassiopeiaRuntime;
     /** Custom kernel rules can accompany an authored renderer. */
     readonly createSession?: (chart: ChartDocument, options: ChartPlaybackOptions) => CassiopeiaSessionPort;
     readonly signal?: AbortSignal;
     readonly loadTimeoutMs?: number;
-    readonly labels?: { readonly player?: string; readonly pause?: string; readonly loading?: string };
+    readonly labels?: {
+      readonly player?: string;
+      readonly pause?: string;
+      readonly loading?: string;
+    };
     readonly onEvent?: (event: ChartEmbedEvent) => void;
   };
 export interface ChartEmbedHandle {
