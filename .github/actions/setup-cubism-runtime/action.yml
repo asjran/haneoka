@@ -9,7 +9,7 @@ inputs:
   key:
     description: Object key of the validated runtime archive.
     required: false
-    default: private/cubism-runtime/501c8f2147e91fbbe7af9156e8c59a96f57c463d2fae3a14794855ca9d00e48a.tar.gz
+    default: private/cubism-runtime/85d0af2c81c17292d63acfe4a49c1fca6f2eee386bc2ddd2228e17eb4bd78dd3.tar.gz
 
 runs:
   using: composite
