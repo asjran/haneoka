@@ -4432,7 +4432,7 @@
     "windowsNote": "Windows 10+ · Before installing MSIX or App Installer, import the certificate below into Local Computer → Trusted People. EXE / MSI may show unsigned publisher prompts.",
     "macosNote": "macOS 12+ · Choose ARM64 for Apple Silicon or x64 for Intel. Packages are not notarized; macOS may ask you to confirm the developer.",
     "linuxNote": "Linux · x64 targets Ubuntu 22.04; ARM64 targets Ubuntu 24.04. GTK 3, libsecret and MPV are required; AppImage, Snap and Flatpak bundle media libraries.",
-    "androidNote": "Android 8+ · Choose the universal APK if unsure. AAB is for distribution and cannot be installed directly like an APK.",
+    "androidNote": "Android 8+ · Separate APKs for ARM64 and x86-64. AAB is for distribution.",
     "extras": "Installation resources",
     "checksums": "SHA-256 checksums",
     "saveTitle": "Save import options",

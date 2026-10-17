@@ -4432,7 +4432,7 @@
     "windowsNote": "Windows 10+ · 首次安裝 MSIX 或 App Installer 前，請將下方憑證匯入「本機電腦 → 受信任的人」。EXE / MSI 可能顯示未簽署提示。",
     "macosNote": "macOS 12+ · Apple Silicon 選 ARM64，Intel 選 x64。安裝套件尚未公證，系統可能要求確認開發者。",
     "linuxNote": "Linux · x64 基於 Ubuntu 22.04，ARM64 基於 Ubuntu 24.04。需要 GTK 3、libsecret 和 MPV；AppImage、Snap、Flatpak 已包含媒體庫。",
-    "androidNote": "Android 8+ · 不確定架構時選通用 APK。AAB 用於散布，無法如 APK 一樣直接安裝。",
+    "androidNote": "Android 8+ · 提供 ARM64 和 x86-64 獨立 APK。AAB 用於散布。",
     "extras": "安裝資源",
     "checksums": "SHA-256 校驗檔案",
     "saveTitle": "存檔匯入方式",
