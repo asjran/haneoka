@@ -2801,30 +2801,29 @@ async function handleReleaseMedia(
     cacheUrl.searchParams.set("__moc_encoding", gzip ? "gzip-v1" : "identity-v1");
     cacheRequest = new Request(cacheUrl, cacheRequest);
   }
-  const response = await edgeCached(
-    cacheRequest,
-    ctx,
-    MEDIA_CACHE_TTL,
-    async () => {
-      let response: Response | null = null;
-      for (const candidate of localizedReleasePaths(`${tree}/${relative}`)) {
-        if (gzip) {
-          response = await serveReleaseObject(env, request, release, `${candidate}.gz`, "application/octet-stream", {
-            cacheControl,
-            contentEncoding: "gzip",
-            varyAcceptEncoding: true,
-          });
-        }
-        response ??= await serveReleaseObject(env, request, release, candidate, undefined, {
+  const produce = async () => {
+    let response: Response | null = null;
+    for (const candidate of localizedReleasePaths(`${tree}/${relative}`)) {
+      if (gzip) {
+        response = await serveReleaseObject(env, request, release, `${candidate}.gz`, "application/octet-stream", {
           cacheControl,
-          varyAcceptEncoding: moc,
+          contentEncoding: "gzip",
+          varyAcceptEncoding: true,
         });
-        if (response) break;
       }
-      return response || new Response("not found", { status: 404, headers: CORS });
-    },
-    cacheControl,
-  );
+      response ??= await serveReleaseObject(env, request, release, candidate, undefined, {
+        cacheControl,
+        varyAcceptEncoding: moc,
+      });
+      if (response) break;
+    }
+    return response || new Response("not found", { status: 404, headers: CORS });
+  };
+  // Cache API hits expose decoded streams while retaining Content-Encoding.
+  // Keep the precompressed MOC response on the direct R2 path.
+  const response = gzip
+    ? await produce()
+    : await edgeCached(cacheRequest, ctx, MEDIA_CACHE_TTL, produce, cacheControl);
   return releaseResponseHeaders(response, release);
 }
 
