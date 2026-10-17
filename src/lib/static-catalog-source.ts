@@ -537,6 +537,16 @@ export async function fetchStaticCatalogBatch(
   return items;
 }
 
+export async function primeStaticCatalogBatch(
+  resource: string,
+  ids: readonly string[],
+  server: string,
+  release: StaticCatalogRelease,
+): Promise<void> {
+  const missing = ids.filter((id) => !requestPromises.has(requestKey(`${resource}/${encodeURIComponent(id)}`, server, release)));
+  if (missing.length) await fetchStaticCatalogBatch(resource, missing, server, release);
+}
+
 export function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }

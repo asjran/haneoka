@@ -1,10 +1,21 @@
-import { staticCatalogRelease, fetchStaticCatalog, fetchStaticCatalogBatch, type StaticCatalogRelease } from "../static-catalog-source";
+import { staticCatalogRelease, fetchStaticCatalog, fetchStaticCatalogBatch, primeStaticCatalogBatch, type StaticCatalogRelease } from "../static-catalog-source";
 import { loadCrossServerCatalog } from "./load";
 import { loadCrossServerCatalogs } from "./bundle";
 import type { CrossCatalogResource, OfficialCatalogServer } from "./catalog";
 import { crossCatalogApi, crossCatalogDefinition, crossCatalogRows } from "./definitions";
 
 const songCollections = new Map<string, Promise<unknown>>();
+const entryBatches = new Map<string, Promise<void>>();
+function prepareEntryBatch(resource: CrossCatalogResource, identity: StaticCatalogRelease, document: unknown): Promise<void> {
+  const key = JSON.stringify([identity.server, identity.releaseId, identity.sourceId, resource]);
+  let pending = entryBatches.get(key);
+  if (!pending) {
+    pending = primeStaticCatalogBatch(crossCatalogApi(resource), Object.keys(crossCatalogRows(resource, document)), identity.server, identity)
+      .catch((error) => console.warn(`Static catalog: could not preload ${identity.server}/${resource} details`, error));
+    entryBatches.set(key, pending);
+  }
+  return pending;
+}
 function collectionWithMissionFields(resource: CrossCatalogResource, identity: StaticCatalogRelease): Promise<unknown> {
   if (resource !== "songs") return fetchStaticCatalog(crossCatalogApi(resource), identity.server, identity);
   const key = JSON.stringify(identity);
@@ -58,6 +69,7 @@ export function loadStaticCrossServerEntry(resource: CrossCatalogResource, selec
       async readIdentity(server) { return { ...await staticCatalogRelease(server), server }; },
       async readCollection(name, identity) {
         const document = await fetchStaticCatalog(crossCatalogApi(name), identity.server, identity);
+        await prepareEntryBatch(name, identity, document);
         const rows = crossCatalogRows(name, document, id), key = crossCatalogDefinition(name).rows;
         return key ? { [key]: rows } : rows;
       },

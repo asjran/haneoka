@@ -118,6 +118,14 @@ jobs:
           key: static-documents-v1-${{ runner.os }}-${{ github.run_id }}
           restore-keys: static-documents-v1-${{ runner.os }}-
 
+      - name: Restore verified Cubism model metadata
+        id: cubism-metadata-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: data/static-catalog/cubism-model-metadata/v1
+          key: cubism-model-metadata-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: cubism-model-metadata-v1-${{ runner.os }}-
+
       - name: Restore verified model workspace renders
         id: model-render-cache
         uses: actions/cache/restore@v6
@@ -157,6 +165,13 @@ jobs:
         with:
           path: data/provider-static/http-cache
           key: ${{ steps.provider-http-cache.outputs.cache-primary-key }}
+
+      - name: Save verified Cubism model metadata after interrupted builds
+        if: always() && steps.cubism-metadata-cache.outputs.cache-primary-key != '' && steps.cubism-metadata-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: data/static-catalog/cubism-model-metadata/v1
+          key: ${{ steps.cubism-metadata-cache.outputs.cache-primary-key }}
 
       - name: Save verified model workspace renders after interrupted builds
         if: always() && steps.model-render-cache.outputs.cache-primary-key != '' && steps.model-render-cache.outputs.cache-hit != 'true'
