@@ -94,6 +94,9 @@
   .home-spotlight > .home-event {
     inline-size: 100%;
   }
+  .home-event {
+    min-block-size: 160px;
+  }
   .home-carousel {
     overflow: hidden;
   }
@@ -329,16 +332,19 @@
     font: var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size) / var(--md-sys-typescale-body-small-line-height) var(--app-font);
   }
   .home-event__links {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 6px;
   }
   .home-event__action {
-    min-height: 40px;
-    min-width: 40px;
+    min-height: 48px;
+    min-width: 0;
     padding-inline: 10px;
     gap: 5px;
     font-size: 12px;
+    white-space: normal;
+    text-align: center;
   }
 
   .home-info,
@@ -787,7 +793,7 @@
       flex: none;
     }
     .home-event__action {
-      inline-size: 40px;
+      inline-size: 48px;
       padding: 0;
     }
     .home-event__action > span {
