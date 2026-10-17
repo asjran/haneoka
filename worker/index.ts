@@ -1477,57 +1477,86 @@ async function readCatalogShardAt(
   return document;
 }
 
+const eventRankingCatalogCache = new Map<string, Promise<PublishedRankingCatalog["events"]>>();
+
+async function publishedEventRankingEvents(env: Env, release: Release): Promise<PublishedRankingCatalog["events"]> {
+  const cacheKey = `${release.server}:${release.releaseId}:${release.sourceId}`;
+  let pending = eventRankingCatalogCache.get(cacheKey);
+  if (!pending) {
+    pending = (async () => {
+      const storage = (await catalogStorageManifest(env, release))?.resources.events;
+      if (!storage?.entities) return [];
+      const index = await readReleaseJson(env, release, storage.index);
+      const challengeTable = await readReleaseJson(env, release, "objects/master/MasterChallengeMusic.json");
+      if (
+        !isJsonObject(index) ||
+        !isJsonObject(index.entries) ||
+        !isJsonObject(challengeTable) ||
+        !Array.isArray(challengeTable._allData)
+      )
+        throw new Error("event ranking catalog missing");
+      const challenges = new Map<string, { id: string; musicId: string }[]>();
+      for (const challenge of challengeTable._allData) {
+        if (
+          !isJsonObject(challenge) ||
+          typeof challenge._rankingRewardGroup !== "number" ||
+          challenge._rankingRewardGroup <= 0
+        )
+          continue;
+        const key = String(challenge._eventId),
+          group = challenges.get(key) ?? [];
+        group.push({ id: String(challenge._id), musicId: String(challenge._liveMusicId) });
+        challenges.set(key, group);
+      }
+      const shards = new Map<string, Promise<JsonObject | null>>();
+      const events: PublishedRankingCatalog["events"][number][] = [];
+      for (const [id, summary] of Object.entries(index.entries)) {
+        if (!isJsonObject(summary) || summary.kind !== "game-event" || !/^[1-9][0-9]*$/u.test(id)) continue;
+        const start = Array.isArray(summary.startAt) ? summary.startAt[0] : summary.startAt;
+        const end = Array.isArray(summary.endAt) ? summary.endAt[0] : summary.endAt;
+        if (
+          typeof start !== "number" ||
+          !Number.isSafeInteger(start) ||
+          typeof end !== "number" ||
+          !Number.isSafeInteger(end)
+        )
+          continue;
+        const shardId = fnv1a32Shard(id, RELEASE_INDEX_SHARDS);
+        let shard = shards.get(shardId);
+        if (!shard) {
+          shard = readCatalogShardAt(env, release, storage.entities, shardId);
+          shards.set(shardId, shard);
+        }
+        const document = await shard;
+        const details = document ? ownJsonValue(document, id) : null;
+        if (!isJsonObject(details)) continue;
+        events.push({
+          id,
+          startAtMs: start,
+          endAtMs: end,
+          pointRankingEnabled: details.rankingDisabled === false,
+          challenges: details.musicRankingDisabled === false ? (challenges.get(id) ?? []) : [],
+        });
+      }
+      return events;
+    })();
+    boundedPromiseCache(eventRankingCatalogCache, cacheKey, pending, 4);
+  }
+  try {
+    return await pending;
+  } catch (error) {
+    if (eventRankingCatalogCache.get(cacheKey) === pending) eventRankingCatalogCache.delete(cacheKey);
+    throw error;
+  }
+}
+
 async function publishedEventRankingCatalogs(env: Env): Promise<PublishedRankingCatalog[]> {
   const catalogs: PublishedRankingCatalog[] = [];
   for (const slug of ["jp", "intl"] as const) {
     const server = await activeResourceServer(env, slug);
     const release = server ? await currentRelease(env, server) : null;
     if (!release) continue;
-    const storage = (await catalogStorageManifest(env, release))?.resources.events;
-    if (!storage?.entities) continue;
-    const index = await readReleaseJson(env, release, storage.index);
-    const challengeTable = await readReleaseJson(env, release, "objects/master/MasterChallengeMusic.json");
-    if (
-      !isJsonObject(index) ||
-      !isJsonObject(index.entries) ||
-      !isJsonObject(challengeTable) ||
-      !Array.isArray(challengeTable._allData)
-    )
-      throw new Error("event ranking catalog missing");
-    const challenges = challengeTable._allData.filter(isJsonObject);
-    const events: PublishedRankingCatalog["events"][number][] = [];
-    for (const [id, summary] of Object.entries(index.entries)) {
-      if (!isJsonObject(summary) || summary.kind !== "game-event" || !/^[1-9][0-9]*$/u.test(id)) continue;
-      const start = Array.isArray(summary.startAt) ? summary.startAt[0] : summary.startAt;
-      const end = Array.isArray(summary.endAt) ? summary.endAt[0] : summary.endAt;
-      if (
-        typeof start !== "number" ||
-        !Number.isSafeInteger(start) ||
-        typeof end !== "number" ||
-        !Number.isSafeInteger(end) ||
-        start > Date.now()
-      )
-        continue;
-      const shard = await readCatalogShard(env, release, storage.entities, id);
-      const details = shard ? ownJsonValue(shard, id) : null;
-      if (!isJsonObject(details)) continue;
-      events.push({
-        id,
-        startAtMs: start,
-        endAtMs: end,
-        pointRankingEnabled: details.rankingDisabled === false,
-        challenges:
-          details.musicRankingDisabled === false
-            ? challenges.flatMap((challenge) =>
-                String(challenge._eventId) === id &&
-                typeof challenge._rankingRewardGroup === "number" &&
-                challenge._rankingRewardGroup > 0
-                  ? [{ id: String(challenge._id), musicId: String(challenge._liveMusicId) }]
-                  : [],
-              )
-            : [],
-      });
-    }
+    const events = await publishedEventRankingEvents(env, release);
     for (const region of slug === "jp" ? (["jp"] as const) : (["tw", "en", "kr"] as const))
       catalogs.push({ region, events });
   }
