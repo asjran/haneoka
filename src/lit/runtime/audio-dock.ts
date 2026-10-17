@@ -286,6 +286,8 @@ export class AudioDock extends LitElement {
   }
 
   updated() {
+    // Astro can discard an incoming dock before its pending Lit update finishes.
+    if (!this.isConnected) return;
     this.syncCollapsedSlots();
     const panel = this.queueOpen ? this.querySelector<HTMLElement>(".audio-queue-panel") : null;
     if (panel !== (this.queuePanel ?? null)) {
