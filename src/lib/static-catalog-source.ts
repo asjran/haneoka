@@ -60,6 +60,20 @@ class StaticCatalogHttpError extends Error {
 const releasePromises = new Map<string, Promise<StaticCatalogRelease>>();
 const requestPromises = new Map<string, Promise<unknown>>();
 const localCatalogs = new Map<string, ReleaseCatalog | null>();
+const releaseEntries = new WeakMap<RecordValue, Map<string, RecordValue>>();
+
+function releaseManifestEntry(manifest: RecordValue, relative: string): RecordValue | undefined {
+  let entries = releaseEntries.get(manifest);
+  if (!entries) {
+    entries = new Map();
+    for (const value of Array.isArray(manifest.entries) ? manifest.entries : []) {
+      const entry = asRecord(value);
+      if (typeof entry?.path === "string" && !entries.has(entry.path)) entries.set(entry.path, entry);
+    }
+    releaseEntries.set(manifest, entries);
+  }
+  return entries.get(relative);
+}
 
 function localCatalog(server: string): ReleaseCatalog | null {
   if (process.env.STATIC_CATALOG_SOURCE === "http") return null;
@@ -425,7 +439,7 @@ export async function fetchStaticReleaseJson(relative: string, server = "intl", 
       const manifest = asRecord(await fetchJson("release", server, pinned));
       if (manifest?.server !== server || manifest.releaseId !== pinned.releaseId || manifest.sourceId !== pinned.sourceId)
         throw new StaticCatalogConsistencyError("Release JSON manifest identity mismatch");
-      const entry = (Array.isArray(manifest.entries) ? manifest.entries.map(asRecord) : []).find((value) => value?.path === relative);
+      const entry = releaseManifestEntry(manifest, relative);
       if (!entry || typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(entry.sha256) || !Number.isSafeInteger(entry.bytes))
         throw new StaticCatalogConsistencyError(`Release JSON not declared: ${relative}`);
       const [tree, ...parts] = relative.split("/");
@@ -459,7 +473,7 @@ export async function fetchStaticReleaseEntry(relative: string, server = "intl",
   const manifest = asRecord(await fetchJson("release", server, pinned));
   if (manifest?.server !== server || manifest.releaseId !== pinned.releaseId || manifest.sourceId !== pinned.sourceId)
     throw new StaticCatalogConsistencyError("Release entry manifest identity mismatch");
-  const entry = (Array.isArray(manifest.entries) ? manifest.entries.map(asRecord) : []).find((value) => value?.path === relative);
+  const entry = releaseManifestEntry(manifest, relative);
   if (!entry) return undefined;
   if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(entry.sha256) || typeof entry.bytes !== "number" || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0)
     throw new StaticCatalogConsistencyError("Invalid release entry digest");

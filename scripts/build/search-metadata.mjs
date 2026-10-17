@@ -3,6 +3,7 @@ import { parseFragment } from "parse5";
 
 const plainText = (node) => node.nodeName === "#text" ? node.value : (node.childNodes || []).map(plainText).join("");
 const compact = (text) => text.replace(/\s+/gu, " ").trim();
+const INLINE_JSON = /(<script\b(?=[^>]*\btype\s*=\s*(?:"application\/json"|'application\/json'|application\/json(?=[\s>])))[^>]*>)[\s\S]*?(<\/script\s*>)/giu;
 const escapeText = (text) => text.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
 function documentTitle(html) {
   const opening = /<head\b[^>]*>/iu.exec(html);
@@ -24,6 +25,8 @@ function documentTitle(html) {
 
 /** Add search-only classification and title weighting without changing the served document. */
 export function withSearchMetadata(html, sourcePath) {
+  // Pagefind keeps script ids as anchors even when their text is excluded.
+  html = html.replace(INLINE_JSON, "$1$2");
   const prefix = sourcePath.split(/[\\/]/u)[0];
   const server = ["jp", "intl", "intl-test", "jp-cbt", "intl-cbt"].includes(prefix) ? prefix : "global";
   const category = searchCategory(sourcePath);

@@ -281,6 +281,7 @@ export function finalizeStaticDocuments(outputRoot: string): { documents: number
   const objects = [...referenced.values()].sort((a, b) => a.sha256.localeCompare(b.sha256, "en"));
   const references = JSON.stringify({ schema: "haneoka-static-publication-root-v1", documentSchema: STATIC_DOCUMENT_SCHEMA, contentPrefix: STATIC_DOCUMENT_CONTENT_ROOT, documents: documentCount, data, indexes, objects });
   fs.writeFileSync(path.join(root, "references.json"), references);
+  fs.writeFileSync(path.join(indexRoot, "..", "publication.json.gz"), gzipSync(references, { level: 6 }));
   fs.writeFileSync(
     path.join(root, "publication.json"),
     JSON.stringify(

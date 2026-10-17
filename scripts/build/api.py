@@ -15,7 +15,9 @@ import re
 import subprocess
 import struct
 import sys
+import time
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -29,7 +31,7 @@ from core.contracts import (
 )
 from core.hashes import sha256_file
 from core.master_values import LOCALE_FIELDS, RESOURCE_TYPES, _localized, _timestamp, _image_variants
-from core.manifests import read_json, write_json
+from core.manifests import atomic_write, read_json, write_json
 from core.paths import build_layout
 from core.unity_objects import iter_unity_object_archive
 from build.anon_tokyo import build_anon_tokyo_catalog
@@ -226,6 +228,7 @@ class BuildData:
         self.base_release_entries: "dict[str, dict[str, Any]]" = base_release_entries or {}
         self.restore_archive = restore_archive
         self.restore_output = restore_output
+        self.prefetch_stats: dict[str, dict[str, Any]] = {}
         self.assets = root / "assets"
         self.runtime = root / "runtime"
         self.master = root / "master"
@@ -441,6 +444,67 @@ class BuildData:
             if file.is_file():
                 return file
         return None
+
+    def _prefetch(self, name: str, requests: dict[str, tuple[str, Path]], restore) -> None:
+        if not requests:
+            return
+        started = time.perf_counter()
+        contents: dict[tuple[str, int], list[tuple[str, Path]]] = {}
+        for relative, request in requests.items():
+            entry = self.base_release_entries[relative]
+            contents.setdefault((entry["sha256"], entry["bytes"]), []).append(request)
+
+        def materialize(group: list[tuple[str, Path]]) -> int:
+            identity, target = group[0]
+            try:
+                restore(identity, target)
+                if not target.is_file():
+                    return 0
+                if len(group) > 1:
+                    body = target.read_bytes()
+                    for _, alias in group[1:]:
+                        atomic_write(alias, body)
+                return len(group)
+            except Exception:  # The original consumer retries and reports required inputs.
+                return sum(target.is_file() for _, target in group)
+
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            restored = sum(executor.map(materialize, contents.values()))
+        self.prefetch_stats[name] = {
+            "requested": len(requests),
+            "downloads": len(contents),
+            "sharedContent": len(requests) - len(contents),
+            "restored": restored,
+            "failed": len(requests) - restored,
+            "seconds": round(time.perf_counter() - started, 3),
+        }
+
+    def prefetch_assets(self, values: Iterable[str]) -> None:
+        if self.restore_output is None:
+            return
+        requests = {}
+        for value in values:
+            relative = f"assets/{value}"
+            target = self.assets / Path(*PurePosixPath(value).parts)
+            if relative in self.base_release_entries and not target.is_file():
+                requests[relative] = (relative, target)
+        self._prefetch("assets", requests, self.restore_output)
+
+    def prefetch_sources(self, source_paths: Iterable[str]) -> None:
+        if self.restore_archive is None:
+            return
+        requests = {}
+        for source_path in source_paths:
+            entry = self.source_index[source_path]
+            owner = self.serialized_files.get(str(entry.get("serializedFile") or ""), {})
+            digest = str(owner.get("bundleSha256") or "")
+            relative = f"objects/unity/{digest}.jsonl.gz"
+            if not digest or owner.get("objectArchive") != relative:
+                continue
+            target = self.root / relative
+            if relative in self.base_release_entries and not target.is_file():
+                requests[relative] = (digest, target)
+        self._prefetch("unityArchives", requests, self.restore_archive)
 
     def output_integrity(
         self, release_path: str, expected_sha256: str, expected_bytes: int
@@ -8500,12 +8564,42 @@ def build_api(
     restore_archive: "callable | None" = None,
     restore_output: "callable | None" = None,
 ) -> dict[str, Any]:
+    started = time.perf_counter()
+    timings = {}
     layout = build_layout(config.id, build_id)
     data = BuildData(
         config.id, layout.root, base_release_entries, restore_archive, restore_output
     )
+    timings["inputs"] = round(time.perf_counter() - started, 3)
+
     def project(name, builder, *args, **kwargs):
-        return project_catalog(data.server, name, builder, *args, **kwargs)
+        begin = time.perf_counter()
+        result = project_catalog(data.server, name, builder, *args, **kwargs)
+        timings[name] = round(time.perf_counter() - begin, 3)
+        return result
+
+    # These catalogues traverse all selected charts and ADV assets. Restore
+    # their small immutable inputs together, using the existing pinned fetchers.
+    asset_inputs = [
+        "Assets/AddressableResources/Live/MusicScore/"
+        + str(row.get("_musicScoreTextFileName") or "") + ".bytes"
+        for row in data.rows("MasterLiveMusicScore")
+    ]
+    asset_inputs.extend(
+        f"Assets/AddressableResources/Adv/Episode/{asset}/{asset}-{kind}.txt"
+        for row in data.rows("MasterAdv")
+        if (asset := str(row.get("_advEpisodeAsset") or ""))
+        for kind in ("Episode", "Text", "Sound", "SoundCueSheet", "Video")
+    )
+    asset_inputs.extend(
+        f"Assets/AddressableResources/Adv/Chat/AdvChat-{kind}.txt"
+        for kind in ("Sound", "SoundCueSheet")
+    )
+    project("restore assets", data.prefetch_assets, asset_inputs)
+    adv_roots = tuple(f"Assets/AddressableResources/Adv/{kind}/" for kind in
+                      ("Stage", "Still", "Frame", "Effect", "PostEffect", "Chat"))
+    project("restore Unity archives", data.prefetch_sources,
+            (path for path in data.source_paths if path.startswith(adv_roots)))
     live2d_raw = project("live2d", _live2d_models, data, source_id)
     live2d = project("live2d enrichment", _enrich_live2d, data, live2d_raw)
     songs, song_metadata = project("songs", _songs, data, source_id, fallback=({}, {}))
@@ -8612,13 +8706,19 @@ def build_api(
         documents = {name: documents.get(name, {}) for name in CATALOG_RESOURCES}
     if tuple(documents) != CATALOG_RESOURCES:
         raise AssertionError("catalog resource contract and builder are out of sync")
+    begin = time.perf_counter()
     RuntimeTextureProjection(data, source_id).apply(documents)
     _enrich_image_variants(data, documents)
+    timings["image variants"] = round(time.perf_counter() - begin, 3)
     layout.api.mkdir(parents=True, exist_ok=True)
+    begin = time.perf_counter()
     for resource, document in documents.items():
         write_json(layout.api / f"{resource}.json", document)
+    timings["write catalogues"] = round(time.perf_counter() - begin, 3)
     from build.card_recognition import build_card_recognition_source
+    begin = time.perf_counter()
     recognition = build_card_recognition_source(layout.root, config.id, source_id)
+    timings["card recognition"] = round(time.perf_counter() - begin, 3)
     result = {
         "schema": "haneoka-catalog-build-v1",
         "cardRecognition": recognition,
@@ -8626,6 +8726,8 @@ def build_api(
         "sourceId": source_id,
         "buildId": build_id,
         "resources": {name: _resource_count(name, value) for name, value in documents.items()},
+        "timings": {**timings, "total": round(time.perf_counter() - started, 3)},
+        "prefetch": data.prefetch_stats,
     }
     write_json(layout.reports / "api.json", result, pretty=True)
     return result
