@@ -321,7 +321,12 @@ export class AudioDock extends LitElement {
     });
     const requested = normalizedTrack(track);
     if (!requested || !normalizedQueue.length) return;
-    if (this.track?.id === requested.id && this.track.url === requested.url) {
+    const sameQueue =
+      this.queue.length === normalizedQueue.length &&
+      this.queue.every((entry, index) =>
+        entry.id === normalizedQueue[index]!.id && entry.url === normalizedQueue[index]!.url,
+      );
+    if (sameQueue && this.track?.id === requested.id && this.track.url === requested.url) {
       await this.togglePlayback();
       return;
     }
@@ -336,7 +341,6 @@ export class AudioDock extends LitElement {
     // the list the reader is choosing from).
     this.collapsed = compactQuery.matches;
     this.currentTime = 0;
-    this.duration = 0;
     await this.prepare(true);
   }
 
@@ -350,6 +354,9 @@ export class AudioDock extends LitElement {
         : this.queue.findIndex((entry) => audioTrackKey(entry) === key);
     if (existing >= 0) {
       const changed = this.index !== existing;
+      this.queue = this.queue.map((entry, index) =>
+        index === existing ? { ...requested, queueId: entry.queueId } : entry,
+      );
       this.index = existing;
       await this.prepare(changed, true);
       this.emitState();
@@ -414,6 +421,7 @@ export class AudioDock extends LitElement {
       this.audio.src = track.url;
       this.audio.load();
     }
+    this.duration = Number.isFinite(audio.duration) ? audio.duration : 0;
     if (reset) {
       this.restoredTime = 0;
       this.audio.currentTime = 0;
