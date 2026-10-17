@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
+import time
 from pathlib import Path, PurePosixPath
+from threading import RLock
 from typing import Any
 
 from core.paths import validate_release_path
@@ -102,6 +105,8 @@ class DeltaContext:
         self.base_release_id = str(plan["baseReleaseId"])
         self._manifest: dict[str, Any] | None = None
         self._entries: dict[str, dict[str, Any]] | None = None
+        self._snapshot_lock = RLock()
+        self._snapshot_reads = 0
 
     # -- plan accessors ----------------------------------------------------
 
@@ -134,8 +139,18 @@ class DeltaContext:
 
     # -- base release accessors -------------------------------------------
 
-    def base_manifest(self) -> dict[str, Any]:
-        if self._manifest is None:
+    @property
+    def snapshot_reads(self) -> int:
+        return self._snapshot_reads
+
+    def _load_base_snapshot(self) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        if self._manifest is not None and self._entries is not None:
+            return self._manifest, self._entries
+        with self._snapshot_lock:
+            if self._manifest is not None and self._entries is not None:
+                return self._manifest, self._entries
+            started = time.perf_counter()
+            self._snapshot_reads += 1
             manifest = self.store.get_json(
                 f"servers/{self.server}/releases/{self.base_release_id}/release.json"
             )
@@ -147,13 +162,8 @@ class DeltaContext:
                 raise ValueError(
                     f"base release manifest is missing or invalid: {self.base_release_id}"
                 )
-            self._manifest = manifest
-        return self._manifest
-
-    def entries(self) -> dict[str, dict[str, Any]]:
-        if self._entries is None:
             entries: dict[str, dict[str, Any]] = {}
-            for value in self.base_manifest().get("entries", []):
+            for value in manifest.get("entries", []):
                 if not isinstance(value, dict) or not isinstance(value.get("path"), str):
                     raise ValueError("base release manifest contains an invalid entry")
                 relative = validate_release_path(value["path"])
@@ -161,7 +171,18 @@ class DeltaContext:
                     raise ValueError(f"base release manifest repeats a path: {relative}")
                 entries[relative] = value
             self._entries = entries
-        return self._entries
+            self._manifest = manifest
+            sys.stderr.write(
+                f"delta: base snapshot {self.base_release_id}: {len(entries)} entries, "
+                f"manifest reads={self._snapshot_reads}, {time.perf_counter() - started:.3f}s\n"
+            )
+            return manifest, entries
+
+    def base_manifest(self) -> dict[str, Any]:
+        return self._load_base_snapshot()[0]
+
+    def entries(self) -> dict[str, dict[str, Any]]:
+        return self._load_base_snapshot()[1]
 
     def entry(self, path: str) -> dict[str, Any] | None:
         return self.entries().get(path)
