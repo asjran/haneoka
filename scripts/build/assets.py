@@ -8,11 +8,12 @@ import math
 import os
 import sqlite3
 import sys
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from core.contracts import UNITY_INDEX_SCHEMA
 from core.hashes import sha256_file
@@ -559,6 +560,23 @@ def _discover_shared_fx_records(
     return dict(selected)
 
 
+def _prefetch_base_descriptors(
+    paths: Iterable[str], read_document: Callable[[str], Any],
+) -> dict[str, tuple[Any, str | None]]:
+    requests = list(dict.fromkeys(paths))
+    if not requests:
+        return {}
+
+    def read(path: str) -> tuple[str, tuple[Any, str | None]]:
+        try:
+            return path, (read_document(path), None)
+        except Exception as error:
+            return path, (None, str(error))
+
+    with ThreadPoolExecutor(max_workers=min(32, len(requests))) as executor:
+        return dict(executor.map(read, requests))
+
+
 def _runtime_projections(
     layout,
     sources: list[dict[str, Any]],
@@ -594,16 +612,25 @@ def _runtime_projections(
     output_count = 0
     adopted_count = 0
     base_descriptors: dict[str, dict[str, Any] | None] = {}
+    prefetched = _prefetch_base_descriptors(
+        (str(source["descriptor"])
+         for digest, bundle_sources in sorted(by_bundle.items()) if delta.reusable(digest)
+         for source in bundle_sources), delta.base_document,
+    ) if delta is not None else {}
 
     def base_descriptor(descriptor_path: str, label: str) -> dict[str, Any] | None:
         if descriptor_path not in base_descriptors:
-            try:
-                document = delta.base_document(descriptor_path)
-            except Exception as error:
+            if descriptor_path in prefetched:
+                document, diagnostic = prefetched.pop(descriptor_path)
+            else:
+                try:
+                    document, diagnostic = delta.base_document(descriptor_path), None
+                except Exception as error:
+                    document, diagnostic = None, str(error)
+            if diagnostic is not None:
                 sys.stderr.write(
-                    f"warning: base descriptor unavailable for {label}: {error}\n"
+                    f"warning: base descriptor unavailable for {label}: {diagnostic}\n"
                 )
-                document = None
             base_descriptors[descriptor_path] = document if isinstance(document, dict) else None
         return base_descriptors[descriptor_path]
 
@@ -893,6 +920,9 @@ def merge_unity_shards(
     shard_count: int,
     delta: "DeltaContext | None" = None,
 ) -> dict[str, Any]:
+    started = time.perf_counter()
+    begin = started
+    timings = {}
     layout = build_layout(server, build_id)
     reports_by_sha: dict[str, dict[str, Any]] = {}
     candidates: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -934,6 +964,8 @@ def merge_unity_shards(
                         "source": source,
                     }
                 )
+    timings["merge local shards"] = round(time.perf_counter() - begin, 3)
+    begin = time.perf_counter()
     if delta is not None:
         missing = [
             digest for digest in delta.plan["bundles"] if digest not in reports_by_sha
@@ -977,6 +1009,8 @@ def merge_unity_shards(
                     }
                 )
 
+    timings["base bundle reports"] = round(time.perf_counter() - begin, 3)
+    begin = time.perf_counter()
     sources = [_canonical_source(candidates[path], reports_by_sha) for path in sorted(candidates)]
     # Locale variants (`sourcePath != basePath`) are materialized as files so the
     # runtime can fetch e.g. stamp_illust_x(zh-Hans).png, but they stay out of
@@ -986,8 +1020,14 @@ def merge_unity_shards(
     # canonical (locale-less ja base) source is the single indexed entry; variant
     # files ride along to the release via the assets tree walk.
     canonical_sources = [source for source in sources if source["sourcePath"] == source["basePath"]]
+    timings["canonical sources"] = round(time.perf_counter() - begin, 3)
+    begin = time.perf_counter()
     media_output_count, declared_media = _materialize_outputs(layout, sources, shard_count, delta)
+    timings["materialize media"] = round(time.perf_counter() - begin, 3)
+    begin = time.perf_counter()
     runtime_object_count, adopted_projection_count = _runtime_projections(layout, canonical_sources, delta)
+    timings["runtime projections"] = round(time.perf_counter() - begin, 3)
+    begin = time.perf_counter()
     declared_projections = {
         projection["path"]
         for source in canonical_sources
@@ -1050,7 +1090,10 @@ def merge_unity_shards(
         },
     }
     write_json(layout.metadata / "source-index.json", source_index)
+    timings["source descriptors and index"] = round(time.perf_counter() - begin, 3)
+    begin = time.perf_counter()
     _write_database(layout.database, list(reports_by_sha.values()), canonical_sources)
+    timings["sqlite"] = round(time.perf_counter() - begin, 3)
     if delta is not None:
         # Persist what the release composer must take from the base release:
         # validated media outputs and adopted runtime projections.
@@ -1081,6 +1124,7 @@ def merge_unity_shards(
         "objectCount": source_index["objectCount"],
         "runtimeObjectCount": runtime_object_count + adopted_projection_count,
         "mediaOutputCount": media_output_count + len(declared_media),
+        "timings": {**timings, "total": round(time.perf_counter() - started, 3)},
         **(
             {
                 "deltaBaseReleaseId": delta.base_release_id,

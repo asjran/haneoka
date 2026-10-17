@@ -827,7 +827,11 @@ jobs:
           run_stage() {
             local name="$1"
             shift
-            "$@" > "$RUNNER_TEMP/$name.log" 2>&1
+            local stage_started=$SECONDS
+            local stage_status=0
+            "$@" > "$RUNNER_TEMP/$name.log" 2>&1 || stage_status=$?
+            printf 'runtime stage %s: %ss (exit %s)\n' "$name" "$((SECONDS - stage_started))" "$stage_status"
+            return "$stage_status"
           }
           if [[ "$DELTA" == "true" ]]; then
             # Declare mode: reusable sources and models are composed from the
