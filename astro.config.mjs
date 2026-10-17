@@ -133,6 +133,7 @@ export default defineConfig({
                 : {}),
               ...(proxyTarget
                 ? {
+                    "^/api/v1/(?:servers(?:/|$)|announcements/media/)": publicResourceProxy,
                     "/api": { target: proxyTarget, changeOrigin: true },
                     "/assets": publicResourceProxy,
                     "/objects": publicResourceProxy,
