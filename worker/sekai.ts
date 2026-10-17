@@ -541,6 +541,11 @@ const otherSource = async (storyId: string): Promise<ScenarioSource | undefined>
     const episode = (story?.episodes as Obj[] | undefined)?.find((entry) => entry.episodeNo === Number(match![2]));
     if (!story || !episode) return undefined;
     const id = String(episode.scenarioId);
+    // The opening's area conversation is stored with its action set.
+    if (id.startsWith("op")) {
+      const set = (await master("jp", "actionSets")).find((entry) => entry.scenarioId === id);
+      if (set) return adv(id, `scenario/actionset/group${Math.floor(Number(set.id) / 100)}/${id}.asset`, "sound/actionset/voice");
+    }
     const bundle = id.startsWith("op") ? story.assetbundleName : episode.assetbundleName;
     return adv(id, `scenario/special/${String(bundle)}/${id}.asset`, "sound/scenario/voice");
   }
