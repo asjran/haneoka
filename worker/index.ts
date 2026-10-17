@@ -26,7 +26,12 @@ import {
   loadBestdoriSonolusCatalog,
   loadBestdoriSonolusChartText,
 } from "./bestdori";
-import { handleGameRecordsApi } from "./game-records";
+import {
+  handleGameRecordsApi,
+  collectEventRankingHistory,
+  EVENT_RANKING_HISTORY_CRON,
+  type PublishedRankingCatalog,
+} from "./game-records";
 import { handleSekaiApi } from "./sekai";
 import { handleStampFontsRequest } from "./stamp-fonts";
 import { handleChartImageRequest } from "./chart-image";
@@ -1470,6 +1475,63 @@ async function readCatalogShardAt(
   const document = await readReleaseJson(env, release, path);
   if (!isJsonObject(document)) throw new Error(`invalid catalog storage shard: ${path}`);
   return document;
+}
+
+async function publishedEventRankingCatalogs(env: Env): Promise<PublishedRankingCatalog[]> {
+  const catalogs: PublishedRankingCatalog[] = [];
+  for (const slug of ["jp", "intl"] as const) {
+    const server = await activeResourceServer(env, slug);
+    const release = server ? await currentRelease(env, server) : null;
+    if (!release) continue;
+    const storage = (await catalogStorageManifest(env, release))?.resources.events;
+    if (!storage?.entities) continue;
+    const index = await readReleaseJson(env, release, storage.index);
+    const challengeTable = await readReleaseJson(env, release, "objects/master/MasterChallengeMusic.json");
+    if (
+      !isJsonObject(index) ||
+      !isJsonObject(index.entries) ||
+      !isJsonObject(challengeTable) ||
+      !Array.isArray(challengeTable._allData)
+    )
+      throw new Error("event ranking catalog missing");
+    const challenges = challengeTable._allData.filter(isJsonObject);
+    const events: PublishedRankingCatalog["events"][number][] = [];
+    for (const [id, summary] of Object.entries(index.entries)) {
+      if (!isJsonObject(summary) || summary.kind !== "game-event" || !/^[1-9][0-9]*$/u.test(id)) continue;
+      const start = Array.isArray(summary.startAt) ? summary.startAt[0] : summary.startAt;
+      const end = Array.isArray(summary.endAt) ? summary.endAt[0] : summary.endAt;
+      if (
+        typeof start !== "number" ||
+        !Number.isSafeInteger(start) ||
+        typeof end !== "number" ||
+        !Number.isSafeInteger(end) ||
+        start > Date.now()
+      )
+        continue;
+      const shard = await readCatalogShard(env, release, storage.entities, id);
+      const details = shard ? ownJsonValue(shard, id) : null;
+      if (!isJsonObject(details)) continue;
+      events.push({
+        id,
+        startAtMs: start,
+        endAtMs: end,
+        pointRankingEnabled: details.rankingDisabled === false,
+        challenges:
+          details.musicRankingDisabled === false
+            ? challenges.flatMap((challenge) =>
+                String(challenge._eventId) === id &&
+                typeof challenge._rankingRewardGroup === "number" &&
+                challenge._rankingRewardGroup > 0
+                  ? [{ id: String(challenge._id), musicId: String(challenge._liveMusicId) }]
+                  : [],
+              )
+            : [],
+      });
+    }
+    for (const region of slug === "jp" ? (["jp"] as const) : (["tw", "en", "kr"] as const))
+      catalogs.push({ region, events });
+  }
+  return catalogs;
 }
 
 function validGameClientFilename(value: string): boolean {
@@ -3725,17 +3787,22 @@ const worker: ExportedHandler<Env> = {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (!env.DB) return;
     const scheduledTask: readonly [string, () => Promise<void>] | null =
-      controller.cron === COMMUNITY_RANKING_CRON
-        ? ["community_ranking", () => refreshCommunityRanking(env)]
-        : controller.cron === MEDIA_RECONCILIATION_CRON
-          ? ["community_media_reconciliation", () => reconcileCommunityMedia(env)]
-          : controller.cron === MODERATION_RECONCILIATION_CRON
-            ? ["moderation_reconciliation", () => reconcileModerationState(env)]
-            : controller.cron === COMMUNITY_UPLOAD_CLEANUP_CRON
-              ? ["community_upload_cleanup", () => cleanupCommunityUploads(env)]
-              : controller.cron === DATABASE_CLEANUP_CRON
-                ? ["database_cleanup", () => cleanupDatabase(env)]
-                : null;
+      controller.cron === EVENT_RANKING_HISTORY_CRON
+        ? [
+            "event_ranking_history",
+            async () => collectEventRankingHistory(env, await publishedEventRankingCatalogs(env)),
+          ]
+        : controller.cron === COMMUNITY_RANKING_CRON
+          ? ["community_ranking", () => refreshCommunityRanking(env)]
+          : controller.cron === MEDIA_RECONCILIATION_CRON
+            ? ["community_media_reconciliation", () => reconcileCommunityMedia(env)]
+            : controller.cron === MODERATION_RECONCILIATION_CRON
+              ? ["moderation_reconciliation", () => reconcileModerationState(env)]
+              : controller.cron === COMMUNITY_UPLOAD_CLEANUP_CRON
+                ? ["community_upload_cleanup", () => cleanupCommunityUploads(env)]
+                : controller.cron === DATABASE_CLEANUP_CRON
+                  ? ["database_cleanup", () => cleanupDatabase(env)]
+                  : null;
     if (!scheduledTask) {
       console.warn(JSON.stringify({ cron: controller.cron, event: "worker.unknown_scheduled_trigger" }));
       return;
