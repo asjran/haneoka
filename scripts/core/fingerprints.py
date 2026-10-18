@@ -159,10 +159,12 @@ _RECIPE_INFRASTRUCTURE = {
     "core/config.py", "core/private_config.py", "core/storage.py",
     "core/delta.py", "core/fingerprints.py", "extract/unity_reuse.py",
 }
-# Qualified index hoist: decoding and every declared CRI output remain exact.
+# Qualified CRI index/prefetch refactors preserve every decoded/adopted byte.
 # Other source revisions retain their own hash and invalidate the producer.
 _STAGE_SOURCE_COMPATIBILITY = {
     ("cri", "extract/cri.py", "546622e848ca91f9d45c3a1a56f3a85547ab4dbbcdf9aa9f844af9e555c59271"):
+        "cb61137f76a6f9f7ef94bd5bd7ce4b4ad4603e7d892e09b9209a32d60af8a918",
+    ("cri", "extract/cri.py", "6374801edae2f262da82a742f86349f2cb97d3b985b675f8639c9a906f27a112"):
         "cb61137f76a6f9f7ef94bd5bd7ce4b4ad4603e7d892e09b9209a32d60af8a918",
 }
 _UNITY_PACKAGES = {

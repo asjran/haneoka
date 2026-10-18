@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
@@ -24,6 +25,7 @@ from core.unity_objects import UnityObjectStore
 
 HASH_SUFFIX = re.compile(r"_[0-9a-f]{32}$")
 CHUNK_SUFFIX = re.compile(r"-(\d+)\.bytes$", re.IGNORECASE)
+CHUNK_XOR = bytes(value ^ 0x5A for value in range(256))
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 CRI_SCHEMA = "haneoka-cri-runtime-v1"
 CRI_TRANSFORM_SCHEMA = "haneoka-cri-transform-v2"
@@ -645,9 +647,14 @@ def _serialized_cri_payload(data: dict[str, Any] | None) -> bytes | None:
             isinstance(kind, dict)
             and kind.get("class") == "CriSerializedBytesAssetImpl"
             and isinstance(raw, list)
-            and all(isinstance(value, int) for value in raw)
         ):
-            return bytes(value & 255 for value in raw)
+            try:
+                return bytes(raw)
+            except TypeError:
+                continue
+            except ValueError:
+                if all(isinstance(value, int) for value in raw):
+                    return bytes(value & 255 for value in raw)
     return None
 
 
@@ -655,11 +662,59 @@ def _embedded_payloads(
     build: Any,
     source_index: dict[str, Any],
     delta: Any = None,
+    reuse_concurrency: int = 32,
 ) -> list[tuple[str, bytes, PurePosixPath]]:
     values = []
     prefix = PurePosixPath("Assets/AddressableResources/Cri")
     store = UnityObjectStore(build, source_index)
-    for source_path, record in sorted((source_index.get("sources") or {}).items()):
+    sources = [
+        (source_path, record)
+        for source_path, record in sorted((source_index.get("sources") or {}).items())
+        if PurePosixPath(source_path).is_relative_to(prefix)
+    ]
+    if delta is not None:
+        inputs: dict[Path, tuple[str, str]] = {}
+        for source_path, record in sources:
+            descriptor = store.descriptor(source_path)
+            digest = str(descriptor["selectedBundle"])
+            archive = build.objects / "unity" / f"{digest}.jsonl.gz"
+            serialized = (source_index.get("serializedFiles") or {}).get(
+                descriptor["serializedFile"], {}
+            )
+            if (
+                not archive.is_file()
+                and serialized.get("bundleSha256") == digest
+                and delta.reusable(digest)
+            ):
+                inputs[archive] = ("archive", digest)
+            for output in record.get("outputs", []):
+                relative = str(output["path"])
+                target = build.root / relative
+                digest = str(output.get("bundleSha256") or "")
+                if (
+                    CHUNK_SUFFIX.search(relative)
+                    and not target.is_file()
+                    and digest
+                    and delta.reusable(digest)
+                ):
+                    inputs[target] = ("chunk", relative)
+
+        def restore(item: tuple[Path, tuple[str, str]]) -> None:
+            target, (kind, identity) = item
+            if kind == "archive":
+                delta.fetch_archive(identity, target)
+            else:
+                delta.fetch_release_path(identity, target)
+
+        started = time.perf_counter()
+        workers = max(1, min(int(reuse_concurrency), len(inputs) or 1))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            list(executor.map(restore, inputs.items()))
+        sys.stderr.write(
+            f"cri: embedded input prefetch restored {len(inputs)} files "
+            f"with {workers} workers in {time.perf_counter() - started:.3f}s\n"
+        )
+    for source_path, record in sources:
         source = PurePosixPath(source_path)
         try:
             tail = source.relative_to(prefix)
@@ -714,7 +769,7 @@ def _embedded_payloads(
                     )
                 delta.fetch_release_path(relative, file)
             raw = b"".join(
-                bytes(value ^ 0x5A for value in file.read_bytes())
+                file.read_bytes().translate(CHUNK_XOR)
                 for _, _, file in sorted(chunks)
             )
         if raw[:4] != b"@UTF":
@@ -1718,7 +1773,7 @@ def extract_cri(
         )
 
     for source_path, payload, relative in _embedded_payloads(
-        build, source_index, delta
+        build, source_index, delta, reuse_concurrency
     ):
         task = {
             "label": source_path,
