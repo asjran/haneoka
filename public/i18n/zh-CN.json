@@ -432,7 +432,11 @@
         "gekisouMissionLuck": "LUCK",
         "gekisouMissionJustCount": "JUST",
         "gekisouMissionAll": "全部",
-        "gekisouMissionNone": "无"
+        "gekisouMissionNone": "无",
+        "mixed": "混合",
+        "matchMode": "匹配方式",
+        "only": "仅限所选类型",
+        "contains": "包含所选类型"
       },
       "skillPoints": "技能点位"
     },
@@ -1830,7 +1834,11 @@
           "unsupported_summary": "由角色评级汇总",
           "unsupported_field": "暂不支持",
           "inactive_band_item": "未生效"
-        }
+        },
+        "ownershipMode": "成员和留影",
+        "mergeOwnership": "合并拥有状态",
+        "replaceOwnership": "替换成员和留影拥有状态",
+        "replaceScope": "用所选卡片替换全部成员和留影的拥有状态 · {count}张将标记为未拥有。保留账号加成、队伍和偏好。"
       },
       "resourceResultsChanged": "养成或条件已变更，请重新计算以更新结果。",
       "localDraftChanged": "另一个标签页已修改卡库。请先导出当前输入，再重新读取已保存的卡库。",
@@ -2359,7 +2367,11 @@
       "growthNone": "单独养成任何一张卡都无法提升最佳队伍。",
       "gekisoOpponents": "各区间对手分数",
       "gekisoRange": "区间 {n}",
-      "gekisoPlacements": "名次"
+      "gekisoPlacements": "名次",
+      "clearOwnership": "全部成员和留影标记未拥有",
+      "clearOwnershipScope": "已拥有{count}张。保留训练值、账号加成、队伍和偏好。",
+      "clearOwnershipConfirm": "全部标记未拥有",
+      "clearedOwnership": "已将{count}张成员和留影标记为未拥有"
     },
     "calendar": {
       "title": "日历",

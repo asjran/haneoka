@@ -432,7 +432,11 @@
         "gekisouMissionLuck": "LUCK",
         "gekisouMissionJustCount": "JUST",
         "gekisouMissionAll": "전부",
-        "gekisouMissionNone": "없음"
+        "gekisouMissionNone": "없음",
+        "mixed": "혼합",
+        "matchMode": "일치 방식",
+        "only": "선택한 유형만",
+        "contains": "선택한 유형 포함"
       },
       "skillPoints": "스킬 발동 위치"
     },
@@ -1830,7 +1834,11 @@
           "unsupported_summary": "캐릭터 랭크에서 합산",
           "unsupported_field": "지원하지 않음",
           "inactive_band_item": "효과 미적용"
-        }
+        },
+        "ownershipMode": "멤버와 스냅",
+        "mergeOwnership": "보유 상태 합치기",
+        "replaceOwnership": "멤버와 스냅 보유 상태 교체",
+        "replaceScope": "선택한 카드로 모든 멤버와 스냅의 보유 상태 교체 · {count}장 미보유로 변경. 계정 보너스, 편성, 설정 유지."
       },
       "resourceResultsChanged": "육성 값이나 조건이 변경되었습니다. 결과를 갱신하려면 다시 계산해 주세요.",
       "localDraftChanged": "다른 탭에서 카드 목록이 변경되었습니다. 현재 입력을 내보낸 뒤 저장된 목록을 다시 불러오세요.",
@@ -2359,7 +2367,11 @@
       "growthNone": "카드 한 장의 육성으로는 최고 편성이 나아지지 않습니다.",
       "gekisoOpponents": "구간별 상대 점수",
       "gekisoRange": "구간 {n}",
-      "gekisoPlacements": "순위"
+      "gekisoPlacements": "순위",
+      "clearOwnership": "모든 멤버와 스냅을 미보유로 표시",
+      "clearOwnershipScope": "보유 카드 {count}장. 육성 수치, 계정 보너스, 편성, 설정 유지.",
+      "clearOwnershipConfirm": "모두 미보유로 표시",
+      "clearedOwnership": "멤버와 스냅 {count}장을 미보유로 변경했습니다"
     },
     "calendar": {
       "title": "달력",

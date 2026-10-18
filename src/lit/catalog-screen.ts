@@ -9,6 +9,7 @@ import {
   skillTypeKey,
   skillTypeTitle,
   songMissions,
+  matchesSongMissions,
 } from "../lib/catalog-filters";
 import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
@@ -62,6 +63,7 @@ import { resolveLocalizedText } from "../lib/localized-text";
 import { shopPaymentPrices, shopPriceLine } from "../lib/shop-currency";
 import "./catalog-table";
 import { filterDateBound } from "../lib/filter-date";
+import { catalogQueryNames, intersectCatalogFacets, parseCatalogQuery, type CatalogQueryAlias, type CatalogQueryFacets } from "../lib/catalog-query";
 import { facet } from "./ui/facet";
 import { fold } from "./game-system-detail";
 import { collectionList, collectionView, viewSwitch, type CollectionView } from "./ui/collection-view";
@@ -307,6 +309,9 @@ const EXTRA_FILTERS = [
   "skill",
   ...CARD_SKILL_FACETS.map((facet) => facet.key),
   "gekisouType",
+  "gekisouMatch",
+  "minRarity",
+  "maxRarity",
   "school",
   "part",
   "birthdayMonth",
@@ -2029,6 +2034,7 @@ export class CatalogScreen extends LitElement {
       label: this.label("search", "Search"),
       onInput: (value) => {
         this.query = value;
+        this.ensureSongMeta();
         this.syncUrl();
       },
     });
@@ -2760,25 +2766,52 @@ export class CatalogScreen extends LitElement {
     this.expandedCache = { source: this.items, rows };
     return rows;
   }
+  private parsedQuery() {
+    const aliases: CatalogQueryAlias[] = [];
+    for (const kind of ["character", "band"] as const) {
+      const key = kind === "character" ? "character" : "collectionBand";
+      const field = kind === "character" ? "characterId" : "bandId";
+      const union = kind === "character" ? this.unionCharacters : this.unionBands;
+      if (this.unionCatalog) {
+        for (const [server, records] of Object.entries(union))
+          for (const [id, record] of records ?? []) {
+            const token = `${server}:${id}`;
+            aliases.push({ key, value: this.unionFacetKeys[key].get(token) || token, names: catalogQueryNames(record, kind) });
+          }
+      } else {
+        for (const record of kind === "character" ? this.characters : this.bands)
+          aliases.push({ key, value: String(record[field]), names: catalogQueryNames(record, kind) });
+      }
+    }
+    return parseCatalogQuery(this.query, {
+      game: this.settings.origin === "sekai" ? "sekai" : this.isProvider() ? "gbp" : "our-notes",
+      kind: this.profile.presentation === "song" ? "song" : "card",
+      aliases,
+    });
+  }
+  private currentQuery(): { text: string; facets: CatalogQueryFacets } {
+    const query: { text: string; facets: CatalogQueryFacets } = ["song", "member", "support"].includes(this.profile.presentation)
+      ? this.parsedQuery() : { text: this.query, facets: {} };
+    return { ...query, facets: { ...query.facets, gekisouMatch: query.facets.gekisouMatch?.length
+      ? query.facets.gekisouMatch : this.facets.gekisouMatch?.length ? this.facets.gekisouMatch : ["only"] } };
+  }
+  private queryTextMatches(item: Item, text: string) {
+    const needle = text.trim().toLocaleLowerCase(this.settings.locale);
+    if (!needle) return true;
+    return `${this.profile.presentation === "song" ? JSON.stringify([...this.songPerformer(item).names, ...this.songPerformer(item).portraits.map((p) => p.name), ...this.songPerformer(item).unresolvedNames]) : ""} ${
+      typeof item.__haystack === "string" && item.__haystack ? item.__haystack
+        : `${this.itemId(item)} ${this.itemTitle(item)} ${this.secondary(item)} ${JSON.stringify(item)}`
+    }`.toLocaleLowerCase(this.settings.locale).includes(needle);
+  }
   private computeResults() {
-    const needle = this.query.trim().toLocaleLowerCase(this.settings.locale);
+    const query = this.currentQuery();
+    const facets = intersectCatalogFacets(this.facets, query.facets);
     // A roster shows one band at a time, so that band is the population the
     // result count is measured against — not the whole catalogue.
     const source = this.hasBandRail()
       ? this.items.filter((item) => this.activeBand > 0 && Number(item.bandId) === this.activeBand)
       : this.expandedItems();
-    const faceted = source.filter((item) => this.matchesFacets(item));
-    const items = needle
-      ? faceted.filter((item) =>
-          `${this.profile.presentation === "song" ? JSON.stringify([...this.songPerformer(item).names, ...this.songPerformer(item).portraits.map((p) => p.name), ...this.songPerformer(item).unresolvedNames]) : ""} ${
-            typeof item.__haystack === "string" && item.__haystack
-              ? item.__haystack
-              : `${this.itemId(item)} ${this.itemTitle(item)} ${this.secondary(item)} ${JSON.stringify(item)}`
-          }`
-            .toLocaleLowerCase(this.settings.locale)
-            .includes(needle),
-        )
-      : [...faceted];
+    const items = source.filter((item) => this.matchesFacets(item, "", facets) && this.queryTextMatches(item, query.text));
     const direction = this.order === "asc" ? 1 : -1;
     items.sort((a, b) => {
       const left = this.sortValue(a);
@@ -3096,7 +3129,7 @@ export class CatalogScreen extends LitElement {
   }
   private ensureSongMeta() {
     if (this.profile.presentation !== "song") return;
-    if (this.profile.perDifficulty || this.view === "table" || this.filtersOpen || this.facets.gekisouType?.length)
+    if (this.profile.perDifficulty || this.view === "table" || this.filtersOpen || this.facets.gekisouType?.length || this.parsedQuery().facets.gekisouType?.length)
       this.ensureSongMissions();
     // The meta table reads per-chart metrics on every row, so it always needs
     // the join; the songs table only needs it for the table view, filters, or
@@ -3314,7 +3347,10 @@ export class CatalogScreen extends LitElement {
   private facetValues(item: Item, key: string): string[] {
     const skillTypes = skillFacetValues(item, key);
     if (skillTypes) return skillTypes;
-    if (key === "gekisouType") return [...new Set(songMissions(item).filter(Boolean))];
+    if (key === "gekisouType") {
+      const missions = songMissions(item);
+      return [...new Set(missions.filter(Boolean)), ...(missions.length === 3 && missions.every(Boolean) && new Set(missions).size > 1 ? ["Mix"] : [])];
+    }
     if (key === "character") return this.itemCharacterIds(item).map((id) => this.facetToken(item, id));
     if (this.profile.presentation === "system") {
       if (key === "status") return [this.entryState(item)];
@@ -3350,12 +3386,12 @@ export class CatalogScreen extends LitElement {
     if (["school", "part"].includes(key)) return [this.creditKey(item[field])].filter(Boolean);
     return item[key] == null ? [] : [String(item[key])];
   }
-  private rangeValues(item: Item, key: string): number[] {
+  private rangeValues(item: Item, key: string, facets: CatalogQueryFacets = this.facets): number[] {
     if (key === "Total") return [this.total(item)].filter((value) => value > 0);
     const difficulties = (Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : []).filter(
       (row) =>
-        !this.facets.difficulty?.length ||
-        this.facets.difficulty.includes(String(row.difficultyName ?? row.difficulty)),
+        !facets.difficulty?.length ||
+        facets.difficulty.includes(String(row.difficultyName ?? row.difficulty)),
     );
     if (key === "Level" || key === "Notes")
       return difficulties
@@ -3364,31 +3400,37 @@ export class CatalogScreen extends LitElement {
     const value = Number(this.songMetaValue(item, key === "Time" ? "time" : "bpm"));
     return value > 0 ? [value] : [];
   }
-  private matchesFacets(item: Item, omitted = "") {
-    for (const [key, values] of Object.entries(this.facets)) {
+  private matchesFacets(item: Item, omitted = "", facets: CatalogQueryFacets = this.facets) {
+    for (const [key, values] of Object.entries(facets)) {
       if (
         !values.length ||
         key === omitted ||
+        key === "gekisouMatch" ||
         (key === "gekisouType" && this.isProvider()) ||
         /^(min|max|releaseFrom|releaseTo)/.test(key)
       )
         continue;
-      if (!this.facetValues(item, key).some((value) => values.includes(value))) return false;
+      if (key === "gekisouType") {
+        if (!matchesSongMissions(item, values, facets.gekisouMatch?.[0])) return false;
+      } else if (!this.facetValues(item, key).some((value) => values.includes(value))) return false;
     }
+    const rarity = Number(item.rarity);
+    if (facets.minRarity?.length && (!Number.isFinite(rarity) || rarity < Number(facets.minRarity[0]))) return false;
+    if (facets.maxRarity?.length && (!Number.isFinite(rarity) || rarity > Number(facets.maxRarity[0]))) return false;
     const chartRanges = [
       ["Level", "displayLevel", "playLevel"],
       ["Notes", "noteCount", "noteCount"],
     ];
-    if (chartRanges.some(([key]) => this.facets[`min${key}`]?.length || this.facets[`max${key}`]?.length)) {
+    if (chartRanges.some(([key]) => facets[`min${key}`]?.length || facets[`max${key}`]?.length)) {
       const charts = Array.isArray(item.difficulty) ? (item.difficulty as Item[]) : [];
       if (
         !charts.some(
           (row) =>
-            (!this.facets.difficulty?.length ||
-              this.facets.difficulty.includes(String(row.difficultyName ?? row.difficulty))) &&
+            (!facets.difficulty?.length ||
+              facets.difficulty.includes(String(row.difficultyName ?? row.difficulty))) &&
             chartRanges.every(([key, field, fallback]) => {
-              const min = this.facets[`min${key}`]?.[0],
-                max = this.facets[`max${key}`]?.[0];
+              const min = facets[`min${key}`]?.[0],
+                max = facets[`max${key}`]?.[0];
               if (!min && !max) return true;
               const value = Number(row[field] ?? row[fallback]);
               return Number.isFinite(value) && (!min || value >= Number(min)) && (!max || value <= Number(max));
@@ -3398,16 +3440,16 @@ export class CatalogScreen extends LitElement {
         return false;
     }
     for (const key of ["Time", "Bpm", "Total"]) {
-      const min = this.facets[`min${key}`]?.[0],
-        max = this.facets[`max${key}`]?.[0];
+      const min = facets[`min${key}`]?.[0],
+        max = facets[`max${key}`]?.[0];
       if (!min && !max) continue;
       if (
-        !this.rangeValues(item, key).some((value) => (!min || value >= Number(min)) && (!max || value <= Number(max)))
+        !this.rangeValues(item, key, facets).some((value) => (!min || value >= Number(min)) && (!max || value <= Number(max)))
       )
         return false;
     }
-    const from = this.facets.releaseFrom?.[0],
-      to = this.facets.releaseTo?.[0],
+    const from = facets.releaseFrom?.[0],
+      to = facets.releaseTo?.[0],
       date = this.releaseTimestamp(item);
     const start = filterDateBound(from),
       end = filterDateBound(to, true);
@@ -3426,15 +3468,21 @@ export class CatalogScreen extends LitElement {
       groups = this.computeFacetGroups();
       this.facetCache = { items: population, locale: this.settings.locale, groups };
     }
+    const query = this.currentQuery();
     return groups.map((group) => {
       const counts = new Map<string, number>();
+      const facets = intersectCatalogFacets({ ...this.facets, [group.key]: [] }, query.facets);
       for (const item of population) {
         if (
-          !this.matchesFacets(item, group.key) ||
+          !this.matchesFacets(item, "", facets) ||
+          !this.queryTextMatches(item, query.text) ||
           (this.hasBandRail() && this.activeBand && Number(item.bandId) !== this.activeBand)
         )
           continue;
-        for (const value of new Set(this.facetValues(item, group.key))) counts.set(value, (counts.get(value) || 0) + 1);
+        const values = group.key === "gekisouType"
+          ? group.options.filter((option) => matchesSongMissions(item, [option.value], facets.gekisouMatch?.[0])).map((option) => option.value)
+          : this.facetValues(item, group.key);
+        for (const value of new Set(values)) counts.set(value, (counts.get(value) || 0) + 1);
       }
       return {
         ...group,
@@ -3570,6 +3618,7 @@ export class CatalogScreen extends LitElement {
           { value: "Combo", label: this.label("gekisouMissionCombo", "COMBO") },
           { value: "Luck", label: this.label("gekisouMissionLuck", "LUCK") },
           { value: "JustCount", label: this.label("gekisouMissionJustCount", "JUST") },
+          { value: "Mix", label: uiText(this.settings.locale, "catalog.songs.gekisou.mixed") },
         ],
       });
     const fields =
@@ -4506,7 +4555,18 @@ export class CatalogScreen extends LitElement {
 
   private renderFilters() {
     return html`
-      ${this.facetGroups().map((group) => facet(group.label, this.settings.locale, group.options, this.facets[group.key] || [], (value) => this.toggleFacet(group.key, value)))}
+      ${this.facetGroups().map((group) => html`
+        ${facet(group.label, this.settings.locale, group.options, this.facets[group.key] || [], (value) => this.toggleFacet(group.key, value))}
+        ${group.key === "gekisouType" ? segmented({
+          label: uiText(this.settings.locale, "catalog.songs.gekisou.matchMode"),
+          value: this.facets.gekisouMatch?.[0] === "contains" ? "contains" : "only",
+          options: [
+            { value: "only", label: uiText(this.settings.locale, "catalog.songs.gekisou.only") },
+            { value: "contains", label: uiText(this.settings.locale, "catalog.songs.gekisou.contains") },
+          ],
+          onSelect: (value) => { this.facets = { ...this.facets, gekisouMatch: value === "only" ? [] : [value] }; this.syncUrl(); },
+        }) : nothing}
+      `)}
       ${(["song", "member", "support"].includes(this.profile.presentation)
         ? this.profile.presentation === "song"
           ? [

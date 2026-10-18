@@ -432,7 +432,11 @@
         "gekisouMissionLuck": "LUCK",
         "gekisouMissionJustCount": "JUST",
         "gekisouMissionAll": "All",
-        "gekisouMissionNone": "None"
+        "gekisouMissionNone": "None",
+        "mixed": "Mixed",
+        "matchMode": "Match mode",
+        "only": "Only selected types",
+        "contains": "Contains a selected type"
       },
       "skillPoints": "Skill points"
     },
@@ -1830,7 +1834,11 @@
           "unsupported_summary": "Calculated from character ranks",
           "unsupported_field": "Unsupported",
           "inactive_band_item": "Inactive"
-        }
+        },
+        "ownershipMode": "Members and snapshots",
+        "mergeOwnership": "Merge ownership",
+        "replaceOwnership": "Replace member and snapshot ownership",
+        "replaceScope": "Replace all member and snapshot ownership with selected cards · {count} marked not owned. Account bonuses, teams and preferences stay saved."
       },
       "resourceResultsChanged": "Training or conditions changed. Calculate again to update the results.",
       "localDraftChanged": "Your card library changed in another tab. Export your current inputs, then reload the saved library.",
@@ -2359,7 +2367,11 @@
       "growthNone": "No single card upgrade improves the best team.",
       "gekisoOpponents": "Opponents' scores in each range",
       "gekisoRange": "Range {n}",
-      "gekisoPlacements": "Placements"
+      "gekisoPlacements": "Placements",
+      "clearOwnership": "Mark all members and snapshots not owned",
+      "clearOwnershipScope": "{count} owned cards. Training values, account bonuses, teams and preferences stay saved.",
+      "clearOwnershipConfirm": "Mark all not owned",
+      "clearedOwnership": "Marked {count} members and snapshots not owned"
     },
     "calendar": {
       "title": "Calendar",
