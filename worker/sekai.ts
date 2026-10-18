@@ -771,15 +771,36 @@ const areaTalkList = async (): Promise<Obj> => {
   );
 };
 
+/** Stories whose scenario is uploaded: the master can list an episode before its text exists. */
+const uploaded = async (storyIds: readonly string[]): Promise<Set<string>> => {
+  const sources = await Promise.all(
+    storyIds.map(async (id) => [id, (await scenarioSource("jp", id)) ?? (await otherSource(id))] as const),
+  );
+  const folders = new Map<string, Promise<Set<string>>>();
+  const present = new Set<string>();
+  for (const [id, source] of sources) {
+    if (!source || source.script) {
+      if (source) present.add(id);
+      continue;
+    }
+    const folder = source.path.slice(0, source.path.lastIndexOf("/") + 1);
+    if (!folders.has(folder)) folders.set(folder, listing(folder));
+    if ((await folders.get(folder)!).has(source.path.slice(folder.length))) present.add(id);
+  }
+  return present;
+};
+
 const specialStoryList = async (): Promise<Obj> => {
   const now = Date.now();
+  const stories = (await master("jp", "specialStories")).filter((story) => Number(story.startAt) <= now);
+  const id = (story: Obj, episode: Obj) => `special.${Number(story.id)}-${Number(episode.episodeNo)}`;
+  const present = await uploaded(stories.flatMap((story) => (story.episodes as Obj[]).map((episode) => id(story, episode))));
   return record(
-    (await master("jp", "specialStories"))
-      .filter((story) => Number(story.startAt) <= now)
+    stories
       .flatMap((story) =>
-        (story.episodes as Obj[]).map((episode) =>
+        (story.episodes as Obj[]).filter((episode) => present.has(id(story, episode))).map((episode) =>
           listItem(
-            `special.${Number(story.id)}-${Number(episode.episodeNo)}`,
+            id(story, episode),
             // Newest first, as the game lists them.
             { id: Number(story.id), name: String(story.title), sort: -Number(story.startAt) },
             {
