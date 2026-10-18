@@ -73,7 +73,7 @@ export interface SegmentOption<T extends string> {
  * widget, and that is what the site had. Returns a keydown handler for the
  * container; the selected option keeps tabindex="0" and the rest -1.
  */
-export function rovingKeydown<T>(values: ReadonlyArray<T>, current: T, onSelect: (value: T) => void) {
+export function rovingKeydown<T>(values: ReadonlyArray<T>, current: T, onSelect: (value: T) => void, focusOptions?: FocusOptions) {
   return (event: KeyboardEvent) => {
     const step: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
     const index = Math.max(0, values.indexOf(current));
@@ -91,7 +91,7 @@ export function rovingKeydown<T>(values: ReadonlyArray<T>, current: T, onSelect:
     onSelect(values[next]);
     // The container re-renders on selection; move focus once it has.
     requestAnimationFrame(() =>
-      container.querySelectorAll<HTMLElement>('[role="tab"], [role="radio"], [role="checkbox"]')[next]?.focus(),
+      container.querySelectorAll<HTMLElement>('[role="tab"], [role="radio"], [role="checkbox"]')[next]?.focus(focusOptions),
     );
   };
 }

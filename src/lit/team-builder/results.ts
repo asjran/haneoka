@@ -7,6 +7,7 @@ import { downloadBlob } from "../../lib/canvas-capture";
 import { renderTeamResultImage, type ResultImageCard } from "../shared/team-result-image";
 import { cardRarityName } from "../shared/rarity-icon";
 import { iconButton } from "../ui/controls";
+import "../ui/scrollable-tabs";
 import { accordion } from "../ui/accordion";
 import { collectionList } from "../ui/collection-view";
 import { skillTimeline } from "../shared/skill-timeline";
@@ -593,12 +594,13 @@ export function renderResults(host: TeamBuilder): TemplateResult {
           </section>`
         : nothing}
       ${multi
-        ? html`<nav class="tabs tabs--secondary tb-song-tabs" role="tablist" aria-label=${host.t("songs", "Songs")}>
-            ${[{ id: "overall", label: host.t("overall", "Overall") }, ...results.results.map((result) => ({ id: `${result.song!.songId}:${result.song!.difficulty}`, label: `${catalog.songTitle(result.song!.songId)} ${catalog.difficultyLabel(result.song!.songId, result.song!.difficulty)}` }))].map(
-              (item) => html`<button class="tab" type="button" role="tab" aria-selected=${String(tab === item.id)} @click=${() => { host.resultTab = item.id; host.requestUpdate(); }}>
-                <span class="clamp-1">${item.label}</span><span class="tab__indicator"></span></button>`,
-            )}
-          </nav>`
+        ? html`<scrollable-tabs class="scrollable-tabs tb-song-tabs" .value=${tab}
+            .label=${host.t("songs", "Songs")}
+            .previousLabel=${host.common("common.actions.previous", "Previous")}
+            .nextLabel=${host.common("common.actions.next", "Next")}
+            .items=${[{ id: "overall", label: host.t("overall", "Overall") }, ...results.results.map((result) => ({ id: `${result.song!.songId}:${result.song!.difficulty}`, label: `${catalog.songTitle(result.song!.songId)} ${catalog.difficultyLabel(result.song!.songId, result.song!.difficulty)}` }))]}
+            .onSelect=${(id: string) => { host.resultTab = id; host.requestUpdate(); }}>
+          </scrollable-tabs>`
         : nothing}
       ${compareTable(host, shown)}
       ${shown.length
