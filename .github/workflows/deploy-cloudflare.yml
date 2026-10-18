@@ -11,6 +11,9 @@ on:
       - "!.github/workflows/resource-*.yml"
       - "!.github/actions/setup-resource-pipeline/**"
       - "!.github/workflows/home-spot-repair.yml"
+      - "!scripts/deploy/worker-publication.mjs"
+      - "!scripts/deploy/publication-source.mjs"
+      - "!.github/workflows/deploy-cloudflare.yml"
   workflow_dispatch:
     inputs:
       apply_d1_migrations:
@@ -21,17 +24,46 @@ on:
         description: Publish only the Worker, database and cron using the current verified static assets
         type: boolean
         default: false
+      publication_run_id:
+        description: Reuse a sealed complete publication from this completed deployment run
+        type: string
+        default: ""
 jobs:
+  recovery:
+    name: Resolve sealed publication
+    if: ${{ inputs.publication_run_id != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      source_sha: ${{ steps.artifact.outputs.source_sha }}
+      artifact_name: ${{ steps.artifact.outputs.artifact_name }}
+      artifact_run_id: ${{ steps.artifact.outputs.artifact_run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Resolve verified complete publication
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
+          WORKER_ONLY: ${{ inputs.worker_only }}
+        run: |
+          [[ "$WORKER_ONLY" != "true" ]] || { echo "Select a complete publication without worker_only" >&2; exit 1; }
+          node scripts/deploy/publication-source.mjs resolve --run-id "$PUBLICATION_RUN_ID"
   frontend:
     name: Build verified complete frontend
-    if: ${{ !inputs.worker_only }}
+    if: ${{ !inputs.worker_only && inputs.publication_run_id == '' }}
     uses: ./.github/workflows/static-frontend.yml
     permissions:
       contents: read
     secrets: inherit
   build:
     name: Build verified Worker-only artifact
-    if: ${{ inputs.worker_only }}
+    if: ${{ inputs.worker_only && inputs.publication_run_id == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
@@ -100,8 +132,8 @@ jobs:
           if-no-files-found: error
   deploy:
     name: Publish verified production artifact
-    needs: [frontend, build]
-    if: ${{ always() && !cancelled() && ((inputs.worker_only && needs.build.result == 'success') || (!inputs.worker_only && needs.frontend.result == 'success')) }}
+    needs: [frontend, build, recovery]
+    if: ${{ always() && !cancelled() && ((inputs.publication_run_id != '' && needs.recovery.result == 'success') || (inputs.publication_run_id == '' && ((inputs.worker_only && needs.build.result == 'success') || (!inputs.worker_only && needs.frontend.result == 'success')))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -110,11 +142,24 @@ jobs:
     concurrency:
       group: cloudflare-production-publish
       cancel-in-progress: false
+    env:
+      HANEOKA_PUBLICATION_ARTIFACT_RUN_ID: ${{ inputs.publication_run_id }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ needs.recovery.outputs.source_sha || github.sha }}
+      - name: Check out current publication tooling
+        if: ${{ inputs.publication_run_id != '' }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .output/publication-tooling
+          sparse-checkout: |
+            scripts/deploy/worker-publication.mjs
+            scripts/deploy/publication-source.mjs
+          sparse-checkout-cone-mode: false
       - name: Install pnpm
         run: corepack enable
       - name: Set up Node.js
@@ -136,12 +181,18 @@ jobs:
       - name: Restore verified publication artifact
         uses: actions/download-artifact@v8
         with:
-          name: worker-publication-${{ github.sha }}-${{ github.run_id }}
+          name: ${{ needs.recovery.outputs.artifact_name || format('worker-publication-{0}-{1}', github.sha, github.run_id) }}
+          run-id: ${{ needs.recovery.outputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
           path: .output/restore
       - name: Restore publication files
         run: |-
           tar -xf .output/restore/worker-publication.tar
-          node scripts/deploy/worker-publication.mjs verify
+          publisher=scripts/deploy/worker-publication.mjs
+          if [[ -n "$HANEOKA_PUBLICATION_ARTIFACT_RUN_ID" ]]; then
+            publisher=.output/publication-tooling/scripts/deploy/worker-publication.mjs
+          fi
+          node "$publisher" verify --source-root "$GITHUB_WORKSPACE"
       - name: Apply production D1 migrations
         if: ${{ github.event_name == 'push' || inputs.apply_d1_migrations == true }}
         run: pnpm exec wrangler d1 migrations apply haneoka-community --remote
@@ -149,7 +200,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Publish verified Worker and assets
-        run: node scripts/deploy/worker-publication.mjs publish
+        run: |
+          publisher=scripts/deploy/worker-publication.mjs
+          if [[ -n "$HANEOKA_PUBLICATION_ARTIFACT_RUN_ID" ]]; then
+            publisher=.output/publication-tooling/scripts/deploy/worker-publication.mjs
+          fi
+          node "$publisher" publish --source-root "$GITHUB_WORKSPACE"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -162,7 +218,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: static-deployment-${{ github.sha }}-${{ github.run_id }}
-          path: .output/deployment/successful-static-deployment.json
+          path: |
+            .output/deployment/successful-static-deployment.json
+            .output/deployment/publication-context.json
           retention-days: 30
           if-no-files-found: ignore
 concurrency:

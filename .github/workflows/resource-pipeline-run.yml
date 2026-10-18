@@ -90,6 +90,7 @@ jobs:
       base_release_id: ${{ steps.unity_reuse.outputs.base_release_id }}
       pending_by_shard: ${{ steps.unity_reuse.outputs.pending_by_shard }}
       unity_matrix: ${{ steps.unity_reuse.outputs.unity_matrix || steps.identity.outputs.unity_matrix }}
+      stage_prefix: ${{ steps.unity_reuse.outputs.stage_prefix || format('private/resource-pipeline-stage/{0}/{1}', github.run_id, inputs.server) }}
     env:
       RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
       PACKAGE_R2_KEY: ${{ inputs.package_r2_key }}
@@ -367,34 +368,71 @@ jobs:
         run: |
           SOURCE_ID="${{ steps.identity.outputs.source_id }}"
           SHARDS="${{ steps.identity.outputs.shard_count }}"
+          requested_prefix="$PIPELINE_STAGE_PREFIX"
+          PIPELINE_STAGE_PREFIX="private/resource-pipeline-stage/${{ github.run_id }}/$RESOURCE_SERVER"
+          echo "PIPELINE_STAGE_PREFIX=$PIPELINE_STAGE_PREFIX" >> "$GITHUB_ENV"
+          echo "stage_prefix=$PIPELINE_STAGE_PREFIX" >> "$GITHUB_OUTPUT"
+          echo "resumed=false" >> "$GITHUB_OUTPUT"
           echo "delta=false" >> "$GITHUB_OUTPUT"
           echo "unity_matrix=${{ steps.identity.outputs.shard_matrix }}" >> "$GITHUB_OUTPUT"
           if [[ -n "$RESUME_STAGE_RUN_ID" ]]; then
             endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
-            aws s3 cp "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
-              "$RUNNER_TEMP/resume-unity-plan.json" --endpoint-url "$endpoint" --region auto --no-progress
-            python - "$RUNNER_TEMP/resume-unity-plan.json" "$SOURCE_ID" "$SHARDS" <<'PY_RESUME'
+            aws s3api list-objects-v2 --bucket "$PIPELINE_STAGE_BUCKET" --prefix "$requested_prefix/" \
+              --endpoint-url "$endpoint" --region auto > "$RUNNER_TEMP/resume-stage-objects.json"
+            plan_available=false
+            if jq -e --arg key "$requested_prefix/unity-delta-plan.json" \
+                'any(.Contents[]?; .Key == $key and .Size > 0)' "$RUNNER_TEMP/resume-stage-objects.json" > /dev/null; then
+              if aws s3 cp "s3://$PIPELINE_STAGE_BUCKET/$requested_prefix/unity-delta-plan.json" \
+                  "$RUNNER_TEMP/resume-unity-plan.json" --endpoint-url "$endpoint" --region auto --no-progress \
+                  2> "$RUNNER_TEMP/resume-plan-error.log"; then
+                plan_available=true
+              elif ! grep -Eq '404|NoSuchKey|NotFound' "$RUNNER_TEMP/resume-plan-error.log"; then
+                cat "$RUNNER_TEMP/resume-plan-error.log" >&2
+                exit 1
+              fi
+            fi
+            if [[ "$plan_available" == "true" ]]; then
+              python - "$RUNNER_TEMP/resume-unity-plan.json" "$SOURCE_ID" "$SHARDS" \
+                "$RUNNER_TEMP/resume-stage-objects.json" "$requested_prefix" > "$RUNNER_TEMP/resume-stage.json" <<'PY_RESUME'
           import json, os, sys
           from pathlib import Path
           from core.config import PROJECT_ROOT, load_server_config
           from core.delta import load_plan
           from core.fingerprints import stage_recipe
           from extract.unity_reuse import extractor_identity
-          plan = load_plan(Path(sys.argv[1]))
           server = os.environ["RESOURCE_SERVER"]
-          if (plan["server"] != server or plan["sourceId"] != sys.argv[2]
+          try:
+              plan = load_plan(Path(sys.argv[1]))
+          except (ValueError, KeyError, TypeError):
+              print(json.dumps({"usable": False}))
+              sys.exit(0)
+          keys = {row["Key"] for row in json.loads(Path(sys.argv[4]).read_text()).get("Contents", []) if row["Size"] > 0}
+          required = {sys.argv[5] + "/resource-master.tar.gz"}
+          required.update(sys.argv[5] + "/unity-shard-" + str(shard) + ".tar.gz" for shard in set(plan["pending"].values()))
+          if (not plan.get("baseReleaseId") or not required.issubset(keys)
+              or plan["server"] != server or plan["sourceId"] != sys.argv[2]
               or plan["shardCount"] != int(sys.argv[3]) or plan["extractor"] != extractor_identity()
               or plan.get("producerRecipes", {}).get("unity") != stage_recipe(PROJECT_ROOT, load_server_config(server), "unity")):
-              raise ValueError("Saved Unity stages do not match this source and producer")
+              print(json.dumps({"usable": False}))
+              sys.exit(0)
           counts = {}
           for shard in plan["pending"].values():
               counts[str(shard)] = counts.get(str(shard), 0) + 1
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write("delta=true\nbase_release_id=" + plan["baseReleaseId"] + "\n")
-              output.write("pending_by_shard=" + json.dumps(counts) + "\nunity_matrix=[]\n")
+          print(json.dumps({"usable": True, "baseReleaseId": plan["baseReleaseId"], "pendingByShard": counts}))
           PY_RESUME
-            echo "Resuming verified Master and Unity stages from run $RESUME_STAGE_RUN_ID"
-            exit 0
+              if jq -e '.usable == true' "$RUNNER_TEMP/resume-stage.json" > /dev/null; then
+                echo "PIPELINE_STAGE_PREFIX=$requested_prefix" >> "$GITHUB_ENV"
+                echo "stage_prefix=$requested_prefix" >> "$GITHUB_OUTPUT"
+                echo "resumed=true" >> "$GITHUB_OUTPUT"
+                echo "delta=true" >> "$GITHUB_OUTPUT"
+                echo "base_release_id=$(jq -r .baseReleaseId "$RUNNER_TEMP/resume-stage.json")" >> "$GITHUB_OUTPUT"
+                echo "pending_by_shard=$(jq -c .pendingByShard "$RUNNER_TEMP/resume-stage.json")" >> "$GITHUB_OUTPUT"
+                echo "unity_matrix=[]" >> "$GITHUB_OUTPUT"
+                echo "Resuming verified Master and Unity stages from run $RESUME_STAGE_RUN_ID"
+                exit 0
+              fi
+            fi
+            echo "::notice title=Resource stages expired::Saved stages are unavailable or incompatible; resuming immutable source CAS with current release reuse"
           fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" prepare-unity-reuse \
             --source "$SOURCE_ID" --shard-count "$SHARDS" \
@@ -468,13 +506,13 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Extract Master
-        if: steps.source_input.outputs.skip != 'true' && inputs.resume_stage_run_id == ''
+        if: steps.source_input.outputs.skip != 'true' && steps.unity_reuse.outputs.resumed != 'true'
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" extract-master
           --source "${{ steps.identity.outputs.source_id }}"
           --build "${{ steps.identity.outputs.build_id }}"
       - name: Preserve Master build stage in private R2
-        if: steps.source_input.outputs.skip != 'true' && inputs.resume_stage_run_id == ''
+        if: steps.source_input.outputs.skip != 'true' && steps.unity_reuse.outputs.resumed != 'true'
         run: |
           build_root="data/servers/$RESOURCE_SERVER/builds/${{ steps.identity.outputs.build_id }}"
           archive="$RUNNER_TEMP/resource-master.tar.gz"
@@ -495,6 +533,7 @@ jobs:
       name: ${{ inputs.github_environment }}
     env:
       RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
+      PIPELINE_STAGE_PREFIX: ${{ needs.prepare.outputs.stage_prefix }}
     permissions:
       contents: read
     strategy:
@@ -606,6 +645,7 @@ jobs:
       release_promoted: ${{ steps.publish_release.outputs.release_promoted }}
     env:
       RESOURCE_PIPELINE_CONFIG: ${{ secrets.RESOURCE_PIPELINE_CONFIG }}
+      PIPELINE_STAGE_PREFIX: ${{ needs.prepare.outputs.stage_prefix }}
       HANEOKA_MODEL_PREVIEW_POLICY: optional
       HANEOKA_MODEL_PREVIEW_WORKERS: "4"
     steps:
@@ -975,6 +1015,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      PIPELINE_STAGE_PREFIX: ${{ needs.prepare.outputs.stage_prefix || format('private/resource-pipeline-stage/{0}/{1}', github.run_id, inputs.server) }}
     steps:
       - name: Expire private build stages older than seven days
         continue-on-error: true

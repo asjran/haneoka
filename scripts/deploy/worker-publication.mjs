@@ -6,7 +6,9 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import { publicationSourceContext } from "./publication-source.mjs";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -20,6 +22,7 @@ const mode = positionals[0];
 if (!["prepare", "verify", "publish"].includes(mode) || positionals.length !== 1)
   throw new Error("Use prepare [--worker-only], verify, or publish [--dry-run]");
 const root = path.resolve(values["source-root"] || process.cwd());
+const toolingRoot = fileURLToPath(new URL("../../", import.meta.url));
 const output = path.join(root, ".output/deployment");
 const manifestFile = path.join(output, "manifest.json");
 const require = createRequire(path.join(root, "package.json"));
@@ -282,11 +285,7 @@ async function readLiveAssets(ownMessage) {
 async function assertPublishContext() {
   if (process.env.GITHUB_ACTIONS !== "true" || process.env.HANEOKA_PUBLICATION_LOCK !== "cloudflare-production-publish")
     throw new Error("Publish from the shared production publication job");
-  const head = execFileSync("git", ["ls-remote", "origin", "refs/heads/main"], {
-    cwd: root,
-    encoding: "utf8",
-  }).split(/\s/u)[0];
-  if (head !== sourceSha) throw new Error("A newer main commit is ready; publish its artifact");
+  const context = publicationSourceContext({ root, toolingRoot, sourceSha });
   const repository = process.env.GITHUB_REPOSITORY;
   const currentRun = process.env.GITHUB_RUN_ID;
   if (!repository || !currentRun) throw new Error("GitHub publication identity is missing");
@@ -307,6 +306,7 @@ async function assertPublishContext() {
     if (jobs.jobs.some((job) => job.name === "Build and deploy" && job.status !== "completed"))
       throw new Error(`Legacy publication run ${workflow.id} is still active`);
   }
+  return context;
 }
 
 if (mode === "prepare") {
@@ -418,10 +418,17 @@ if (mode === "prepare") {
       ),
     );
   } else {
-    await assertPublishContext();
+    let publicationContext = await assertPublishContext();
+    if (process.env.HANEOKA_PUBLICATION_ARTIFACT_RUN_ID && manifest.workerOnly)
+      throw new Error("Recovery requires a verified complete frontend publication");
+    fs.writeFileSync(path.join(output, "publication-context.json"), JSON.stringify(publicationContext, null, 2));
     if (manifest.workerOnly) assert.deepEqual(await liveAssets(), prior, "Active assets changed before publication");
     const message = `Worker ${sourceSha}; static ${prior?.publicationSha256 || manifest.frontend.publicationSha256}`;
     for (let attempt = 1; attempt <= 3; attempt++) {
+      if (attempt > 1) {
+        publicationContext = await assertPublishContext();
+        fs.writeFileSync(path.join(output, "publication-context.json"), JSON.stringify(publicationContext, null, 2));
+      }
       if (attempt > 1 && manifest.workerOnly) {
         const current = await liveAssets(message);
         assert.equal(current.publicationSha256, prior.publicationSha256);
@@ -465,6 +472,9 @@ if (mode === "prepare") {
         workerVersionId: after.versionId,
         deploymentId: after.deploymentId,
         workflowRunId: process.env.GITHUB_RUN_ID,
+        publisherSha: publicationContext.publisherSha,
+        qualifiedMainSha: publicationContext.mainSha,
+        recoveredFromRunId: publicationContext.recoveredFromRunId,
         observedAt: new Date().toISOString(),
       });
       const file = path.join(output, "successful-static-deployment.json");
