@@ -127,6 +127,9 @@ const uiLabelPaths: Readonly<Record<string, string>> = {
   "watch": "common.actions.watch"
 };
 
+const creationTools = ["select", "tap", "flick", "trace", "hold", "guide", "erase", "pan", "brush"] as const;
+const snapDivisions = [1, 2, 3, 4, 6, 8, 12, 16];
+
 interface EditAudioTransport {
   clock: MediaClock;
   play(): Promise<void>;
@@ -1212,7 +1215,12 @@ export class ChartCreationWorkspace extends LitElement {
     const modifier = event.ctrlKey || event.metaKey;
     if (modifier && event.key.toLowerCase() === "s") void this.run(() => this.save());
     else if (modifier && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
-      if (event.shiftKey || event.key.toLowerCase() === "y") this.history.redo();
+      const redo = event.shiftKey || event.key.toLowerCase() === "y";
+      if (redo ? !this.history.canRedo : !this.history.canUndo) {
+        event.preventDefault();
+        return;
+      }
+      if (redo) this.history.redo();
       else this.history.undo();
       this.pruneSelection();
       this.dirty = true;
@@ -1250,8 +1258,11 @@ export class ChartCreationWorkspace extends LitElement {
       this.windowStart = this.clampStart(this.windowStart + (event.key === "PageUp" ? 1 : -1) * this.secondsPerScreen);
     } else if (event.key === "Home" || event.key === "End") {
       this.windowStart = event.key === "Home" ? 0 : this.clampStart(this.audio?.analysis.duration ?? 0);
-    } else if (/^[1-7]$/.test(event.key) && !modifier) {
-      this.tool = ["select", "tap", "flick", "trace", "hold", "guide", "erase"][Number(event.key) - 1];
+    } else if (!modifier && event.shiftKey && /^Digit[1-8]$/.test(event.code)) {
+      this.snap = snapDivisions[Number(event.code.slice(-1)) - 1];
+      this.requestUpdate();
+    } else if (/^[1-9]$/.test(event.key) && !modifier && !event.shiftKey) {
+      this.tool = creationTools[Number(event.key) - 1];
       this.pending = undefined;
     } else used = false;
     if (used) event.preventDefault();
@@ -2430,6 +2441,7 @@ export class ChartCreationWorkspace extends LitElement {
         ${iconButton({ label: this.t("project"), icon: "folder_open", toggle: true, pressed: this.leftOpen, onClick: () => this.togglePanel("left") })}
         ${iconButton({
           label: this.t("undo"),
+          shortcut: "Ctrl/⌘+Z",
           icon: "undo",
           disabled: this.busy || this.nativeUpdating || !this.history.canUndo,
           onClick: () => {
@@ -2443,6 +2455,7 @@ export class ChartCreationWorkspace extends LitElement {
         })}
         ${iconButton({
           label: this.t("redo"),
+          shortcut: "Ctrl/⌘+Shift+Z",
           icon: "redo",
           disabled: this.busy || this.nativeUpdating || !this.history.canRedo,
           onClick: () => {
@@ -2457,7 +2470,7 @@ export class ChartCreationWorkspace extends LitElement {
         ${iconButton({ label: this.t("selection"), icon: "tune", toggle: true, pressed: this.rightOpen, onClick: () => this.togglePanel("right") })}
       </span>
       ${this.busy ? iconButton({ label: this.c("cancel"), icon: "close", onClick: () => this.cancelOperation() }) : nothing}
-      ${iconButton({ label: this.t("creation.save"), className: "chart-studio__header-save", icon: "save", disabled: this.busy || !this.audio || !this.dirty, onClick: () => void this.run(() => this.save()) })}
+      ${iconButton({ label: this.t("creation.save"), shortcut: "Ctrl/⌘+S", className: "chart-studio__header-save", icon: "save", disabled: this.busy || !this.audio || !this.dirty, onClick: () => void this.run(() => this.save()) })}
       <fieldset class="chart-studio__mode-toggle" ?disabled=${this.busy || !this.audio}>
         ${segmented({
           label: `${this.t("edit")} / ${this.t("preview")}`,
@@ -3111,11 +3124,11 @@ export class ChartCreationWorkspace extends LitElement {
             this.requestUpdate();
           }}
         >
-          ${[...new Set([1, 2, 3, 4, 6, 8, 12, 16, this.snap])]
+          ${[...new Set([...snapDivisions, this.snap])]
             .sort((a, b) => a - b)
             .map(
               (value) => html`
-                <md-select-option value=${String(value)}><div slot="headline">1/${value}</div></md-select-option>
+                <md-select-option value=${String(value)}><div slot="headline">1/${value}${snapDivisions.includes(value) ? ` (Shift+${snapDivisions.indexOf(value) + 1})` : nothing}</div></md-select-option>
               `,
             )}
         </md-outlined-select>
@@ -3264,7 +3277,8 @@ export class ChartCreationWorkspace extends LitElement {
               ${segmented({
           label: this.t("currentTool"),
           value: this.tool,
-          options: ["select", "tap", "flick", "trace", "hold", "guide", "erase", "pan", "brush"].map((value) => ({
+          options: creationTools.map((value, index) => ({
+            shortcut: String(index + 1),
             value,
             label: this.t(value === "brush" ? "creation.brush" : value),
             icon: (
@@ -3306,6 +3320,7 @@ export class ChartCreationWorkspace extends LitElement {
               </output>
               ${iconButton({
           label: this.t("undo"),
+          shortcut: "Ctrl/⌘+Z",
           icon: "undo",
           className: "chart-studio__history",
           disabled: this.busy || this.nativeUpdating || !this.history.canUndo,
@@ -3320,6 +3335,7 @@ export class ChartCreationWorkspace extends LitElement {
         })}
               ${iconButton({
           label: this.t("redo"),
+          shortcut: "Ctrl/⌘+Shift+Z",
           icon: "redo",
           className: "chart-studio__history",
           disabled: this.busy || this.nativeUpdating || !this.history.canRedo,
