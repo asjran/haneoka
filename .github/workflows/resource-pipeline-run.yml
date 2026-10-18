@@ -435,16 +435,13 @@ jobs:
             echo "::notice title=Resource stages expired::Saved stages are unavailable or incompatible; resuming immutable source CAS with current release reuse"
           fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" prepare-unity-reuse \
-            --source "$SOURCE_ID" --shard-count "$SHARDS" \
+            --source "$SOURCE_ID" --shard-count "$SHARDS" --concurrency 64 \
             --output-dir "$RUNNER_TEMP/unity-reuse" > "$RUNNER_TEMP/unity-reuse.json"
           endpoint="https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com"
-          for ((shard=0; shard<SHARDS; shard++)); do
-            aws s3 cp "$RUNNER_TEMP/unity-reuse/unity-reuse-$(printf '%03d' "$shard").json" \
-              "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-reuse-$(printf '%03d' "$shard").json" \
-              --endpoint-url "$endpoint" --region auto --no-progress
-          done
-          aws s3 cp "$RUNNER_TEMP/unity-reuse/unity-delta-plan.json" \
-            "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
+          aws s3 cp "$RUNNER_TEMP/unity-reuse/" \
+            "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/" \
+            --recursive --exclude "*" --include "unity-reuse-*.json" \
+            --include "unity-delta-plan.json" --include "unity-bundle-reports.tar.gz" \
             --endpoint-url "$endpoint" --region auto --no-progress
           base_release="$(jq -r .baseReleaseId "$RUNNER_TEMP/unity-reuse.json")"
           pending_by_shard="$(jq -c '.pendingByShard // {}' "$RUNNER_TEMP/unity-reuse.json")"
@@ -654,12 +651,13 @@ jobs:
         run: |
           # This job uses Node, Python and FFmpeg. The preinstalled Android,
           # .NET, Swift and Haskell SDKs consume disk needed by full Unity media.
-          sudo rm -rf -- \
-            /usr/local/lib/android/sdk \
-            /usr/share/dotnet \
-            /usr/share/swift \
-            /usr/local/.ghcup
-          df -h .
+          nohup bash -c '
+            status=0
+            sudo rm -rf -- /usr/local/lib/android/sdk /usr/share/dotnet \
+              /usr/share/swift /usr/local/.ghcup || status=$?
+            printf "%s\n" "$status" > "$RUNNER_TEMP/sdk-cleanup.status"
+          ' > "$RUNNER_TEMP/sdk-cleanup.log" 2>&1 < /dev/null &
+          echo "$!" > "$RUNNER_TEMP/sdk-cleanup.pid"
       - name: Install pnpm
         run: corepack enable
       - name: Set up Node.js
@@ -667,11 +665,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: |
-            package.json
-            pnpm-lock.yaml
-            pnpm-workspace.yaml
-            .gitmodules
+          cache-dependency-path: pnpm-lock.yaml
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
       - name: Cache the locked WASM binding tools
@@ -744,6 +738,22 @@ jobs:
         run: >-
           sudo install "${{ runner.temp }}/haneoka-tools/vgmstream/r2117/vgmstream-cli"
           /usr/local/bin/vgmstream-cli
+      - name: Finish SDK space reclamation before restoring large stages
+        run: |
+          cleanup_pid="$(cat "$RUNNER_TEMP/sdk-cleanup.pid")"
+          while kill -0 "$cleanup_pid" 2>/dev/null && [[ ! -f "$RUNNER_TEMP/sdk-cleanup.status" ]]; do
+            sleep 1
+          done
+          if [[ ! -f "$RUNNER_TEMP/sdk-cleanup.status" ]]; then
+            cat "$RUNNER_TEMP/sdk-cleanup.log"
+            exit 1
+          fi
+          status="$(cat "$RUNNER_TEMP/sdk-cleanup.status")"
+          if [[ "$status" != "0" ]]; then
+            cat "$RUNNER_TEMP/sdk-cleanup.log"
+            exit "$status"
+          fi
+          df -h .
       - name: Restore Master stage from private R2
         run: |
           build_root="data/servers/$RESOURCE_SERVER/builds/${{ needs.prepare.outputs.build_id }}"
@@ -767,6 +777,15 @@ jobs:
             "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-delta-plan.json" \
             "$RUNNER_TEMP/unity-delta-plan.json" \
             --endpoint-url "$endpoint" --region auto --no-progress
+          if jq -e '.reportPack | type == "object"' "$RUNNER_TEMP/unity-delta-plan.json" > /dev/null; then
+            if ! aws s3 cp \
+                "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/unity-bundle-reports.tar.gz" \
+                "$RUNNER_TEMP/unity-bundle-reports.tar.gz" \
+                --endpoint-url "$endpoint" --region auto --no-progress; then
+              rm -f "$RUNNER_TEMP/unity-bundle-reports.tar.gz"
+              echo "Bundle report cache unavailable; restoring verified individual reports"
+            fi
+          fi
       - name: Restore all Unity shards from private R2
         if: needs.prepare.outputs.delta != 'true'
         run: |
@@ -856,6 +875,9 @@ jobs:
           extra=()
           if [[ "${{ needs.prepare.outputs.delta }}" == "true" ]]; then
             extra+=(--delta-plan "$RUNNER_TEMP/unity-delta-plan.json")
+            if [[ -f "$RUNNER_TEMP/unity-bundle-reports.tar.gz" ]]; then
+              extra+=(--report-pack "$RUNNER_TEMP/unity-bundle-reports.tar.gz")
+            fi
           fi
           python scripts/pipeline.py --server "$RESOURCE_SERVER" merge-unity --source "$SOURCE_ID" --build "$BUILD_ID" --shard-count "$SHARDS" "${extra[@]}"
       - name: Fetch original Home Spot bundles

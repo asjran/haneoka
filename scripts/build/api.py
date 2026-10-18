@@ -8592,8 +8592,7 @@ def build_api(
         timings[name] = round(time.perf_counter() - begin, 3)
         return result
 
-    # These catalogues traverse all selected charts and ADV assets. Restore
-    # their small immutable inputs together, using the existing pinned fetchers.
+    # Restore the catalogues' small immutable inputs through the pinned fetchers.
     asset_inputs = [
         "Assets/AddressableResources/Live/MusicScore/"
         + str(row.get("_musicScoreTextFileName") or "") + ".bytes"
@@ -8609,11 +8608,28 @@ def build_api(
         f"Assets/AddressableResources/Adv/Chat/AdvChat-{kind}.txt"
         for kind in ("Sound", "SoundCueSheet")
     )
+    spot_root = "Assets/AddressableResources/Spot/"
+    asset_inputs.extend(
+        path for path in data.source_paths
+        if path.startswith(spot_root) and path.endswith(".atlas.txt")
+    )
     project("restore assets", data.prefetch_assets, asset_inputs)
     adv_roots = tuple(f"Assets/AddressableResources/Adv/{kind}/" for kind in
                       ("Stage", "Still", "Frame", "Effect", "PostEffect", "Chat"))
+    scene_sources = {
+        f"Assets/AddressableResources/{asset}.prefab"
+        for row in data.rows("MasterHomeSpot")
+        if (asset := str(row.get("_situationAssetPath") or "").strip("/"))
+    }
+    scene_sources.update((
+        "Assets/AddressableResources/Common/Prefab/UIManager.prefab",
+        "Assets/AddressableResources/UI/Prefab/UIAdvWidget.prefab",
+        "Assets/AddressableResources/Common/Adv/Settings/AdvPlayerSettings.asset",
+    ))
     project("restore Unity archives", data.prefetch_sources,
-            (path for path in data.source_paths if path.startswith(adv_roots)))
+            (path for path in data.source_paths
+             if path.startswith(adv_roots) or path in scene_sources
+             or (path.startswith(spot_root) and path.endswith(("_SkeletonData.asset", ".bytes")))))
     live2d_raw = project("live2d", _live2d_models, data, source_id)
     live2d = project("live2d enrichment", _enrich_live2d, data, live2d_raw)
     songs, song_metadata = project("songs", _songs, data, source_id, fallback=({}, {}))

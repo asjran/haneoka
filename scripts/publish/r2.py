@@ -241,6 +241,10 @@ class R2Store:
     ) -> int:
         if expected_bytes is not None and expected_bytes < 0:
             raise ValueError("expected_bytes must be non-negative")
+        if expected_sha256 is not None and file.is_file():
+            size = file.stat().st_size
+            if (expected_bytes is None or size == expected_bytes) and sha256_file(file) == expected_sha256:
+                return size
         file.parent.mkdir(parents=True, exist_ok=True)
         temporary: Path | None = None
         def copy(response: dict[str, Any]) -> int:

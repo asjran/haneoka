@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import sys
+import tarfile
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from core.paths import build_layout, source_layout
 from core.storage import cas_key
 from extract.master import extract_master, validate_master_manifest
 from core.hashes import sha256_bytes, sha256_file
+from core.bundle_reports import REPORT_PACK_PATH, REPORT_PACK_FILE, restore_report_pack, write_report_pack
 from extract.unity_reuse import (
     extractor_identity,
     load_reuse_manifest,
@@ -444,6 +446,7 @@ def command_prepare_unity_reuse(args: argparse.Namespace) -> None:
         pointer=pointer,
         recipes={stage: _stage_recipe(config, stage) for stage in STAGE_ROOTS},
         legacy_recipes=legacy_stage_recipes(Path(__file__).resolve().parent.parent, config, pointer),
+        report_pack_output=Path(args.output_dir) / REPORT_PACK_FILE,
     )
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -566,7 +569,25 @@ def command_merge_unity(args: argparse.Namespace) -> None:
     identity = args.build or build_id(config, args.source)
     count = args.shard_count or config.extraction_shards
     delta = _delta_context(config, args.delta_plan) if args.delta_plan else None
+    layout = build_layout(config.id, identity)
+    if delta is not None and args.report_pack:
+        pack = delta.plan.get("reportPack")
+        if not isinstance(pack, dict):
+            raise ValueError("Delta plan does not declare a bundle report pack")
+        try:
+            restored = restore_report_pack(
+                Path(args.report_pack), pack,
+                {digest: entry["report"] for digest, entry in delta.plan["bundles"].items()},
+                layout.metadata / "bundles",
+            )
+            sys.stderr.write(f"unity: restored {restored} byte-verified reports from the staged pack\n")
+        except (ValueError, tarfile.TarError) as error:
+            sys.stderr.write(f"warning: staged report cache invalid; restoring individual reports: {error}\n")
     _print(merge_unity_shards(config.id, args.source, identity, count, delta))
+    write_report_pack(
+        ((file.stem, file.read_bytes()) for file in sorted((layout.metadata / "bundles").glob("*.json"))),
+        layout.root / REPORT_PACK_PATH,
+    )
     _record_stage(config, identity, "unity")
 
 
@@ -986,6 +1007,11 @@ def _run_build(
         for future in futures:
             future.result()
     merge_unity_shards(config.id, source_id, identity, config.extraction_shards)
+    merged = build_layout(config.id, identity)
+    write_report_pack(
+        ((file.stem, file.read_bytes()) for file in sorted((merged.metadata / "bundles").glob("*.json"))),
+        merged.root / REPORT_PACK_PATH,
+    )
     _record_stage(config, identity, "unity")
     stages = [
         lambda: extract_cri(config, source_id, identity),
@@ -1406,6 +1432,7 @@ def parser() -> argparse.ArgumentParser:
     merge.add_argument("--source", required=True)
     merge.add_argument("--build")
     merge.add_argument("--shard-count", type=int)
+    merge.add_argument("--report-pack", help="verified reusable bundle reports staged by delta preparation")
     merge.add_argument(
         "--delta-plan",
         help="delta plan from prepare-unity-reuse; compose reusable outputs from the base release",

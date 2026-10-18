@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import sys
+import json
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
 from core.delta import PLAN_SCHEMA, DeltaContext
 from core.storage import cas_key
+from core.bundle_reports import REPORT_PACK_PATH, report_entries, read_report_pack, write_report_pack
 
 REUSE_SCHEMA = "haneoka-unity-reuse-v1"
 EXTRACTOR_SOURCES = ("extract/unity.py", "ingest/bundle_crypto.py")
@@ -91,6 +94,7 @@ def prepare_unity_delta_plan(
     pointer: dict | None = None,
     recipes: dict[str, dict] | None = None,
     legacy_recipes: dict[str, dict] | None = None,
+    report_pack_output: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """Build one complete delta plan: per-digest reuse refs plus pending digests.
 
@@ -110,6 +114,17 @@ def prepare_unity_delta_plan(
     if not isinstance(release, dict) or release.get("server") != server:
         raise ValueError("current release manifest is missing or invalid")
     release_paths = _release_paths(release)
+    cached_reports: dict[str, bytes] = {}
+    packed = release_paths.get(REPORT_PACK_PATH)
+    if packed is not None:
+        try:
+            body = store.get_bytes(cas_key(packed["sha256"]))
+            if body is None:
+                raise FileNotFoundError("Base bundle report pack is missing")
+            cached_reports = read_report_pack(body, packed, report_entries(release_paths.values()))
+            sys.stderr.write(f"unity: loaded {len(cached_reports)} byte-verified bundle reports from one pack\n")
+        except Exception as error:  # noqa: BLE001 - individual immutable reports remain authoritative
+            sys.stderr.write(f"warning: bundle report pack unavailable; reading individual reports: {error}\n")
     base_recipes = dict(legacy_recipes or {})
     legacy_proof = base_recipes.pop("_proof", None)
     reader = DeltaContext(store, server, {"server": server, "baseReleaseId": release_id})
@@ -148,14 +163,20 @@ def prepare_unity_delta_plan(
 
     bundles: dict[str, dict[str, Any]] = {}
 
-    def build_entry(digest: str) -> tuple[str, dict[str, Any]] | None:
+    def build_entry(digest: str) -> tuple[str, dict[str, Any], bytes] | None:
         item = items_by_digest[digest]
         shard_index = int(digest[:16], 16) % shard_count
         report_entry = release_paths.get(f"metadata/bundles/{digest}.json")
         archive_entry = release_paths.get(f"objects/unity/{digest}.jsonl.gz")
         if not report_entry or not archive_entry:
             return None
-        report = store.get_json(cas_key(report_entry["sha256"]))
+        raw = cached_reports.get(digest)
+        if raw is None:
+            raw = store.get_bytes(cas_key(report_entry["sha256"]))
+            if (raw is None or len(raw) != report_entry["bytes"]
+                    or hashlib.sha256(raw).hexdigest() != report_entry["sha256"]):
+                return None
+        report = json.loads(raw)
         if not isinstance(report, dict) or str((report.get("bundle") or {}).get("sha256")) != digest:
             return None
         media = []
@@ -186,14 +207,17 @@ def prepare_unity_delta_plan(
                 "bytes": int(archive_entry["bytes"]),
             },
             "media": media,
-        }
+        }, raw
 
+    report_bodies: dict[str, bytes] = {}
     with ThreadPoolExecutor(max_workers=max(1, min(int(concurrency), 64))) as executor:
         for result in executor.map(build_entry, [digest for digest, _ in digests]):
             if result is None:
                 continue
-            digest, entry = result
+            digest, entry, raw = result
             bundles[digest] = entry
+            if report_pack_output is not None:
+                report_bodies[digest] = raw
             stats["reused"] += 1
             stats["reports"] += 1 + len(entry["media"])
     # Context-matched digests whose base outputs failed validation must be
@@ -214,6 +238,10 @@ def prepare_unity_delta_plan(
         "bundles": bundles,
         "pending": pending,
     }
+    if report_pack_output is not None:
+        plan["reportPack"] = write_report_pack(
+            ((digest, report_bodies[digest]) for digest in sorted(report_bodies)), report_pack_output
+        )
     return plan, stats
 
 

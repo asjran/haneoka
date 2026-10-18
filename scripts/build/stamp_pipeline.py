@@ -6,7 +6,9 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from core.hashes import sha256_file
@@ -276,27 +278,47 @@ def build_textless_stamps(server: str, source_id: str, build_id: str, *, model: 
     reused = 0; generated = 0
     with tempfile.TemporaryDirectory(prefix="haneoka-stamps-") as temporary:
         working = Path(temporary); records = []; rows = []
+        next_renewal = 0.0
+
+        def renew_cache():
+            nonlocal next_renewal
+            if id_cache is not None and time.monotonic() >= next_renewal:
+                id_cache.renew()
+                next_renewal = time.monotonic() + 60
+
+        def restore_cached(record):
+            asset = record["artifacts"]["sourceImage"]
+            target = working / (asset["sha256"] + ".png")
+            if id_cache is not None:
+                id_cache.restore(record, target)
+            elif own is not None and own.get("server") == server:
+                prefix = f"/assets/{server}/"
+                relative = validate_release_path("assets/" + asset["path"].removeprefix(prefix))
+                if delta is not None:
+                    delta.fetch_release_path(relative, target)
+                elif restore_output is not None:
+                    restore_output(relative, target)
+                else:
+                    raise ValueError("stamp ID cache requires an object restorer")
+            else:
+                raise ValueError("shared stamp cache requires its CAS store")
+
+        cached_images = list({
+            record["artifacts"]["sourceImage"]["sha256"]: record
+            for record in pool.values()
+        }.values())
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            for offset in range(0, len(cached_images), 16):
+                renew_cache()
+                list(executor.map(restore_cached, cached_images[offset:offset + 16]))
+        renew_cache()
         all_ids = set(pool) | set(seeds) | set(fresh)
         for stamp_id in sorted(all_ids, key=int):
-            if id_cache is not None:
-                id_cache.renew()
+            renew_cache()
             record = pool.get(stamp_id)
             if record is not None:
                 asset = record["artifacts"]["sourceImage"]
                 target = working / (asset["sha256"] + ".png")
-                if id_cache is not None:
-                    id_cache.restore(record, target)
-                elif own is not None and own.get("server") == server:
-                    prefix = f"/assets/{server}/"
-                    relative = validate_release_path("assets/" + asset["path"].removeprefix(prefix))
-                    if delta is not None:
-                        delta.fetch_release_path(relative, target)
-                    elif restore_output is not None:
-                        restore_output(relative, target)
-                    else:
-                        raise ValueError("stamp ID cache requires an object restorer")
-                else:
-                    raise ValueError("shared stamp cache requires its CAS store")
                 record = {**record, "reusedByStampId": True, "artifacts": {"sourceImage": {**asset, "path": str(target)}}}
                 row = {"stampId": stamp_id, "id": record["id"], "variants": []}
                 reused += 1
