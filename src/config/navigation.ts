@@ -136,7 +136,6 @@ const sections: NavSection[] = [
       { route: "/catalog/support-cards", icon: "collections", label: "navigation.supportCards" },
       { route: "/catalog/skills", icon: "bolt", label: "catalog.cards.fields.skills" },
       { route: "/catalog/comics", icon: "menu_book", label: "navigation.comics" },
-      { route: "/catalog/gacha", icon: "redeem", label: "navigation.gacha" },
       { route: "/catalog/login-campaigns", icon: "event_available", label: "navigation.loginCampaigns" },
       { route: "/catalog/missions", icon: "fact_check", label: "navigation.systemNavMissions" },
       { route: "/catalog/passes", icon: "workspace_premium", label: "navigation.systemNavPasses" },
