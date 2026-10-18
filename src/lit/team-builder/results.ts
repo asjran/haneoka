@@ -78,7 +78,7 @@ function chips(host: TeamBuilder, hit: EngineHit): TemplateResult[] {
     if (top) out.push(chip(RANK_NAMES[top[0]] ?? top[0], `${format(host, (top[1] / 120) * 100, top[1] === 120 ? 0 : 1)}%`, icon("workspace_premium", 16)));
   }
   if (hit.event) {
-    out.push(chip(host.t("eventBonus", "Event bonus"), `+${format(host, hit.event.bonusPercent, 0)}%`, icon("trending_up", 16)));
+    out.push(chip(host.t("eventBonus", "Event bonus"), `+${format(host, Math.floor(hit.event.bonusPercent), 0)}%`, icon("trending_up", 16)));
     if (s.goal === "event" && s.weighted) {
       const { points, items } = eventRewards(s, hit.event);
       out.push(chip(host.t("pointsPerPlay", "Event points per play"), format(host, points, 1)));
@@ -463,7 +463,7 @@ export function compareTable(host: TeamBuilder, hits: EngineHit[]): TemplateResu
     ] as [string, (hit: EngineHit) => string][]) : []),
     ...(picked.some((hit) => hit.event) ? ([
       [host.t("pointsPerPlay", "Event points per play"), (hit) => (hit.event ? format(host, hit.event.mean, 1) : "—")],
-      [host.t("eventBonus", "Event bonus"), (hit) => (hit.event ? `+${format(host, hit.event.bonusPercent)}%` : "—")],
+      [host.t("eventBonus", "Event bonus"), (hit) => (hit.event ? `+${format(host, Math.floor(hit.event.bonusPercent))}%` : "—")],
     ] as [string, (hit: EngineHit) => string][]) : []),
     [host.t("leader", "Leader"), (hit) => catalog.characterName(catalog.member(cardIdOf(hit.members[0]!))?.characterId ?? 0)],
   ];
