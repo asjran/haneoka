@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-import { createHash } from "node:crypto";
 import {
   fetchStaticCatalog,
   fetchStaticApplicationJson,
@@ -327,69 +324,46 @@ export function stampMakerPageData(): Promise<StampMakerPageData> {
       if (await fetchStaticReleaseEntry("runtime/stamp-maker/manifest.json", server, pin))
         manifests.push(await fetchStaticReleaseJson("runtime/stamp-maker/manifest.json", server, pin));
     }
-    const seen = new Set<string>();
-    for (const directory of ["public", ".generated-public"]) {
-      const root = path.join(process.cwd(), directory);
-      for (const file of fs.globSync("tools/stamp-maker/assets/*/*/manifest.json", { cwd: root }).sort()) {
-        const body = fs.readFileSync(path.join(root, file)),
-          digest = createHash("sha256").update(body).digest("hex");
-        if (seen.has(digest)) continue;
-        seen.add(digest);
-        const manifest = JSON.parse(body.toString("utf8"));
-        if (isPublicReleaseServer(manifest.server)) manifests.push(manifest);
-      }
-    }
     const accepted: Record<string, TextlessStampManifest["records"]> = {};
     for (const input of manifests) {
       const manifest = objectRow(input);
       const server = typeof manifest.server === "string" ? manifest.server : "",
         pin = identities[server];
       if (manifest.schema !== "haneoka-textless-stamps-v1" || !pin) continue;
+      const sourceIdentity = objectRow(manifest.sourceIdentity);
+      if (sourceIdentity.server !== server || sourceIdentity.sourceId !== pin.sourceId) continue;
       const choices = stampChoices(catalogs[server]!, "ja");
+      const byId = new Map(choices.map((choice) => [choice.id, choice]));
+      const byResource = new Map(choices.map((choice) => [choice.resourceName, choice]));
       for (const value of Array.isArray(manifest.records) ? manifest.records : []) {
         const record = objectRow(value);
         if (record.publishable !== true || typeof record.id !== "string") continue;
-        const choice = choices.find((choice) => choice.id === record.stampId || choice.resourceName === record.id);
-        const sources = Array.isArray(record.sources) ? record.sources.map(objectRow) : [];
-        if (!choice || !sources.length) continue;
-        let matched = true;
-        for (const source of sources) {
-          if (
-            typeof source.path !== "string" ||
-            !source.path.startsWith(`/assets/${server}/`) ||
-            !choice.sources.includes(source.path)
-          ) {
-            matched = false;
-            break;
-          }
-          const original = await fetchStaticReleaseEntry(
-            `assets/${source.path.slice(`/assets/${server}/`.length)}`,
-            server,
-            pin,
-          );
-          if (!original || original.sha256 !== source.sha256) {
-            matched = false;
-            break;
-          }
-        }
-        if (!matched) continue;
+        const choice =
+          (typeof record.stampId === "string" ? byId.get(record.stampId) : undefined) ?? byResource.get(record.id);
+        if (
+          !choice ||
+          (record.stampId !== undefined && record.stampId !== choice.id) ||
+          (byResource.has(record.id) && byResource.get(record.id)!.id !== choice.id)
+        )
+          continue;
         const artifacts = objectRow(record.artifacts),
           artifact = objectRow(artifacts.sourceImage ?? artifacts.nativeOriginal ?? artifacts.exportCandidate);
-        if (typeof artifact.path !== "string" || typeof artifact.sha256 !== "string") continue;
-        if (artifact.path.startsWith(`/tools/stamp-maker/assets/${server}/`)) {
-          if (artifact.path.split("/").some((part) => part === ".." || part === ".")) continue;
-          const file = ["public", ".generated-public"]
-            .map((root) => path.join(process.cwd(), root, artifact.path as string))
-            .find((file) => fs.existsSync(file));
-          if (!file || createHash("sha256").update(fs.readFileSync(file)).digest("hex") !== artifact.sha256) continue;
-        } else if (artifact.path.startsWith(`/assets/${server}/`)) {
-          const entry = await fetchStaticReleaseEntry(
-            `assets/${artifact.path.slice(`/assets/${server}/`.length)}`,
-            server,
-            pin,
-          );
-          if (entry?.sha256 !== artifact.sha256) continue;
-        } else continue;
+        if (
+          typeof artifact.path !== "string" ||
+          !artifact.path.startsWith(`/assets/${server}/`) ||
+          typeof artifact.sha256 !== "string" ||
+          !/^[a-f0-9]{64}$/u.test(artifact.sha256)
+        )
+          continue;
+        const relative = artifact.path.slice(`/assets/${server}/`.length);
+        if (
+          !relative ||
+          /[\\?#]/u.test(relative) ||
+          relative.split("/").some((part) => !part || part === "." || part === "..")
+        )
+          continue;
+        const entry = await fetchStaticReleaseEntry(`assets/${relative}`, server, pin);
+        if (entry?.sha256 !== artifact.sha256) continue;
         (accepted[server] ??= []).push({ ...record, stampId: choice.id } as TextlessStampManifest["records"][number]);
       }
     }

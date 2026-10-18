@@ -287,7 +287,8 @@ export class StampMaker extends LitElement {
     this.preserveDraftColors = true;
     this.pendingSelectionColor = undefined;
     this.manualImageLanguage = true;
-    this.imageLanguage = draft.imageLanguage;
+    this.imageLanguage = draft.imageLanguage === "textless" || draft.imageLanguage === "original"
+      ? this.defaultImageLanguage : draft.imageLanguage;
     this.mode = draft.imageLanguage === "textless" ? "textless" : "original";
     const available = this.choices.find(
       (stamp) => stamp.id === draft.selected && stamp.resourceName === draft.resourceName,
@@ -609,11 +610,7 @@ export class StampMaker extends LitElement {
     const language = this.pickerBrowsingLocale || this.defaultImageLanguage;
     const originals = stampChoices(this.catalog, this.locale, language);
     const textless = textlessChoices(originals, this.textless, STAMP_SOURCE_SERVER);
-    const textlessById = new Map(textless.map((stamp) => [stamp.id, stamp]));
-    const choices = language === "textless"
-      ? textless
-      : originals
-          .map((stamp) => this.pickerOriginal ? stamp : textlessById.get(stamp.id) ?? stamp);
+    const choices = this.pickerOriginal ? originals : textless;
     return choices.filter((stamp) =>
       (!this.pickerCharacter || stamp.characterIds.includes(this.pickerCharacter)) &&
       (!this.pickerBand || stamp.characterIds.some((id) => String(this.characterRecord(id)?.bandId ?? "") === this.pickerBand)),
@@ -661,9 +658,6 @@ export class StampMaker extends LitElement {
   private get originalVariant() {
     const stamp = this.originals.find((stamp) => stamp.id === this.selected);
     return stamp?.variants.find((version) => version.url === stamp.sources[0]);
-  }
-  private versionLabel(language: string) {
-    return STAMP_LANGUAGES[language]?.label || (language === "original" ? this.t("original") : language);
   }
   private get fallbackFont() {
     return getComputedStyle(this).getPropertyValue("--app-font").trim() || "sans-serif";
@@ -1332,7 +1326,6 @@ export class StampMaker extends LitElement {
   }
   private selectImageLanguage(language: string) {
     this.pickerBrowsingLocale = language || this.defaultImageLanguage;
-    this.pickerOriginal = false;
   }
 
   private async openChooser() {
@@ -1344,10 +1337,8 @@ export class StampMaker extends LitElement {
   }
 
   private select(stamp: StampChoice) {
-    const isTextless = textlessChoices(this.originals, this.textless, STAMP_SOURCE_SERVER)
-      .some((choice) => choice.id === stamp.id && choice.sources[0] === stamp.sources[0]);
-    const mode = isTextless ? "textless" : "original";
-    const language = isTextless ? "textless" : this.pickerBrowsingLocale || this.defaultImageLanguage;
+    const mode = this.pickerOriginal ? "original" : "textless";
+    const language = this.pickerBrowsingLocale || this.defaultImageLanguage;
     const changed = this.mode !== mode || this.selected !== stamp.id || this.choice?.sources[0] !== stamp.sources[0];
     if (changed) {
       this.preserveDraftColors = false;
@@ -1913,7 +1904,6 @@ export class StampMaker extends LitElement {
   }
 
   private renderChooser() {
-    const textlessCount = textlessChoices(this.originals, this.textless, STAMP_SOURCE_SERVER).length;
     return html`
         <dialog
           class="stamp-maker__chooser"
@@ -1928,7 +1918,7 @@ export class StampMaker extends LitElement {
           ${chooserHeader({ title: this.t("choose"), filterLabel: clientText(this.locale, "common.actions.filter", "Filter"),
             filtersOpen: this.pickerFiltersOpen, toggleFilters: () => (this.pickerFiltersOpen = !this.pickerFiltersOpen),
             closeLabel: this.t("close"), close: () => this.querySelector<HTMLDialogElement>("dialog")?.close(),
-            actions: this.pickerBrowsingLocale !== "textless" ? filterChip({ label: this.t("original"), selected: this.pickerOriginal, onToggle: () => (this.pickerOriginal = !this.pickerOriginal) }) : nothing,
+            actions: filterChip({ label: this.t("original"), selected: this.pickerOriginal, onToggle: () => (this.pickerOriginal = !this.pickerOriginal) }),
           })}
           ${guard(
             [this.catalog, this.textless, this.mode, this.locale, this.imageLanguage, this.pickerBrowsingLocale, this.pickerOriginal, this.pickerFiltersOpen, this.pickerBand, this.pickerCharacter, this.bands, this.characters, this.selected],
@@ -1965,25 +1955,6 @@ export class StampMaker extends LitElement {
                         </label>
                       `,
                     )}
-                  ${
-                    textlessCount
-                      ? html`
-                          <label class="settings-option" title=${this.t("textless")}>
-                            <input
-                              type="radio"
-                              name="stamp-variant-language"
-                              value="textless"
-                              .checked=${this.pickerBrowsingLocale === "textless"}
-                              aria-label=${this.t("textless")}
-                              @change=${() => this.selectImageLanguage("textless")}
-                            />
-                            <span class="settings-option__face" aria-hidden="true">${icon("format_clear", 24)}</span>
-                            <span class="settings-option__tooltip" aria-hidden="true">${this.t("textless")}</span>
-                            <span class="stamp-maker__variant-caption" aria-hidden="true">${this.t("textless")}</span>
-                          </label>
-                        `
-                      : nothing
-                  }
                 </div>
               </div>
                 ${chooserFacet({ label: clientText(this.locale, "catalog.fields.bands", "Bands"), allLabel: clientText(this.locale, "common.states.all", "All"), value: this.pickerBand,
@@ -1998,12 +1969,6 @@ export class StampMaker extends LitElement {
                     kind: "stamp",
                     title: stamp.label,
                     label: stamp.label,
-                    subtitle:
-                      !stamp.variants.some((version) => version.url === stamp.sources[0])
-                        ? null
-                        : this.versionLabel(
-                            stamp.variants.find((version) => version.url === stamp.sources[0])?.language || "original",
-                          ),
                     image: stamp.sources[0],
                     aspectRatio: 1,
                     fit: "contain",

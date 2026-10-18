@@ -1,4 +1,4 @@
-import { localizedText, type JsonRecord } from "../../lit/shared/catalog";
+import { localizedText, UI_LOCALES, type JsonRecord } from "../../lit/shared/catalog";
 import { showTestServerContent } from "../test-server-visibility";
 
 /** International multilingual assets are shared by every page-server selection. */
@@ -53,24 +53,24 @@ export function stampAssetUrl(value: unknown): string | undefined {
 }
 
 export function stampChoices(catalog: JsonRecord, locale: string, imageLanguage = ""): StampChoice[] {
-  const language = imageLanguage || (locale === "zh-CN" ? "zh-Hans" : locale === "zh-TW" ? "zh-Hant" : locale);
+  const assetLanguage = (value: string) => value === "zh-CN" ? "zh-Hans" : value === "zh-TW" ? "zh-Hant" : value;
+  const languages = UI_LOCALES.map(assetLanguage);
+  const language = languages.includes(imageLanguage) ? imageLanguage : assetLanguage(locale);
   return Object.entries(catalog)
     .flatMap(([id, value]) => {
       if (!value || typeof value !== "object") return [];
       const stamp = value as JsonRecord;
       const image = String(stamp.image || "");
       const variants = (stamp.imageVariants as Record<string, Record<string, string>> | undefined)?.[image] || {};
+      const original = stampAssetUrl(image);
       const versions = Object.entries(variants).flatMap(([language, value]) => {
         const url = stampAssetUrl(value);
-        return url ? [{ language, url }] : [];
+        return url && languages.includes(language) ? [{ language, url }] : [];
       });
-      const original = stampAssetUrl(image);
-      if (original && !versions.some((version) => version.url === original))
-        versions.push({ language: "original", url: original });
-      const sources = [...new Set([variants[language], variants.ja, image, ...Object.values(variants)])]
-        .map(stampAssetUrl)
-        .filter((source): source is string => !!source);
-      if (!sources.length) return [];
+      if (original && !Object.keys(variants).length)
+        versions.push(...languages.map((language) => ({ language, url: original })));
+      const source = versions.find((version) => version.language === language)?.url;
+      if (!source) return [];
       const resourceName =
         image
           .split("/")
@@ -81,7 +81,7 @@ export function stampChoices(catalog: JsonRecord, locale: string, imageLanguage 
           id,
           resourceName,
           label: localizedText(stamp.name, locale) || resourceName,
-          sources,
+          sources: [source],
           variants: versions,
           characterIds: Array.isArray(stamp.characterIds) ? stamp.characterIds.map(String) : [],
         },
