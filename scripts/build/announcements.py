@@ -226,6 +226,14 @@ def _first(fields: dict[int, list[int | bytes]], field: int) -> int | bytes | No
     return values[0] if values else None
 
 
+class GrpcResponseError(RuntimeError):
+    def __init__(self, status: str, message: str):
+        self.status = status
+        self.message = message
+        detail = " (client update required)" if message == "client update required" else ""
+        super().__init__(f"announcement gRPC status {status}{detail}")
+
+
 def _parse_header_blocks(data: bytes) -> dict[str, str]:
     text = data.decode("iso-8859-1", "replace")
     blocks = [block for block in re.split(r"\r?\n\r?\n", text) if block.strip()]
@@ -256,8 +264,9 @@ def _parse_header_blocks(data: bytes) -> dict[str, str]:
     if headers.get("grpc-status") != "0":
         if headers.get("grpc-status") in {"4", "8", "13", "14"}:
             raise DiscoveryUnavailable("service", f"announcement gRPC status {headers['grpc-status']}")
-        raise RuntimeError(
-            f"announcement gRPC status {headers.get('grpc-status', 'missing')}"
+        raise GrpcResponseError(
+            headers.get("grpc-status", "missing"),
+            urllib.parse.unquote(headers.get("grpc-message", "")).strip(),
         )
     return headers
 
