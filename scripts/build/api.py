@@ -6179,8 +6179,15 @@ def _stories(data: BuildData, live2d: dict[str, dict[str, Any]]) -> dict[str, An
         if not chapter_id or str(chapter_id) not in chapters:
             continue
         chapter = chapters[str(chapter_id)]
+        event_id = int(row.get("_id") or 0)
+        if not chapter.get("icon"):
+            event_icon = data.asset(
+                f"Assets/AddressableResources/Story/Icon/ui_icon_chapter_event_{event_id:05d}.png"
+            )
+            if event_icon:
+                chapter["icon"] = event_icon
         event = {
-            "eventId": int(row.get("_id") or 0),
+            "eventId": event_id,
             "chapterId": chapter_id,
             "name": data.text(row.get("_nameTextId") or row.get("_nameTextID")),
             "startAt": _timestamp(row.get("_startAt")),

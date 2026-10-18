@@ -213,6 +213,12 @@ def main():
     if len(packed.encode()) > 4096:
         raise ValueError("native story current identity input exceeds cap")
     identity = json.loads(packed)
+    # The same reviewed, data-only workflow also restores declared chapter icons.
+    from publish.story_chapter_artwork import RECIPE as ARTWORK_RECIPE, main as artwork_main
+    if identity.get("recipe") == ARTWORK_RECIPE:
+        os.environ["STORY_ARTWORK_CURRENT_PROJECTION_JSON"] = packed
+        artwork_main()
+        return
     if identity["server"] != os.environ["RESOURCE_SERVER"]:
         raise ValueError("native story current server input differs")
     config = load_server_config(identity["server"])
