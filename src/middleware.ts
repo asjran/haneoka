@@ -50,7 +50,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     });
   }
   const pathname = staticDocumentLookupPath(context.url.pathname);
-  if (!import.meta.env.PROD || !context.isPrerendered || !pathname || coreStaticDocumentPath(pathname) || response.status !== 200) return response;
+  if (!import.meta.env.PROD || !context.isPrerendered || !pathname || !pathname.endsWith(".html") || coreStaticDocumentPath(pathname) || response.status !== 200) return response;
   const record = await writeStaticDocument(pathname, await response.text());
   return new Response(`<!-- static-document:${record.sha256} -->`, {
     status: 200, headers: { "Content-Type": "text/html; charset=utf-8" },
