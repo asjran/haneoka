@@ -17,6 +17,7 @@ import struct
 import sys
 import time
 import zlib
+from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path, PurePosixPath
@@ -231,6 +232,11 @@ class BuildData:
         self.prefetch_stats: dict[str, dict[str, Any]] = {}
         self.assets = root / "assets"
         self.runtime = root / "runtime"
+        self.asset_path_set = {
+            file.relative_to(self.assets).as_posix()
+            for file in self.assets.rglob("*")
+            if file.is_file()
+        }
         self.master = root / "master"
         self.tables = {file.stem: _rows(self.master, file.stem) for file in sorted(self.master.glob("*.json"))}
         self.texts = {str(row.get("_id")): row for row in self.tables.get("MasterText", [])}
@@ -258,10 +264,13 @@ class BuildData:
         self.source_paths = sorted(self.source_index)
         self.source_path_set = set(self.source_paths)
         self._source_paths_by_parent: dict[PurePosixPath, list[str]] = {}
+        self._source_paths_by_name: dict[str, list[str]] = {}
         for source_path in self.source_paths:
+            path = PurePosixPath(source_path)
             self._source_paths_by_parent.setdefault(
-                PurePosixPath(source_path).parent, []
+                path.parent, []
             ).append(source_path)
+            self._source_paths_by_name.setdefault(path.name, []).append(source_path)
         self._source_descriptor_cache: dict[str, dict[str, Any]] = {}
         self._object_archive_cache: dict[str, dict[str, dict[str, Any]]] = {}
         self._unity_output_index: dict[
@@ -323,6 +332,7 @@ class BuildData:
         self.cri_entries = read_json(cri_manifest).get("entries", []) if cri_manifest.is_file() else []
         self.cri_entries_by_runtime: dict[str, list[dict[str, Any]]] = {}
         self.cri_acb_entries_by_cue_sheet_name: dict[str, list[dict[str, Any]]] = {}
+        self.cri_usm_entries_by_suffix: dict[tuple[str, ...], list[dict[str, Any]]] = {}
         for entry in self.cri_entries:
             runtime_path = str(entry.get("runtimePath") or "")
             if runtime_path:
@@ -332,6 +342,10 @@ class BuildData:
                     self.cri_acb_entries_by_cue_sheet_name.setdefault(
                         cue_sheet_name, []
                     ).append(entry)
+                elif entry.get("kind") == "usm":
+                    parts = tuple(part.casefold() for part in PurePosixPath(runtime_path).parts)
+                    for offset in range(len(parts)):
+                        self.cri_usm_entries_by_suffix.setdefault(parts[offset:], []).append(entry)
         self._sound_cache: dict[int, dict[str, Any] | None] = {}
         self._cri_audio_output_cache: dict[
             str, tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]
@@ -398,14 +412,11 @@ class BuildData:
         return _localized(self.texts.get(str(identifier)), fallback)
 
     def asset(self, value: str) -> str | None:
-        path = PurePosixPath(value)
         if not value.startswith(("Assets/", "Packages/")) or value not in self.source_path_set:
             return None
-        if not (self.assets / Path(*path.parts)).is_file() and (
-            f"assets/{value}" not in self.base_release_entries
-        ):
+        if not self.has_asset(value):
             return None
-        return f"/assets/{self.server}/" + "/".join(path.parts)
+        return f"/assets/{self.server}/{value}"
 
     def runtime_url(self, value: str) -> str | None:
         path = PurePosixPath(value)
@@ -419,9 +430,7 @@ class BuildData:
 
     def has_asset(self, value: str) -> bool:
         """Local assets-tree presence, falling back to the pinned base entry."""
-
-        path = PurePosixPath(value)
-        return (self.assets / Path(*path.parts)).is_file() or (
+        return value in self.asset_path_set or (
             f"assets/{value}" in self.base_release_entries
         )
 
@@ -742,6 +751,15 @@ class BuildData:
     def source_children(self, directory: PurePosixPath) -> list[str]:
         return self._source_paths_by_parent.get(directory, [])
 
+    def source_named(self, name: str) -> list[str]:
+        return self._source_paths_by_name.get(name, [])
+
+    def source_descendants(self, directory: PurePosixPath) -> list[str]:
+        prefix = directory.as_posix().rstrip("/") + "/"
+        start = bisect_left(self.source_paths, prefix)
+        end = bisect_left(self.source_paths, prefix + "\U0010ffff")
+        return self.source_paths[start:end]
+
     def source_descriptor(self, source_path: str) -> dict[str, Any]:
         """Read one canonical source descriptor and reject index divergence."""
         cached = self._source_descriptor_cache.get(source_path)
@@ -831,20 +849,7 @@ class BuildData:
     def video_media(self, asset_name: str) -> dict[str, Any] | None:
         """Bind a video asset name to one exact normalized CRI runtime path."""
         asset_parts = tuple(part.casefold() for part in PurePosixPath(asset_name).parts)
-        matches = []
-        if asset_parts:
-            for entry in self.cri_entries:
-                if entry.get("kind") != "usm":
-                    continue
-                runtime_parts = tuple(
-                    part.casefold()
-                    for part in PurePosixPath(str(entry.get("runtimePath") or "")).parts
-                )
-                if (
-                    len(runtime_parts) >= len(asset_parts)
-                    and runtime_parts[-len(asset_parts):] == asset_parts
-                ):
-                    matches.append(entry)
+        matches = self.cri_usm_entries_by_suffix.get(asset_parts, [])
         if len(matches) != 1:
             return None
         entry = matches[0]
@@ -3817,7 +3822,7 @@ def _frame_animation(
     while "_" in stems[-1]:
         stems.append(stems[-1].rsplit("_", 1)[0])
     candidates: list[tuple[int, dict[str, Any]]] = []
-    for source in data.source_paths:
+    for source in data.source_descendants(PurePosixPath(animation_root)):
         if not source.startswith(animation_root) or not source.endswith(".anim"):
             continue
         descriptor, clip_objects = data.source_objects(source)
@@ -4301,10 +4306,12 @@ def _authored_frame_fallback(
     """
     group = PurePosixPath(target_asset).parts[0]
     group_prefix = f"{ADV_FRAME_ROOT}/{group}/"
-    available_pngs = [
-        path for path in data.source_path_set
-        if path.casefold().endswith(".png") and data.has_asset(path)
-    ]
+    if not hasattr(data, "_frame_available_pngs"):
+        data._frame_available_pngs = [
+            path for path in data.source_path_set
+            if path.casefold().endswith(".png") and data.has_asset(path)
+        ]
+    available_pngs = data._frame_available_pngs
     group_pngs = sorted(path for path in available_pngs if path.startswith(group_prefix))
 
     def texture_for(name: str) -> str | None:
@@ -4515,7 +4522,7 @@ def _frame_animation_clip_sources(
     slander ``pattern01``); commands select the variant through params[1].
     """
     sources: list[str] = []
-    for source in data.source_paths:
+    for source in data.source_descendants(PurePosixPath(animation_root)):
         if not source.startswith(animation_root) or not source.endswith(".anim"):
             continue
         stem = PurePosixPath(source).stem.casefold()
@@ -4711,7 +4718,7 @@ def _effect_runtime(data: BuildData, target_asset: str) -> dict[str, Any]:
 
     effect_root = PurePosixPath(source_path).parent
     textures = {}
-    for candidate in data.source_paths:
+    for candidate in data.source_descendants(effect_root):
         path = PurePosixPath(candidate)
         if effect_root not in path.parents or path.suffix.casefold() not in {
             ".png",
@@ -5000,7 +5007,7 @@ def _story_assets(
                 f"{ADV_STILL_ROOT}/{target_path.parent}/data/{target_path.name}.png"
             )
             source_paths = [source_path] if source_path in data.source_path_set else [
-                value for value in data.source_paths
+                value for value in data.source_children(PurePosixPath(source_path).parent)
                 if re.fullmatch(re.escape(source_path.removesuffix('.png')) + r"_\d+\.png", value)
             ]
             source_paths.sort(key=lambda value: (
@@ -5590,7 +5597,7 @@ def _home_spot_spine_runtime(
     scene_parent = PurePosixPath(source_path).parent
     spine_directories = {
         PurePosixPath(value).parent
-        for value in data.source_paths
+        for value in data.source_descendants(scene_parent)
         if PurePosixPath(value).parent.parent == scene_parent
         and PurePosixPath(value).parent.name.lower() == "spine"
     }
@@ -5600,19 +5607,19 @@ def _home_spot_spine_runtime(
     spine_prefix = spine_parent.as_posix() + "/"
     atlas_sources = [
         value
-        for value in data.source_paths
+        for value in data.source_descendants(spine_parent)
         if value.startswith(spine_prefix) and value.endswith(".atlas.txt")
     ]
     texture_sources = [
         value
-        for value in data.source_paths
+        for value in data.source_children(spine_parent)
         if value.startswith(spine_prefix)
         and PurePosixPath(value).parent == spine_parent
         and value.endswith(".png")
     ]
     skeleton_sources = [
         value
-        for value in data.source_paths
+        for value in data.source_descendants(spine_parent)
         if value.startswith(spine_prefix) and value.endswith("_SkeletonData.asset")
     ]
     if not atlas_sources or len(atlas_sources) != len(texture_sources) or not skeleton_sources:
@@ -5652,9 +5659,9 @@ def _home_spot_spine_runtime(
         for animation, _ in visible_animations.values()
     }
     skeleton_sources = sorted(set(skeleton_sources) | {
-        value for value in data.source_paths
-        if PurePosixPath(value).name in {f"{name}.asset" for name in referenced_names if name}
-        and value.endswith("_SkeletonData.asset")
+        value for name in referenced_names if name
+        for value in data.source_named(f"{name}.asset")
+        if value.endswith("_SkeletonData.asset")
     })
 
     skeletons_by_root: dict[tuple[str, str], dict[str, Any]] = {}
@@ -6663,7 +6670,7 @@ def _story_effect_catalog_entry(data: BuildData, target_asset: str) -> dict[str,
             raise
         effect_root = PurePosixPath(source_path).parent
         textures = {}
-        for candidate in data.source_paths:
+        for candidate in data.source_descendants(effect_root):
             path = PurePosixPath(candidate)
             if effect_root not in path.parents or path.suffix.casefold() not in {
                 ".png",

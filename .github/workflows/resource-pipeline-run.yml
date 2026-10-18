@@ -634,6 +634,14 @@ jobs:
             .gitmodules
       - name: Check out locked external repositories
         run: node scripts/external-repositories.mjs checkout
+      - name: Cache the locked WASM binding tools
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/bin/wasm-bindgen*
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: wasm-bindgen-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dependencies/vega/Cargo.lock') }}
       - name: Set up the locked Vega Rust and WASM toolchain
         uses: ./.dependencies/vega/.github/actions/setup-wasm
       - name: Install workspace dependencies
@@ -928,6 +936,17 @@ jobs:
         run: >-
           python scripts/pipeline.py --server "$RESOURCE_SERVER" verify-remote
           --release "$(jq -r .releaseId "$RUNNER_TEMP/release.json")" --fast
+      - name: Remove completed private stage archives
+        continue-on-error: true
+        run: |
+          if [[ ! "$PIPELINE_STAGE_PREFIX" =~ ^private/resource-pipeline-stage/[1-9][0-9]*/[a-z][a-z0-9-]*$ ]]; then
+            echo "Invalid private stage prefix" >&2
+            exit 1
+          fi
+          aws s3 rm "s3://$PIPELINE_STAGE_BUCKET/$PIPELINE_STAGE_PREFIX/" \
+            --recursive --only-show-errors \
+            --endpoint-url "https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com" \
+            --region auto
 
   announcements:
     name: Refresh operational announcements

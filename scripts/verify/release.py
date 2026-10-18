@@ -165,6 +165,7 @@ def _catalog_resource_errors(root: Path, server: str, declared: set[str]) -> lis
     api_root = root / "api" / "v1" / "catalog"
     asset_prefix = f"/assets/{server}/"
     runtime_prefix = f"/runtime/{server}/"
+    checked_values: set[str] = set()
 
     def verify_value(value: Any, source: str) -> None:
         if isinstance(value, dict):
@@ -176,6 +177,8 @@ def _catalog_resource_errors(root: Path, server: str, declared: set[str]) -> lis
                 verify_value(item, f"{source}[{index}]")
             return
         if not isinstance(value, str):
+            return
+        if value in checked_values:
             return
 
         raw_path = urlsplit(value).path
@@ -210,6 +213,7 @@ def _catalog_resource_errors(root: Path, server: str, declared: set[str]) -> lis
             tree = "runtime"
 
         if relative is None or tree is None:
+            checked_values.add(value)
             return
         if _forbidden_path(relative):
             errors.append(f"legacy resource path in {source}: {value}")
@@ -226,6 +230,8 @@ def _catalog_resource_errors(root: Path, server: str, declared: set[str]) -> lis
             errors.append(
                 f"catalog resource does not resolve exactly in {source}: {value}"
             )
+            return
+        checked_values.add(value)
 
     for file in sorted(api_root.rglob("*.json")):
         try:
@@ -1566,6 +1572,20 @@ def verify_release(
 
     declared: set[str] = set()
     verified_absent: set[str] = set()
+    local_hashes: dict[str, str] = {}
+    if check_hashes:
+        def hash_entry(entry: Any) -> tuple[str, str] | None:
+            if not isinstance(entry, dict) or not isinstance(entry.get("sha256"), str) or not SHA256.fullmatch(entry["sha256"]):
+                return None
+            try:
+                relative = validate_release_path(entry.get("path"))
+            except ValueError:
+                return None
+            file = layout.root.joinpath(*relative.split("/"))
+            return (relative, sha256_file(file)) if file.is_file() else None
+
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            local_hashes = dict(result for result in executor.map(hash_entry, entries) if result is not None)
     for entry in entries:
         if not isinstance(entry, dict):
             errors.append("manifest entry must be an object")
@@ -1635,7 +1655,7 @@ def verify_release(
         if (
             check_hashes
             and expected_hash is not None
-            and sha256_file(file) != expected_hash
+            and local_hashes.get(relative) != expected_hash
         ):
             errors.append(f"hash mismatch: {relative}")
         if expected_media_type is not None and media_type(file) != expected_media_type:
