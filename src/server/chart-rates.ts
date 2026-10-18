@@ -21,6 +21,45 @@ interface Exports {
   haneoka_context_json(input: number): number;
 }
 type Doc = Record<string, unknown>;
+type ReusableRates = ChartRateTable & { schema: "haneoka-chart-rates-v6"; sourceId: string; engineCommit: string };
+
+async function publishedRates(server: ReleaseServer, engineCommit: string): Promise<ReusableRates | undefined> {
+  const release = await staticCatalogRelease(server);
+  try {
+    const origin = process.env.STATIC_CATALOG_ORIGIN || "https://haneoka.org";
+    const response = await fetch(new URL(`/data/chart-rates/${server}.json`, origin), {
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        accept: "application/json",
+        ...(process.env.STATIC_CATALOG_TOKEN ? { "x-haneoka-build-token": process.env.STATIC_CATALOG_TOKEN } : {}),
+      },
+    });
+    if (!response.ok) return undefined;
+    const value = (await response.json()) as ReusableRates;
+    if (
+      value.schema !== "haneoka-chart-rates-v6" ||
+      value.releaseId !== release.releaseId ||
+      value.sourceId !== release.sourceId ||
+      value.engineCommit !== engineCommit
+    )
+      return undefined;
+    const data = await teamSource(server);
+    const expected = Object.values(data.songs).flatMap((song) =>
+      dataRows(song.difficulty)
+        .filter((level) => typeof level.file === "string" && level.file.startsWith(`/assets/${server}/`))
+        .map((level) => `${Number(song.musicId)}:${Number(level.difficulty)}`),
+    );
+    if (
+      Object.keys(value.charts).length !== expected.length ||
+      expected.some((key) => !value.charts[key] || value.charts[key].windows.length !== SKILL_WINDOWS.length)
+    )
+      return undefined;
+    console.log(`reused verified chart rates ${server}: ${expected.length} charts`);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
 
 async function engine() {
   const encoder = new TextEncoder();
@@ -52,20 +91,31 @@ async function engine() {
 
 const rounded = (values: number[]) => values.map((value) => Number(value.toPrecision(5)));
 
-async function compute(server: ReleaseServer): Promise<ChartRateTable> {
+async function compute(server: ReleaseServer, engineCommit: string): Promise<ReusableRates> {
   const release = await staticCatalogRelease(server);
   const data = await teamSource(server);
   const invoke = await engine();
   const handle = Number(invoke({ op: "create", data }).handle);
-  const charts: ChartRateTable["charts"] = {};
+  const inputs: Array<{ ref: { songId: number; difficulty: number }; file: string }> = [];
   for (const song of Object.values(data.songs)) {
     const songId = Number(song.musicId);
     for (const level of dataRows(song.difficulty)) {
       const file = typeof level.file === "string" ? level.file : "";
       const prefix = `/assets/${server}/`;
       if (!file.startsWith(prefix)) continue;
-      const ref = { songId, difficulty: Number(level.difficulty) };
-      let bytes: Uint8Array = await fetchStaticReleaseBytes(`assets/${file.slice(prefix.length)}`, server, release);
+      inputs.push({
+        ref: { songId, difficulty: Number(level.difficulty) },
+        file: `assets/${file.slice(prefix.length)}`,
+      });
+    }
+  }
+  const rows: Array<readonly [string, ChartRateTable["charts"][string]]> = new Array(inputs.length);
+  let cursor = 0;
+  const load = async () => {
+    while (cursor < inputs.length) {
+      const index = cursor++;
+      const { ref, file } = inputs[index]!;
+      let bytes: Uint8Array = await fetchStaticReleaseBytes(file, server, release);
       if (bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = gunzipSync(bytes);
       const chart = JSON.parse(Buffer.from(bytes).toString("utf8")) as unknown;
       type Row = {
@@ -82,15 +132,20 @@ async function compute(server: ReleaseServer): Promise<ChartRateTable> {
         request: { goal: { mode: "live", songs: [ref], windows: SKILL_WINDOWS } },
         charts: [{ song: ref, chart }],
       }).songs as Row[];
-      charts[`${ref.songId}:${ref.difficulty}`] = {
-        base: Number(live!.base.toPrecision(5)),
-        windows: live!.windows.general.map(rounded),
-        skip: Number(live!.skip.toPrecision(5)),
-        notes: live!.notes,
-        ranks: live!.ranks.map((row) => [row.rank, row.required, row.battleRequired]),
-      };
+      rows[index] = [
+        `${ref.songId}:${ref.difficulty}`,
+        {
+          base: Number(live!.base.toPrecision(5)),
+          windows: live!.windows.general.map(rounded),
+          skip: Number(live!.skip.toPrecision(5)),
+          notes: live!.notes,
+          ranks: live!.ranks.map((row) => [row.rank, row.required, row.battleRequired]),
+        },
+      ];
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, inputs.length) }, load));
+  const charts: ChartRateTable["charts"] = Object.fromEntries(rows);
   const percent = (judgement: number) =>
     Number(
       dataRows(data.liveTools.judgementParameters).find((row) => Number(row.noteSimulateJudgement) === judgement)
@@ -112,6 +167,9 @@ async function compute(server: ReleaseServer): Promise<ChartRateTable> {
       };
     });
   return {
+    schema: "haneoka-chart-rates-v6",
+    sourceId: release.sourceId,
+    engineCommit,
     releaseId: release.releaseId,
     greatFactor: percent(4) / percent(5),
     boosts: master.boosts.map((row) => [row.consumed, row.eventPointRate, row.rewardRate]),
@@ -128,7 +186,11 @@ export function chartRates(server: ReleaseServer): Promise<ChartRateTable> {
       encoding: "utf8",
     }).trim();
     value = staticCatalogRelease(server).then((release) =>
-      staticBuildJson(`chart-rates-v6:${server}:${release.releaseId}:${build}`, "chart-rates", () => compute(server)),
+      staticBuildJson(
+        `chart-rates-v6:${server}:${release.releaseId}:${build}`,
+        "chart-rates",
+        async () => (await publishedRates(server, build)) || compute(server, build),
+      ),
     );
     pending.set(server, value);
   }

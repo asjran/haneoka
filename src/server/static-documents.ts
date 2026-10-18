@@ -6,8 +6,11 @@ import {
   STATIC_DOCUMENT_SCHEMA,
   STATIC_DOCUMENT_INDEX_ROOT,
   STATIC_DOCUMENT_CONTENT_ROOT,
-  STATIC_DOCUMENT_UNDERLAY_START,
-  STATIC_DOCUMENT_UNDERLAY_END,
+  STATIC_DOCUMENT_ASSET_ROOT,
+  STATIC_DOCUMENT_CONTENT_INDEX_ROOT,
+  STATIC_DOCUMENT_CONTENT_INDEX_SCHEMA,
+  STATIC_DOCUMENT_PACK_BYTES,
+  staticDocumentPackPath,
   staticDocumentShard,
   staticDocumentChunks,
   isStaticDocumentRecord,
@@ -16,6 +19,7 @@ import {
   isCoreFallbackShell,
   type StaticDocumentChunk,
   type StaticDocumentRecord,
+  type StaticDocumentContentLocation,
 } from "../lib/static-documents.ts";
 import { createModuleGraph, withModulePreloads } from "../../scripts/build/module-preload.mjs";
 import { staticPageGroupEnabled } from "./static-build.ts";
@@ -65,59 +69,14 @@ function contentChunk(body: Buffer): StaticDocumentChunk {
 function content(body: Buffer, contentType: string): StaticDocumentRecord {
   return { ...contentChunk(body), contentType };
 }
-function sharedJsonBoundary(body: Buffer): readonly [number, number] | undefined {
-  let cursor = 0;
-  let selected: readonly [number, number] | undefined;
-  while (cursor < body.length) {
-    const start = body.indexOf("<script", cursor);
-    if (start < 0) break;
-    const headerEnd = body.indexOf(">", start);
-    if (headerEnd < 0) break;
-    const end = body.indexOf("</script>", headerEnd + 1);
-    if (end < 0) break;
-    cursor = end + 9;
-    if (!/\btype\s*=\s*(["'])application\/json\1/iu.test(body.toString("utf8", start, headerEnd))) continue;
-    if (cursor - start > 64 * 1024 && (!selected || cursor - start > selected[1] - selected[0]))
-      selected = [start, cursor];
-  }
-  return selected;
-}
-function htmlChunks(body: Buffer, from: number, to: number): StaticDocumentRecord {
-  const chunks = [body.subarray(0, from), body.subarray(from, to), body.subarray(to)]
-    .filter((part) => part.length > 0)
-    .map(contentChunk);
-  return {
-    sha256: createHash("sha256").update(body).digest("hex"),
-    bytes: body.length,
-    gzipBytes: chunks.reduce((sum, chunk) => sum + chunk.gzipBytes, 0),
-    contentType: "text/html; charset=utf-8",
-    chunks,
-  };
-}
-function htmlContent(body: Buffer): StaticDocumentRecord {
-  const start = Buffer.from(STATIC_DOCUMENT_UNDERLAY_START);
-  const end = Buffer.from(STATIC_DOCUMENT_UNDERLAY_END);
-  const from = body.indexOf(start),
-    to = body.indexOf(end);
-  if (from < 0 && to < 0) {
-    const shared = sharedJsonBoundary(body);
-    return shared ? htmlChunks(body, ...shared) : content(body, "text/html; charset=utf-8");
-  }
-  if (
-    from < 0 ||
-    to < from + start.length ||
-    body.indexOf(start, from + start.length) >= 0 ||
-    body.indexOf(end, to + end.length) >= 0
-  )
-    throw new Error("Invalid static document underlay boundary");
-  return htmlChunks(body, from, to + end.length);
-}
 export async function writeStaticDocument(pathname: string, source: string): Promise<StaticDocumentRecord> {
   const html = await withModulePreloads(source, moduleGraph);
   // Astro dev can append a component's module script after the closing root.
   if (!/<\/html\s*>\s*(?:<script\b[^>]*>[\s\S]*?<\/script\s*>\s*)*$/iu.test(html))
     throw new Error(`Incomplete static document: ${pathname}`);
-  const record = htmlContent(Buffer.from(html));
+  // One compressed file per complete document fits the paid asset file limit.
+  // The reader retains support for older publications with ordered chunks.
+  const record = content(Buffer.from(html), "text/html; charset=utf-8");
   fs.appendFileSync(log, `${JSON.stringify({ pathname, ...record })}\n`);
   return record;
 }
@@ -143,9 +102,14 @@ export async function packCoreStaticDocuments(outputRoot: string, files: readonl
     const html = fs.readFileSync(path.join(outputRoot, file), "utf8");
     // Astro emits small redirect documents without an enclosing html element.
     // Keep their original redirect response in the static asset binding.
-    if (core && html.length < 16 * 1024 && !html.includes("</html>") &&
+    if (
+      core &&
+      html.length < 16 * 1024 &&
+      !html.includes("</html>") &&
       /<meta\b[^>]*\bhttp-equiv=["']refresh["'][^>]*\bcontent=["']0;url=\/[^"'<>]+["'][^>]*>/iu.test(html) &&
-      /<meta\b[^>]*\bname=["']robots["'][^>]*\bcontent=["']noindex["'][^>]*>/iu.test(html)) continue;
+      /<meta\b[^>]*\bname=["']robots["'][^>]*\bcontent=["']noindex["'][^>]*>/iu.test(html)
+    )
+      continue;
     // Middleware-packed extension pages leave a short receipt in publicDir.
     if (!core && !html.includes("</html>")) {
       const receipt = /^<!-- static-document:([a-f0-9]{64}) -->\s*$/u.exec(html);
@@ -238,7 +202,11 @@ export function finalizeStaticDocuments(outputRoot: string): { documents: number
     );
     const body = JSON.stringify({ schema: STATIC_DOCUMENT_SCHEMA, entries });
     fs.writeFileSync(path.join(indexRoot, `${shard}.json`), body);
-    indexes.push({ path: `${STATIC_DOCUMENT_INDEX_ROOT}/${shard}.json`, sha256: createHash("sha256").update(body).digest("hex"), bytes: Buffer.byteLength(body) });
+    indexes.push({
+      path: `${STATIC_DOCUMENT_INDEX_ROOT}/${shard}.json`,
+      sha256: createHash("sha256").update(body).digest("hex"),
+      bytes: Buffer.byteLength(body),
+    });
   }
   let data = 0;
   const dataRoot =
@@ -255,10 +223,17 @@ export function finalizeStaticDocuments(outputRoot: string): { documents: number
   for (const chunk of referenced.values()) {
     const zipped = fs.readFileSync(path.join(contentRoot, chunk.sha256.slice(0, 2), `${chunk.sha256}.gz`));
     const body = gunzipSync(zipped);
-    if (zipped.length !== chunk.gzipBytes || body.length !== chunk.bytes || createHash("sha256").update(body).digest("hex") !== chunk.sha256)
+    if (
+      zipped.length !== chunk.gzipBytes ||
+      body.length !== chunk.bytes ||
+      createHash("sha256").update(body).digest("hex") !== chunk.sha256
+    )
       throw new Error(`Static document content differs from its reference: ${chunk.sha256}`);
     findDataReferences(body);
-    boundaries.set(chunk.sha256, { first: body.toString("latin1", 0, 100), last: body.toString("latin1", Math.max(0, body.length - 100)) });
+    boundaries.set(chunk.sha256, {
+      first: body.toString("latin1", 0, 100),
+      last: body.toString("latin1", Math.max(0, body.length - 100)),
+    });
   }
   for (const record of documents.values()) {
     let previous = "";
@@ -277,22 +252,120 @@ export function finalizeStaticDocuments(outputRoot: string): { documents: number
     referenced.set(digest, { sha256: record.sha256, bytes: record.bytes, gzipBytes: record.gzipBytes });
     data++;
   }
+  const assetRoot = path.join(outputRoot, STATIC_DOCUMENT_ASSET_ROOT.slice(1));
+  const contentIndexRoot = STATIC_DOCUMENT_CONTENT_INDEX_ROOT;
+  const contentIndexDirectory = path.join(outputRoot, contentIndexRoot.slice(1));
+  fs.rmSync(assetRoot, { recursive: true, force: true });
+  fs.rmSync(contentIndexDirectory, { recursive: true, force: true });
+  fs.mkdirSync(assetRoot, { recursive: true });
+  fs.mkdirSync(contentIndexDirectory, { recursive: true });
+  const contentShards = new Map<string, Record<string, StaticDocumentContentLocation>>();
+  const contentPacks: { path: string; sha256: string; bytes: number }[] = [];
+  let pack: { chunk: StaticDocumentChunk; bytes: Buffer }[] = [];
+  let packBytes = 0;
+  let packPrefix = "";
+  const flushPack = () => {
+    if (!pack.length) return;
+    const body = Buffer.concat(
+      pack.map((member) => member.bytes),
+      packBytes,
+    );
+    const packSha256 = createHash("sha256").update(body).digest("hex");
+    const assetPath = staticDocumentPackPath(packSha256);
+    fs.writeFileSync(path.join(outputRoot, assetPath.slice(1)), body, { flag: "wx" });
+    contentPacks.push({ path: assetPath, sha256: packSha256, bytes: packBytes });
+    let offset = 0;
+    for (const member of pack) {
+      const prefix = member.chunk.sha256.slice(0, 2);
+      if (!contentShards.has(prefix)) contentShards.set(prefix, {});
+      contentShards.get(prefix)![member.chunk.sha256] = {
+        packSha256,
+        offset,
+        gzipBytes: member.bytes.length,
+        packBytes,
+      };
+      offset += member.bytes.length;
+    }
+    pack = [];
+    packBytes = 0;
+  };
+  for (const chunk of [...referenced.values()].sort((a, b) => a.sha256.localeCompare(b.sha256, "en"))) {
+    if (chunk.gzipBytes > 25 * 1024 * 1024)
+      throw new Error(`Static document exceeds the 25 MiB asset limit: ${chunk.sha256}`);
+    const prefix = chunk.sha256.slice(0, 2);
+    const bytes = fs.readFileSync(path.join(contentRoot, prefix, `${chunk.sha256}.gz`));
+    if (bytes.length !== chunk.gzipBytes) throw new Error(`Static gzip length differs: ${chunk.sha256}`);
+    // Content changes only repack their own hash buckets across later releases.
+    if (prefix !== packPrefix || packBytes + bytes.length > STATIC_DOCUMENT_PACK_BYTES) flushPack();
+    packPrefix = prefix;
+    pack.push({ chunk, bytes });
+    packBytes += bytes.length;
+    if (packBytes >= STATIC_DOCUMENT_PACK_BYTES) flushPack();
+  }
+  flushPack();
+  const contentIndexes: { path: string; sha256: string; bytes: number }[] = [];
+  for (let index = 0; index < 256; index++) {
+    const prefix = index.toString(16).padStart(2, "0");
+    const entries = contentShards.get(prefix) || {};
+    const body = JSON.stringify({ schema: STATIC_DOCUMENT_CONTENT_INDEX_SCHEMA, entries });
+    const assetPath = `${contentIndexRoot}/${prefix}.json`;
+    fs.writeFileSync(path.join(outputRoot, assetPath.slice(1)), body);
+    contentIndexes.push({
+      path: assetPath,
+      sha256: createHash("sha256").update(body).digest("hex"),
+      bytes: Buffer.byteLength(body),
+    });
+  }
   const documentCount = htmlPaths.length;
   const objects = [...referenced.values()].sort((a, b) => a.sha256.localeCompare(b.sha256, "en"));
-  const references = JSON.stringify({ schema: "haneoka-static-publication-root-v1", documentSchema: STATIC_DOCUMENT_SCHEMA, contentPrefix: STATIC_DOCUMENT_CONTENT_ROOT, documents: documentCount, data, indexes, objects });
+  const references = JSON.stringify({
+    schema: "haneoka-static-publication-root-v1",
+    documentSchema: STATIC_DOCUMENT_SCHEMA,
+    contentPrefix: STATIC_DOCUMENT_CONTENT_ROOT,
+    contentStorage: "worker-assets",
+    assetRoot: STATIC_DOCUMENT_ASSET_ROOT,
+    contentIndexes,
+    contentPacks,
+    documents: documentCount,
+    data,
+    indexes,
+    objects,
+  });
   fs.writeFileSync(path.join(root, "references.json"), references);
   fs.writeFileSync(path.join(indexRoot, "..", "publication.json.gz"), gzipSync(references, { level: 6 }));
+  const assetFiles = fs
+    .readdirSync(outputRoot, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile());
+  for (const entry of assetFiles) {
+    const file = path.join(entry.parentPath, entry.name);
+    if (fs.statSync(file).size > 25 * 1024 * 1024)
+      throw new Error(`Static file exceeds the 25 MiB asset limit: ${path.relative(outputRoot, file)}`);
+  }
+  if (assetFiles.length > 100_000)
+    throw new Error(`Complete static publication exceeds the 100,000 asset limit: ${assetFiles.length}`);
+  if (assetFiles.length >= 90_000)
+    console.warn(
+      `Static publication uses ${assetFiles.length}/100000 files; request a higher asset limit before adding more pages`,
+    );
   fs.writeFileSync(
     path.join(root, "publication.json"),
     JSON.stringify(
       {
         schema: STATIC_DOCUMENT_SCHEMA,
         completeCoverage: true,
+        contentStorage: "worker-assets",
+        assetFiles: assetFiles.length,
+        contentPackFiles: contentPacks.length,
+        contentIndexFiles: contentIndexes.length,
         documents: documentCount,
         indexedObjects: documents.size,
         data,
         contentRoot,
-        references: { path: "references.json", sha256: createHash("sha256").update(references).digest("hex"), bytes: Buffer.byteLength(references) },
+        references: {
+          path: "references.json",
+          sha256: createHash("sha256").update(references).digest("hex"),
+          bytes: Buffer.byteLength(references),
+        },
         referencedContentObjects: referenced.size,
         referencedGzipBytes: objects.reduce((sum, chunk) => sum + chunk.gzipBytes, 0),
         logicalGzipBytes: [...documents.values()].reduce((sum, record) => sum + record.gzipBytes, 0),

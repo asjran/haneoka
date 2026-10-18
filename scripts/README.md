@@ -306,6 +306,29 @@ Set `RESOURCE_RELEASE_ROOT` to select an immutable release directly, or
 
 ## R2 publication
 
+Static document collection uses `python scripts/publish/static_documents.py collect
+--plan .output/static-gc-plan.json --report .output/static-gc-report.json`. It keeps
+the active publication, the latest three successfully deployed publication roots,
+and roots from the last seven days. While the registry covers fewer than three
+distinct publications, it also keeps the latest three uploaded roots. Successful Worker deployments register
+their actual version and publication SHA in one small R2 receipt. Roots served
+entirely by Worker assets retain their versioned asset binding; legacy R2 roots
+mark every referenced compressed object.
+
+`apply --plan .output/static-gc-plan.json` consumes the same complete plan under
+the shared `cloudflare-production-publish` workflow lock, after rechecking the
+active root and root/receipt snapshots. Candidates must be unreferenced and older
+than seven days. Collection scans `static-documents/v1/` once. Apply relists the
+candidate content shards, skips changed or missing objects, rechecks the active
+root, and uses batched deletion. Other namespaces and unrecognized keys remain stored.
+
+The weekly `static-document-gc.yml` workflow creates and applies a plan. Set the
+repository variable `STATIC_DOCUMENT_GC_APPLY=false` to keep scheduled runs in
+dry-run mode. Manual runs default to dry-run; their `apply` input enables deletion.
+`offline-plan --inventory-directory DIR --active-manifest FILE
+--plan FILE` reuses recorded Cloudflare LIST pages for inspection; these partial
+plans support reporting and cannot be applied.
+
 Configure R2 through environment variables or an approved credential profile:
 
 - `CLOUDFLARE_ACCOUNT_ID` or `R2_ACCOUNT_ID`

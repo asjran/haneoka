@@ -2,7 +2,7 @@
 import { snackbar } from "./snackbar";
 import { clientText } from "../i18n/client";
 
-declare const __BUILD_ID__: string;
+declare const __WEB_BUILD_ID__: string;
 
 const CHECK_MS = 10 * 60 * 1000;
 let last = 0;
@@ -14,8 +14,8 @@ async function check() {
   try {
     const response = await fetch("/build.json", { cache: "no-store", credentials: "omit" });
     if (!response.ok) return;
-    const { id } = (await response.json()) as { id?: string };
-    if (!id || id === __BUILD_ID__) return;
+    const { id, web } = (await response.json()) as { id?: string; web?: string };
+    if (!id || web === __WEB_BUILD_ID__) return;
     offered = true;
     const locale = document.documentElement.lang || "ja";
     snackbar(clientText(locale, "common.states.updateAvailable", "A new version is available"), {

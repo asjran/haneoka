@@ -30,7 +30,8 @@ jobs:
       contents: read
     secrets: inherit
   build:
-    name: Build verified production artifact
+    name: Build verified Worker-only artifact
+    if: ${{ inputs.worker_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
@@ -50,7 +51,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: ${{ inputs.worker_only && '24' || needs.frontend.outputs.node_version }}
+          node-version: 24
           cache: pnpm
           cache-dependency-path: |
             package.json
@@ -61,7 +62,6 @@ jobs:
         run: node scripts/external-repositories.mjs checkout
       - name: Set up the locked Vega Rust and WASM toolchain
         uses: ./.dependencies/vega/.github/actions/setup-wasm
-        if: ${{ inputs.worker_only }}
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
       - name: Verify external repository compatibility lock
@@ -73,50 +73,22 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_EC2_METADATA_DISABLED: "true"
-        if: ${{ inputs.worker_only }}
       - name: Build shared engine and application packages
         run: pnpm build:packages
-        if: ${{ inputs.worker_only }}
-      - name: Restore verified shared compilation inputs
-        if: ${{ !inputs.worker_only }}
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ needs.frontend.outputs.inputs_artifact }}
-          path: .output
-      - name: Verify and materialize shared compilation outputs
-        if: ${{ !inputs.worker_only }}
-        run: node scripts/build/static-build-inputs.mjs restore --manifest .output/static-frozen-inputs/manifest.json --root
-          "$PWD" --source-root "$PWD"
-      - name: Restore complete verified frontend
-        if: ${{ !inputs.worker_only }}
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ needs.frontend.outputs.frontend_artifact }}
-          path: .output/restore-frontend
-      - name: Verify complete frontend source identity
-        if: ${{ !inputs.worker_only }}
-        run: |-
-          tar -xf .output/restore-frontend/frontend-checkpoint.tar
-          test "$(cat .output/frontend-checkpoint.source)" = "$GITHUB_SHA"
-          pnpm runtime:cubism:verify-output
       - name: Check resource pipeline
         run: |
           python3 -m unittest discover -s scripts/garupa_master/tests -t .
       - name: Check Worker types
         run: pnpm typecheck:worker
       - name: Prepare verified Worker publication
-        run: node scripts/deploy/worker-publication.mjs prepare ${{ inputs.worker_only && '--worker-only' || '' }}
+        run: node scripts/deploy/worker-publication.mjs prepare --worker-only
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Archive verified publication
         shell: bash
         run: |
-          publication_paths=(.output/deployment)
-          if [ "${{ inputs.worker_only }}" != "true" ]; then
-            publication_paths+=(.output/public .output/static-documents/publication.json .output/static-documents/references.json)
-          fi
-          tar -cf .output/worker-publication.tar "${publication_paths[@]}"
+          tar -cf .output/worker-publication.tar .output/deployment
       - name: Save verified publication artifact
         uses: actions/upload-artifact@v7
         with:
@@ -126,12 +98,10 @@ jobs:
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
-    needs: frontend
-    if: always() && (inputs.worker_only || needs.frontend.result == 'success')
   deploy:
     name: Publish verified production artifact
-    needs: build
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    needs: [frontend, build]
+    if: ${{ always() && !cancelled() && ((inputs.worker_only && needs.build.result == 'success') || (!inputs.worker_only && needs.frontend.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -185,6 +155,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_TOKEN: ${{ github.token }}
           HANEOKA_PUBLICATION_LOCK: cloudflare-production-publish
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      - name: Save successful static deployment receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: static-deployment-${{ github.sha }}-${{ github.run_id }}
+          path: .output/deployment/successful-static-deployment.json
+          retention-days: 30
+          if-no-files-found: ignore
 concurrency:
   group: cloudflare-production-build-${{ inputs.worker_only && 'worker' || 'frontend' }}
   cancel-in-progress: false

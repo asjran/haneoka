@@ -44,6 +44,84 @@ export function copyOnce(source, destination) {
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL);
 }
+export async function catalogCacheKey() {
+  const origin = process.env.STATIC_CATALOG_ORIGIN || "https://haneoka.org";
+  const servers = [
+    ...new Set(["jp", "intl", ...(process.env.STATIC_RESOURCE_SERVERS || "").split(",").filter(Boolean)]),
+  ].sort();
+  const pins = await Promise.all(
+    servers.map(async (server) => {
+      const response = await fetch(
+        new URL(`/api/v1/servers/${encodeURIComponent(server)}/release?projection=identity`, origin),
+        {
+          method: "HEAD",
+          signal: AbortSignal.timeout(15000),
+          headers: process.env.STATIC_CATALOG_TOKEN
+            ? { "x-haneoka-build-token": process.env.STATIC_CATALOG_TOKEN }
+            : {},
+        },
+      );
+      const releaseId = response.headers.get("x-haneoka-release-id");
+      const sourceId = response.headers.get("x-haneoka-source-id");
+      if (!response.ok || !/^r-[a-f0-9]{20}$/u.test(releaseId || "") || !sourceId)
+        throw new Error(`Catalog cache identity is unavailable: ${server}`);
+      return { server, releaseId, sourceId };
+    }),
+  );
+  return sha256(JSON.stringify(pins));
+}
+export function compactCatalogCache(root, capture) {
+  const base = path.resolve(root, capture);
+  const manifest = metadataFile(path.join(base, "capture.json"));
+  const pins = new Map();
+  for (const record of manifest.records) {
+    if (record.role !== "native-pin" || record.format !== "json") continue;
+    const body = fs.readFileSync(path.join(base, "content", record.sha256));
+    if (sha256(body) !== record.sha256 || body.length !== record.bytes) throw new Error("Catalog cache pin differs");
+    const pin = JSON.parse(body);
+    if (!/^[a-z0-9-]+$/u.test(pin.server) || !/^r-[a-f0-9]{20}$/u.test(pin.releaseId))
+      throw new Error("Invalid catalog cache pin");
+    pins.set(pin.server, pin.releaseId);
+  }
+  if (!pins.size) throw new Error("Captured catalog cache pins are missing");
+  let removed = 0;
+  for (const [server, current] of pins) {
+    const directory = path.join(root, "data/static-catalog/v1", server);
+    if (!fs.existsSync(directory)) continue;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true }))
+      if (entry.isDirectory() && /^r-[a-f0-9]{20}$/u.test(entry.name) && entry.name !== current) {
+        fs.rmSync(path.join(directory, entry.name), { recursive: true });
+        removed++;
+      }
+  }
+  const liveBlobs = new Set(),
+    manifests = new Set();
+  for (const record of manifest.records) {
+    if (record.format !== "json" || !record.key.startsWith("native-json:") || !record.key.endsWith("\0release"))
+      continue;
+    const body = fs.readFileSync(path.join(base, "content", record.sha256));
+    if (sha256(body) !== record.sha256 || body.length !== record.bytes)
+      throw new Error("Cached release manifest differs");
+    const release = JSON.parse(body);
+    if (pins.get(release.server) !== release.releaseId || !Array.isArray(release.entries)) continue;
+    manifests.add(release.server);
+    for (const entry of release.entries) if (/^[a-f0-9]{64}$/u.test(entry.sha256)) liveBlobs.add(entry.sha256);
+  }
+  const blobs = path.join(root, "data/static-catalog/blobs/v1");
+  let removedBlobs = 0,
+    removedBlobBytes = 0;
+  if (manifests.size === pins.size && fs.existsSync(blobs))
+    for (const file of listFiles(blobs)) {
+      const match = /^([a-f0-9]{2})\/([a-f0-9]{64})$/u.exec(file);
+      if (match && match[2].startsWith(match[1]) && !liveBlobs.has(match[2])) {
+        const target = path.join(blobs, file);
+        removedBlobBytes += fs.statSync(target).size;
+        fs.unlinkSync(target);
+        removedBlobs++;
+      }
+    }
+  return { pins: Object.fromEntries(pins), removed, removedBlobs, removedBlobBytes };
+}
 function metadataFile(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
@@ -286,7 +364,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     },
   });
   const mode = positionals[0];
-  if (mode === "freeze" && values.root && (values.spec || values.capture) && values.output)
+  if (mode === "catalog-cache-key") {
+    try {
+      console.log(await catalogCacheKey());
+    } catch (error) {
+      console.warn(error instanceof Error ? error.message : String(error));
+      console.log(`unavailable-${process.env.GITHUB_RUN_ID || Date.now()}`);
+    }
+  } else if (mode === "compact-catalog-cache" && values.root && values.capture)
+    console.log(JSON.stringify(compactCatalogCache(path.resolve(values.root), values.capture)));
+  else if (mode === "freeze" && values.root && (values.spec || values.capture) && values.output)
     console.log(
       JSON.stringify(
         await freezeInputs({

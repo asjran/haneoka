@@ -64,6 +64,8 @@ const releasePromises = new Map<string, Promise<StaticCatalogRelease>>();
 const requestPromises = new Map<string, Promise<unknown>>();
 const localCatalogs = new Map<string, ReleaseCatalog | null>();
 const releaseEntries = new WeakMap<RecordValue, Map<string, RecordValue>>();
+const blobMetrics = { hits: 0, fetches: 0, hitBytes: 0, fetchedBytes: 0 };
+export const staticCatalogBlobMetrics = () => ({ ...blobMetrics });
 
 function releaseManifestEntry(manifest: RecordValue, relative: string): RecordValue | undefined {
   let entries = releaseEntries.get(manifest);
@@ -449,15 +451,43 @@ async function releaseBytes(relative: string, server: string, pinned: StaticCata
     !Number.isSafeInteger(entry.bytes)
   )
     throw new StaticCatalogConsistencyError(`Release file not declared: ${relative}`);
+  const cacheFile = nodePath.join(
+    process.cwd(),
+    "data/static-catalog/blobs/v1",
+    entry.sha256.slice(0, 2),
+    entry.sha256,
+  );
+  if (fs.existsSync(cacheFile)) {
+    try {
+      const body = fs.readFileSync(cacheFile);
+      if (body.length === entry.bytes && createHash("sha256").update(body).digest("hex") === entry.sha256) {
+        blobMetrics.hits++;
+        blobMetrics.hitBytes += body.length;
+        return body;
+      }
+    } catch {
+      /* Rebuild an unavailable immutable cache entry from the pinned release. */
+    }
+  }
   const [tree, ...parts] = relative.split("/");
   const url = new URL(`/${tree}/${encodeURIComponent(server)}/${parts.map(encodeURIComponent).join("/")}`, ORIGIN);
   url.searchParams.set("release", pinned.releaseId);
   const response = await fetchResponse(relative, server, pinned.releaseId, "GET", pinned.sourceId, url.toString());
+  blobMetrics.fetches++;
   try {
     observedRelease(response, pinned);
     const body = Buffer.from(await response.arrayBuffer());
     if (body.length !== entry.bytes || createHash("sha256").update(body).digest("hex") !== entry.sha256)
       throw new StaticCatalogConsistencyError(`Release file hash mismatch: ${relative}`);
+    blobMetrics.fetchedBytes += body.length;
+    const temporary = `${cacheFile}.${process.pid}.tmp`;
+    try {
+      fs.mkdirSync(nodePath.dirname(cacheFile), { recursive: true });
+      fs.writeFileSync(temporary, body);
+      fs.renameSync(temporary, cacheFile);
+    } catch (error) {
+      console.warn(`Static catalog: could not cache release file ${entry.sha256}`, error);
+    }
     return body;
   } finally {
     await releaseResponseBody(response);
@@ -586,39 +616,49 @@ export async function fetchStaticCatalogBatch(
   if (!ids.length) return items;
   const pinned = release || (await staticCatalogRelease(server));
   const size = 80;
-  for (let start = 0; start < ids.length; start += size) {
-    const selected = ids.slice(start, start + size);
-    const query = selected.map((id) => `id=${encodeURIComponent(id)}`).join("&");
-    const document =
-      process.env.STATIC_BUILD_INPUT_MODE === "frozen"
-        ? {
-            items: Object.fromEntries(
-              await Promise.all(
-                [...new Set(selected)].sort().map(async (id) => [
-                  id,
-                  await staticBuildJson(
-                    `native-entity:${requestKey(`${resource}/${encodeURIComponent(id)}`, server, pinned)}`,
-                    "native-catalog",
-                    async () => {
-                      throw new Error("Frozen entity is missing");
-                    },
-                  ),
-                ]),
+  const batches = Array.from({ length: Math.ceil(ids.length / size) }, (_, index) => index * size);
+  const results = new Map<number, Record<string, unknown>>();
+  let cursor = 0;
+  const loadBatch = async () => {
+    while (cursor < batches.length) {
+      const start = batches[cursor++]!;
+      const selected = ids.slice(start, start + size);
+      const query = selected.map((id) => `id=${encodeURIComponent(id)}`).join("&");
+      const document =
+        process.env.STATIC_BUILD_INPUT_MODE === "frozen"
+          ? {
+              items: Object.fromEntries(
+                await Promise.all(
+                  [...new Set(selected)].sort().map(async (id) => [
+                    id,
+                    await staticBuildJson(
+                      `native-entity:${requestKey(`${resource}/${encodeURIComponent(id)}`, server, pinned)}`,
+                      "native-catalog",
+                      async () => {
+                        throw new Error("Frozen entity is missing");
+                      },
+                    ),
+                  ]),
+                ),
               ),
-            ),
-          }
-        : asRecord(await fetchStaticCatalog(`${resource}?${query}`, server, pinned));
-    if (!document || !asRecord(document.items)) {
-      throw new Error(`Static catalog returned an invalid ${resource} batch response`);
+            }
+          : asRecord(await fetchStaticCatalog(`${resource}?${query}`, server, pinned));
+      if (!document || !asRecord(document.items)) {
+        throw new Error(`Static catalog returned an invalid ${resource} batch response`);
+      }
+      const batch = asRecord(document.items)!;
+      const missing = selected.filter((id) => !asRecord(batch[id]));
+      if (missing.length)
+        throw new StaticCatalogConsistencyError(`Static catalog ${resource} batch omitted: ${missing.join(", ")}`);
+      results.set(start, batch);
     }
-    for (const [id, value] of Object.entries(asRecord(document.items) || {})) {
+  };
+  await Promise.all(Array.from({ length: Math.min(4, batches.length) }, loadBatch));
+  for (const start of batches)
+    for (const [id, value] of Object.entries(results.get(start)!)) {
       const record = asRecord(value);
       if (record) items.set(id, record);
     }
-    const missing = ids.slice(start, start + size).filter((id) => !items.has(id));
-    if (missing.length)
-      throw new StaticCatalogConsistencyError(`Static catalog ${resource} batch omitted: ${missing.join(", ")}`);
-  }
   // Cross-server page details request these same full entities after payload batches.
   // Seed only complete batches; keep the batch caller's objects independent.
   for (const id of new Set(ids)) {

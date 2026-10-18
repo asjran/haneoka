@@ -17,29 +17,57 @@ interface StaticBuildPath {
   props?: Record<string, unknown>;
 }
 
+export function staticRenderPartition(value = process.env.STATIC_BUILD_PARTITION) {
+  if (!value) return undefined;
+  const match = /^(\d+)\/(\d+)$/u.exec(value);
+  const index = Number(match?.[1]);
+  const count = Number(match?.[2]);
+  if (!match || count < 2 || count > 8 || index < 0 || index >= count)
+    throw new Error("STATIC_BUILD_PARTITION must be index/count with 2–8 partitions");
+  return { index, count };
+}
+
+export function staticRenderPartitionForPath(pathname: string, count: number): number {
+  return createHash("sha256").update(pathname).digest().readUInt32BE(0) % count;
+}
+
 /** Matches Astro's parameter normalization before its directory-format output. */
 function physicalPath(sourcePattern: string, params: StaticBuildPath["params"]): string {
   const endpoint = sourcePattern.endsWith(".json.ts");
-  const route = sourcePattern.replace(/^src\/pages\//u, "")
+  const route = sourcePattern
+    .replace(/^src\/pages\//u, "")
     .replace(/\.(?:astro|ts)$/u, "")
     .replace(/(?:^|\/)index$/u, "")
     .split("/")
-    .map((segment) => segment.replace(/\[(\.\.\.)?([\w$]+)\]/gu, (_, spread, key: string) => {
-      const value = params[key];
-      if (value === undefined) {
-        if (spread) return "";
-        throw new Error(`Missing static route parameter: ${sourcePattern}:${key}`);
-      }
-      return String(value).replace(/^\/+|\/+$/gu, "").normalize().replaceAll("#", "%23").replaceAll("?", "%3F");
-    }).normalize().replaceAll("#", "%23").replaceAll("?", "%3F"))
-    .filter(Boolean).join("/");
+    .map((segment) =>
+      segment
+        .replace(/\[(\.\.\.)?([\w$]+)\]/gu, (_, spread, key: string) => {
+          const value = params[key];
+          if (value === undefined) {
+            if (spread) return "";
+            throw new Error(`Missing static route parameter: ${sourcePattern}:${key}`);
+          }
+          return String(value)
+            .replace(/^\/+|\/+$/gu, "")
+            .normalize()
+            .replaceAll("#", "%23")
+            .replaceAll("?", "%3F");
+        })
+        .normalize()
+        .replaceAll("#", "%23")
+        .replaceAll("?", "%3F"),
+    )
+    .filter(Boolean)
+    .join("/");
   return endpoint ? `/${route}` : `/${route}${route ? "/" : ""}index.html`;
 }
 
 function recordPaths(sourcePattern: string, paths: readonly StaticBuildPath[]): void {
   const root = process.env.STATIC_BUILD_INPUT_ROOT;
   if (!root) throw new Error("STATIC_BUILD_INPUT_ROOT is required for route preparation");
-  const sourceSha256 = createHash("sha256").update(fs.readFileSync(path.resolve(sourcePattern))).digest("hex");
+  const sourceSha256 = createHash("sha256")
+    .update(fs.readFileSync(path.resolve(sourcePattern)))
+    .digest("hex");
   const routes = paths.map((entry) => {
     const astroPathname = physicalPath(sourcePattern, entry.params);
     const documentPath = staticDocumentLookupPath(astroPathname);
@@ -59,9 +87,16 @@ function recordPaths(sourcePattern: string, paths: readonly StaticBuildPath[]): 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    fs.writeFileSync(temporary, JSON.stringify({
-      schema: "haneoka-static-route-plan-v1", sourcePattern, sourceSha256, routes,
-    }), { flag: "wx" });
+    fs.writeFileSync(
+      temporary,
+      JSON.stringify({
+        schema: "haneoka-static-route-plan-v1",
+        sourcePattern,
+        sourceSha256,
+        routes,
+      }),
+      { flag: "wx" },
+    );
     fs.renameSync(temporary, file);
   } finally {
     fs.rmSync(temporary, { force: true });
@@ -77,7 +112,15 @@ export function staticBuildPaths<T extends StaticBuildPath>(sourcePattern: strin
   const locale = process.env.STATIC_BUILD_LOCALE;
   if (!locale) return paths;
   if (!isLocale(locale)) throw new Error("Invalid STATIC_BUILD_LOCALE");
-  if (process.env.STATIC_BUILD_INPUT_MODE !== "frozen")
-    throw new Error("Locale shards require frozen build inputs");
-  return paths.filter((entry) => entry.params.locale === undefined ? locale === "ja" : entry.params.locale === locale);
+  if (process.env.STATIC_BUILD_INPUT_MODE !== "frozen") throw new Error("Locale shards require frozen build inputs");
+  const selected = paths.filter((entry) =>
+    entry.params.locale === undefined ? locale === "ja" : entry.params.locale === locale,
+  );
+  const partition = staticRenderPartition();
+  return partition
+    ? selected.filter(
+        (entry) =>
+          staticRenderPartitionForPath(physicalPath(sourcePattern, entry.params), partition.count) === partition.index,
+      )
+    : selected;
 }

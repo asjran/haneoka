@@ -8,7 +8,12 @@ import { searchableModelPages } from "../lib/searchable-models";
 import { searchableStoryPages } from "../lib/searchable-stories";
 import { searchableHelpPages } from "../lib/searchable-help";
 import { crossCatalogRows, isCrossCatalogResource } from "../lib/cross-server/definitions";
-import { fetchStaticCatalog, primeStaticCatalogBatch, staticCatalogRelease } from "../lib/static-catalog-source";
+import {
+  fetchStaticCatalog,
+  primeStaticCatalogBatch,
+  staticCatalogRelease,
+  staticCatalogBlobMetrics,
+} from "../lib/static-catalog-source";
 import { appRelease } from "./app-release";
 import { publicForumDirectory } from "./public-forum-directory";
 import { homePageData } from "./home-page-data";
@@ -35,6 +40,17 @@ import {
 import { chartRates } from "./chart-rates";
 import { finishStaticBuildInputs } from "./static-input-store";
 
+async function prepareAll(tasks: Array<() => Promise<unknown>>): Promise<void> {
+  let cursor = 0;
+  const results = await Promise.allSettled(
+    Array.from({ length: Math.min(4, tasks.length) }, async () => {
+      while (cursor < tasks.length) await tasks[cursor++]!();
+    }),
+  );
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed?.status === "rejected") throw failed.reason;
+}
+
 /** Execute production data producers once before locale render workers start. */
 export async function prepareStaticInputs(): Promise<void> {
   if (process.env.STATIC_BUILD_INPUT_MODE !== "capture") throw new Error("Static preparation requires capture mode");
@@ -44,11 +60,20 @@ export async function prepareStaticInputs(): Promise<void> {
     const pin = await staticCatalogRelease(server);
     console.log(`capture native ${server}/${pin.releaseId}`);
     const pages = await searchableCatalogPages(server);
-    await assetPageData(server);
+    await prepareAll([
+      () => assetPageData(server),
+      () => skillCatalogPayload(server),
+      () => publicSongsPageData(server),
+      () => teamBuilderPageData(server),
+      () => chartRates(server),
+      () => songPuzzlePageData(server),
+    ]);
     if (configured.includes(server)) {
-      await searchableModelPages(server);
-      await searchableStoryPages(server);
-      await searchableHelpPages(server);
+      await prepareAll([
+        () => searchableModelPages(server),
+        () => searchableStoryPages(server),
+        () => searchableHelpPages(server),
+      ]);
       const first = pages.find((page) =>
         ENTITY_PAYLOAD_RESOURCES.includes(page.resource as (typeof ENTITY_PAYLOAD_RESOURCES)[number]),
       );
@@ -58,21 +83,19 @@ export async function prepareStaticInputs(): Promise<void> {
         if (first) await catalogSystemEntityData(kind, server, first.id);
       }
     }
-    for (const resource of ENTITY_PAYLOAD_RESOURCES) {
-      if (!isCrossCatalogResource(resource)) continue;
-      const document = await fetchStaticCatalog(resource, server, pin);
-      await primeStaticCatalogBatch(resource, Object.keys(crossCatalogRows(resource, document)), server, pin);
-    }
-    await skillCatalogPayload(server);
-    await publicSongsPageData(server);
-    await teamBuilderPageData(server);
-    await chartRates(server);
-    await songPuzzlePageData(server);
+    await prepareAll(
+      ENTITY_PAYLOAD_RESOURCES.filter(isCrossCatalogResource).map((resource) => async () => {
+        const document = await fetchStaticCatalog(resource, server, pin);
+        await primeStaticCatalogBatch(resource, Object.keys(crossCatalogRows(resource, document)), server, pin);
+      }),
+    );
     for (const locale of LOCALES) {
       console.log(`capture localized ${server}/${locale}`);
-      await homePageData(server, locale);
-      await loadCalendarData(server, locale);
-      await announcementPageData(server, locale);
+      const tasks: Array<() => Promise<unknown>> = [
+        () => homePageData(server, locale),
+        () => loadCalendarData(server, locale),
+        () => announcementPageData(server, locale),
+      ];
       for (const route of ROUTES) {
         if (
           route.kind === "catalog" &&
@@ -80,21 +103,25 @@ export async function prepareStaticInputs(): Promise<void> {
           !route.resource.startsWith("anon-tokyo/") &&
           !["live2d", "spine", "stories", "help"].includes(route.resource)
         )
-          await catalogCollectionData(route.resource, server, locale);
+          tasks.push(() => catalogCollectionData(route.resource!, server, locale));
       }
-      for (const kind of ["missions", "studio", "tgw-card"] as const) await catalogSystemData(kind, server, locale);
-      for (const mode of ANON_TOKYO_MODES) await catalogSystemData("anon-tokyo", server, locale, mode);
+      for (const kind of ["missions", "studio", "tgw-card"] as const)
+        tasks.push(() => catalogSystemData(kind, server, locale));
+      for (const mode of ANON_TOKYO_MODES) tasks.push(() => catalogSystemData("anon-tokyo", server, locale, mode));
       for (const resource of ["stories", "live2d", "spine", "help"] as const)
-        await workspaceCollectionData(resource, server, locale);
+        tasks.push(() => workspaceCollectionData(resource, server, locale));
+      await prepareAll(tasks);
     }
   }
-  await appRelease();
-  await publicForumDirectory();
-  await rankingCardsPageData();
-  await eventTrackerPageData();
-  await stampMakerPageData();
-  await sonolusHubPageData();
-  await playlistPageData();
+  await prepareAll([
+    appRelease,
+    publicForumDirectory,
+    rankingCardsPageData,
+    eventTrackerPageData,
+    stampMakerPageData,
+    sonolusHubPageData,
+    playlistPageData,
+  ]);
   for (const locale of LOCALES) {
     console.log(`capture provider ${locale}`);
     await providerCollectionData("bestdori", locale, "songs");
@@ -120,6 +147,7 @@ export async function prepareStaticInputs(): Promise<void> {
     JSON.stringify({
       captured: manifest?.records.length,
       files: manifest?.files.length,
+      nativeBlobs: staticCatalogBlobMetrics(),
       unavailableInputs: manifest?.records.filter((record) => record.format === "error").map((record) => record.key),
     }),
   );

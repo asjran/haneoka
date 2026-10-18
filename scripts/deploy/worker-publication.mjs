@@ -177,16 +177,20 @@ async function readLiveAssets(ownMessage) {
     const bytes = Buffer.from(await response.arrayBuffer());
     const body = bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipSync(bytes) : bytes;
     const publication = JSON.parse(body);
+    const contentStorage = publication.contentStorage || "r2";
     if (
       publication.schema !== "haneoka-static-publication-root-v1" ||
       publication.indexes?.length !== 256 ||
-      publication.documents < 1
+      publication.documents < 1 ||
+      !["r2", "worker-assets"].includes(contentStorage) ||
+      (contentStorage === "worker-assets" && publication.assetRoot !== "/provider-static/content")
     )
       throw new Error("Active static publication is incomplete");
     staticIdentity = {
       kind: "publication-root",
       sha256: digest(body),
       documents: publication.documents,
+      contentStorage,
     };
   } else if (response.status === 404) {
     // Deployments preceding the publication root retain their version's complete assets through keep_assets.
@@ -435,14 +439,61 @@ if (mode === "prepare") {
         await new Promise((resolve) => setTimeout(resolve, attempt * 5_000));
       }
     }
+    const after = await liveAssets();
+    assert.equal(after.workerMessage, message, "Another Worker became active after publication");
+    assert.equal(
+      after.publicationSha256,
+      prior?.publicationSha256 || manifest.frontend.publicationSha256,
+      "Active static publication differs from the verified artifact",
+    );
     if (manifest.workerOnly) {
-      const after = await liveAssets();
       assert.equal(
         after.publicationSha256,
         prior.publicationSha256,
         "Static publication changed during Worker-only deploy",
       );
       assert.equal(after.assetsConfigSha256, prior.assetsConfigSha256, "Static asset routing changed");
+    }
+    if (after.staticIdentity.kind === "publication-root") {
+      const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+      const bucket = original.r2_buckets.find((binding) => binding.binding === "ASSET_BUCKET")?.bucket_name;
+      const body = JSON.stringify({
+        schema: "haneoka-static-deployment-receipt-v1",
+        sourceSha,
+        publicationSha256: after.publicationSha256,
+        contentStorage: after.staticIdentity.contentStorage,
+        workerVersionId: after.versionId,
+        deploymentId: after.deploymentId,
+        workflowRunId: process.env.GITHUB_RUN_ID,
+        observedAt: new Date().toISOString(),
+      });
+      const file = path.join(output, "successful-static-deployment.json");
+      fs.writeFileSync(file, body);
+      const key = `static-documents/v1/deployments/${digest(body)}.json`;
+      if (!/^[a-f0-9]{32}$/u.test(account || "") || !/^[a-z0-9][a-z0-9.-]*$/u.test(bucket || "") ||
+        !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+        console.warn("Static deployment registration credentials unavailable; saved receipt artifact");
+      } else {
+        try {
+          execFileSync(
+            "aws",
+            [
+              "s3", "cp", file, `s3://${bucket}/${key}`,
+              "--endpoint-url", `https://${account}.r2.cloudflarestorage.com`, "--region", "auto",
+              "--no-progress", "--only-show-errors", "--content-type", "application/json",
+              "--cache-control", "public,max-age=31536000,immutable",
+            ],
+            {
+              cwd: root,
+              stdio: "inherit",
+              env: { ...process.env, AWS_RETRY_MODE: "standard", AWS_MAX_ATTEMPTS: "5", AWS_EC2_METADATA_DISABLED: "true" },
+            },
+          );
+          console.log(`registered successful static deployment ${after.versionId}: ${after.publicationSha256}`);
+        } catch {
+          console.warn("Static deployment registration upload failed; saved receipt artifact");
+        }
+      }
     }
   }
 }

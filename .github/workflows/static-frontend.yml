@@ -53,6 +53,14 @@ jobs:
             .gitmodules
         id: node
       - run: node scripts/external-repositories.mjs checkout
+      - name: Restore locked WASM CLI
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/bin/wasm-bindgen*
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: wasm-bindgen-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dependencies/vega/Cargo.lock') }}
       - uses: ./.dependencies/vega/.github/actions/setup-wasm
       - run: pnpm install --frozen-lockfile
       - run: pnpm dependencies:verify
@@ -62,12 +70,17 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_EC2_METADATA_DISABLED: "true"
+      - name: Resolve current catalog cache identities
+        id: catalog-identity
+        run: echo "key=$(node scripts/build/static-build-inputs.mjs catalog-cache-key)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@v6
         id: catalog-cache
         with:
-          path: data/static-catalog/v1
-          key: static-catalog-v1-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: static-catalog-v1-${{ runner.os }}-
+          path: |
+            data/static-catalog/v1
+            data/static-catalog/blobs/v1
+          key: static-catalog-current-v2-${{ runner.os }}-${{ steps.catalog-identity.outputs.key }}
+          restore-keys: static-catalog-current-v2-${{ runner.os }}-
       - uses: actions/cache/restore@v6
         id: embed-cache
         with:
@@ -111,6 +124,7 @@ jobs:
         run: |
           node scripts/build/prepare-static-inputs.mjs
           STATIC_BUILD_PHASE=prepare pnpm exec astro build
+          node scripts/build/static-build-inputs.mjs compact-catalog-cache --root "$PWD" --capture "$STATIC_BUILD_INPUT_ROOT"
       - name: Verify and freeze complete shared inputs
         id: freeze
         run: |
@@ -130,7 +144,9 @@ jobs:
       - uses: actions/cache/save@v6
         if: always() && steps.catalog-cache.outputs.cache-primary-key != '' && steps.catalog-cache.outputs.cache-hit != 'true'
         with:
-          path: data/static-catalog/v1
+          path: |
+            data/static-catalog/v1
+            data/static-catalog/blobs/v1
           key: ${{ steps.catalog-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@v6
         if: always() && steps.embed-cache.outputs.cache-primary-key != '' && steps.embed-cache.outputs.cache-hit != 'true'
@@ -148,7 +164,8 @@ jobs:
           path: data/static-render/model-v1
           key: ${{ steps.render-cache.outputs.cache-primary-key }}
       - uses: actions/cache/save@v6
-        if: always() && steps.provider-http-cache.outputs.cache-primary-key != '' && steps.provider-http-cache.outputs.cache-hit
+        if:
+          always() && steps.provider-http-cache.outputs.cache-primary-key != '' && steps.provider-http-cache.outputs.cache-hit
           != 'true'
         with:
           path: data/provider-static/http-cache
@@ -162,9 +179,69 @@ jobs:
             data/provider-static/entities/payloads
             data/provider-static/entities/receipts
           key: ${{ steps.provider-snapshot-cache.outputs.cache-primary-key }}
+  render:
+    name: Render ${{ matrix.locale }} partition ${{ matrix.partition }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        locale:
+          - en
+          - ja
+          - ko
+          - zh-CN
+          - zh-TW
+        partition: [0, 1, 2]
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+      STATIC_PAGE_GROUPS: ${{ inputs.page_groups }}
+      STATIC_RESOURCE_SERVERS: ${{ inputs.resource_servers }}
+      STATIC_CATALOG_SOURCE: http
+      STATIC_BUILD_INPUT_MODE: frozen
+      STATIC_BUILD_INPUT_ROOT: data/static-build/inputs
+      STATIC_BUILD_LOCALE: ${{ matrix.locale }}
+      STATIC_BUILD_PARTITION: ${{ matrix.partition }}/3
+      ASTRO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ needs.prepare.outputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: node scripts/external-repositories.mjs checkout
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare.outputs.artifact }}
+          path: .output
+      - name: Restore verified common artifacts and immutable inputs
+        run: |
+          node scripts/build/static-build-inputs.mjs restore --manifest .output/static-frozen-inputs/manifest.json --root "$PWD" --source-root "$PWD"
+          pnpm dependencies:verify
+      - name: Render and verify the assigned complete pages
+        run: |
+          pnpm exec astro build
+          node scripts/build/static-build-shards.mjs seal-render --root "$PWD" --locale "$STATIC_BUILD_LOCALE" --partition "$STATIC_BUILD_PARTITION" --plan .output/static-shard-plan.json --output .output/static-render-part
+          tar --use-compress-program="zstd -T2 -3" -cf .output/static-render-part.tar.zst -C .output/static-render-part .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: static-render-${{ needs.prepare.outputs.inputs_sha }}-${{ matrix.locale }}-${{ matrix.partition }}
+          path: .output/static-render-part.tar.zst
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
   locale:
     name: Render complete ${{ matrix.locale }} frontend
-    needs: prepare
+    needs: [prepare, render]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -207,9 +284,18 @@ jobs:
         run: |
           node scripts/build/static-build-inputs.mjs restore --manifest .output/static-frozen-inputs/manifest.json --root "$PWD" --source-root "$PWD"
           pnpm dependencies:verify
-      - name: Render, index and pack the complete locale
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: static-render-${{ needs.prepare.outputs.inputs_sha }}-${{ matrix.locale }}-*
+          path: .output/static-render-archives
+      - name: Merge every rendered page, then index and pack once
         run: |
-          pnpm exec astro build
+          for partition in 0 1 2; do
+            mkdir -p ".output/static-render-parts/$partition"
+            tar --zstd -xf ".output/static-render-archives/static-render-${{ needs.prepare.outputs.inputs_sha }}-${{ matrix.locale }}-$partition/static-render-part.tar.zst" -C ".output/static-render-parts/$partition"
+          done
+          node scripts/build/static-build-shards.mjs merge-render --locale "$STATIC_BUILD_LOCALE" --plan .output/static-shard-plan.json --parts .output/static-render-parts --output .output/static-render-merged
+          cp -a .output/static-render-merged/. .output/
           pnpm finalize:frontend
           node scripts/build/static-build-shards.mjs seal --root "$PWD" --locale "$STATIC_BUILD_LOCALE" --plan .output/static-shard-plan.json --output .output/static-part
       - uses: actions/upload-artifact@v7
@@ -252,7 +338,8 @@ jobs:
         with:
           name: ${{ needs.prepare.outputs.artifact }}
           path: .output
-      - run: node scripts/build/static-build-inputs.mjs restore --manifest .output/static-frozen-inputs/manifest.json --root
+      - run:
+          node scripts/build/static-build-inputs.mjs restore --manifest .output/static-frozen-inputs/manifest.json --root
           "$PWD" --source-root "$PWD"
       - uses: actions/download-artifact@v8
         with:
@@ -270,24 +357,26 @@ jobs:
             test -s ".output/public/embed/${entry}.js"
           done
           test -s .output/public/embed/manifest.json
-      - name: Publish complete immutable documents once
-        run: |
-          aws configure set default.s3.max_concurrent_requests 64
-          node scripts/build/publish-static-documents.mjs
+      - name: Verify complete immutable asset documents
+        run: node scripts/build/publish-static-documents.mjs
+      - name: Check resource pipeline
+        run: python3 -m unittest discover -s scripts/garupa_master/tests -t .
+      - name: Check Worker types
+        run: pnpm typecheck:worker
+      - name: Prepare verified Worker publication
+        run: node scripts/deploy/worker-publication.mjs prepare
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      - name: Archive complete qualified frontend
+      - name: Archive complete qualified publication
         id: archive
         run: |
-          git rev-parse HEAD > .output/frontend-checkpoint.source
-          tar -cf .output/frontend-checkpoint.tar .output/frontend-checkpoint.source .output/public .output/static-documents/publication.json .output/static-documents/references.json
-          echo "artifact=frontend-checkpoint-${{ github.sha }}-${{ github.run_id }}-${{ needs.prepare.outputs.inputs_sha }}" >> "$GITHUB_OUTPUT"
+          tar -cf .output/worker-publication.tar .output/deployment .output/public .output/static-documents/publication.json .output/static-documents/references.json
+          echo "artifact=worker-publication-${{ github.sha }}-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.archive.outputs.artifact }}
-          path: .output/frontend-checkpoint.tar
+          path: .output/worker-publication.tar
           include-hidden-files: true
           compression-level: 0
           retention-days: 7

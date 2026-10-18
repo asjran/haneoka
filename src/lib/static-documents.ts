@@ -6,6 +6,19 @@ import { parseResourceRoute, isStoryMode } from "./resource-route.ts";
 export const STATIC_DOCUMENT_SCHEMA = "haneoka-static-documents-v2";
 export const STATIC_DOCUMENT_INDEX_ROOT = "/provider-static/index";
 export const STATIC_DOCUMENT_CONTENT_ROOT = "static-documents/v1/content";
+export const STATIC_DOCUMENT_ASSET_ROOT = "/provider-static/content";
+export const STATIC_DOCUMENT_CONTENT_INDEX_ROOT = "/provider-static/content-index";
+export const STATIC_DOCUMENT_CONTENT_INDEX_SCHEMA = "haneoka-static-content-index-v1";
+export const STATIC_DOCUMENT_PACK_BYTES = 1024 * 1024;
+export const staticDocumentPackPath = (sha256: string): string => `${STATIC_DOCUMENT_ASSET_ROOT}/pack-${sha256}.bin`;
+export interface StaticDocumentContentLocation {
+  packSha256: string;
+  offset: number;
+  gzipBytes: number;
+  packBytes: number;
+}
+/** The .bin extension keeps precompressed bytes opaque to the asset server. */
+export const staticDocumentAssetPath = (sha256: string): string => `${STATIC_DOCUMENT_ASSET_ROOT}/${sha256}.bin`;
 export const STATIC_DOCUMENT_UNDERLAY_START = "<!--haneoka-static-underlay:start-->";
 export const STATIC_DOCUMENT_UNDERLAY_END = "<!--haneoka-static-underlay:end-->";
 export function acceptsGzip(value: string | null): boolean {
@@ -109,11 +122,16 @@ export function coreStaticDocumentPath(pathname: string): string | undefined {
   if (/[\\\u0000-\u001f\u007f]/u.test(pathname) || pathname.includes("//")) return;
   const parts = pathname.split("/").filter(Boolean);
   try {
-    if (parts.some((part) => {
-      const value = decodeURIComponent(part);
-      return value === "." || value === ".." || /[\\/\u0000-\u001f\u007f]/u.test(value);
-    })) return;
-  } catch { return; }
+    if (
+      parts.some((part) => {
+        const value = decodeURIComponent(part);
+        return value === "." || value === ".." || /[\\/\u0000-\u001f\u007f]/u.test(value);
+      })
+    )
+      return;
+  } catch {
+    return;
+  }
   if (pathname.endsWith("/index.html")) return pathname;
   if (!pathname.endsWith("/")) return;
   return `${pathname.replace(/\/+$/u, "")}/index.html`;

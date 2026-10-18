@@ -9,6 +9,7 @@ import { beginStaticDocumentsBuild } from "./src/server/static-documents.ts";
 import { installProviderDevRouting } from "./src/server/provider-dev-routing.ts";
 import { modelRenderCachePlugin } from "./scripts/build/model-render-cache.mjs";
 import { staticBuildSourceIdentity } from "./src/server/static-build-identity.ts";
+import { webBuildIdentity } from "./src/server/web-build-identity.ts";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -26,10 +27,11 @@ const workspaceFiles = [
     ...linkedDirectories.map((directory) => searchForWorkspaceRoot(directory)),
   ]),
 ];
-/** Identifies one deployment; an open tab compares it with /build.json to offer a reload. */
+/** The deployment remains bound to its source commit; clients compare the Web input identity. */
 const buildId = String(
   process.env.GITHUB_SHA || (process.env.STATIC_BUILD_INPUT_MODE ? staticBuildSourceIdentity(root).sha : Date.now()),
 ).slice(0, 12);
+const webBuildId = webBuildIdentity(root, buildId);
 const proxyTarget = String(process.env.LOCAL_WORKER_ORIGIN || process.env.LOCAL_RELEASE_ORIGIN || "").trim();
 const providerTarget = String(process.env.BESTDORI_PROVIDER_ORIGIN || process.env.LOCAL_WORKER_ORIGIN || "").trim();
 const publicResourceProxy = {
@@ -84,13 +86,13 @@ export default defineConfig({
       hooks: {
         "astro:build:done": async ({ dir }) => {
           await finishStaticBuildInputs();
-          await writeFile(new URL("build.json", dir), JSON.stringify({ id: buildId }));
+          await writeFile(new URL("build.json", dir), JSON.stringify({ id: buildId, web: webBuildId }));
         },
       },
     },
   ],
   vite: {
-    define: { __BUILD_ID__: JSON.stringify(buildId) },
+    define: { __WEB_BUILD_ID__: JSON.stringify(webBuildId) },
     worker: { format: "es" },
     build: {
       cssMinify: "lightningcss",

@@ -1,7 +1,32 @@
 import fallback from "../config/app-release.json";
 import { staticBuildJson } from "./static-input-store";
 
-export type AppRelease = typeof fallback;
+export interface AppRelease {
+  tag_name: string;
+  html_url: string;
+  published_at: string;
+  assets: {
+    name: string;
+    size: number;
+    browser_download_url: string;
+    digest?: string | null;
+  }[];
+}
+
+/** Stable public release data; asset names retain platform, architecture and format. */
+export function normalizeAppRelease(value: AppRelease): AppRelease {
+  return {
+    tag_name: value.tag_name,
+    html_url: value.html_url,
+    published_at: value.published_at,
+    assets: value.assets.map((asset) => ({
+      name: asset.name,
+      size: asset.size,
+      browser_download_url: asset.browser_download_url,
+      ...(asset.digest !== undefined ? { digest: asset.digest } : {}),
+    })),
+  };
+}
 let release: Promise<AppRelease> | undefined;
 /** Resolve once per build; a verified release keeps downloads available offline. */
 export function appRelease(): Promise<AppRelease> {
@@ -27,11 +52,11 @@ export function appRelease(): Promise<AppRelease> {
         ) {
           throw new Error("Invalid app release");
         }
-        return data;
+        return normalizeAppRelease(data);
       })
       .catch((error) => {
         console.warn("Using bundled Haneoka app release:", error.message);
-        return fallback;
+        return normalizeAppRelease(fallback);
       }),
   ));
 }

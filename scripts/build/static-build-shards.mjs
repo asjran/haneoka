@@ -4,9 +4,13 @@ import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { gunzipSync } from "node:zlib";
-import { sha256, safeRelative, listFiles, fileDigest } from "./static-build-inputs.mjs";
+import { sha256, safeRelative, listFiles, fileDigest, copyOnce } from "./static-build-inputs.mjs";
 import { staticBuildSourceIdentity } from "../../src/server/static-build-identity.ts";
-import { staticPageGroupEnabled } from "../../src/server/static-build.ts";
+import {
+  staticPageGroupEnabled,
+  staticRenderPartition,
+  staticRenderPartitionForPath,
+} from "../../src/server/static-build.ts";
 import {
   STATIC_DOCUMENT_SCHEMA,
   staticDocumentShard,
@@ -18,6 +22,7 @@ const LOCALES = ["en", "ja", "ko", "zh-CN", "zh-TW"];
 const SEARCH_LANG = { en: "en", ja: "ja-jp", ko: "ko", "zh-CN": "zh-cn", "zh-TW": "zh-tw" };
 const PLAN_SCHEMA = "haneoka-static-shard-plan-v1";
 const PART_SCHEMA = "haneoka-static-shard-part-v1";
+const RENDER_SCHEMA = "haneoka-static-render-part-v1";
 const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 const writeJson = (file, value) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -44,7 +49,10 @@ function assetOwner(relative) {
 }
 function generatedIndex(relative) {
   return (
-    /^provider-static\/index\/[a-f0-9]{2}\.json$/u.test(relative) || relative === "provider-static/publication.json.gz"
+    /^provider-static\/index\/[a-f0-9]{2}\.json$/u.test(relative) ||
+    /^provider-static\/content\/(?:pack-)?[a-f0-9]{64}\.bin$/u.test(relative) ||
+    /^provider-static\/content-index\/[a-f0-9]{2}\.json$/u.test(relative) ||
+    relative === "provider-static/publication.json.gz"
   );
 }
 function linkOnce(source, target) {
@@ -263,6 +271,150 @@ export function restrictShardCoverage(root, locale) {
     coverage.expectedDocuments = coverage.expectedPaths.length;
     writeJson(file, coverage);
   }
+}
+
+export async function sealRenderPartition({ root, locale, partition: selected, planFile, output }) {
+  const { plan, sha256: planSha256 } = readPlan(planFile);
+  const partition = staticRenderPartition(selected);
+  if (!partition || !LOCALES.includes(locale) || fs.existsSync(output)) throw new Error("Invalid render partition");
+  const planned = new Map(
+    plan.routes.filter((row) => row.locale === locale).map((row) => [row.astroPathname.slice(1), row]),
+  );
+  const expected = [...planned.keys()]
+    .filter((file) => staticRenderPartitionForPath(`/${file}`, partition.count) === partition.index)
+    .sort();
+  const files = [];
+  for (const relative of listFiles(path.join(root, ".output/public"))) {
+    const route = planned.get(relative);
+    if (route && staticRenderPartitionForPath(`/${relative}`, partition.count) !== partition.index)
+      throw new Error(`Unowned rendered route: ${relative}`);
+    const owner = assetOwner(relative);
+    if (owner !== "shared" && owner !== locale && !route) continue;
+    const source = path.join(root, ".output/public", relative);
+    const file = `public/${relative}`;
+    files.push({ path: file, ...(await fileDigest(source)) });
+    linkOnce(source, path.join(output, file));
+  }
+  const rendered = new Set(files.map((file) => file.path.slice(7)));
+  for (const file of expected) if (!rendered.has(file)) throw new Error(`Missing rendered route: ${file}`);
+  for (const directory of ["content", "coverage"]) {
+    const base = path.join(root, ".output/static-documents", directory);
+    if (!fs.existsSync(base)) continue;
+    for (const relative of listFiles(base)) {
+      const source = path.join(base, relative),
+        file = `static-documents/${directory}/${relative}`;
+      files.push({ path: file, ...(await fileDigest(source)) });
+      linkOnce(source, path.join(output, file));
+    }
+  }
+  const log = path.join(root, ".output/static-documents/documents.jsonl");
+  files.push({ path: "static-documents/documents.jsonl", ...(await fileDigest(log)) });
+  copyOnce(log, path.join(output, "static-documents/documents.jsonl"));
+  const coverage = path.join(root, ".output/static-documents/coverage.json");
+  if (fs.existsSync(coverage)) {
+    files.push({ path: "static-documents/coverage.json", ...(await fileDigest(coverage)) });
+    copyOnce(coverage, path.join(output, "static-documents/coverage.json"));
+  }
+  writeJson(path.join(output, "render.json"), {
+    schema: RENDER_SCHEMA,
+    locale,
+    partition,
+    planSha256,
+    generation: plan.generation,
+    expected,
+    files,
+  });
+  return { locale, partition, routes: expected.length, files: files.length };
+}
+
+export async function mergeRenderPartitions({ planFile, partsRoot, output, locale }) {
+  const { plan, sha256: planSha256 } = readPlan(planFile);
+  if (!LOCALES.includes(locale) || fs.existsSync(output)) throw new Error("Invalid render merge output");
+  const planned = new Set(plan.routes.filter((row) => row.locale === locale).map((row) => row.astroPathname.slice(1)));
+  const parts = fs
+    .readdirSync(partsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(partsRoot, entry.name));
+  const files = new Map(),
+    rendered = new Set(),
+    records = new Map(),
+    indexes = new Set();
+  let count, clients;
+  for (const partRoot of parts) {
+    const part = readJson(path.join(partRoot, "render.json"));
+    const partition = staticRenderPartition(`${part.partition?.index}/${part.partition?.count}`);
+    if (
+      part.schema !== RENDER_SCHEMA ||
+      part.locale !== locale ||
+      part.planSha256 !== planSha256 ||
+      indexes.has(partition.index)
+    )
+      throw new Error("Render partition identity differs");
+    assert.deepEqual(part.generation, plan.generation);
+    if (count === undefined) count = partition.count;
+    else assert.equal(count, partition.count);
+    indexes.add(partition.index);
+    const expected = [...planned]
+      .filter((file) => staticRenderPartitionForPath(`/${file}`, count) === partition.index)
+      .sort();
+    const expectedPaths = new Set(expected);
+    assert.deepEqual(part.expected, expected, "Render partition route coverage differs");
+    const own = new Set();
+    for (const file of part.files) {
+      safeRelative(file.path);
+      if (own.has(file.path) || !/^(?:public|static-documents)\//u.test(file.path))
+        throw new Error("Invalid render partition file");
+      own.add(file.path);
+      const source = path.join(partRoot, file.path);
+      assert.deepEqual(
+        await fileDigest(source),
+        { sha256: file.sha256, bytes: file.bytes },
+        `Rendered file differs: ${file.path}`,
+      );
+      if (file.path === "static-documents/documents.jsonl") {
+        for (const line of fs.readFileSync(source, "utf8").split("\n").filter(Boolean)) {
+          const { pathname, ...record } = JSON.parse(line);
+          if (!isStaticDocumentRecord(record) || records.has(pathname))
+            throw new Error(`Duplicate rendered document: ${pathname}`);
+          records.set(pathname, record);
+        }
+        continue;
+      }
+      if (file.path.startsWith("public/") && planned.has(file.path.slice(7))) {
+        const route = file.path.slice(7);
+        if (!expectedPaths.has(route) || rendered.has(route)) throw new Error(`Unowned rendered page: ${route}`);
+        rendered.add(route);
+      }
+      const previous = files.get(file.path);
+      if (previous) assert.deepEqual(previous, file, `Conflicting shared render asset: ${file.path}`);
+      else {
+        files.set(file.path, file);
+        linkOnce(source, path.join(output, file.path));
+      }
+    }
+    assert.deepEqual(
+      listFiles(partRoot)
+        .filter((file) => file !== "render.json")
+        .sort(),
+      [...own].sort(),
+      "Unverified render files",
+    );
+    const ownClients = [...own].filter((file) => /^public\/_astro\/[^/]+\.(?:js|css)$/u.test(file)).sort();
+    if (clients) assert.deepEqual(ownClients, clients, "Render client asset sets differ");
+    else clients = ownClients;
+  }
+  if (indexes.size !== count || rendered.size !== planned.size || [...planned].some((file) => !rendered.has(file)))
+    throw new Error("Incomplete rendered locale");
+  const log = path.join(output, "static-documents/documents.jsonl");
+  fs.mkdirSync(path.dirname(log), { recursive: true });
+  fs.writeFileSync(
+    log,
+    [...records]
+      .sort(([a], [b]) => a.localeCompare(b, "en"))
+      .map(([pathname, record]) => JSON.stringify({ pathname, ...record }) + "\n")
+      .join(""),
+  );
+  return { locale, partitions: indexes.size, routes: rendered.size, assets: files.size, earlyDocuments: records.size };
 }
 
 export async function sealPublication({ root, locale, planFile, output }) {
@@ -556,10 +708,30 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       inputs: { type: "string" },
       routes: { type: "string" },
       locale: { type: "string" },
+      partition: { type: "string" },
     },
   });
   const mode = positionals[0];
-  if (mode === "plan" && values.inputs && values.routes && values.output) {
+  if (mode === "seal-render" && values.root && values.locale && values.partition && values.plan && values.output) {
+    report(
+      await sealRenderPartition({
+        root: path.resolve(values.root),
+        locale: values.locale,
+        partition: values.partition,
+        planFile: values.plan,
+        output: path.resolve(values.output),
+      }),
+    );
+  } else if (mode === "merge-render" && values.locale && values.plan && values.parts && values.output) {
+    report(
+      await mergeRenderPartitions({
+        planFile: values.plan,
+        partsRoot: values.parts,
+        output: path.resolve(values.output),
+        locale: values.locale,
+      }),
+    );
+  } else if (mode === "plan" && values.inputs && values.routes && values.output) {
     report(
       createFrozenShardPlan({
         inputManifest: values.inputs,
