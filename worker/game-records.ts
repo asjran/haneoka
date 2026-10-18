@@ -262,6 +262,7 @@ type RankedRow = SongRankingRowDto & { sourceIndex: number };
 const normalizeRankingRow = (value: unknown, sourceIndex: number, region: GameRecordsRegion): RankedRow => {
   const entry = asObject(value);
   const player = asObject(entry.playerData);
+  const favorite = asObject(player.favoriteMemberCard);
   const deck = asObject(entry.highScoreDeck);
   const cards = asArray(deck.cards)
     .slice(0, 5)
@@ -275,7 +276,10 @@ const normalizeRankingRow = (value: unknown, sourceIndex: number, region: GameRe
     profileId: textOrNull(player.profileId),
     name: typeof player.name === "string" ? player.name : "",
     rankExp: finiteNumber(player.rankExp),
-    favoriteMemberCardId: safeInteger(asObject(player.favoriteMemberCard).cardId),
+    favoriteMemberCardId: safeInteger(favorite.cardId),
+    favoriteMemberExp: finiteNumber(favorite.exp),
+    favoriteMemberAwakeCount: safeInteger(favorite.awakeCount),
+    favoriteMemberRank: safeInteger(favorite.cardRank),
     score: finiteNumber(entry.score),
     deckId: safeInteger(deck.id),
     deckName: textOrNull(deck.name),
@@ -663,6 +667,7 @@ const jsonResponse = (request: Request, body: string): Response =>
 const cacheRequest = (request: Request): Request => {
   const url = new URL(request.url);
   url.search = "";
+  if (url.pathname.endsWith("/ranking")) url.searchParams.set("avatar", "growth-v1");
   if (url.pathname.startsWith(`${GAME_RECORDS_API_PREFIX}/jp/`)) url.searchParams.set("schema", "jp-profile-v2");
   url.hash = "";
   return new Request(url, { method: "GET" });

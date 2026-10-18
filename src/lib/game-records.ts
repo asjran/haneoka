@@ -36,6 +36,10 @@ export interface SongRankingRowDto {
   name: string;
   rankExp: number | null;
   favoriteMemberCardId: number | null;
+  /** Favourite-card growth from playerData, independent of the high-score deck. */
+  favoriteMemberExp?: number | null;
+  favoriteMemberAwakeCount?: number | null;
+  favoriteMemberRank?: number | null;
   score: number | null;
   deckId: number | null;
   deckName: string | null;
