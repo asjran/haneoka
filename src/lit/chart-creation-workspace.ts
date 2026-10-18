@@ -243,6 +243,14 @@ export class ChartCreationWorkspace extends LitElement {
     return (this.editingSnapshot = { project, scope: this.collectionScope, view }).view;
   }
   private history = new ProjectHistory(createEmptyProject());
+  private static suspendedDraft?: Promise<ReturnType<ChartCreationWorkspace["captureDraft"]>>;
+  private static suspendedUnsaved = false;
+  private static protectSuspendedDraft = (event: BeforeUnloadEvent) => {
+    if (!ChartCreationWorkspace.suspendedUnsaved) return;
+    event.preventDefault();
+    event.returnValue = "";
+  };
+  private operation: Promise<void> = Promise.resolve();
   private original = createEmptyProject();
   private projectSnapshot?: { revision: number; value: Project };
   private warningSnapshot?: { revision: number; format: ExportFormat; value: ReturnType<typeof getExportDiagnostics> };
@@ -453,7 +461,7 @@ export class ChartCreationWorkspace extends LitElement {
     this.panelMedia = matchMedia("(max-width: 959px)");
     this.panelMedia.addEventListener("change", this.mediaChanged);
     this.mediaChanged();
-    this.addEventListener("keydown", this.keydown);
+    document.addEventListener("keydown", this.keydown);
     window.addEventListener("beforeunload", this.beforeUnload);
     this.unlocale = initializeI18nClient().subscribe((catalog) => {
       this.locale = catalog.locale;
@@ -466,7 +474,20 @@ export class ChartCreationWorkspace extends LitElement {
       this.rebuildPreview();
       this.paint();
     });
-    void this.run(async () => {
+    void this.run(async (signal) => {
+      const suspended = ChartCreationWorkspace.suspendedDraft;
+      if (suspended) {
+        const draft = await suspended;
+        signal.throwIfAborted();
+        this.projectSnapshot = undefined;
+        this.warningSnapshot = undefined;
+        Object.assign(this, draft);
+        this.viewProjectId = this.projectId;
+        ChartCreationWorkspace.suspendedDraft = undefined;
+        ChartCreationWorkspace.suspendedUnsaved = false;
+        window.removeEventListener("beforeunload", ChartCreationWorkspace.protectSuspendedDraft);
+        this.rebuildPreview(draft.seconds);
+      }
       this.documents = await this.store.list();
     });
   }
@@ -476,13 +497,14 @@ export class ChartCreationWorkspace extends LitElement {
     this.releasePanelFocus?.();
     this.focusedPanel = undefined;
     clearAppBarActions(this.toolbarOwner);
-    this.removeEventListener("keydown", this.keydown);
+    document.removeEventListener("keydown", this.keydown);
     cancelAnimationFrame(this.cursorFrame);
     this.cursorFrame = 0;
     this.cursor = undefined;
     window.removeEventListener("beforeunload", this.beforeUnload);
     this.cancelGesture();
     this.cancelWidth();
+    this.suspendDraft();
     this.pan = undefined;
     this.controller?.abort();
     this.preview?.dispose();
@@ -492,11 +514,12 @@ export class ChartCreationWorkspace extends LitElement {
     void this.canvasTheme?.dispose();this.canvasTheme=undefined;
     this.observer?.disconnect();
     this.unlocale?.();
-    void this.store.close().catch(() => {});
+    void this.operation.then(() => this.store.close()).catch(() => {});
     super.disconnectedCallback();
   }
   private statusShown = "";
   protected updated() {
+    if (!this.isConnected) return;
     if (this.status !== this.statusShown) {
       this.statusShown = this.status;
       if (this.status) snackbar(this.status);
@@ -519,7 +542,40 @@ export class ChartCreationWorkspace extends LitElement {
       });
     }
   }
-  private async run(action: (signal: AbortSignal) => Promise<void>) {
+  private captureDraft() {
+    return {
+      history: this.history, original: this.original, source: this.source,
+      projectId: this.projectId, head: this.head, activeRevision: this.activeRevision,
+      audio: this.audio, dirty: this.dirty, conflict: this.conflict, revisions: this.revisions,
+      previewIdentity: this.previewIdentity, collectionScope: this.collectionScope,
+      selected: this.selected, selectedIds: this.selectedIds, clipboard: this.clipboard,
+      seconds: this.seconds, windowStart: this.windowStart, laneStart: this.laneStart,
+      zoomX: this.zoomX, secondsPerScreen: this.secondsPerScreen,
+      tool: this.tool, defaultWidth: this.defaultWidth, critical: this.critical,
+      direction: this.direction, snap: this.snap, relativeSnap: this.relativeSnap,
+      insertLane: this.insertLane, multiPick: this.multiPick, brushPreset: this.brushPreset,
+      followPlayback: this.followPlayback, exportFormat: this.exportFormat,
+      rate: this.rate, nativeOptions: this.nativeOptions, nativeSkin: this.nativeSkin,
+    };
+  }
+  private suspendDraft() {
+    if (!this.audio) return;
+    // Astro keeps modules alive across page swaps, including history traversal.
+    // Wait for an in-flight save so its new revision is restored with the draft.
+    const draft = this.operation.then(() => this.captureDraft());
+    ChartCreationWorkspace.suspendedDraft = draft;
+    ChartCreationWorkspace.suspendedUnsaved = this.dirty || this.busy;
+    window.addEventListener("beforeunload", ChartCreationWorkspace.protectSuspendedDraft);
+    void draft.then(value => {
+      if (ChartCreationWorkspace.suspendedDraft === draft)
+        ChartCreationWorkspace.suspendedUnsaved = value.dirty;
+    });
+  }
+  private run(action: (signal: AbortSignal) => Promise<void>): Promise<void> {
+    if (this.busy) return Promise.resolve();
+    return this.operation = this.perform(action);
+  }
+  private async perform(action: (signal: AbortSignal) => Promise<void>) {
     if (this.busy) return;
     this.cancelGesture();
     this.cancelWidth();
@@ -1104,21 +1160,26 @@ export class ChartCreationWorkspace extends LitElement {
     }
   };
   private keydown = (event: KeyboardEvent) => {
-    if (this.busy || this.nativeUpdating || event.defaultPrevented || event.isComposing || event.repeat) return;
+    if (!this.isConnected || this.busy || this.nativeUpdating || event.defaultPrevented || event.isComposing || event.repeat) return;
+    const path = event.composedPath();
+    if (!path.some(node => node === this || node instanceof HTMLElement && node.dataset.appBarOwner === this.toolbarOwner)) return;
+    if (document.querySelector("dialog[open]")) return;
     if (
-      event
-        .composedPath()
+      path
         .some(
           (node) =>
             node instanceof HTMLElement &&
             (node.matches(
-              "button,a[href],input,textarea,select,[role=button],[role=radio],[role=checkbox],[role=combobox],[role=slider],[role=switch],[role=option],[role=textbox]",
+              "input,textarea,select,[role=combobox],[role=slider],[role=switch],[role=option],[role=textbox]",
             ) ||
-              node.localName.startsWith("md-") ||
+              node.matches("md-outlined-text-field,md-outlined-select,md-slider,md-checkbox,md-switch") ||
               node.isContentEditable),
         )
     )
       return;
+    if ([" ", "Enter", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)
+      && path.some(node => node instanceof HTMLElement && node.matches("button,a[href],[role=button],[role=radio],[role=checkbox]"))) return;
+    if (event.altKey && !["ArrowUp", "ArrowDown"].includes(event.key)) return;
     if (this.stageMode === "preview") {
       if (!this.nativeSelectionReady && event.key !== "Escape") return;
       if (this.nativeGesture) {
@@ -2319,7 +2380,8 @@ export class ChartCreationWorkspace extends LitElement {
         }}
           @input=${(event: Event) => {
           const size = Number((event.target as HTMLInputElement).value);
-          selected ? this.previewWidth(size) : this.setDefaultWidth(size);
+          if (selected) this.previewWidth(size);
+          else this.setDefaultWidth(size);
         }}
           @change=${(event: Event) => {
           if (selected) this.commitWidth(Number((event.target as HTMLInputElement).value));
@@ -2340,7 +2402,8 @@ export class ChartCreationWorkspace extends LitElement {
           const raw = (event.target as HTMLInputElement).value;
           const size = raw.trim() ? Number(raw) : NaN;
           this.widthCancelled = false;
-          selected ? this.commitWidth(size) : this.setDefaultWidth(size);
+          if (selected) this.commitWidth(size);
+          else this.setDefaultWidth(size);
         }}
         ></md-outlined-text-field>
       </div>
