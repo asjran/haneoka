@@ -271,7 +271,8 @@ class GachaHistoryWorkspace extends HTMLElement {
     view.showAppLink = true;
     view.catalogLoading = this.catalogRequests.has(server);
     view.catalogError =
-      this.catalogErrors.get(server) || (snapshot && !catalog ? this.t("errorCatalogUnavailable") : "");
+      this.catalogErrors.get(server) ||
+      (snapshot?.batches.length && !catalog ? this.t("errorCatalogUnavailable") : "");
     view.canRetryCatalog = true;
   }
 }

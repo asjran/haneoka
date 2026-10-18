@@ -2,97 +2,10 @@ import type { GachaHistoryBatch, GachaHistoryPool, GachaHistoryPrize } from "./g
 import { localizedText } from "../lit/shared/catalog";
 import { resourcePath } from "./resource-route";
 
-export const HISTORY_SCHEMA = "haneoka-gacha-history-v1";
-export const HISTORY_BYTES = 16 * 1024 * 1024;
-export const HISTORY_REGIONS = ["jp", "global-hmt", "global-en", "global-kr"] as const;
-export type HistoryRegion = (typeof HISTORY_REGIONS)[number];
-export interface HistoryPrize {
-  prizeId: string;
-  converted: boolean;
-}
-export interface HistoryExecution {
-  poolId: string | null;
-  productId: string | null;
-  executedAt: number | null;
-  freeGems: number | null;
-  paidGems: number | null;
-  tickets: number | null;
-  prizes: HistoryPrize[];
-}
-export interface HistorySnapshot {
-  schema: typeof HISTORY_SCHEMA;
-  source: { server: HistoryRegion; clientVersion: string };
-  queriedAt: string;
-  historyKind: string;
-  legacyOmittedCount: number;
-  coverage: { scope: string; retentionDays: null; orderWithinBatch: null };
-  batches: HistoryExecution[];
-}
-export const historyObject = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-function amount(value: unknown, maximum = 2147483647): number | null {
-  if (value == null) return null;
-  const result = typeof value === "number" ? value : /^\d+$/u.test(String(value)) ? Number(value) : NaN;
-  if (!Number.isSafeInteger(result) || result < 0 || result > maximum) throw new Error("history_import_invalid");
-  return result;
-}
-function id(value: unknown, nullable = false): string | null {
-  if (value == null && nullable) return null;
-  const text = String(value);
-  if (!/^[1-9][0-9]{0,18}$/u.test(text) || BigInt(text) > 9223372036854775807n)
-    throw new Error("history_import_invalid");
-  return text;
-}
-/** Projects the portable contract; credentials and unrelated save fields never enter history storage. */
-export function parseHistory(value: unknown): HistorySnapshot {
-  const root = historyObject(value),
-    source = historyObject(root.source),
-    coverage = historyObject(root.coverage);
-  if (root.schema !== HISTORY_SCHEMA && !(root.format === "otonote-gacha-history" && root.schemaVersion === 1))
-    throw new Error("history_import_invalid");
-  const server = source.server ?? source.serverId;
-  if (
-    !(HISTORY_REGIONS as readonly unknown[]).includes(server) ||
-    !Array.isArray(root.batches) ||
-    root.batches.length > 100000
-  )
-    throw new Error("history_import_invalid");
-  if (typeof root.queriedAt !== "string" || !Number.isFinite(Date.parse(root.queriedAt)))
-    throw new Error("history_import_invalid");
-  let count = 0;
-  const batches = root.batches.map((value): HistoryExecution => {
-    const row = historyObject(value);
-    if (!Array.isArray(row.prizes) || !row.prizes.length) throw new Error("history_import_invalid");
-    return {
-      poolId: id(row.poolId, true),
-      productId: id(row.productId, true),
-      executedAt: amount(row.executedAt, 253402271999),
-      freeGems: amount(row.freeGems),
-      paidGems: amount(row.paidGems),
-      tickets: amount(row.tickets),
-      prizes: row.prizes.map((value): HistoryPrize => {
-        const prize = historyObject(value);
-        if (++count > 250000 || typeof prize.converted !== "boolean") throw new Error("history_import_invalid");
-        return { prizeId: id(prize.prizeId)!, converted: prize.converted };
-      }),
-    };
-  });
-  return {
-    schema: HISTORY_SCHEMA,
-    source: { server: server as HistoryRegion, clientVersion: String(source.clientVersion ?? "").slice(0, 32) },
-    queriedAt: new Date(root.queriedAt).toISOString(),
-    historyKind: String(root.historyKind ?? coverage.historyKind ?? "execution").slice(0, 32),
-    legacyOmittedCount: amount(root.legacyOmittedCount ?? coverage.legacyOmittedCount) ?? 0,
-    coverage: {
-      scope: ["server-returned", "local-collected", "selected-records"].includes(String(coverage.scope))
-        ? String(coverage.scope)
-        : "server-returned",
-      retentionDays: null,
-      orderWithinBatch: null,
-    },
-    batches,
-  };
-}
+import { historyObject, type HistorySnapshot } from "@haneoka/game-data-exporter/gacha-history";
+
+export * from "@haneoka/game-data-exporter/gacha-history";
+
 export interface HistoryCatalogData {
   metadata: Record<string, unknown>;
   pools: Record<string, unknown>;
@@ -101,40 +14,6 @@ export interface HistoryCatalogData {
   items: Record<string, unknown>;
 }
 
-/** Union snapshots of one known account, preserving repeated identical draws. */
-export function mergeHistory(newer: HistorySnapshot, older: HistorySnapshot): HistorySnapshot {
-  if (newer.source.server !== older.source.server) throw new Error("history_import_invalid");
-  if (!newer.batches.length && older.batches.length)
-    return {
-      ...newer,
-      batches: older.batches,
-      historyKind: older.historyKind,
-      coverage: { ...newer.coverage, scope: "local-collected" },
-    };
-  if (newer.historyKind !== older.historyKind) return newer;
-  const identity = (row: HistoryExecution) =>
-    JSON.stringify([
-      row.poolId,
-      row.productId,
-      row.executedAt,
-      row.freeGems,
-      row.paidGems,
-      row.tickets,
-      row.prizes.map((prize) => `${prize.prizeId}:${prize.converted}`).sort(),
-    ]);
-  const remaining = new Map<string, number>(),
-    batches = [...newer.batches];
-  for (const row of newer.batches) remaining.set(identity(row), (remaining.get(identity(row)) ?? 0) + 1);
-  for (const row of older.batches) {
-    const key = identity(row),
-      count = remaining.get(key) ?? 0;
-    if (count) remaining.set(key, count - 1);
-    else batches.push(row);
-  }
-  return batches.length === newer.batches.length
-    ? newer
-    : { ...newer, batches, coverage: { ...newer.coverage, scope: "local-collected" } };
-}
 export function historyPoolViews(
   catalog: HistoryCatalogData,
   locale: string,

@@ -1,0 +1,103 @@
+{
+  "schema": "our-notes-connect-wall-material-v1",
+  "profile": "simple",
+  "sourceQualification": "Formal1.0.6/v70 Source tracer; actual100040 Expert106.45–106.526 geometry, exact formal MyGO/Jacket background pixels with cover fit, #03030a clear color, #0000004d mask and qualified Stage sprite/default opacity. RGB correction only; alpha and non-wall sprites remain exact.",
+  "curves": [
+    {
+      "path": "shared/src/engine/data/connectWallDraw.generated.ts",
+      "sha256": "dc838f1da29239bd7d87c78a445757edd13ac6d72fcfec0b12755803df380592"
+    },
+    {
+      "path": "shared/src/engine/data/connectWallEnvelope.generated.ts",
+      "sha256": "fc4c57b78e71edb122ed24e3379f985d99fca2ef62d3d92181af92e7670df0be"
+    },
+    {
+      "path": "shared/src/engine/data/connectWallDrawContract.ts",
+      "sha256": "c679aa9f9f874381e17a3592c5321720cbc1dcc3ba99e08b5ffaea040f283841"
+    }
+  ],
+  "sprites": [
+    {
+      "name": "Our Notes Source Connect Draw simple 05",
+      "correction": [
+        0.033,
+        0.15,
+        0.7739999999999999
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Draw simple 03",
+      "correction": [
+        0.7739999999999999,
+        0.7739999999999999,
+        0.7739999999999999
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Draw simple 04",
+      "correction": [
+        0.1,
+        0.058,
+        0.7739999999999999
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Draw simple 01",
+      "correction": [
+        0.7739999999999999,
+        0.7739999999999999,
+        0.7739999999999999
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Draw simple 02",
+      "correction": [
+        0.7739999999999999,
+        0.7739999999999999,
+        0.7739999999999999
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "skin": "skin001",
+      "rgbaSha256": "76b2f078a886a0a2c68fbac3fa4e0dad02955ca8dc57adebb5752681f5385b96",
+      "metadataSha256": "85efc203156a377a0487ff0691440903ba6a0538fbc5797a68b70506ba852da8"
+    },
+    {
+      "skin": "skin002",
+      "rgbaSha256": "2f9100e829f523b3c131b2248f2e6aa0e72098621e9538a4ce8a9eb2b485532e",
+      "metadataSha256": "aba319f7dd6a586605e5ce2affe7446444d1668ca65e6024ad74b5e4cbf5c109"
+    },
+    {
+      "skin": "skin003",
+      "rgbaSha256": "38190f168de064825d138fa5cd8b38ccdb19686a08e2e22880dda7b79d9ee5f7",
+      "metadataSha256": "49ef4ba9b22d054467b09caac1dc10d26fe4083326f1ad5020c9026c8d17197a"
+    }
+  ],
+  "admission": {
+    "reference": "1080p per-pixel Source-baker material target",
+    "denseHoldout": {
+      "106.475000-dense-lightweight_background.png": {
+        "beforeRms": 54.80228402304312,
+        "afterRms": 45.24664739896988,
+        "relativeReduction": 0.1743656636656844,
+        "fixedAlphaAnyRgbLowerBoundRms": 19.72601931219979
+      },
+      "106.475000-dense-jkt_002_100040.png": {
+        "beforeRms": 60.44291308270082,
+        "afterRms": 50.37133007526068,
+        "relativeReduction": 0.16662967573484966,
+        "fixedAlphaAnyRgbLowerBoundRms": 20.732273959292748
+      }
+    },
+    "componentRmsIncreaseLimit": 0.25,
+    "maximumActualComponentRmsIncrease": 0.0693250634053656,
+    "componentAdmission": "Both actual component times constrain the fit; dense holdout excluded from optimization. Decoded quantized atlas replay must satisfy the component limit.",
+    "nativePhoneQualification": "pending",
+    "rgbSearchBounds": [
+      -0.3,
+      1
+    ]
+  }
+}

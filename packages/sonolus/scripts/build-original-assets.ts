@@ -165,6 +165,17 @@ function connectFrameCacheInput() {
   };
 }
 
+function connectWallMaterialInput() {
+  const digest = (path: string) =>
+    createHash("sha256")
+      .update(readFileSync(resolve(root, path)))
+      .digest("hex");
+  return {
+    recipeSha256: digest("packages/sonolus/assets/native-particles/connect-wall-material.v1.json"),
+    producerSha256: digest("packages/sonolus/scripts/connect-wall-material-assets.ts"),
+  };
+}
+
 if (
   process.argv.includes("--particle-cache-key") ||
   process.argv.includes("--particle-base-cache-key")
@@ -176,6 +187,7 @@ if (
       : particleCacheKey({
           connectWall: connectWallCacheInput(baseKey),
           frame: connectFrameCacheInput(),
+          wallMaterial: connectWallMaterialInput(),
         }),
   );
   process.exit(0);
@@ -396,6 +408,13 @@ try {
   ) as ReturnType<typeof buildConnectFrameDrawAssets>;
   console.log(
     `Connect frame Draw: ${frame.skins[0]!.addedSprites} sprites per skin, ${frameReused ? "reused verified cache" : "built from fixed Source bank"}`,
+  );
+
+  const { buildConnectWallMaterialAssets } = await import("./connect-wall-material-assets.ts");
+  buildConnectWallMaterialAssets(
+    out,
+    resolve(root, "packages/sonolus/assets/native-particles/connect-wall-material.v1.json"),
+    engineRoot,
   );
 
   const referencedParticleNames = new Set<string>();
