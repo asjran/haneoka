@@ -11,7 +11,9 @@ import re
 import sys
 import time
 import urllib.request
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta, timezone
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,19 @@ ROOT_KEY = re.compile(rf"^{PUBLICATIONS}({HEX})\.json$")
 RECEIPT_KEY = re.compile(rf"^{DEPLOYMENTS}({HEX})\.json$")
 MAX_ROOT_BYTES = 64 * 1024 * 1024
 MAX_RECEIPT_BYTES = 64 * 1024
+INVENTORY_SCHEMA = "haneoka-static-document-inventory-v1"
+
+
+def parallel(function: Any, values: Any, concurrency: int):
+    source = iter(values)
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        pending = {pool.submit(function, value) for value in islice(source, concurrency)}
+        while pending:
+            ready, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in ready:
+                yield future.result()
+                for value in islice(source, 1):
+                    pending.add(pool.submit(function, value))
 
 
 def stamp(value: datetime) -> str:
@@ -136,8 +151,8 @@ def active_publication(origin: str) -> dict[str, Any]:
 
 
 def metadata(row: dict[str, Any]) -> dict[str, Any]:
-    key, size = row.get("Key", row.get("key")), row.get("Size", row.get("size"))
-    modified = row.get("LastModified", row.get("last_modified", row.get("uploaded")))
+    key, size = row.get("Key", row.get("key")), row.get("Size", row.get("size", row.get("bytes")))
+    modified = row.get("LastModified", row.get("last_modified", row.get("uploaded", row.get("modified"))))
     etag = row.get("ETag", row.get("etag"))
     if (not isinstance(key, str) or not key.startswith(PREFIX) or not positive(size, zero=True)
             or not isinstance(etag, str) or not etag):
@@ -151,7 +166,7 @@ def content_digest(key: str) -> str | None:
 
 
 class Remote:
-    def __init__(self, bucket: str):
+    def __init__(self, bucket: str, concurrency: int = 8):
         import boto3
         from botocore.config import Config
 
@@ -159,9 +174,12 @@ class Remote:
         if not re.fullmatch(r"[a-f0-9]{32}", account) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", bucket):
             raise ValueError("Invalid static R2 account/bucket")
         self.bucket = bucket
+        self.account = account
+        self.concurrency = concurrency
         self.client = boto3.client(
             "s3", endpoint_url=f"https://{account}.r2.cloudflarestorage.com", region_name="auto",
-            config=Config(retries={"max_attempts": 5, "mode": "standard"}, connect_timeout=10, read_timeout=120),
+            config=Config(retries={"max_attempts": 5, "mode": "standard"}, connect_timeout=10,
+                          read_timeout=120, max_pool_connections=concurrency),
         )
 
     def list(self, prefix: str) -> list[dict[str, Any]]:
@@ -172,6 +190,71 @@ class Remote:
             if number % 25 == 0:
                 print(f"Listed {number} static namespace pages", file=sys.stderr)
             time.sleep(0.15)
+        return rows
+
+    def scopes(self) -> tuple[list[dict[str, Any]], list[str]]:
+        rows, scopes = [], []
+
+        def level(prefix: str) -> None:
+            for page in self.client.get_paginator("list_objects_v2").paginate(
+                    Bucket=self.bucket, Prefix=prefix, Delimiter="/", PaginationConfig={"PageSize": 1000}):
+                rows.extend(metadata(item) for item in page.get("Contents", []))
+                for item in page.get("CommonPrefixes", []):
+                    child = item["Prefix"]
+                    if child == CONTENT:
+                        level(child)
+                    elif child.startswith(prefix) and child != prefix:
+                        scopes.append(child)
+                    else:
+                        raise ValueError("Static inventory prefix differs from its listing")
+
+        level(PREFIX)
+        return rows, sorted(set(scopes))
+
+    def inventory(self, directory: Path, progress: Any) -> list[dict[str, Any]]:
+        rows, scopes = self.scopes()
+        started = time.monotonic()
+        completed = reused = 0
+
+        def scan(prefix: str) -> tuple[list[dict[str, Any]], bool]:
+            cacheable = re.fullmatch(rf"{CONTENT}[a-f0-9]{{2}}/", prefix) is not None
+            file = directory / f"static-gc-inventory-{sha(prefix.encode())}.json"
+            if cacheable and file.exists():
+                try:
+                    envelope = json_body(file.read_bytes())
+                    saved = envelope["inventory"]
+                    created = timestamp(saved["createdAt"])
+                    now = datetime.now(timezone.utc)
+                    if (envelope["sha256"] == sha(canonical(saved)) and saved["schema"] == INVENTORY_SCHEMA
+                            and saved["bucket"] == self.bucket and saved["accountSha256"] == sha(self.account.encode())
+                            and saved["prefix"] == prefix and saved["complete"] is True
+                            and created <= now and now - created < timedelta(hours=24)):
+                        saved_rows = [metadata(row) for row in saved["rows"]]
+                        if all(row["key"].startswith(prefix) for row in saved_rows):
+                            return saved_rows, True
+                except (OSError, ValueError, TypeError, KeyError):
+                    pass
+            listed = self.list(prefix)
+            if any(not row["key"].startswith(prefix) for row in listed):
+                raise ValueError("Static inventory object differs from its listing prefix")
+            if cacheable:
+                saved = {"schema": INVENTORY_SCHEMA, "accountSha256": sha(self.account.encode()), "bucket": self.bucket,
+                         "prefix": prefix, "createdAt": stamp(datetime.now(timezone.utc)),
+                         "complete": True, "rows": listed}
+                write_json(file, {"inventory": saved, "sha256": sha(canonical(saved))})
+            return listed, False
+
+        for listed, cached in parallel(scan, scopes, self.concurrency):
+            rows.extend(listed)
+            completed += 1
+            reused += cached
+            state = {"schema": "haneoka-static-document-gc-progress-v1", "inventoryComplete": False,
+                     "phase": "inventory", "completedScopes": completed, "totalScopes": len(scopes),
+                     "resumedScopes": reused, "scannedObjects": len(rows),
+                     "elapsedSeconds": round(time.monotonic() - started, 3)}
+            progress(state)
+            print(f"Static inventory scopes {completed}/{len(scopes)}; {len(rows)} objects; {reused} resumed",
+                  file=sys.stderr)
         return rows
 
     def read(self, key: str, limit: int) -> bytes:
@@ -209,7 +292,8 @@ def snapshot(rows: list[dict[str, Any]]) -> str:
 
 
 def make_plan(rows: list[dict[str, Any]], active: dict[str, Any], read: Any,
-              now: datetime, grace_days: int, retain: int, complete: bool, bucket: str, origin: str) -> dict[str, Any]:
+              now: datetime, grace_days: int, retain: int, complete: bool, bucket: str, origin: str,
+              concurrency: int = 8) -> dict[str, Any]:
     unique = {}
     for row in rows:
         previous = unique.get(row["key"])
@@ -220,14 +304,15 @@ def make_plan(rows: list[dict[str, Any]], active: dict[str, Any], read: Any,
     roots = [row for row in rows if row["key"].startswith(PUBLICATIONS)]
     receipts = [row for row in rows if row["key"].startswith(DEPLOYMENTS)]
     cutoff = now - timedelta(days=grace_days)
-    registered = []
-    for row in receipts:
-        match = RECEIPT_KEY.fullmatch(row["key"])
-        if match:
-            value = receipt(read(row["key"], MAX_RECEIPT_BYTES), match[1])
-            if timestamp(value["observedAt"]) > now + timedelta(minutes=5):
-                raise ValueError("Static deployment receipt is dated in the future")
-            registered.append(value)
+
+    def read_receipt(row: dict[str, Any]) -> dict[str, Any]:
+        value = receipt(read(row["key"], MAX_RECEIPT_BYTES), RECEIPT_KEY.fullmatch(row["key"])[1])
+        if timestamp(value["observedAt"]) > now + timedelta(minutes=5):
+            raise ValueError("Static deployment receipt is dated in the future")
+        return value
+
+    registered = list(parallel(read_receipt,
+                               (row for row in receipts if RECEIPT_KEY.fullmatch(row["key"])), concurrency))
     recognized_roots = [row for row in roots if ROOT_KEY.fullmatch(row["key"])]
     selected = {active["sha256"]}
     ordered_roots = sorted(recognized_roots, key=lambda row: (timestamp(row["modified"]), row["key"]), reverse=True)
@@ -236,7 +321,7 @@ def make_plan(rows: list[dict[str, Any]], active: dict[str, Any], read: Any,
         selected.update(ROOT_KEY.fullmatch(row["key"])[1] for row in ordered_roots[:retain])
     selected.update(ROOT_KEY.fullmatch(row["key"])[1] for row in ordered_roots if timestamp(row["modified"]) >= cutoff)
     recent_success = set()
-    for value in sorted(registered, key=lambda value: timestamp(value["observedAt"]), reverse=True):
+    for value in sorted(registered, key=lambda value: (timestamp(value["observedAt"]), value["publicationSha256"]), reverse=True):
         digest = value["publicationSha256"]
         if len(recent_success) < retain or timestamp(value["observedAt"]) >= cutoff:
             selected.add(digest)
@@ -244,9 +329,12 @@ def make_plan(rows: list[dict[str, Any]], active: dict[str, Any], read: Any,
     retained_content = set(active["objects"] if active["storage"] == "r2" else ())
     root_storage = {active["sha256"]: active["storage"]}
     valid_roots = set()
-    for row in recognized_roots:
+
+    def read_root(row: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         digest = ROOT_KEY.fullmatch(row["key"])[1]
-        value = publication(read(row["key"], MAX_ROOT_BYTES), digest)
+        return digest, publication(read(row["key"], MAX_ROOT_BYTES), digest)
+
+    for digest, value in parallel(read_root, recognized_roots, concurrency):
         valid_roots.add(digest)
         root_storage[digest] = value["storage"]
         if digest in selected and value["storage"] == "r2":
@@ -304,7 +392,9 @@ def summary(envelope: dict[str, Any]) -> dict[str, Any]:
 
 def write_json(file: Path, value: Any) -> None:
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+    temporary = file.with_suffix(file.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+    temporary.replace(file)
 
 
 def apply_plan(envelope: dict[str, Any], remote: Remote) -> dict[str, Any]:
@@ -348,16 +438,15 @@ def apply_plan(envelope: dict[str, Any], remote: Remote) -> dict[str, Any]:
         planned[key] = row
     checked = {row["key"]: row for row in current_roots}
     shards = sorted({CONTENT_KEY.fullmatch(key)[1] for key in keys if content_digest(key) is not None})
-    for shard in shards:
-        checked.update((row["key"], row) for row in remote.list(f"{CONTENT}{shard}/") if row["key"] in keys)
+    for rows in parallel(lambda shard: remote.list(f"{CONTENT}{shard}/"), shards, remote.concurrency):
+        checked.update((row["key"], row) for row in rows if row["key"] in keys)
     unchanged = sorted(key for key in keys if checked.get(key) == planned[key])
     skipped = sorted(keys - set(unchanged))
     active = active_publication(value["origin"])
     if active["sha256"] != value["activePublicationSha256"] or active["storage"] != value["activeStorage"]:
         raise ValueError("Active static publication changed during candidate verification")
-    deleted = 0
-    for offset in range(0, len(unchanged), 1000):
-        deleted += remote.delete(unchanged[offset:offset + 1000])
+    batches = (unchanged[offset:offset + 1000] for offset in range(0, len(unchanged), 1000))
+    deleted = sum(parallel(remote.delete, batches, min(remote.concurrency, 4)))
     return summary(envelope) | {"applied": True, "deletedObjects": deleted,
                                 "skippedChangedOrMissingObjects": len(skipped), "skippedKeys": skipped,
                                 "candidateShardsRelisted": len(shards)}
@@ -375,22 +464,28 @@ def main() -> None:
     parser.add_argument("--inventory-directory", type=Path)
     parser.add_argument("--active-manifest", type=Path)
     parser.add_argument("--roots-directory", type=Path)
+    parser.add_argument("--concurrency", type=int, default=8)
     args = parser.parse_args()
     if args.grace_days < 7 or args.retain_roots < 3:
         parser.error("Keep at least 3 publication roots and 7 days of grace")
+    if not 1 <= args.concurrency <= 16:
+        parser.error("Use between 1 and 16 concurrent static storage requests")
     if args.mode == "apply":
-        result = apply_plan(json_body(args.plan.read_bytes()), Remote(args.bucket))
+        result = apply_plan(json_body(args.plan.read_bytes()), Remote(args.bucket, args.concurrency))
     else:
         if args.mode == "offline-plan":
             if args.inventory_directory is None or args.active_manifest is None:
                 parser.error("Offline planning requires --inventory-directory and --active-manifest")
-            rows = []
-            for file in sorted(args.inventory_directory.glob("*.json")):
+            def read_inventory(file: Path) -> list[dict[str, Any]]:
                 page = json_body(file.read_bytes())
                 items = page.get("result", page.get("Contents"))
                 if not isinstance(items, list):
                     raise ValueError(f"Invalid recorded listing page: {file}")
-                rows.extend(metadata(row) for row in items)
+                return [metadata(row) for row in items]
+
+            rows = []
+            for page_rows in parallel(read_inventory, sorted(args.inventory_directory.glob("*.json")), args.concurrency):
+                rows.extend(page_rows)
             active = publication(args.active_manifest.read_bytes())
 
             def read(key: str, limit: int) -> bytes:
@@ -403,12 +498,24 @@ def main() -> None:
 
             complete = False
         else:
-            remote = Remote(args.bucket)
+            remote = Remote(args.bucket, args.concurrency)
             active = active_publication(args.origin)
-            rows = remote.list(PREFIX)
+
+            def progress(value: dict[str, Any]) -> None:
+                write_json(args.report or args.plan.with_name("static-gc-progress.json"), value)
+
+            progress({"schema": "haneoka-static-document-gc-progress-v1", "inventoryComplete": False,
+                      "phase": "inventory", "completedScopes": 0})
+            rows = remote.inventory(args.inventory_directory or args.plan.parent, progress)
+            progress({"schema": "haneoka-static-document-gc-progress-v1", "inventoryComplete": False,
+                      "phase": "mark", "scannedObjects": len(rows)})
             read, complete = remote.read, True
         envelope = make_plan(rows, active, read, datetime.now(timezone.utc), args.grace_days,
-                             args.retain_roots, complete, args.bucket, args.origin)
+                             args.retain_roots, complete, args.bucket, args.origin, args.concurrency)
+        if args.mode == "collect":
+            current = active_publication(args.origin)
+            if current["sha256"] != active["sha256"] or current["storage"] != active["storage"]:
+                raise ValueError("Active static publication changed during collection")
         write_json(args.plan, envelope)
         result = summary(envelope) | {"applied": False}
     if args.report:
