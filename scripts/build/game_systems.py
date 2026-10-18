@@ -1095,7 +1095,37 @@ def _gacha(
                 for value in row.get(key, [])
             ],
         )
-    return {"entries": entries}
+    return {"entries": entries, "history": build_gacha_history_metadata(data)}
+
+
+def build_gacha_history_metadata(data: Any) -> dict[str, Any]:
+    return {
+        "schema": "haneoka-gacha-history-data-v1",
+        "prizes": {
+            str(_number(prize, "_id")): {
+                "groupId": _number(prize, "_groupId"),
+                "resourceType": _number(prize, "_resourceType"),
+                "resourceId": _number(prize, "_resourceId"),
+                "count": _number(prize, "_amount") or 1,
+                "pickupType": _number(prize, "_pickUpType"),
+            }
+            for prize in data.rows("MasterGachaPrize")
+        },
+        "products": {
+            str(_number(product, "_id")): {"drawCount": _number(product, "_drawCount")}
+            for product in data.rows("MasterGachaProduct")
+        },
+        "pools": {
+            str(_number(pool, "_id")): {
+                "prizeGroupIds": sorted({
+                    _number(lot, "_prizeGroupId")
+                    for lot in data.rows("MasterGachaLot")
+                    if _number(lot, "_lotGroupId") == _number(pool, "_lotGroupId")
+                })
+            }
+            for pool in data.rows("MasterGacha")
+        },
+    }
 
 
 def _login(
