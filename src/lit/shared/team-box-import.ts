@@ -1,4 +1,6 @@
 import { html, nothing, type TemplateResult } from "lit";
+import { clientText } from "../../i18n/client";
+import { icon } from "../ui/icon";
 import "@material/web/checkbox/checkbox.js";
 import "@material/web/select/outlined-select.js";
 import "@material/web/select/select-option.js";
@@ -38,6 +40,8 @@ export interface BoxImportDialogState {
   canConfirm: boolean;
 }
 export interface BoxImportDialogActions {
+  locale?: string;
+  onOpenHistory?: () => void;
   appDownload?: TemplateResult;
   sources?: TemplateResult;
   sourceStatus?: string;
@@ -501,6 +505,11 @@ export function renderBoxImportDialog(state: BoxImportDialogState, actions: BoxI
       }
       </div>
       <footer class="selection-pane__footer team-builder__actions">
+        ${actions.onOpenHistory ? html`
+          <button type="button" class="button button--tonal" @click=${actions.onOpenHistory}>
+            ${icon("history")}${clientText(actions.locale ?? "ja", "catalog.gachaHistory.title", "Gacha history")}
+          </button>
+        ` : nothing}
         ${
         state.phase === "parsing"
           ? html`

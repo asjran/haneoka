@@ -65,6 +65,12 @@
           "width": 24,
           "name": "Our Notes Native Flick W24"
         }
+      ],
+      "baselineJsonSha256": "3c5c413d546e39b4fb72b358f84ad1c499b75ce97f40f5fa71cdacb045ddb3a4",
+      "baselineTextureRgbaSha256": "1f3ba083d604bbd0cff676f2768cab780e40bed03e65396f97da3df05d04d08c",
+      "baselineTextureSize": [
+        1024,
+        1024
       ]
     },
     {
@@ -125,6 +131,12 @@
           "width": 24,
           "name": "Our Notes Native Flick W24"
         }
+      ],
+      "baselineJsonSha256": "363a18dec08d96cc1153524beaae7b45a2c85e92de81a75e0e5c53bd46b14ea7",
+      "baselineTextureRgbaSha256": "cdcac729940f406d5f6b5d8fab01f6a6fb3102776bcb0804804a7ce96af56c6b",
+      "baselineTextureSize": [
+        1024,
+        1024
       ]
     },
     {
@@ -332,6 +344,12 @@
           "width": 24,
           "name": "Our Notes Native Slide Loop W24"
         }
+      ],
+      "baselineJsonSha256": "71a2780012344da5db1e1f2426390f6aceb8bbd9b30e20ecd52a060e02543d7b",
+      "baselineTextureRgbaSha256": "d729402997e275612f85558c9e238a8387c83438625ad554ebcfa3430056ee60",
+      "baselineTextureSize": [
+        1024,
+        1024
       ]
     }
   ]

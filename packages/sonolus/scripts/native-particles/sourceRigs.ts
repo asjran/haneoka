@@ -22,7 +22,8 @@ interface RigTarget {
 interface RigProfile {
   key: string; quality: number; renderingScale: number; nativeFrameGroupCount?: number;
   noteEffectSkin?: "effect001" | "effect001Simple"; frameOnly?: boolean;
-  baselineDataSha256: string; baselineTextureSha256: string; effects: RigTarget[];
+  baselineDataSha256: string; baselineJsonSha256: string; baselineTextureSha256: string;
+  baselineTextureRgbaSha256: string; baselineTextureSize: [number, number]; effects: RigTarget[];
 }
 interface RigRecipe {
   schema: string; atlasSide: number; referenceWidth: number; wallGroupCount: number;
@@ -59,10 +60,12 @@ export async function buildSourceRigDelta(options: {
   for (const profile of recipe.profiles) {
     const input = resolve(options.baseline, "particles", profile.key);
     const bytes = readFileSync(resolve(input, "particle.data")), png = readFileSync(resolve(input, "particle.texture.png"));
-    if (hash(bytes) !== profile.baselineDataSha256 || hash(png) !== profile.baselineTextureSha256)
-      throw new Error("Source rig baseline changed");
-    const baseline = JSON.parse(gunzipSync(bytes).toString()) as ParticleData;
+    const json = gunzipSync(bytes);
     const image = decodeRgba8Png(png, "Source rig baseline");
+    if (hash(json) !== profile.baselineJsonSha256 || hash(image.pixels) !== profile.baselineTextureRgbaSha256 ||
+        image.width !== profile.baselineTextureSize[0] || image.height !== profile.baselineTextureSize[1])
+      throw new Error("Source rig baseline changed");
+    const baseline = JSON.parse(json.toString()) as ParticleData;
     const tracer = new EffectTracer({ releaseRoot: options.releaseRoot, currentQuality: profile.quality, noteEffectSkin: profile.noteEffectSkin ?? "effect001" });
     await tracer.load();
     const tiles: Tile[] = [], tileIds = new Map<string, number>(), oldIds = new Map<number, number>();

@@ -351,6 +351,67 @@ export async function verifyInputs(manifestFile, restoreRoot, sourceRoot) {
   return { manifest, sha256: sha256(fs.readFileSync(manifestFile)) };
 }
 
+/** Reuse an explicit immutable data snapshot under the current consumer's source seal. */
+export async function replayInputs({ manifestFile, root, capture }) {
+  root = fs.realpathSync(root);
+  safeRelative(capture);
+  const verified = await verifyInputs(manifestFile);
+  const source = sourceIdentity(root);
+  const snapshot = verified.manifest;
+  if (snapshot.captures.length !== 1) throw new Error("Replay requires one complete captured input set");
+  const original = snapshot.captures[0];
+  const entries = new Map(snapshot.entries.map((entry) => [entry.path, entry]));
+  const contentRoot = path.join(path.dirname(manifestFile), "content");
+  const manifestEntry = entries.get(`${original.directory}/capture.json`);
+  if (!manifestEntry || manifestEntry.sha256 !== original.manifestSha256)
+    throw new Error("Replay capture manifest differs");
+  const previous = metadataFile(path.join(contentRoot, manifestEntry.sha256));
+  if (previous.schema !== "haneoka-static-captured-inputs-v1") throw new Error("Invalid replay capture schema");
+  assert.deepEqual(previous.source, snapshot.source, "Replay source provenance differs");
+  const destination = path.join(root, capture);
+  if (fs.existsSync(destination)) throw new Error("Replay destination already exists");
+  const bodies = new Set(),
+    keys = new Set();
+  for (const row of previous.records) {
+    if (
+      typeof row.key !== "string" ||
+      !row.key ||
+      keys.has(row.key) ||
+      typeof row.role !== "string" ||
+      !["json", "undefined", "bytes", "error"].includes(row.format)
+    )
+      throw new Error("Invalid replay input record");
+    keys.add(row.key);
+    const entry = entries.get(`${original.directory}/content/${row.sha256}`);
+    if (!entry || entry.sha256 !== row.sha256 || entry.bytes !== row.bytes)
+      throw new Error(`Replay body is missing: ${row.key}`);
+    if (row.format === "json" || row.format === "error") metadataFile(path.join(contentRoot, row.sha256));
+    else if (row.format === "undefined" && row.bytes !== 0) throw new Error("Invalid undefined replay input");
+    bodies.add(row.sha256);
+  }
+  for (const row of previous.files) {
+    safeRelative(row.path);
+    const entry = entries.get(row.path);
+    if (!entry || entry.sha256 !== row.sha256 || entry.bytes !== row.bytes)
+      throw new Error(`Replay file is missing: ${row.path}`);
+    const target = path.join(root, row.path);
+    if (fs.existsSync(target)) assert.deepEqual(await fileDigest(target), { sha256: row.sha256, bytes: row.bytes });
+    else copyOnce(path.join(contentRoot, entry.sha256), target);
+    bodies.add(row.sha256);
+  }
+  for (const digest of bodies) copyOnce(path.join(contentRoot, digest), path.join(destination, "content", digest));
+  const reusedFrom = { sourceSha: snapshot.source.sha, manifestSha256: verified.sha256 };
+  const replay = { ...previous, source, reusedFrom };
+  fs.writeFileSync(path.join(destination, "capture.json"), JSON.stringify(replay));
+  return {
+    reusedFrom,
+    sourceSha: source.sha,
+    records: previous.records.length,
+    files: previous.files.length,
+    bodies: bodies.size,
+  };
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -373,6 +434,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     }
   } else if (mode === "compact-catalog-cache" && values.root && values.capture)
     console.log(JSON.stringify(compactCatalogCache(path.resolve(values.root), values.capture)));
+  else if (mode === "replay" && values.manifest && values.root && values.capture)
+    console.log(
+      JSON.stringify(
+        await replayInputs({ manifestFile: path.resolve(values.manifest), root: values.root, capture: values.capture }),
+      ),
+    );
   else if (mode === "freeze" && values.root && (values.spec || values.capture) && values.output)
     console.log(
       JSON.stringify(
@@ -393,6 +460,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log(JSON.stringify({ verified: true, files: result.manifest.entries.length, sha256: result.sha256 }));
   } else
     throw new Error(
-      "Use freeze --root DIR --spec JSON --output DIR, verify --manifest JSON, or restore --manifest JSON --root DIR",
+      "Use freeze --root DIR --spec JSON --output DIR, verify --manifest JSON, restore --manifest JSON --root DIR, or replay --manifest JSON --root DIR --capture DIR",
     );
 }

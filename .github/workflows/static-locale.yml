@@ -1,0 +1,134 @@
+name: Render and index complete locale
+on:
+  workflow_call:
+    inputs:
+      locale:
+        type: string
+        required: true
+      inputs_artifact:
+        type: string
+        required: true
+      inputs_sha:
+        type: string
+        required: true
+      node_version:
+        type: string
+        required: true
+      page_groups:
+        type: string
+        default: core
+      resource_servers:
+        type: string
+        default: intl,jp
+jobs:
+  render:
+    name: Render ${{ inputs.locale }} partition ${{ matrix.partition }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [0, 1]
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+      STATIC_PAGE_GROUPS: ${{ inputs.page_groups }}
+      STATIC_RESOURCE_SERVERS: ${{ inputs.resource_servers }}
+      STATIC_CATALOG_SOURCE: http
+      STATIC_BUILD_INPUT_MODE: frozen
+      STATIC_BUILD_INPUT_ROOT: data/static-build/inputs
+      STATIC_BUILD_LOCALE: ${{ inputs.locale }}
+      STATIC_BUILD_PARTITION: ${{ matrix.partition }}/2
+      ASTRO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: node scripts/external-repositories.mjs checkout
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.inputs_artifact }}
+          path: .output
+      - name: Restore verified common artifacts and immutable inputs
+        run: |
+          node scripts/build/static-build-inputs.mjs restore --manifest .output/static-frozen-inputs/manifest.json --root "$PWD" --source-root "$PWD"
+          pnpm dependencies:verify
+      - name: Render and verify the assigned complete pages
+        run: |
+          pnpm exec astro build
+          node scripts/build/static-build-shards.mjs seal-render --root "$PWD" --locale "$STATIC_BUILD_LOCALE" --partition "$STATIC_BUILD_PARTITION" --plan .output/static-shard-plan.json --output .output/static-render-part
+          tar --use-compress-program="zstd -T2 -3" -cf .output/static-render-part.tar.zst -C .output/static-render-part .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: static-render-${{ inputs.inputs_sha }}-${{ inputs.locale }}-${{ matrix.partition }}
+          path: .output/static-render-part.tar.zst
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+  finalize:
+    name: Render complete ${{ inputs.locale }} frontend
+    needs: render
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+      STATIC_PAGE_GROUPS: ${{ inputs.page_groups }}
+      STATIC_RESOURCE_SERVERS: ${{ inputs.resource_servers }}
+      STATIC_CATALOG_SOURCE: http
+      STATIC_BUILD_INPUT_MODE: frozen
+      STATIC_BUILD_INPUT_ROOT: data/static-build/inputs
+      STATIC_BUILD_LOCALE: ${{ inputs.locale }}
+      ASTRO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: node scripts/external-repositories.mjs checkout
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.inputs_artifact }}
+          path: .output
+      - name: Restore verified common artifacts and immutable inputs
+        run: |
+          node scripts/build/static-build-inputs.mjs restore --manifest .output/static-frozen-inputs/manifest.json --root "$PWD" --source-root "$PWD"
+          pnpm dependencies:verify
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: static-render-${{ inputs.inputs_sha }}-${{ inputs.locale }}-*
+          path: .output/static-render-archives
+      - name: Merge every rendered page, then index and pack once
+        run: |
+          for partition in 0 1; do
+            mkdir -p ".output/static-render-parts/$partition"
+            tar --zstd -xf ".output/static-render-archives/static-render-${{ inputs.inputs_sha }}-${{ inputs.locale }}-$partition/static-render-part.tar.zst" -C ".output/static-render-parts/$partition"
+          done
+          node scripts/build/static-build-shards.mjs merge-render --locale "$STATIC_BUILD_LOCALE" --plan .output/static-shard-plan.json --parts .output/static-render-parts --output .output/static-render-merged
+          cp -a .output/static-render-merged/. .output/
+          pnpm finalize:frontend
+          node scripts/build/static-build-shards.mjs seal --root "$PWD" --locale "$STATIC_BUILD_LOCALE" --plan .output/static-shard-plan.json --output .output/static-part
+      - uses: actions/upload-artifact@v7
+        with:
+          name: static-part-${{ inputs.inputs_sha }}-${{ inputs.locale }}
+          path: .output/static-part
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

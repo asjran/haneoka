@@ -7,6 +7,8 @@ import {
   STATIC_DOCUMENT_INDEX_ROOT,
   STATIC_DOCUMENT_CONTENT_ROOT,
   STATIC_DOCUMENT_ASSET_ROOT,
+  STATIC_DOCUMENT_UNDERLAY_START,
+  STATIC_DOCUMENT_UNDERLAY_END,
   STATIC_DOCUMENT_CONTENT_INDEX_ROOT,
   STATIC_DOCUMENT_CONTENT_INDEX_SCHEMA,
   STATIC_DOCUMENT_PACK_BYTES,
@@ -69,14 +71,59 @@ function contentChunk(body: Buffer): StaticDocumentChunk {
 function content(body: Buffer, contentType: string): StaticDocumentRecord {
   return { ...contentChunk(body), contentType };
 }
+function sharedJsonBoundary(body: Buffer): readonly [number, number] | undefined {
+  let cursor = 0;
+  let selected: readonly [number, number] | undefined;
+  while (cursor < body.length) {
+    const start = body.indexOf("<script", cursor);
+    if (start < 0) break;
+    const headerEnd = body.indexOf(">", start);
+    if (headerEnd < 0) break;
+    const end = body.indexOf("</script>", headerEnd + 1);
+    if (end < 0) break;
+    cursor = end + 9;
+    if (!/\btype\s*=\s*(["'])application\/json\1/iu.test(body.toString("utf8", start, headerEnd))) continue;
+    if (cursor - start > 64 * 1024 && (!selected || cursor - start > selected[1] - selected[0]))
+      selected = [start, cursor];
+  }
+  return selected;
+}
+function htmlChunks(body: Buffer, from: number, to: number): StaticDocumentRecord {
+  const chunks = [body.subarray(0, from), body.subarray(from, to), body.subarray(to)]
+    .filter((part) => part.length > 0)
+    .map(contentChunk);
+  return {
+    sha256: createHash("sha256").update(body).digest("hex"),
+    bytes: body.length,
+    gzipBytes: chunks.reduce((sum, chunk) => sum + chunk.gzipBytes, 0),
+    contentType: "text/html; charset=utf-8",
+    chunks,
+  };
+}
+function htmlContent(body: Buffer): StaticDocumentRecord {
+  const start = Buffer.from(STATIC_DOCUMENT_UNDERLAY_START);
+  const end = Buffer.from(STATIC_DOCUMENT_UNDERLAY_END);
+  const from = body.indexOf(start),
+    to = body.indexOf(end);
+  if (from < 0 && to < 0) {
+    const shared = sharedJsonBoundary(body);
+    return shared ? htmlChunks(body, ...shared) : content(body, "text/html; charset=utf-8");
+  }
+  if (
+    from < 0 ||
+    to < from + start.length ||
+    body.indexOf(start, from + start.length) >= 0 ||
+    body.indexOf(end, to + end.length) >= 0
+  )
+    throw new Error("Invalid static document underlay boundary");
+  return htmlChunks(body, from, to + end.length);
+}
 export async function writeStaticDocument(pathname: string, source: string): Promise<StaticDocumentRecord> {
   const html = await withModulePreloads(source, moduleGraph);
   // Astro dev can append a component's module script after the closing root.
   if (!/<\/html\s*>\s*(?:<script\b[^>]*>[\s\S]*?<\/script\s*>\s*)*$/iu.test(html))
     throw new Error(`Incomplete static document: ${pathname}`);
-  // One compressed file per complete document fits the paid asset file limit.
-  // The reader retains support for older publications with ordered chunks.
-  const record = content(Buffer.from(html), "text/html; charset=utf-8");
+  const record = htmlContent(Buffer.from(html));
   fs.appendFileSync(log, `${JSON.stringify({ pathname, ...record })}\n`);
   return record;
 }

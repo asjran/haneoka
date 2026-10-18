@@ -722,6 +722,11 @@ export class ImportController {
           error: state.error ? this.boxError(state.error) : null,
         },
         {
+          locale: host.locale,
+          onOpenHistory: () => {
+            this.closeBox();
+            location.assign(`/${host.locale}/gacha-history/`);
+          },
           appDownload: this.appDownload(),
           sources: this.renderSources(),
           sourceStatus: this.sourceStatus,

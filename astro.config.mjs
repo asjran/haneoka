@@ -5,6 +5,7 @@ import { writeFile } from "node:fs/promises";
 import { finishStaticBuildInputs, resetStaticBuildInputErrors } from "./src/server/static-input-store.ts";
 import { existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
+import { availableParallelism, totalmem } from "node:os";
 import { beginStaticDocumentsBuild } from "./src/server/static-documents.ts";
 import { installProviderDevRouting } from "./src/server/provider-dev-routing.ts";
 import { modelRenderCachePlugin } from "./scripts/build/model-render-cache.mjs";
@@ -47,6 +48,7 @@ const publicResourceProxy = {
   },
 };
 let devAssetRoutes = false;
+let buildStarted = 0;
 
 export default defineConfig({
   site: "https://haneoka.org",
@@ -64,6 +66,7 @@ export default defineConfig({
       name: "workspace-cache",
       hooks: {
         "astro:build:start": () => {
+          buildStarted = performance.now();
           resetStaticBuildInputErrors();
           beginStaticDocumentsBuild();
         },
@@ -87,6 +90,18 @@ export default defineConfig({
         "astro:build:done": async ({ dir }) => {
           await finishStaticBuildInputs();
           await writeFile(new URL("build.json", dir), JSON.stringify({ id: buildId, web: webBuildId }));
+          console.log(
+            JSON.stringify({
+              stage: "astro-static-build",
+              phase: process.env.STATIC_BUILD_PHASE || "render",
+              locale: process.env.STATIC_BUILD_LOCALE || "all",
+              partition: process.env.STATIC_BUILD_PARTITION || "all",
+              elapsedMs: performance.now() - buildStarted,
+              peakRssKb: process.resourceUsage().maxRSS,
+              cpus: availableParallelism(),
+              memoryBytes: totalmem(),
+            }),
+          );
         },
       },
     },

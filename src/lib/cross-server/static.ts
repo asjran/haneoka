@@ -7,6 +7,7 @@ import { crossCatalogApi, crossCatalogDefinition, crossCatalogRows } from "./def
 const songCollections = new Map<string, Promise<unknown>>();
 const entryBatches = new Map<string, Promise<void>>();
 function prepareEntryBatch(resource: CrossCatalogResource, identity: StaticCatalogRelease, document: unknown): Promise<void> {
+  if (process.env.STATIC_BUILD_INPUT_MODE === "frozen") return Promise.resolve();
   const key = JSON.stringify([identity.server, identity.releaseId, identity.sourceId, resource]);
   let pending = entryBatches.get(key);
   if (!pending) {

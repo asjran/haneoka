@@ -1,0 +1,29 @@
+---
+import { staticBuildPaths } from "../../server/static-build";
+import Base from "../../layouts/Base.astro";
+import AppShell from "../../components/AppShell.astro";
+import { LOCALES, type Locale } from "../../i18n/locales";
+import { t } from "../../i18n/messages";
+import { gachaHistoryPageData } from "../../server/gacha-history-page-data";
+import { renderGachaHistory } from "../../server/render-gacha-history";
+import { serializePageData } from "../../lib/page-data";
+export function getStaticPaths() {
+  return staticBuildPaths("src/pages/[locale]/gacha-history.astro", LOCALES.map((locale) => ({ params: { locale }, props: { locale } })));
+}
+const { locale } = Astro.props as { locale: Locale };
+const route = "/gacha-history";
+const title = t(locale, "catalog.gachaHistory.title", "Gacha history");
+const payload = await gachaHistoryPageData();
+const page = await renderGachaHistory(locale);
+---
+<Base locale={locale} route={route} title={title} description={t(locale, "catalog.gachaHistory.description")} titleKey="catalog.gachaHistory.title">
+  <AppShell locale={locale} route={route} title={title} titleKey="catalog.gachaHistory.title" appBar={page.appBar}>
+    <gacha-history-workspace data-page-data="gacha-history-page">
+      <gacha-history locale={locale} canimport showapplink data-prerendered set:html={page.body}></gacha-history>
+    </gacha-history-workspace>
+    <script id="gacha-history-page" type="application/json" set:html={serializePageData(payload)}></script>
+  </AppShell>
+</Base>
+<script>
+  import "../../lit/gacha-history-workspace";
+</script>
