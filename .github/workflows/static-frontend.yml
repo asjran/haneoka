@@ -263,12 +263,12 @@ jobs:
       - name: Archive complete qualified publication
         id: archive
         run: |
-          tar -cf .output/worker-publication.tar .output/deployment .output/public .output/static-documents/publication.json .output/static-documents/references.json
+          tar --use-compress-program="zstd -T2 -3" -cf .output/worker-publication.tar.zst .output/deployment .output/public .output/static-documents/publication.json .output/static-documents/references.json
           echo "artifact=worker-publication-${{ github.sha }}-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.archive.outputs.artifact }}
-          path: .output/worker-publication.tar
+          path: .output/worker-publication.tar.zst
           include-hidden-files: true
           compression-level: 0
           retention-days: 7

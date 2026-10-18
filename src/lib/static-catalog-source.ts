@@ -1,4 +1,5 @@
 import { withUiMarksProjection } from "./ui-marks";
+import { fnv1a32Shard } from "./hash-partition.ts";
 import fs from "node:fs";
 import nodePath from "node:path";
 import { createHash } from "node:crypto";
@@ -616,13 +617,17 @@ export async function fetchStaticCatalogBatch(
   if (!ids.length) return items;
   const pinned = release || (await staticCatalogRelease(server));
   const size = 80;
+  const requestIds = ids
+    .map((id) => ({ id, shard: fnv1a32Shard(id) }))
+    .sort((left, right) => left.shard.localeCompare(right.shard, "en"))
+    .map(({ id }) => id);
   const batches = Array.from({ length: Math.ceil(ids.length / size) }, (_, index) => index * size);
   const results = new Map<number, Record<string, unknown>>();
   let cursor = 0;
   const loadBatch = async () => {
     while (cursor < batches.length) {
       const start = batches[cursor++]!;
-      const selected = ids.slice(start, start + size);
+      const selected = requestIds.slice(start, start + size);
       const query = selected.map((id) => `id=${encodeURIComponent(id)}`).join("&");
       const document =
         process.env.STATIC_BUILD_INPUT_MODE === "frozen"
@@ -669,7 +674,13 @@ export async function fetchStaticCatalogBatch(
     }
     if (!requestPromises.has(key)) requestPromises.set(key, Promise.resolve(structuredClone(items.get(id)!)));
   }
-  return items;
+  const ordered = new Map<string, Record<string, unknown>>();
+  // Retain the API's sorted IDs and JSON integer-key order within each original batch.
+  for (const start of batches) {
+    const selected = [...new Set(ids.slice(start, start + size))].sort();
+    for (const id of Object.keys(Object.fromEntries(selected.map((id) => [id, true])))) ordered.set(id, items.get(id)!);
+  }
+  return ordered;
 }
 
 export async function primeStaticCatalogBatch(

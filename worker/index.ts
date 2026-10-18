@@ -1,4 +1,5 @@
 import { projectUiMarks, withUiMarksProjection } from "../src/lib/ui-marks.ts";
+import { fnv1a32Shard } from "../src/lib/hash-partition.ts";
 import { refreshCommunityRanking, COMMUNITY_RANKING_CRON } from "./community-ranking";
 import { handleCommunityBootstrap } from "./community-bootstrap";
 import { withRequestWork } from "./request-work";
@@ -1021,15 +1022,6 @@ const releaseIndexCache = new Map<string, Promise<ReleaseIndexEntries>>();
 function casKey(digest: string): string {
   if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`invalid release object digest: ${digest}`);
   return `${CAS_PREFIX}/${digest.slice(0, 2)}/${digest}`;
-}
-
-function fnv1a32Shard(value: string, shards: number): string {
-  let hash = 0x811c9dc5;
-  for (const byte of new TextEncoder().encode(value)) {
-    hash ^= byte;
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return (hash % shards).toString(16).padStart(2, "0");
 }
 
 function releaseIndexShard(path: string): string {

@@ -9,9 +9,14 @@ on:
         description: Apply the verified unreachable-object plan
         type: boolean
         default: false
+      resume_run_id:
+        description: Reuse complete inventory checkpoints from a GC run within 24 hours
+        type: string
+        default: ""
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   collect:
@@ -34,6 +39,26 @@ jobs:
           cache: pip
           cache-dependency-path: scripts/requirements-static-storage.txt
       - run: python -m pip install --require-hashes -r scripts/requirements-static-storage.txt
+      - name: Download prior inventory checkpoints
+        if: ${{ inputs.resume_run_id != '' }}
+        id: inventory
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: static-document-gc-${{ inputs.resume_run_id }}
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/static-gc-resume
+      - name: Restore complete inventory shards
+        if: ${{ steps.inventory.outcome == 'success' }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          checkpoints=("$RUNNER_TEMP/static-gc-resume"/static-gc-inventory-*.json)
+          if (( ${#checkpoints[@]} )); then
+            mkdir -p .output
+            cp -- "${checkpoints[@]}" .output/
+          fi
       - name: Mark active, rollback and recent publications
         run: >-
           python scripts/publish/static_documents.py collect
@@ -51,5 +76,6 @@ jobs:
         with:
           name: static-document-gc-${{ github.run_id }}
           path: .output/static-gc-*.json
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: warn

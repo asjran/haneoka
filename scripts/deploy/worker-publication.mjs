@@ -73,6 +73,31 @@ function fileRecord(relative) {
   const body = fs.readFileSync(path.join(root, relative));
   return { path: relative, bytes: body.length, sha256: digest(body) };
 }
+function containerInputIdentity(container, revision) {
+  const config = typescript.parseConfigFileTextToJson("wrangler.jsonc", git("show", `${revision}:wrangler.jsonc`));
+  if (config.error) throw new Error("Invalid container source configuration");
+  const pinned = config.config.containers?.find((entry) => entry.class_name === container.class_name);
+  if (!pinned?.image?.startsWith(".")) throw new Error("Container source must have a pinned Dockerfile");
+  if (path.resolve(root, pinned.image_build_context || path.dirname(pinned.image)) !== root)
+    throw new Error("Container context needs a full publication");
+  const dockerfile = path.relative(root, path.resolve(root, pinned.image));
+  const text = git("show", `${revision}:${dockerfile}`);
+  const inputPaths = [dockerfile, ".dockerignore"];
+  for (const match of text.matchAll(/^\s*(?:COPY|ADD)\s+(.+)$/gmu)) {
+    const sources = match[1].trim().split(/\s+/u).slice(0, -1);
+    if (!sources.length || sources.some((source) => !/^[a-zA-Z0-9._/-]+$/u.test(source) || source.includes("..")))
+      throw new Error("Container context needs a full publication");
+    inputPaths.push(...sources);
+  }
+  return digest(
+    JSON.stringify({ configuration: pinned, tree: git("ls-tree", "-r", "-z", revision, "--", ...inputPaths) }),
+  );
+}
+function containerInputIdentities(revision) {
+  return Object.fromEntries(
+    (original.containers || []).map((container) => [container.class_name, containerInputIdentity(container, revision)]),
+  );
+}
 function configFor({ compiled = false, keepAssets = false, containerImages }) {
   const config = structuredClone(original);
   config.$schema = path.join(root, "node_modules/wrangler/config-schema.json");
@@ -130,6 +155,18 @@ function readManifest() {
     ...(!manifest.workerOnly ? filesAt(path.join(root, ".output/public")) : []),
   ].sort();
   assert.deepEqual(actual, expected, "Publication contains unverified extra files");
+  if (manifest.containerInputs)
+    assert.deepEqual(
+      containerInputIdentities(sourceSha),
+      manifest.containerInputs,
+      "Qualified container inputs differ",
+    );
+  if (manifest.containerImages) {
+    for (const container of original.containers || []) {
+      if (!/\.cloudflare\.com\/.+@sha256:[a-f0-9]{64}$/u.test(manifest.containerImages[container.class_name]))
+        throw new Error("Qualified container image digest is missing");
+    }
+  }
   return manifest;
 }
 async function liveAssets(ownMessage) {
@@ -236,29 +273,22 @@ async function readLiveAssets(ownMessage) {
   const applications = JSON.parse(
     run(["containers", "list", "--config", path.join(root, "wrangler.jsonc"), "--json"], true),
   );
-  const containerImages = {};
+  const containerImages = {},
+    containerInputs = {};
   for (const container of original.containers || []) {
-    if (!container.image?.startsWith("."))
-      throw new Error("Worker-only container source must have a pinned Dockerfile");
-    if (path.resolve(root, container.image_build_context || path.dirname(container.image)) !== root)
-      throw new Error("Container context needs a full publication");
-    const dockerfile = path.resolve(root, container.image),
-      text = fs.readFileSync(dockerfile, "utf8");
-    const inputPaths = [path.relative(root, dockerfile), ".dockerignore"];
-    for (const match of text.matchAll(/^\s*(?:COPY|ADD)\s+(.+)$/gmu)) {
-      const sources = match[1].trim().split(/\s+/u).slice(0, -1);
-      if (!sources.length || sources.some((source) => !/^[a-zA-Z0-9._/-]+$/u.test(source) || source.includes("..")))
-        throw new Error("Container context needs a full publication");
-      inputPaths.push(...sources);
-    }
-    if (git("diff", "--name-only", frontendSha, sourceSha, "--", ...inputPaths))
-      throw new Error("Container inputs changed; use a full publication");
+    const inputs = containerInputIdentity(container, sourceSha);
+    assert.equal(
+      containerInputIdentity(container, frontendSha),
+      inputs,
+      "Container inputs changed; use a full publication",
+    );
     const application = applications.find(
       (entry) => entry.name === `${original.name}-${container.class_name.toLowerCase()}`,
     );
     if (!application || !/\.cloudflare\.com\/.+@sha256:[a-f0-9]{64}$/u.test(application.image))
       throw new Error("Active container image digest is missing");
     containerImages[container.class_name] = application.image;
+    containerInputs[container.class_name] = inputs;
   }
   if (latest.id !== activeId) {
     const uploaded = JSON.parse(
@@ -279,6 +309,7 @@ async function readLiveAssets(ownMessage) {
     staticIdentity,
     frontendSha,
     containerImages,
+    containerInputs,
     assetsConfigSha256: digest(JSON.stringify(assets)),
   };
 }
@@ -312,6 +343,14 @@ async function assertPublishContext() {
 if (mode === "prepare") {
   const source = sourceIdentity();
   const retained = values["worker-only"] ? await liveAssets() : null;
+  let containerInputs = retained?.containerInputs;
+  if (!values["worker-only"]) {
+    try {
+      containerInputs = containerInputIdentities(sourceSha);
+    } catch (error) {
+      console.log(`Building container images from the complete context: ${error.message}`);
+    }
+  }
   fs.rmSync(output, { recursive: true, force: true });
   const configFile = writeConfig(
     "compile.wrangler.json",
@@ -342,6 +381,8 @@ if (mode === "prepare") {
         schema: "haneoka-worker-publication-v1",
         source,
         workerOnly: !!values["worker-only"],
+        containerImages: retained?.containerImages,
+        containerInputs,
         files,
         frontend,
       },
@@ -422,6 +463,19 @@ if (mode === "prepare") {
     if (process.env.HANEOKA_PUBLICATION_ARTIFACT_RUN_ID && manifest.workerOnly)
       throw new Error("Recovery requires a verified complete frontend publication");
     fs.writeFileSync(path.join(output, "publication-context.json"), JSON.stringify(publicationContext, null, 2));
+    if (!manifest.workerOnly && manifest.containerInputs) {
+      try {
+        const active = await readLiveAssets();
+        assert.deepEqual(active.containerInputs, manifest.containerInputs, "Active container inputs differ");
+        fs.writeFileSync(
+          configFile,
+          JSON.stringify(configFor({ compiled: true, containerImages: active.containerImages }), null, 2),
+        );
+        console.log("Reusing qualified container images with identical source inputs under the publication lock");
+      } catch (error) {
+        console.log(`Building container images from the complete context: ${error.message}`);
+      }
+    }
     if (manifest.workerOnly) assert.deepEqual(await liveAssets(), prior, "Active assets changed before publication");
     const message = `Worker ${sourceSha}; static ${prior?.publicationSha256 || manifest.frontend.publicationSha256}`;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -480,23 +534,42 @@ if (mode === "prepare") {
       const file = path.join(output, "successful-static-deployment.json");
       fs.writeFileSync(file, body);
       const key = `static-documents/v1/deployments/${digest(body)}.json`;
-      if (!/^[a-f0-9]{32}$/u.test(account || "") || !/^[a-z0-9][a-z0-9.-]*$/u.test(bucket || "") ||
-        !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+      if (
+        !/^[a-f0-9]{32}$/u.test(account || "") ||
+        !/^[a-z0-9][a-z0-9.-]*$/u.test(bucket || "") ||
+        !process.env.AWS_ACCESS_KEY_ID ||
+        !process.env.AWS_SECRET_ACCESS_KEY
+      ) {
         console.warn("Static deployment registration credentials unavailable; saved receipt artifact");
       } else {
         try {
           execFileSync(
             "aws",
             [
-              "s3", "cp", file, `s3://${bucket}/${key}`,
-              "--endpoint-url", `https://${account}.r2.cloudflarestorage.com`, "--region", "auto",
-              "--no-progress", "--only-show-errors", "--content-type", "application/json",
-              "--cache-control", "public,max-age=31536000,immutable",
+              "s3",
+              "cp",
+              file,
+              `s3://${bucket}/${key}`,
+              "--endpoint-url",
+              `https://${account}.r2.cloudflarestorage.com`,
+              "--region",
+              "auto",
+              "--no-progress",
+              "--only-show-errors",
+              "--content-type",
+              "application/json",
+              "--cache-control",
+              "public,max-age=31536000,immutable",
             ],
             {
               cwd: root,
               stdio: "inherit",
-              env: { ...process.env, AWS_RETRY_MODE: "standard", AWS_MAX_ATTEMPTS: "5", AWS_EC2_METADATA_DISABLED: "true" },
+              env: {
+                ...process.env,
+                AWS_RETRY_MODE: "standard",
+                AWS_MAX_ATTEMPTS: "5",
+                AWS_EC2_METADATA_DISABLED: "true",
+              },
             },
           );
           console.log(`registered successful static deployment ${after.versionId}: ${after.publicationSha256}`);

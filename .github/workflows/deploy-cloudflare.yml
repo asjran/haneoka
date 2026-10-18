@@ -120,12 +120,12 @@ jobs:
       - name: Archive verified publication
         shell: bash
         run: |
-          tar -cf .output/worker-publication.tar .output/deployment
+          tar --use-compress-program="zstd -T2 -3" -cf .output/worker-publication.tar.zst .output/deployment
       - name: Save verified publication artifact
         uses: actions/upload-artifact@v7
         with:
           name: worker-publication-${{ github.sha }}-${{ github.run_id }}
-          path: .output/worker-publication.tar
+          path: .output/worker-publication.tar.zst
           include-hidden-files: true
           compression-level: 0
           retention-days: 7
@@ -187,7 +187,11 @@ jobs:
           path: .output/restore
       - name: Restore publication files
         run: |-
-          tar -xf .output/restore/worker-publication.tar
+          if [[ -f .output/restore/worker-publication.tar.zst ]]; then
+            tar --zstd -xf .output/restore/worker-publication.tar.zst
+          else
+            tar -xf .output/restore/worker-publication.tar
+          fi
           publisher=scripts/deploy/worker-publication.mjs
           if [[ -n "$HANEOKA_PUBLICATION_ARTIFACT_RUN_ID" ]]; then
             publisher=.output/publication-tooling/scripts/deploy/worker-publication.mjs
