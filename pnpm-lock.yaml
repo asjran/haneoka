@@ -230,6 +230,9 @@ importers:
       '@haneoka/vega':
         specifier: workspace:*
         version: link:.dependencies/vega
+      '@haneoka/vega-protocol':
+        specifier: workspace:*
+        version: link:.dependencies/vega/packages/protocol
       '@haneoka/vega-plugin-cubism':
         specifier: workspace:*
         version: link:.dependencies/vega-plugin-cubism

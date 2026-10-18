@@ -4,6 +4,7 @@ export function setSekaiSourceReader(reader?: ProviderSourceReader): void { sour
 const sourceResponse = (input: RequestInfo | URL, init?: ProviderFetchInit): Promise<Response> => sourceReader ? sourceReader.response(input, init) : providerFetch(input, init);
 import { BESTDORI_CACHE_POLICY, bestdoriCacheControl } from "@haneoka/bestdori/cache-policy";
 import { convertBestdoriScenario, type BestdoriScenarioBase } from "@haneoka/bestdori/scenario";
+import { VEGA_ADV_OPCODE } from "@haneoka/vega-protocol/opcodes";
 import { SEKAI_UNITS as UNITS, sekaiUnitBands } from "../src/lib/sekai-units";
 
 /**
@@ -30,7 +31,7 @@ const ASSET_ORIGIN = "https://storage.sekai.best";
 export const SEKAI_API_PREFIX = "/api/v1/sekai";
 export { songRecords as projectSekaiSongs, unitRecords as projectSekaiBands, storyList as projectSekaiEventStories, unitStoryList as projectSekaiUnitStories, characterStoryList as projectSekaiCharacterStories, cardStoryList as projectSekaiCardStories, areaTalkList as projectSekaiAreaStories, specialStoryList as projectSekaiSpecialStories, mysekaiTalkList as projectSekaiMySekaiStories, virtualLiveList as projectSekaiLiveStories, storyDetail as projectSekaiStory };
 /** Bump when a projection changes so cached responses are not reused. */
-const RESPONSE_VERSION = "6";
+const RESPONSE_VERSION = "7";
 const JSON_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.catalog);
 const MEDIA_CACHE_CONTROL = bestdoriCacheControl(BESTDORI_CACHE_POLICY.media);
 const CORS: Readonly<Record<string, string>> = {
@@ -40,7 +41,7 @@ const CORS: Readonly<Record<string, string>> = {
   "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag",
 };
 const MEDIA_PATH =
-  /^(?:music\/(?:jacket|long|music_score)|home\/banner|event_story|story\/(?:chapter_image|episode_image)|scenario\/background|sound\/(?:scenario|card_scenario|actionset)\/(?:voice|bgm|se)|character\/member_small|mysekai\/talk\/voice|virtual_live\/(?:mc\/voice|select\/banner))\/[\w./ ()★・-]+\.(?:webp|png|mp3|txt)$/u;
+  /^(?:music\/(?:jacket|long|music_score)|home\/banner|event_story|story\/(?:chapter_image|episode_image)|scenario\/background|sound\/tutorial_scenario\/voice|sound\/(?:scenario|card_scenario|actionset)\/(?:voice|bgm|se)|character\/member_small|mysekai\/talk\/voice|virtual_live\/(?:mc\/voice|select\/banner))\/[\w./ ()★・-]+\.(?:webp|png|mp3|txt)$/u;
 
 const DIFFICULTIES = ["easy", "normal", "hard", "expert", "master", "append"] as const;
 const BACKGROUND_ASPECT = 2048 / 1261;
@@ -541,6 +542,8 @@ const otherSource = async (storyId: string): Promise<ScenarioSource | undefined>
     const episode = (story?.episodes as Obj[] | undefined)?.find((entry) => entry.episodeNo === Number(match![2]));
     if (!story || !episode) return undefined;
     const id = String(episode.scenarioId);
+    // The tutorial keeps the op_02 filename when its internal ID changes to op_02_3rdanv.
+    if (id === "op_02") return adv(id, "scenario/tutorial_story/op_02.asset", "sound/tutorial_scenario/voice");
     // The opening's area conversation is stored with its action set.
     if (id.startsWith("op")) {
       const set = (await master("jp", "actionSets")).find((entry) => entry.scenarioId === id);
@@ -620,7 +623,7 @@ const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> =
       if (!response.ok) continue;
       scenario = (await response.json()) as Obj;
     }
-    const { story } = convertBestdoriScenario(
+    const { story, commandSources } = convertBestdoriScenario(
       { Base: sekaiScenarioBase(scenario, await soundEffects(scenario, source.effects), voices) },
       {
         server,
@@ -629,6 +632,28 @@ const storyDetail = async (region: SekaiRegion, storyId: string): Promise<Obj> =
         proxify: (raw) => media("jp", raw.replace(/^\/assets\/[a-z]+\//, "")),
       },
     );
+    if (scenarioId === "op_02") {
+      for (const [commandIndex, commandSource] of [...commandSources.entries()].reverse()) {
+        if (commandSource.actionType !== 6) continue;
+        const effect = (scenario.SpecialEffectData as Obj[])[commandSource.referenceIndex!]!;
+        if (effect.EffectType !== 23) continue;
+        const next = story.commands[commandIndex + 1];
+        if (!next) throw new Error(`${scenarioId}: choice has no continuation`);
+        const labels = String(effect.StringVal).split("/");
+        if (labels.length < 2 || labels.some(label => !label.trim()))
+          throw new Error(`${scenarioId}: invalid choice labels`);
+        const key = `sekai-choice-${commandIndex}-continue`;
+        next.key = key;
+        // Keep the original group as a barrier for the preceding dialogue.
+        story.commands.splice(commandIndex + 1, 0, {
+          command: VEGA_ADV_OPCODE.ChoiceShow,
+          advId: 0,
+          params: [String(commandIndex)],
+          choices: labels.map((label, choiceValue) => ({ choiceValue, text: [label, "", "", "", ""], nextKey: key })),
+        });
+      }
+      story.commands.forEach((command, index) => { command.index = index; });
+    }
     const stage = story.runtime.stage;
     story.runtime.stages[BACKGROUND_STAGE_REF] = {
       ...stage,

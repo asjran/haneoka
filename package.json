@@ -106,6 +106,7 @@
     "@haneoka/sonolus": "workspace:*",
     "@haneoka/sonolus-core": "workspace:*",
     "@haneoka/vega": "workspace:*",
+    "@haneoka/vega-protocol": "workspace:*",
     "@haneoka/vega-plugin-cubism": "workspace:*",
     "@haneoka/vega-plugin-haneoka": "^0.1.0",
     "@haneoka/vega-plugin-richtext": "workspace:*",
