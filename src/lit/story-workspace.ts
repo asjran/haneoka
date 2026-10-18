@@ -8,7 +8,7 @@ import { story as zhTWRelationships } from "../../public/i18n/zh-TW.json";
 import { story as zhCNRelationships } from "../../public/i18n/zh-CN.json";
 import { story as koRelationships } from "../../public/i18n/ko.json";
 import { storySourceUrl } from "../lib/story-assets";
-import { episodeArtwork, spotArtwork } from "../lib/story-artwork";
+import { episodeArtwork, episodeIdentityArtwork, spotArtwork } from "../lib/story-artwork";
 import "../styles/bestdori-detail.css";
 import "./ui/image-gallery";
 import { BESTDORI_CATALOG_VERSION } from "@haneoka/bestdori/resources";
@@ -1885,12 +1885,13 @@ export class StoryWorkspace extends LitElement {
     const chapter = this.chapterOf(episode);
     const band = Number(episode.bandId || chapter?.bandId || 0);
     const bandIcon = band ? String(this.bands.find((item) => Number(item.bandId) === band)?.icon || "") : "";
+    const identityImage = episodeIdentityArtwork(episode, this.characters, bandIcon);
     return tile(
       storyTile(episode, {
         title,
         titleLanguage: this.episodeTitleValue(episode).locale,
         subtitle: this.tileSubtitleContent(episode),
-        bandIcon: bandIcon ? this.imageForLocale(bandIcon) : "",
+        identityImage: identityImage ? this.imageForLocale(identityImage) : "",
         image: this.episodeImage(episode),
         imageFallback: String(chapter?.banner || ""),
         media: this.episodeMedia(episode),

@@ -133,6 +133,7 @@ export function isCoreFallbackShell(pathname: string): boolean {
   return !!route && (!route.id || (route.kind === "stories" && isStoryMode(route.id)));
 }
 export function staticDocumentLookupPath(pathname: string): string | undefined {
+  if (/^\/data\/chart-rates\/(?:jp|intl)\.json$/u.test(pathname)) return pathname;
   if (/^\/(?:provider-static|asset-static|playlist-static)\//u.test(pathname)) {
     const parts = pathname.split("/").filter(Boolean);
     if (pathname.endsWith("/index.html") && (parts[0] !== "provider-static" || parts.length === 6))

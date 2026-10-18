@@ -31,7 +31,7 @@ import { collectionTable } from "./ui/collection-view";
 import { icon } from "./ui/icon";
 import { tile, tileMedia, type TileMark } from "./ui/tile";
 import { nextImageCandidate } from "./ui/lazy-images";
-import { episodeArtwork } from "../lib/story-artwork";
+import { episodeArtwork, episodeIdentityArtwork } from "../lib/story-artwork";
 import { storyTile } from "./shared/story-tile";
 import { localizedContent } from "./ui/localized-content";
 import { renderLevelSwitch } from "./ui/level-switch";
@@ -1287,6 +1287,7 @@ function renderEventStory(c: Controller, item: Item) {
                       c.localized(value),
                     );
                     const bandIcon = String((story.bandDetails as Item | undefined)?.icon || "");
+                    const identityImage = episodeIdentityArtwork(episode, c.characters, bandIcon);
                     const seconds = Math.round(Number(episode.playTime || 0));
                     return tile(
                       storyTile(
@@ -1295,7 +1296,7 @@ function renderEventStory(c: Controller, item: Item) {
                           title,
                           titleLanguage: c.localizedLanguage(titleValue),
                           subtitle: localizedContent(subtitleValue, c.settings.locale),
-                          bandIcon: bandIcon ? c.imageForLocale(bandIcon) : "",
+                          identityImage: identityImage ? c.imageForLocale(identityImage) : "",
                           image: episodeArtwork(episode, story),
                           imageFallback: String(story.banner || ""),
                           fit: "cover",

@@ -5,7 +5,7 @@ import type { TileMark, TileOptions } from "../ui/tile";
 type Episode = Record<string, unknown>;
 export interface StoryTileOptions extends Omit<TileOptions, "kind" | "label" | "marks" | "placeholder"> {
   title: string;
-  bandIcon?: string;
+  identityImage?: string;
   duration?: string;
 }
 
@@ -15,15 +15,15 @@ export function storyTile(
   options: StoryTileOptions,
   extraMarks: ReadonlyArray<TileMark | null> = [],
 ): TileOptions {
-  const { bandIcon, duration, ...base } = options;
+  const { identityImage, duration, ...base } = options;
   return {
     ...base,
     kind: "story",
     label: options.title,
     aspectRatio: "16 / 9",
-    adornment: bandIcon
+    adornment: identityImage
       ? html`
-          <img src=${bandIcon} alt="" width="16" height="16" loading="lazy" />
+          <img src=${identityImage} alt="" width="16" height="16" loading="lazy" />
         `
       : undefined,
     placeholder: icon("auto_stories", 32),

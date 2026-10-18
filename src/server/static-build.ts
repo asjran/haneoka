@@ -47,7 +47,7 @@ function recordPaths(sourcePattern: string, paths: readonly StaticBuildPath[]): 
     const redirect = target ? { status: 308, location: `/${entry.params.locale}${target}/` } : undefined;
     return {
       params: entry.params,
-      locale: entry.params.locale,
+      locale: entry.params.locale ?? "ja",
       type: sourcePattern.endsWith(".json.ts") ? "json" : "html",
       pathname: documentPath || astroPathname,
       astroPathname,
@@ -79,5 +79,5 @@ export function staticBuildPaths<T extends StaticBuildPath>(sourcePattern: strin
   if (!isLocale(locale)) throw new Error("Invalid STATIC_BUILD_LOCALE");
   if (process.env.STATIC_BUILD_INPUT_MODE !== "frozen")
     throw new Error("Locale shards require frozen build inputs");
-  return paths.filter((entry) => entry.params.locale === locale);
+  return paths.filter((entry) => entry.params.locale === undefined ? locale === "ja" : entry.params.locale === locale);
 }
