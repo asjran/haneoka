@@ -1,8 +1,6 @@
-// Effect texture baking: fold the Unity MobileAddHdrColor material math into
-// straight-alpha atlas tiles so Sonolus' additive particle rendering
-// reproduces the authored look, then shelf-pack a small power-of-two atlas.
-// The compiled shader renders texel.rgb * 2 * tintRGB^2 against
-// texel.a * 2 * tintA^2; clamping to 1.0 is the only loss.
+// Effect texture baking: fold Unity MobileAddHdrColor into straight-alpha
+// atlas tiles for Sonolus' SrcAlpha/OneMinusSrcAlpha particle shader.
+// The Source One/One HDR composition is approximated on the LDR atlas.
 
 import { deflateSync, inflateSync } from "node:zlib";
 
@@ -241,10 +239,20 @@ export function bakeAtlas(sources: readonly TileSource[]): AtlasResult {
       const place = placements[index]!;
       for (let y = 0; y < entry.image.height; y += 1) {
         const from = y * entry.image.width * 4;
-        pixels.set(entry.image.pixels.subarray(from, from + entry.image.width * 4), ((place.y + y) * size + place.x) * 4);
+        pixels.set(
+          entry.image.pixels.subarray(from, from + entry.image.width * 4),
+          ((place.y + y) * size + place.x) * 4,
+        );
       }
       spriteIndexOf.set(entry.source.key, index);
-      tiles.push({ key: entry.source.key, x: place.x, y: place.y, w: entry.image.width, h: entry.image.height, spriteIndex: index });
+      tiles.push({
+        key: entry.source.key,
+        x: place.x,
+        y: place.y,
+        w: entry.image.width,
+        h: entry.image.height,
+        spriteIndex: index,
+      });
     });
     return {
       width: size,

@@ -13,7 +13,6 @@ import {
   configureOurNotesCamera,
   nativeBillboardQuad,
   nativeMeshQuads,
-  nativeParticleRandom,
   readNativeAnimationClip,
   MOBILE_ADD_HDR_TINT_CENTER_PILLAR,
   MOBILE_ADD_HDR_TINT_CIRCLE_ICON,
@@ -30,11 +29,20 @@ import {
   type OurNotesAssetManifest,
   type RenderParticleEffect,
 } from "@haneoka/cassiopeia-plugin-our-notes";
+import { nativeParticleRandom } from "@haneoka/cassiopeia-plugin-our-notes/authored";
 import { authoredBillboardQuad, simpleBillboardStyle } from "./billboard.ts";
 
 export type Tint = readonly [number, number, number, number];
 // Published renderer declarations may precede the optional trace extension.
-type MaterialBillboardTrace = NativeBillboardTrace & { materialTint?: Tint };
+type MaterialBillboardTrace = NativeBillboardTrace & {
+  materialTint?: Tint;
+  clock?: {
+    realTimeOffset: number;
+    currentSimulationTime: number;
+    emissionSimulationTime: number;
+    simulationTimeAt: (playbackSeconds: number) => number;
+  };
+};
 type MaterialMeshTrace = NativeMeshTrace & { materialTint?: Tint };
 
 /** GLES roundEven for the nonnegative final MobileAddHdrColor alpha. */
@@ -52,12 +60,15 @@ export function materialEmission(
   const tint = materialTint ?? TEXTURE_TINTS[texture]!;
   // MobileAddHdrColor quantizes after both tint stages and HDR doubling,
   // without a unit clamp. The tile supplies texel.rgb * texel.a.
-  const alpha =
-    texture === "laneEffect"
-      ? Math.max(0, color.a)
-      : roundEven(Math.max(0, color.a * 2 * tint[3] * tint[3]) * 255) / 255;
+  const alpha = materialAlpha(texture, color.a, materialTint);
   const hdr = texture === "laneEffect" ? [1, 1, 1] : tint.slice(0, 3).map((value) => 2 * value * value);
   return [color.r * hdr[0]! * alpha, color.g * hdr[1]! * alpha, color.b * hdr[2]! * alpha];
+}
+
+export function materialAlpha(texture: TextureKey, alpha: number, materialTint?: Tint): number {
+  if (texture === "laneEffect") return Math.max(0, alpha);
+  const tint = materialTint ?? TEXTURE_TINTS[texture]!;
+  return roundEven(Math.max(0, alpha * 2 * tint[3] * tint[3]) * 255) / 255;
 }
 
 /** Source texture key -> material tint (MobileAddHdrColor applies it twice). */
@@ -213,6 +224,8 @@ export interface QuadSample {
   uv: readonly [number, number, number, number];
   /** Instance override; one texture can be bound to several authored materials. */
   materialTint?: Tint;
+  /** Camera-space inverse depth in the same UV corner order. */
+  inverseDepths?: readonly [number, number, number, number];
   /** HDR colour with final quantized source alpha folded in for additive baking. */
   emission: readonly [number, number, number];
   /** World depth of the quad centre relative to the judgement line (Three z). */
@@ -233,15 +246,35 @@ export const unitsPerPixel = (size: number): { x: number; y: number } => ({
   y: 1 / (540 * Math.abs(STAGE_SY) * W_TO_H),
 });
 
+/** Bottom-up 1080p pixel origin of the native effect rectangle at lane zero. */
+export const effectPixelOrigin = (): readonly [number, number] =>
+  [960, 540 * (1 + STAGE_B + STAGE_SX)];
+
 export interface ParticleSample extends QuadSample {
   system: number;
+  systemName?: string;
   emission_: number;
   seed: number;
   /** Unity draws used by sampleParticle; r1..r8 in Sonolus order. */
   draws: readonly number[];
+  randomBindings?: ParticleRandomBindings;
+  materialAlpha: number;
   birth: number;
   /** Real-time lifetime in seconds. */
   lifetime: number;
+  worldPosition: { x: number; y: number; z: number };
+  worldSize: { x: number; y: number };
+  worldRotation: number;
+  sourceLayout: { lane: number; width: number; birthLane: number; birthWidth: number };
+  authoredTimes?: readonly number[];
+  sourceClock?: {
+    realTimeOffset: number;
+    emissionSimulationTime: number;
+    currentSimulationTime: number;
+    simulationAge: number;
+    simulationLifetime: number;
+    serializedSimulationSpeed: number;
+  };
 }
 
 export interface EffectTrace {
@@ -261,11 +294,59 @@ export interface LaneSurfaceSample {
 /** Draw offsets used by the renderer's sampleParticle/shapePosition. */
 const DRAW_OFFSETS = [3, 5, 7, 11, 17, 23, 29, 37] as const;
 
+export interface ParticleRandomBindings {
+  offsets: readonly number[];
+  circleAngleSlot: 0;
+  startSpeedSlot: 7;
+  startSpeedRandom: boolean;
+  radiusThickness: number;
+  sourceStartColorMode: number;
+  sourceOverLifeColorMode?: number;
+}
+
 export interface TracerOptions {
   releaseRoot: string;
   currentQuality?: number;
   /** Selected MasterLiveNoteEffectSkin asset; quality remains independent. */
   noteEffectSkin?: "effect001" | "effect001Simple";
+}
+
+interface SourceTraceClock {
+  offset: number;
+  emission: number;
+  lifetime: number;
+  maximum: number;
+  continuous: boolean;
+  timeAt: (playbackSeconds: number) => number;
+  sizeKeys: readonly number[];
+}
+
+const sourceTimeAt = (clock: SourceTraceClock, target: number): number => {
+  let lo = 0,
+    hi = clock.maximum;
+  if (clock.continuous) while (clock.timeAt(hi) <= target && hi < 65536) hi = Math.max(1, hi * 2);
+  if (clock.timeAt(hi) <= target) return clock.offset + hi;
+  for (let index = 0; index < 48; index++) {
+    const mid = (lo + hi) / 2;
+    if (clock.timeAt(mid) <= target) lo = mid;
+    else hi = mid;
+  }
+  return clock.offset + (lo + hi) / 2;
+};
+
+const traceIdentity = (seed: number, system: number, emission: number, offset: number): string =>
+  `${seed}:${system}:${emission}:${Math.round(offset * 1e5)}`;
+
+export interface ParticleTraceOptions {
+  /** Authoring uses the real runtime layout setter; projection units remain the reference width. */
+  layout?: (time: number, seed: number) => { lane: number; width: number };
+  timesBySeed?: ReadonlyMap<number, readonly number[]>;
+  particle?: (identity: { seed: number; system: number; emission: number; offset: number }) => boolean;
+  meshes?: boolean;
+  position?: (
+    identity: { seed: number; system: number; emission: number; offset: number },
+    time: number,
+  ) => { x: number; y: number; z: number } | undefined;
 }
 
 export class EffectTracer {
@@ -278,6 +359,9 @@ export class EffectTracer {
   private readonly releaseRoot: string;
   private readonly requireMaterialTint: boolean;
   private readonly simpleBillboards: boolean;
+  private readonly randomBindings = new Map<string, ParticleRandomBindings>();
+  private readonly sizeKeys = new Map<string, readonly number[]>();
+  private readonly sourceClocks = new Map<string, SourceTraceClock>();
 
   constructor(options: TracerOptions) {
     this.releaseRoot = options.releaseRoot;
@@ -319,7 +403,64 @@ export class EffectTracer {
   }
 
   async load(): Promise<void> {
-    await this.layer.loadDefinitions(async (url) => JSON.parse(await readFile(url, "utf8")));
+    await this.layer.loadDefinitions(async (url) => {
+      const value = JSON.parse(await readFile(url, "utf8"));
+      const data = value.data;
+      const shape = data?.ShapeModule;
+      const initial = data?.InitialModule;
+      const color = data?.ColorModule;
+      if (value.type === "ParticleSystem" && data?.SizeModule?.enabled === true) {
+        const times = new Set<number>([0, 1]);
+        const collect = (value: unknown): void => {
+          if (!value || typeof value !== "object") return;
+          if (Array.isArray(value)) {
+            value.forEach(collect);
+            return;
+          }
+          const record = value as Record<string, unknown>;
+          if (Array.isArray(record.m_Curve)) {
+            for (const key of record.m_Curve as Array<{ time?: number }>)
+              if (typeof key.time === "number" && key.time >= 0 && key.time <= 1) times.add(key.time);
+          } else Object.values(record).forEach(collect);
+        };
+        collect(data.SizeModule);
+        this.sizeKeys.set(
+          url,
+          [...times].sort((a, b) => a - b),
+        );
+      }
+      const deterministicColor = (gradient: { minMaxState?: number } | undefined) =>
+        gradient?.minMaxState === 0 || gradient?.minMaxState === 1;
+      // These source Circle owners never read the colour draw. Their radial
+      // start speed uses seed+43, which can occupy the same native random slot.
+      if (
+        this.simpleBillboards &&
+        value.type === "ParticleSystem" &&
+        shape?.enabled === true &&
+        shape.type === 10 &&
+        shape.arc?.mode === 0 &&
+        shape.arc.value === 360 &&
+        shape.radius?.mode === 0 &&
+        Number.isFinite(shape.radius.value) &&
+        shape.radiusThickness >= 0 &&
+        shape.radiusThickness <= 1 &&
+        (initial?.startSpeed?.minMaxState === 0 || initial?.startSpeed?.minMaxState === 3) &&
+        deterministicColor(initial?.startColor) &&
+        (color?.enabled !== true || deterministicColor(color.gradient))
+      ) {
+        this.randomBindings.set(url, {
+          offsets: [3, 5, 7, 11, 17, 23, 29, 43],
+          circleAngleSlot: 0,
+          startSpeedSlot: 7,
+          startSpeedRandom:
+            initial.startSpeed.minMaxState === 3 && initial.startSpeed.scalar !== initial.startSpeed.minScalar,
+          radiusThickness: shape.radiusThickness,
+          sourceStartColorMode: initial.startColor.minMaxState,
+          ...(color?.enabled === true ? { sourceOverLifeColorMode: color.gradient.minMaxState } : {}),
+        });
+      }
+      return value;
+    });
   }
 
   textureFile(key: TextureKey): string {
@@ -330,6 +471,20 @@ export class EffectTracer {
   async clipDuration(url: string): Promise<number> {
     const clip = readNativeAnimationClip(JSON.parse(await readFile(url, "utf8")));
     return clip?.duration ?? 0;
+  }
+
+  particleKeyTimes(sample: ParticleSample, extraNormalizedKeys: readonly number[] = []): readonly number[] {
+    const clock = this.sourceClocks.get(
+      traceIdentity(sample.seed, sample.system, sample.emission_, sample.sourceClock?.realTimeOffset ?? 0),
+    );
+    if (!clock) throw new Error("Authored particle keys require a source clock trace");
+    return [
+      ...new Set(
+        [...clock.sizeKeys, ...extraNormalizedKeys].map((age) =>
+          sourceTimeAt(clock, clock.emission + clock.lifetime * age),
+        ),
+      ),
+    ];
   }
 
   /** World point -> Sonolus unit space of a centred spawn rect with half width `size` lanes. */
@@ -399,6 +554,13 @@ export class EffectTracer {
     return {
       t,
       corners,
+      ...(!clipped
+        ? {
+            inverseDepths: quad.corners.map(
+              (corner) => -1 / corner.clone().applyMatrix4(this.camera.matrixWorldInverse).z,
+            ) as [number, number, number, number],
+          }
+        : {}),
       texture,
       file: this.textureFile(texture),
       depth,
@@ -422,11 +584,15 @@ export class EffectTracer {
     width: number,
     times: readonly number[],
     seeds: readonly number[],
+    options: ParticleTraceOptions = {},
   ): EffectTrace {
+    this.sourceClocks.clear();
     const size = width / 4;
     const particles: ParticleSample[] = [];
     const meshes = new Map<string, QuadSample[]>();
     const births = new Map<string, number>();
+    const timings = new Map<string, SourceTraceClock & { samples: ParticleSample[] }>();
+    const birthLayouts = new Map<string, { lane: number; width: number }>();
     for (const [seedIndex, seed] of seeds.entries()) {
       let t = 0;
       const billboards: MaterialBillboardTrace[] = [];
@@ -435,28 +601,71 @@ export class EffectTracer {
         billboard: (entry) => billboards.push(entry),
         mesh: (entry) => meshTraces.push(entry),
       });
-      for (const time of times) {
+      const seedTimes = options.timesBySeed?.get(seed) ?? times;
+      for (const time of seedTimes) {
         t = time;
         billboards.length = 0;
         meshTraces.length = 0;
-        this.layer.update([
-          { ...base, id: `trace:${seed}`, age: time, lane: 12 - width / 2, width, seed } as RenderParticleEffect,
-        ]);
+        const layout = options.layout?.(time, seed) ?? { lane: 12 - width / 2, width };
+        this.layer.update([{ ...base, id: `trace:${seed}`, age: time, ...layout, seed } as RenderParticleEffect]);
         for (const entry of billboards) {
+          if (
+            options.particle &&
+            !options.particle({
+              seed,
+              system: entry.system,
+              emission: entry.emission,
+              offset: entry.clock?.realTimeOffset ?? 0,
+            })
+          )
+            continue;
+          const position = options.position?.(
+            { seed, system: entry.system, emission: entry.emission, offset: entry.clock?.realTimeOffset ?? 0 },
+            t,
+          );
+          const positioned = position ? { ...entry, ...position } : entry;
+          const layoutKey = traceIdentity(seed, entry.system, entry.emission, entry.clock?.realTimeOffset ?? 0);
+          if (!birthLayouts.has(layoutKey)) birthLayouts.set(layoutKey, { ...layout });
+          const bornLayout = birthLayouts.get(layoutKey)!;
           if (this.requireMaterialTint && !entry.materialTint)
             throw new Error("Light billboard trace requires the per-instance material tint renderer contract");
           const slot = base.kind === "tap" ? "Normal" : base.kind === "slide-loop" ? "SlideLoop" : undefined;
           const ref = slot ? this.assets.particles.effect001Prefabs[slot]?.particleSystems[entry.system] : undefined;
+          const bindingSlot =
+            base.kind === "tap"
+              ? "Normal"
+              : base.kind === "slide"
+                ? "Slide"
+                : base.kind === "connect"
+                  ? "Connect"
+                  : base.kind === "slide-loop"
+                    ? "SlideLoop"
+                    : base.kind === "flick"
+                      ? base.direction === "left"
+                        ? "Left"
+                        : base.direction === "right"
+                          ? "Right"
+                          : "Flick"
+                      : undefined;
+          const bindingRef = bindingSlot
+            ? this.assets.particles.effect001Prefabs[bindingSlot]?.particleSystems[entry.system]
+            : undefined;
+          const randomBindings = bindingRef ? this.randomBindings.get(bindingRef.metadataUrl) : undefined;
           const style = this.simpleBillboards && ref ? simpleBillboardStyle(base.kind, ref.name) : undefined;
           const quad = style
             ? authoredBillboardQuad(
-                entry,
+                positioned,
                 style,
                 this.camera.position,
                 this.camera.matrixWorldInverse,
                 this.projectionScaleY,
               )
-            : nativeBillboardQuad(entry, this.camera.position, this.camera.matrixWorldInverse, this.projectionScaleY);
+            : nativeBillboardQuad(
+                positioned,
+                this.camera.position,
+                this.camera.matrixWorldInverse,
+                this.projectionScaleY,
+              );
           // Cohorts keep the existing judgement-plane layout. Horizontal
           // Simple quads are fitted within that same consumer plane contract.
           const sample = this.quadSample(
@@ -473,21 +682,65 @@ export class EffectTracer {
           const birth = t - entry.age / entry.simulationSpeed;
           // Animator loops reuse emission indices. A recycled index belongs
           // to a new birth, rather than the particle sampled during warm-up.
-          const cycle = base.kind === "slide-loop" ? Math.round(birth * 1e5) : 0;
+          const cycle = entry.clock
+            ? Math.round(entry.clock.realTimeOffset * 1e5)
+            : base.kind === "slide-loop"
+              ? Math.round(birth * 1e5)
+              : 0;
           const key = `${seed}:${entry.system}:${entry.emission}:${cycle}`;
           if (!births.has(key)) births.set(key, birth);
-          particles.push({
+          const particle: ParticleSample = {
             ...sample,
             system: entry.system,
+            ...(bindingRef ? { systemName: bindingRef.name } : {}),
             emission_: entry.emission,
             seed,
-            draws: DRAW_OFFSETS.map((offset) => nativeParticleRandom(entry.particleSeed + offset)),
+            draws: (randomBindings?.offsets ?? DRAW_OFFSETS).map((offset) =>
+              nativeParticleRandom(entry.particleSeed + offset),
+            ),
+            ...(randomBindings ? { randomBindings } : {}),
+            materialAlpha: materialAlpha(entry.texture as TextureKey, entry.color.a, entry.materialTint),
             birth: births.get(key)!,
             lifetime: entry.lifetime / entry.simulationSpeed,
-          });
+            worldPosition: { x: positioned.x, y: positioned.y, z: positioned.z },
+            worldSize: { x: positioned.sizeX, y: positioned.sizeY },
+            worldRotation: positioned.rotation,
+            sourceLayout: { ...layout, birthLane: bornLayout.lane, birthWidth: bornLayout.width },
+            ...(entry.clock
+              ? {
+                  sourceClock: {
+                    realTimeOffset: entry.clock.realTimeOffset,
+                    emissionSimulationTime: entry.clock.emissionSimulationTime,
+                    currentSimulationTime: entry.clock.currentSimulationTime,
+                    simulationAge: entry.age,
+                    simulationLifetime: entry.lifetime,
+                    serializedSimulationSpeed: entry.simulationSpeed,
+                  },
+                }
+              : {}),
+          };
+          particles.push(particle);
+          if (entry.clock) {
+            let timing = timings.get(key);
+            if (!timing) {
+              timing = {
+                offset: entry.clock.realTimeOffset,
+                emission: entry.clock.emissionSimulationTime,
+                lifetime: entry.lifetime,
+                timeAt: entry.clock.simulationTimeAt,
+                maximum: Math.max(0, (base.lifetime ?? seedTimes[seedTimes.length - 1]!) - entry.clock.realTimeOffset),
+                continuous: base.lifetime === undefined,
+                sizeKeys: bindingRef ? (this.sizeKeys.get(bindingRef.metadataUrl) ?? [0, 1]) : [0, 1],
+                samples: [],
+              };
+              timings.set(key, timing);
+            }
+            timing.emission = entry.clock.emissionSimulationTime;
+            timing.samples.push(particle);
+          }
         }
         // Mesh rigs carry no randomness; seed 0 is enough.
-        if (seedIndex > 0) continue;
+        if (seedIndex > 0 || options.meshes === false) continue;
         for (const entry of meshTraces) {
           if (this.requireMaterialTint && !entry.materialTint)
             throw new Error("Light mesh trace requires the per-instance material tint renderer contract");
@@ -517,6 +770,16 @@ export class EffectTracer {
     }
     this.layer.setTraceSink(undefined);
     this.layer.update(undefined);
+    for (const [identity, timing] of timings) {
+      const { samples, ...clock } = timing;
+      this.sourceClocks.set(identity, clock);
+      const birth = sourceTimeAt(timing, timing.emission);
+      const death = sourceTimeAt(timing, timing.emission + timing.lifetime);
+      for (const sample of samples) {
+        sample.birth = birth;
+        sample.lifetime = Math.max(0, death - birth);
+      }
+    }
     return { particles, meshes };
   }
 
@@ -601,11 +864,26 @@ export class EffectTracer {
     try {
       for (const t of times) {
         meshes.length = 0;
-        this.layer.updateLaneInput([{ id: "lane-surface", kind, direction: "none", judgement: "perfect",
-          age: t, lane: 12 - width / 2, width, seed: 1 } as RenderParticleEffect]);
+        this.layer.updateLaneInput([
+          {
+            id: "lane-surface",
+            kind,
+            direction: "none",
+            judgement: "perfect",
+            age: t,
+            lane: 12 - width / 2,
+            width,
+            seed: 1,
+          } as RenderParticleEffect,
+        ]);
         for (const mesh of meshes)
           for (const quad of nativeMeshQuads(mesh))
-            surfaces.push({ t, quad, file: this.textureFile("laneEffect"), emission: materialEmission("laneEffect", mesh.color) });
+            surfaces.push({
+              t,
+              quad,
+              file: this.textureFile("laneEffect"),
+              emission: materialEmission("laneEffect", mesh.color),
+            });
       }
     } finally {
       this.layer.setTraceSink(undefined);
@@ -618,7 +896,9 @@ export class EffectTracer {
   projectLaneUV(quad: NativeWorldQuad, u: number, v: number, size: number) {
     const nu = (u - quad.uv[0]) / (quad.uv[2] - quad.uv[0]);
     const nv = (v - quad.uv[1]) / (quad.uv[3] - quad.uv[1]);
-    const point = quad.corners[0].clone().lerp(quad.corners[1], nu)
+    const point = quad.corners[0]
+      .clone()
+      .lerp(quad.corners[1], nu)
       .lerp(quad.corners[3].clone().lerp(quad.corners[2], nu), nv);
     const depth = -point.clone().applyMatrix4(this.camera.matrixWorldInverse).z;
     return { ...this.toUnit(point, size, 3), depth, near: this.camera.near };

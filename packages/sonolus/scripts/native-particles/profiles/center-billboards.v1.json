@@ -1,0 +1,154 @@
+{
+  "schema": "our-notes-source-centers-v1",
+  "referenceWidth": 8,
+  "sampleRate": 240,
+  "sourceSeed": 4660,
+  "verificationSeeds": [
+    20302,
+    48879,
+    20903,
+    30583,
+    9320
+  ],
+  "atlasSide": 1024,
+  "sourceRendererSha256": "9a9b6efd2c480b556796684c9d1defeefee465195e948c941890069bd62f73be",
+  "sourceAuthoredSha256": "61ba4c767cebb4260583b447830196ba69ae262b6117ed7d42b12e354a0845ac",
+  "profiles": [
+    {
+      "key": "standard",
+      "quality": 0,
+      "baselineDataSha256": "845e240d655f9e5a44cef251b1e1a24c31d95eed8a6a2a838a584eecbd8b87c0",
+      "baselineTextureSha256": "f90ef78de473411c768ff1d181caa616b9623521f3b93ac2e629d9a7525e3300",
+      "effects": [
+        {
+          "name": "Our Notes Native Flick W4 P0",
+          "width": 4,
+          "groups": [
+            10,
+            11
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        },
+        {
+          "name": "Our Notes Native Flick W6 P0",
+          "width": 6,
+          "groups": [
+            10,
+            11
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        },
+        {
+          "name": "Our Notes Native Flick W8 P0",
+          "width": 8,
+          "groups": [
+            10,
+            11
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        },
+        {
+          "name": "Our Notes Native Flick W12 P0",
+          "width": 12,
+          "groups": [
+            10,
+            11
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        },
+        {
+          "name": "Our Notes Native Flick W24 P0",
+          "width": 24,
+          "groups": [
+            10,
+            11
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "light",
+      "quality": 2,
+      "baselineDataSha256": "6c1d19a4ec209ddc9b71b1b9d36928ff52a3cc42ec8d56049395160e250e0e5d",
+      "baselineTextureSha256": "b7bb1ca0f13fb3f27d345b79ec7de57d76b06504370dee073f45241799fd7276",
+      "effects": [
+        {
+          "name": "Our Notes Native Flick W4 P0",
+          "width": 4,
+          "groups": [
+            7,
+            8
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        },
+        {
+          "name": "Our Notes Native Flick W6 P0",
+          "width": 6,
+          "groups": [
+            7,
+            8
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        },
+        {
+          "name": "Our Notes Native Flick W8 P0",
+          "width": 8,
+          "groups": [
+            7,
+            8
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        },
+        {
+          "name": "Our Notes Native Flick W12 P0",
+          "width": 12,
+          "groups": [
+            7,
+            8
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        },
+        {
+          "name": "Our Notes Native Flick W24 P0",
+          "width": 24,
+          "groups": [
+            7,
+            8
+          ],
+          "actorTextures": [
+            "centerPillar",
+            "centerPillar02"
+          ]
+        }
+      ]
+    }
+  ]
+}

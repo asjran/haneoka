@@ -1,0 +1,61 @@
+{
+  "name": "@haneoka/cassiopeia-plugin-our-notes",
+  "version": "0.1.0",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes.git"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json",
+    "./authored": {
+      "types": "./dist/authored.d.ts",
+      "import": "./dist/authored.js"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build-chart-ui-profile.mjs && vite build && node scripts/copy-note-skin-assets.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "pnpm typecheck && pnpm build",
+    "format": "prettier --write . --ignore-unknown",
+    "format:check": "prettier --check . --ignore-unknown"
+  },
+  "peerDependencies": {
+    "@haneoka/cassiopeia": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6",
+    "prettier": "3.7.4"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.14.0",
+  "description": "Our Notes score normalization, source asset contracts and presentation policy",
+  "keywords": [
+    "cassiopeia",
+    "rhythm-game",
+    "our-notes",
+    "bang-dream",
+    "chart"
+  ],
+  "homepage": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes#readme",
+  "bugs": {
+    "url": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes/issues"
+  }
+}

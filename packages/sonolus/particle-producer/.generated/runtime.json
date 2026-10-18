@@ -1,0 +1,586 @@
+{
+  "key": "03ddb22d1c17a96ac67764885c59c64728c3755371bd3089bb8417fc0d56003b",
+  "input": [
+    {
+      "path": "core/LICENSE",
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    },
+    {
+      "path": "core/package.json",
+      "sha256": "d609d50897cb0854a3e80cfe544ae1ab1cddc39059fe49ade4ddd95b9827bcdc"
+    },
+    {
+      "path": "core/README.md",
+      "sha256": "d07edbd487bc085956be32dbedc3fb2621ebbc5f13e69962baf1cf09f3629b2b"
+    },
+    {
+      "path": "core/src/audio/MusicTimeAnchor.ts",
+      "sha256": "58aa51751d492a67964a94ee3f841d2b0fd60442902538ac9e732ce28515fac1"
+    },
+    {
+      "path": "core/src/audio/playbackRate.ts",
+      "sha256": "938ac23a81a4e1056763db6b39b12c8b432a8ebf7699179034e97414d52a6bff"
+    },
+    {
+      "path": "core/src/core/assist.ts",
+      "sha256": "0ac263d8fc1722dbd1e7c063044db148983f05e8804492f1c6c1f3f9ccf324a5"
+    },
+    {
+      "path": "core/src/core/automatic.ts",
+      "sha256": "70237611c11f3b53192699b3efda53728a0f274510958dcbe6f82f410d8750a8"
+    },
+    {
+      "path": "core/src/core/enums.ts",
+      "sha256": "fe3d64afc768c0e47a30a248e695a9cf1fa194b5314e3d59f6c1c25f1d0c74ca"
+    },
+    {
+      "path": "core/src/core/geometry.ts",
+      "sha256": "bd223b8f5224d471379a5695b9c3368d4d00a3d1f05d75f4d7599c76ab334797"
+    },
+    {
+      "path": "core/src/core/judgement.ts",
+      "sha256": "2e1f31f3edb3f364a13d8338647bd9ecdd104ad4e729fce3772f6bb9ed081db2"
+    },
+    {
+      "path": "core/src/core/livePerformance.ts",
+      "sha256": "5f77e23993674a4afb4ecc55c4017567ceccbbfb93fe07902735ff0477abcf5b"
+    },
+    {
+      "path": "core/src/core/nativeContract.ts",
+      "sha256": "3f385ead42e2ac4039cbd760739e808be740c629c583b4c9525a1a836102c11d"
+    },
+    {
+      "path": "core/src/core/scoring.ts",
+      "sha256": "a277c9e413fd38fc87bb614d9e07dd5073a2a03158870bcd21be0fd3a65bc071"
+    },
+    {
+      "path": "core/src/core/session.ts",
+      "sha256": "cbd57d39c2c4fe788566c5bb367d1d70da1bd8f4c256ec4fe93d8a1ae2e7dbb1"
+    },
+    {
+      "path": "core/src/core/SessionTimeline.ts",
+      "sha256": "3645e67628c7c1335c0694734b50fc73d9618fae662789e7702eb82eb766e181"
+    },
+    {
+      "path": "core/src/core/staticChartOverview.ts",
+      "sha256": "91d6ccacd2dfa2d7539dedc66fdf189f8e8515881762046b76ee1199f6a5809c"
+    },
+    {
+      "path": "core/src/core/timing.ts",
+      "sha256": "003e489385a1fa34741bf0fed2825d71269997a23ed68e203c856646a5fd3435"
+    },
+    {
+      "path": "core/src/core/TimingPolicy.ts",
+      "sha256": "3742e9268ab72782cb3fa21f1087f3a18f75c0f6511f7cda83fc0c16543f453e"
+    },
+    {
+      "path": "core/src/core/types.ts",
+      "sha256": "18c3caddca70f4f03746293bf35a54e35b62d4f53a1f86e80d1fcd6113d3c886"
+    },
+    {
+      "path": "core/src/core/WasmWatchSession.ts",
+      "sha256": "129a487e45591878e74e293f9d018db32420a5d8b696d5768138d8f0362aa49e"
+    },
+    {
+      "path": "core/src/core/WatchReplayClock.ts",
+      "sha256": "bdbdf94c254b6506f7cf8fd40f8b99f4648e8a070bd48cac04622896eb7cf3aa"
+    },
+    {
+      "path": "core/src/enums-entry.ts",
+      "sha256": "8470c55396ebd12e2c6968efb522020d9f12231359664151c0a69f41591e2127"
+    },
+    {
+      "path": "core/src/index.ts",
+      "sha256": "0e3501db016cf44042f5fcb45aec3525f9568195ac8500c1eaeb27e72ab499ce"
+    },
+    {
+      "path": "core/src/plugin.ts",
+      "sha256": "bfec8b75240f7b35c100afe61a8e74a7788e22e177b00f9a6427adb2883c69dd"
+    },
+    {
+      "path": "core/src/timing-policy-entry.ts",
+      "sha256": "8dccf3432d16c46fbda4cb74e228cf1de50b5ade590eaee4d0dd89f86d92489a"
+    },
+    {
+      "path": "core/src/wasm-session.ts",
+      "sha256": "e8cc88b51db39b33388d5c5c3ea2cfb34527bed417181b2a01b61b4df61aed23"
+    },
+    {
+      "path": "core/THIRD_PARTY_NOTICES.md",
+      "sha256": "7bc38da62efad6b63fc236bf85f182a0ed0288646a4518b8ed607e90b248b777"
+    },
+    {
+      "path": "core/tsconfig.build.json",
+      "sha256": "84e165fe6cf99b7f479021e33c6c5e4966c1472d07ef9f22cdf2c7df62c53155"
+    },
+    {
+      "path": "core/tsconfig.json",
+      "sha256": "9aebdea8385fe1ebc6f3cb22e6f2ccbdfb7cad81a43fb8b77dedb112513f9643"
+    },
+    {
+      "path": "core/vite.config.ts",
+      "sha256": "04cb33315394f84ab1ea225e64fd17a14ed5b50879fc1194aa5f0e3f9898db78"
+    },
+    {
+      "path": "profile/LICENSE",
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    },
+    {
+      "path": "profile/package.json",
+      "sha256": "7f138f6d21648d8f0f15948be53edc0c4f9a46e5b983a870326476e32658ebd5"
+    },
+    {
+      "path": "profile/README.md",
+      "sha256": "76d1fb58c8ea2e261b115a32c1bb7421fdc13109b150e47f8bc6029f6e36d02a"
+    },
+    {
+      "path": "profile/scripts/copy-note-skin-assets.mjs",
+      "sha256": "498267da52789b5d9e256b789e768a48d8fb1046d67afb4cbccf7fafb9771aa4"
+    },
+    {
+      "path": "profile/src/adapter/renderFrame.ts",
+      "sha256": "684809e8b70b42a33064e6942071b81dd1b1e9a857769dba8de51d5e38e759c5"
+    },
+    {
+      "path": "profile/src/assets/chart-ui-profile.json",
+      "sha256": "a36fffc564d83d28d2ce2f03a60679ac10f165720940dfc01cae1327c64bef9f"
+    },
+    {
+      "path": "profile/src/assets/chartUiProfile.ts",
+      "sha256": "9ae21f633e456f63fabbe8a0709d3532e7bec7a41068d51797f20c0fe8b988e3"
+    },
+    {
+      "path": "profile/src/assets/effect-particle-activity.json",
+      "sha256": "c37846de69d3537a6ac3025f9f892a111c051e65f231aaf6823367bfb0bcfe01"
+    },
+    {
+      "path": "profile/src/assets/gekisou-effect-profile.json",
+      "sha256": "c404624807344a59ab79f5773fb9a38d598f65130c73451749de5a3b1c959850"
+    },
+    {
+      "path": "profile/src/assets/gekisou-entry-profile.json",
+      "sha256": "98f35a13eabd05b8d8f12d971ded6caf51a3ad523d5b2e91f62de659178eeccb"
+    },
+    {
+      "path": "profile/src/assets/gekisou-lane-hud-profile.json",
+      "sha256": "4db9883363071f2e7f424d3720d21f7d70377cf6233d939d360791ed8b2b00ef"
+    },
+    {
+      "path": "profile/src/assets/haptic-feedback-profile.json",
+      "sha256": "5cf72cd11b0ac013283d64c2e128d149c50362b5a2a035ec7654f69aaa7c8926"
+    },
+    {
+      "path": "profile/src/assets/hudGeometry.ts",
+      "sha256": "d6dedbd80b3bc598ad0d50a2fae242de33f017be6346c2b6fc108ebacae8f69e"
+    },
+    {
+      "path": "profile/src/assets/introMesh.ts",
+      "sha256": "2b02ef6fef1c0ee172d2521d63712d2fe29dab79899c603672c80d7fae8b1a12"
+    },
+    {
+      "path": "profile/src/assets/introSprite.ts",
+      "sha256": "0083ae7dc206451ffbee0ae4d6e2190ae7e17c7bff0a321e5d0549abcf864bbf"
+    },
+    {
+      "path": "profile/src/assets/lightweight-background.json",
+      "sha256": "858c925c1a2793289634ebbe790ee08d97bb69fef0d7c6483739562bd0dd654e"
+    },
+    {
+      "path": "profile/src/assets/manifest.ts",
+      "sha256": "982e408bf292a010596fe29d05623cdf53e8cf6110f9000dd970b031f0cd31f0"
+    },
+    {
+      "path": "profile/src/assets/note-skins/skin001.json",
+      "sha256": "65a5905864c36b60de6508110b5b22e944f8b81f5d87e38ecf2787e9785fb4f6"
+    },
+    {
+      "path": "profile/src/assets/note-skins/skin001.png",
+      "sha256": "340e4af0bff294346d1603a73384eb9b916139e3d941c2d5f76bd1c23ef9e434"
+    },
+    {
+      "path": "profile/src/assets/note-skins/skin002.json",
+      "sha256": "a9c59ddd50a8bda25660ddb91ae667b622988d25931718752e5535e5892ac93b"
+    },
+    {
+      "path": "profile/src/assets/note-skins/skin002.png",
+      "sha256": "c7293ead5c775a40de01fb11b7a877e6bf0b851257f49dd4606ce0a94bf6f6b1"
+    },
+    {
+      "path": "profile/src/assets/note-skins/skin003.json",
+      "sha256": "b71f15d9c6d4ecd9496e02d52cc5bc892cf8f6608ad0a29cdc3b0799b9d926df"
+    },
+    {
+      "path": "profile/src/assets/note-skins/skin003.png",
+      "sha256": "9d96880847b72ba7105b2adfabe1d14e2029c139e72722c00eed14ddda3819da"
+    },
+    {
+      "path": "profile/src/assets/noteAtlas.ts",
+      "sha256": "e635465d5ed7fc6ce24519df7e7e2f2c772c041d72780f3115d145a0985442ef"
+    },
+    {
+      "path": "profile/src/assets/noteTextures.ts",
+      "sha256": "2a0a9239c39608f41bc12b9464634347c03c56d0b79a18ad377c8a42964bcaa7"
+    },
+    {
+      "path": "profile/src/assets/unityHash.ts",
+      "sha256": "ed12e79eeb2dd6efd769e64a202c8e7b430979f09bfc8ba0e8b47339959c091b"
+    },
+    {
+      "path": "profile/src/authored/particleMotion.ts",
+      "sha256": "107647af2eff3e15b2d39e82cfd91454dcb2f35f7f14db25f4dc20c45e8ca09e"
+    },
+    {
+      "path": "profile/src/authored/sourceTransform.ts",
+      "sha256": "26c5faf038dbc0e86e0097c4c5d2ae665524a0eca9e9562921d88ac46584ae7e"
+    },
+    {
+      "path": "profile/src/authored/unityParticleMath.ts",
+      "sha256": "dd5af487d1d79fa33a22c8a4e92b4f8152e7dba2712b3c5b80f6e643c230016c"
+    },
+    {
+      "path": "profile/src/authored.ts",
+      "sha256": "e639ff3380c623c2587e16bb3b7f9ccb6613778fc25482d712f048c323915111"
+    },
+    {
+      "path": "profile/src/core/chart.ts",
+      "sha256": "304a62ed08bef002ad34d5759338df3d5c7f453f90774ac8a44a91fb90da6a45"
+    },
+    {
+      "path": "profile/src/core/ourNotesTimingPolicy.ts",
+      "sha256": "d96c3f673ed5b56c695c19354f6982feab54eeb992d96cd03516530a10a3a525"
+    },
+    {
+      "path": "profile/src/core/parser.ts",
+      "sha256": "265348ec209caea8848539a2ae3136253e228a5c16cdc9b0fe1387c58cb9db7f"
+    },
+    {
+      "path": "profile/src/core/timeline.ts",
+      "sha256": "64d93aba8ed977b75e8920790bbdc4512f36001e2754a6cb0b3b7d64f657317e"
+    },
+    {
+      "path": "profile/src/index.ts",
+      "sha256": "80e9d4dcf119ae3dcdf4a5668a6957cda108a865784f1b8bbff7ff10637ca6a7"
+    },
+    {
+      "path": "profile/src/plugin.ts",
+      "sha256": "192899a287afe2d8cfc913f714bfac9042a963ec152267a77a647e7bfb27d016"
+    },
+    {
+      "path": "profile/src/presentation/Gekisou.ts",
+      "sha256": "297a99c88e7e4f2649e4d41047a28cc14a2a6c43a48b2853e9fdd6c4399c5a2f"
+    },
+    {
+      "path": "profile/src/presentation/GekisouEntry.ts",
+      "sha256": "4e54675cc59b2012f5abbcb7e2567a386a29c9ced94c9f56866a590a0501002e"
+    },
+    {
+      "path": "profile/src/presentation/GekisouOverlay.ts",
+      "sha256": "980f526129a70e78f71ae60a30c3b53030bfea144e3e358e690c5ce3b10379ea"
+    },
+    {
+      "path": "profile/src/presentation/GekisouPlayback.ts",
+      "sha256": "3c1d91f90323fb8ae92bcc10530c81323ce9e49c500ae2937004ec6d2d02ea6b"
+    },
+    {
+      "path": "profile/src/presentation/GekisouPresentation.ts",
+      "sha256": "b62e0c1b21522e1963f529ae83217564e5dc0d7a1bc3509126794ff86c7d3eba"
+    },
+    {
+      "path": "profile/src/presentation/GekisouStage.ts",
+      "sha256": "05f4bf9732f3b01d7e05229a33dcbda951574bb2252cc1300a8e7f9f34a0d63d"
+    },
+    {
+      "path": "profile/src/presentation/GekisouStageParticles.ts",
+      "sha256": "fa41dc0c039e23f8408e6f6847d3da3308a88948314fc4ac4b8888563d257998"
+    },
+    {
+      "path": "profile/src/presentation/GekisouStageProjector.ts",
+      "sha256": "3ab54dd6daf208b6ef05f77a17b4ae4986ad5bb074c9633b1aa492329bc28743"
+    },
+    {
+      "path": "profile/src/presentation/gekisouStageSource.ts",
+      "sha256": "b1746186464c4cd266b366e8c52fdc544addbc580639945cfe868b4083f5476b"
+    },
+    {
+      "path": "profile/src/presentation/GekisouStageVideo.ts",
+      "sha256": "e58c78df2df8907f0ea2eaedfc44d0bfde3e041233fa5449611fa678fe45d3e5"
+    },
+    {
+      "path": "profile/src/presentation/HapticFeedback.ts",
+      "sha256": "0e59bf9220c40c5787ca6eadbedd4446d57a01d009ffdc61e6ec5c8190dfccbe"
+    },
+    {
+      "path": "profile/src/presentation/IntroPlayback.ts",
+      "sha256": "930abdff83d7f6d2db561e5160b9ee0dcbae6ef8d915f615ba7c3ad0f2a8dd4a"
+    },
+    {
+      "path": "profile/src/presentation/LightweightBackground.ts",
+      "sha256": "d269d77510fd53d188d2833e6833ce630b265e2c0549f0b1d4baccc1325cd656"
+    },
+    {
+      "path": "profile/src/presentation/ScoringPolicy.ts",
+      "sha256": "a5d0de723a73c6325f851633b702dae6c86ef8f3988c3cc5f7fe75b1f9cd5cb3"
+    },
+    {
+      "path": "profile/src/presentation/TitleIntroduction.ts",
+      "sha256": "d46756ef750871a53fdaa3ea18052845d87bf3286ad07665f8b5a94bf5f5a41e"
+    },
+    {
+      "path": "profile/src/render/types.ts",
+      "sha256": "e46cab5319cf919a02b9f2801b40a8dc531a218f491fa46773ffec77a6618455"
+    },
+    {
+      "path": "profile/src/timing-policy-entry.ts",
+      "sha256": "7bd63dcc7ff94f4e458571a5ee7d979f35b276857dd03b23bd2a0b13fbd03847"
+    },
+    {
+      "path": "profile/tsconfig.build.json",
+      "sha256": "84e165fe6cf99b7f479021e33c6c5e4966c1472d07ef9f22cdf2c7df62c53155"
+    },
+    {
+      "path": "profile/tsconfig.json",
+      "sha256": "9aebdea8385fe1ebc6f3cb22e6f2ccbdfb7cad81a43fb8b77dedb112513f9643"
+    },
+    {
+      "path": "profile/vite.config.ts",
+      "sha256": "b5662634967e9d5870a7c7996ec708c10f0eb5f493abbaea8343a4e420795661"
+    },
+    {
+      "path": "renderer/LICENSE",
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    },
+    {
+      "path": "renderer/package.json",
+      "sha256": "0ec6829c7dd4e3b254aa8daba85311ad872abd245c667ab10613e4f8d07d3dc7"
+    },
+    {
+      "path": "renderer/README.md",
+      "sha256": "7359d6a80431a904a360ef742f1934175e9f0a1c56ef852f1fe58d1d39cb3830"
+    },
+    {
+      "path": "renderer/src/assets/CanvasSpriteAtlas.ts",
+      "sha256": "51799102c4cf8e75a6ce15bca0c05d1985103465874b94ff44f6993ee65608ea"
+    },
+    {
+      "path": "renderer/src/assets/SpriteAtlas.ts",
+      "sha256": "fd06c8f52bbd441e3e375706a3160d18f4fba91162628bfaa59529822d3cffa4"
+    },
+    {
+      "path": "renderer/src/assets/spriteMesh.ts",
+      "sha256": "0240139cbdd3fea3ffa14e70e3e9bd3527d386f54c3c75f9f0de8e926374c014"
+    },
+    {
+      "path": "renderer/src/index.ts",
+      "sha256": "555527f7c38cc8404f16ea3c00f5b42ceda9942299f1c9e3f677547263f867e0"
+    },
+    {
+      "path": "renderer/src/plugin.ts",
+      "sha256": "0de4ca553d00da675552b64ad15ab0937a065f3723b7406656aadfadc6da8309"
+    },
+    {
+      "path": "renderer/src/render/backgroundMedia.ts",
+      "sha256": "23745295670cdd95eaa9e7e8e54eedb7dcd863970ce51c47e0e8d7760c916cdd"
+    },
+    {
+      "path": "renderer/src/render/HoldRibbon.ts",
+      "sha256": "92d521d304d3bd81367e4ed89c7363d666fdf2f198f9d043ab785faf911f2644"
+    },
+    {
+      "path": "renderer/src/render/HudLayer.ts",
+      "sha256": "79fee2c0a4d6a55d4fc762b84933ea9fde44dfa1f4e3a3aa3f8cb81fb89ff35b"
+    },
+    {
+      "path": "renderer/src/render/index.ts",
+      "sha256": "0a5a0933e57694d0ee4457f3637d55809b6a2db58f7b6f6aed67498fdd6cb832"
+    },
+    {
+      "path": "renderer/src/render/LiveUrpBloom.ts",
+      "sha256": "d5ce2d572b049bfa7331b92f021ed21cc3945a1a7123ddbe26f400cd37e19074"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroAssembler.ts",
+      "sha256": "d76ae59281bc2dd636244652fd1f3beaf5f5b149cf75838cf4358c5e1ee6b8b4"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroLoader.ts",
+      "sha256": "306786edcc90f5240250235a5c692a602b2a9b8e2c39eb9c713614bfcebe8014"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroMesh.ts",
+      "sha256": "eed1bade67c34b864740fd71b58c684c03034c49d564d360812a1ca6eda8578c"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroParticleLayer.ts",
+      "sha256": "df4b445f6682c07d8e6b39527efdd19c6085ba8548066f099acd6f4af7d159e3"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroParticles.ts",
+      "sha256": "07b1ee034a4dfd45a0d1b493f9ed01465d9f3a37b8fdbcd92c54830ef0d8080e"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroScene.ts",
+      "sha256": "030ae9ed4230783de450c35685ddf0a9dc4f630d0544af6684bb046e991ad2b4"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroSignals.ts",
+      "sha256": "8ffc01771c3b543eca2539cf996623895881af69a9472bbf14ba64c7838befc2"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroSourceIndex.ts",
+      "sha256": "de39a3a0461c9532d87534746698eccf6ebaa36cb5cf585b3d40a030a7d8ee02"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroSpriteLayer.ts",
+      "sha256": "b72de4e090be7643ff8f7aa8b6c194e58c328f301c41fac7d6b05599bb810eaf"
+    },
+    {
+      "path": "renderer/src/render/NativeIntroTimeline.ts",
+      "sha256": "0d057b3d062fb5c6080f39352cf8e5000501cb7c6c0d417ba34ea329aa1c93c8"
+    },
+    {
+      "path": "renderer/src/render/NativeParticleNoise.ts",
+      "sha256": "adf6e0cd917b81b8f35ac42eb201679f58fe5ff0d1b3fcfc8a6a361bcc91ea3a"
+    },
+    {
+      "path": "renderer/src/render/NativeParticleNoiseOwner.ts",
+      "sha256": "5e291dd659ac273bfb507fe475c0b53c01caa108f9ef1e905ae2fb3bf33bda5e"
+    },
+    {
+      "path": "renderer/src/render/NoteLayer.ts",
+      "sha256": "0f67490ba17f53db6531390cb7f2fb99bf8842d994e38ed60f9ea1c1cdecdfb3"
+    },
+    {
+      "path": "renderer/src/render/noteSkinLayout.ts",
+      "sha256": "6e527412e518228a3cee480917c054cd42e6c4a75cc97c1a77230c9bc343e5fd"
+    },
+    {
+      "path": "renderer/src/render/OurNotesRenderer.ts",
+      "sha256": "1084430c057ffe67d13137dcae7bd529eb885595a87c851e9edf717607bc71cc"
+    },
+    {
+      "path": "renderer/src/render/OverlayLayer.ts",
+      "sha256": "92f9ebba10fc658a048ba4c80572870a1d914dec977a1e7313d14fe01487b11a"
+    },
+    {
+      "path": "renderer/src/render/ParticleLayer.ts",
+      "sha256": "666cbc4592fbf1e80be5b4ae60a1ae793adc9250e52c2df991ee8cbcd0b23299"
+    },
+    {
+      "path": "renderer/src/render/PerfProbe.ts",
+      "sha256": "57fc37c0d6136101d9b4c2dcd18606e08b0414e21ea42de605615f65d49f7390"
+    },
+    {
+      "path": "renderer/src/render/pixelRatio.ts",
+      "sha256": "c22ded8211e32733b0cffaadcd003752c0629bb13c4bd0eaeb47cde76da3d6d9"
+    },
+    {
+      "path": "renderer/src/render/presentation.ts",
+      "sha256": "3a1ccc3e5b87e8b9724e957e4668204d737e9b25f4154c01c020a856fc8e81cb"
+    },
+    {
+      "path": "renderer/src/render/SimultaneousLineLayer.ts",
+      "sha256": "c39c65aa982d6281b5f4cc8aeb95991f28fdbd373fcc0dfee1e2a4b1d51c72e3"
+    },
+    {
+      "path": "renderer/src/render/stageGeometry.ts",
+      "sha256": "ad0dbb3862abbbfd5bf455dfe5c6a7b94d0a16974b27ca391d07cc9944496ca9"
+    },
+    {
+      "path": "renderer/src/render/TmpSdfFont.ts",
+      "sha256": "62a9efd1e58ac938d3ef1f275341c84988a938acc646d292105c85b26a717f2f"
+    },
+    {
+      "path": "renderer/THIRD_PARTY_NOTICES.md",
+      "sha256": "63dee36e053ef1b7f22ae5f2cebdc15df94f237b537e82512d70b0dbd1c3d4d2"
+    },
+    {
+      "path": "renderer/tsconfig.build.json",
+      "sha256": "84e165fe6cf99b7f479021e33c6c5e4966c1472d07ef9f22cdf2c7df62c53155"
+    },
+    {
+      "path": "renderer/tsconfig.json",
+      "sha256": "9aebdea8385fe1ebc6f3cb22e6f2ccbdfb7cad81a43fb8b77dedb112513f9643"
+    },
+    {
+      "path": "renderer/vite.config.ts",
+      "sha256": "a083e0a9b31dca951b7df5b69a900f605ff8760c1ad8a7d8b0fc23f24ec6c85f"
+    },
+    {
+      "path": "SOURCE.json",
+      "sha256": "a7bd4c3170d00ae77e303d78b8b46f05e5f751bd7f8256d8ce69f5005f60d1e4"
+    }
+  ],
+  "output": [
+    {
+      "path": "core/dist/enums.js",
+      "sha256": "18e555f96f7d8d7dcc1d08e8b3279e30e2eccae11df95e7d4b84664cf4e54a68"
+    },
+    {
+      "path": "core/dist/index.js",
+      "sha256": "3e7d1f4a49f7a7fea6c5fe41a868144657317dfba24cfd135a5cad3f7c9f726d"
+    },
+    {
+      "path": "core/dist/plugin-9UGFSonz.js",
+      "sha256": "e8c292f63706f01f67b16c79818e61d646aa8f29cbd2474830d1c68a697a9d72"
+    },
+    {
+      "path": "core/dist/plugin.js",
+      "sha256": "8edc19fbb688c4db405e5925c25f476695434d76a3af27ef7d85ebe8a603cb8e"
+    },
+    {
+      "path": "core/dist/SessionTimeline-CMo0DfXs.js",
+      "sha256": "1b8a06ac93a50c1ce63a3cfdb81eabe79c3b06e27bbb2640ee839707a9d1c968"
+    },
+    {
+      "path": "core/dist/timing-policy.js",
+      "sha256": "ae8d4b6a0ce1281fa16c119fb9f4065398131007a701b90af29ef87df07991c1"
+    },
+    {
+      "path": "core/dist/wasm-session.js",
+      "sha256": "a949d4dc4bd0269d6b2087886e3a20bc860a07853dddf7511a2f7f524ec117f8"
+    },
+    {
+      "path": "profile/dist/assets/gekisou-effect-profile.json",
+      "sha256": "c404624807344a59ab79f5773fb9a38d598f65130c73451749de5a3b1c959850"
+    },
+    {
+      "path": "profile/dist/assets/note-skins/skin001.png",
+      "sha256": "340e4af0bff294346d1603a73384eb9b916139e3d941c2d5f76bd1c23ef9e434"
+    },
+    {
+      "path": "profile/dist/assets/note-skins/skin002.png",
+      "sha256": "c7293ead5c775a40de01fb11b7a877e6bf0b851257f49dd4606ce0a94bf6f6b1"
+    },
+    {
+      "path": "profile/dist/assets/note-skins/skin003.png",
+      "sha256": "9d96880847b72ba7105b2adfabe1d14e2029c139e72722c00eed14ddda3819da"
+    },
+    {
+      "path": "profile/dist/assets/noteTextures.js",
+      "sha256": "185854601339d937ac5e6974f0a128959a0459145cab04175daae68439a22c9a"
+    },
+    {
+      "path": "profile/dist/authored.js",
+      "sha256": "61ba4c767cebb4260583b447830196ba69ae262b6117ed7d42b12e354a0845ac"
+    },
+    {
+      "path": "profile/dist/index.js",
+      "sha256": "6da369275f9fdc3064369540737918fbd26470c8d9ca44f019adb110d1a2ec6b"
+    },
+    {
+      "path": "profile/dist/presentation/gekisouStageSource.js",
+      "sha256": "a68d16917fcc07585604389f07a3faf095ff8e569c7b44cfa7d90ec7029e3044"
+    },
+    {
+      "path": "renderer/dist/index.js",
+      "sha256": "9a9b6efd2c480b556796684c9d1defeefee465195e948c941890069bd62f73be"
+    }
+  ],
+  "runtimeHashes": {
+    "core": "3e7d1f4a49f7a7fea6c5fe41a868144657317dfba24cfd135a5cad3f7c9f726d",
+    "renderer": "9a9b6efd2c480b556796684c9d1defeefee465195e948c941890069bd62f73be",
+    "profile": "6da369275f9fdc3064369540737918fbd26470c8d9ca44f019adb110d1a2ec6b",
+    "authored": "61ba4c767cebb4260583b447830196ba69ae262b6117ed7d42b12e354a0845ac",
+    "contract": "595d589d2dab66805640e5a9717a0a764c1c3a4785653237f838f65caee6212c"
+  }
+}

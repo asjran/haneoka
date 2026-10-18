@@ -1,3 +1,6 @@
+import { loadEngineResources } from "./engineRom.ts";
+import { verifyParticleEffects } from "./particleCompatibility.ts";
+import { DEFAULT_NATIVE_PARTICLE_PACK, NATIVE_PARTICLE_PACKS } from "../shared/particlePacks.ts";
 import { fileURLToPath } from "node:url";
 import { buildServerBanner } from "./serverBanner.ts";
 import { buildSquareThumbnail } from "../../scripts/presentation-thumbnails.ts";
@@ -33,14 +36,28 @@ import {
 } from "@sonolus/express";
 import { packPath } from "@sonolus/free-pack";
 import { chartToLevelData, convertChart } from "@haneoka/cassiopeia-plugin-sonolus";
-import { OUR_NOTES_NOTE_SE_GROUP_IDS, OUR_NOTES_NOTE_SE_GROUP_NAMES } from "@haneoka/cassiopeia-plugin-our-notes";
-import { encodeSonolusLocalizedText, OUR_NOTES_SONOLUS_ITEM_NAMES } from "../sonolusLocalization";
+import {
+  OUR_NOTES_LANE_SKIN_NAMES,
+  OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
+  OUR_NOTES_NOTE_SE_GROUP_IDS,
+  OUR_NOTES_NOTE_SE_GROUP_NAMES,
+  OUR_NOTES_NOTE_SKIN_NAMES,
+  OUR_NOTES_STAGE_NAMES,
+} from "@haneoka/cassiopeia-plugin-our-notes";
+import {
+  createOurNotesSonolusItemLabels,
+  encodeSonolusLocalizedText,
+  normalizeSonolusLabels,
+  OUR_NOTES_SONOLUS_ITEM_NAMES,
+} from "../sonolusLocalization";
 import { SONOLUS_ITEM_VERSIONS } from "./itemVersions";
 import { buildLevelMetas, type BandRow, type LevelMeta, type MusicRow, type ScoreRow, type TextRow } from "./levelMeta";
 import { resolveSonolusReleaseWorkspace } from "./releaseWorkspace";
 
 // Repo root: the server is run from the repo root (cwd), or set OUR_NOTES_ROOT.
-const engineRoot = process.env.SONOLUS_ENGINE_ROOT ?? dirname(fileURLToPath(import.meta.resolve("@haneoka/sonolus-our-notes/package.json")));
+const engineRoot =
+  process.env.SONOLUS_ENGINE_ROOT ??
+  dirname(fileURLToPath(import.meta.resolve("@haneoka/sonolus-our-notes/package.json")));
 
 const ROOT = process.env.OUR_NOTES_ROOT ?? process.cwd();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -255,9 +272,6 @@ function main() {
   // our identity AFTER loading.
   s.title = { ja: "haneoka", en: "haneoka" };
   s.description = { ja: "BanG Dream! Our Notes", en: "BanG Dream! Our Notes" };
-  const bannerFile = resolve(ROOT, "packages/sonolus/assets/server-banner.png");
-  if (!existsSync(bannerFile)) throw new Error(`Sonolus server banner missing: ${bannerFile}`);
-  const banner = s.add(readFileSync(bannerFile));
   const serverBanner = s.add(readFileSync(buildServerBanner(ROOT)));
   const iconFile = resolve(ROOT, "packages/sonolus/assets/engine-icon.png");
   if (!existsSync(iconFile)) throw new Error(`Sonolus application icon missing: ${iconFile}`);
@@ -268,9 +282,8 @@ function main() {
   // projected into Sonolus particle graphs. Missing source-derived artifacts
   // are fatal: no pixel/8bit replacement is visually equivalent.
   const resourceDir = resolve(ROOT, "packages/sonolus/dist/our-notes");
-  const PARTICLE_NAME = "ourNotesParticle";
-  // SONOLUS_PARTICLE_DIR serves a candidate particle pack (particle.data/.texture.png) for local playtests.
   const particleDir = process.env.SONOLUS_PARTICLE_DIR ?? resourceDir;
+  verifyParticleEffects(particleDir, resolve(engineRoot, "dist"));
   const requiredResourceFiles = [
     "skins/skin001/skin.data",
     "skins/skin001/skin.texture.png",
@@ -281,8 +294,6 @@ function main() {
     "skins/skin003/skin.data",
     "skins/skin003/skin.texture.png",
     "skins/skin003/thumbnail.png",
-    "particle.data",
-    "particle.texture.png",
     "particle.thumbnail.png",
     ...OUR_NOTES_NOTE_SE_GROUP_IDS.flatMap((group) => [
       `effects/${group}/effect.data`,
@@ -323,18 +334,25 @@ function main() {
   }));
   for (const skin of skinItems) s.skin.items.push(skin);
   const engineSkin = "ourNotesSkin";
-  const particle: ParticleItemModel = {
-    name: PARTICLE_NAME,
+  const nativeLabels = createOurNotesSonolusItemLabels({
+    noteSkins: OUR_NOTES_NOTE_SKIN_NAMES,
+    laneSkins: OUR_NOTES_LANE_SKIN_NAMES,
+    noteEffectSkins: OUR_NOTES_NOTE_EFFECT_SKIN_NAMES,
+    stages: OUR_NOTES_STAGE_NAMES,
+    noteSeGroups: OUR_NOTES_NOTE_SE_GROUP_NAMES,
+  });
+  const particleItems: ParticleItemModel[] = NATIVE_PARTICLE_PACKS.map((pack) => ({
+    name: pack.name,
     version: SONOLUS_ITEM_VERSIONS.particle,
-    title: { ja: "Our Notes", en: "Our Notes" },
-    subtitle: { ja: "オリジナル effect001 投影", en: "Projected original effect001" },
+    title: normalizeSonolusLabels(nativeLabels[pack.name]!),
+    subtitle: { ja: "Our Notes", en: "Our Notes" },
     author: { en: "haneoka" },
     tags: [],
     thumbnail: s.add(readFileSync(resolve(resourceDir, "particle.thumbnail.png"))),
-    data: s.add(readFileSync(resolve(particleDir, "particle.data"))),
-    texture: s.add(readFileSync(resolve(particleDir, "particle.texture.png"))),
-  };
-  s.particle.items.push(particle);
+    data: s.add(readFileSync(resolve(particleDir, "particles", pack.key, "particle.data"))),
+    texture: s.add(readFileSync(resolve(particleDir, "particles", pack.key, "particle.texture.png"))),
+  }));
+  s.particle.items.push(...particleItems);
   const effectItems: EffectItemModel[] = OUR_NOTES_NOTE_SE_GROUP_IDS.map((group) => {
     const effectResourceDir = resolve(resourceDir, "effects", String(group));
     return {
@@ -352,7 +370,7 @@ function main() {
   s.effect.items.push(...effectItems);
   const defaultEffect = effectItems[0];
   if (!defaultEffect) throw new Error("Native effect item list is empty");
-  const engineParticle = PARTICLE_NAME;
+  const engineParticle = DEFAULT_NATIVE_PARTICLE_PACK.name;
   const engineEffect = defaultEffect.name;
 
   // --- BACKGROUNDS = both original lightweight concert stages. Sonolus can
@@ -410,20 +428,7 @@ function main() {
   // built EngineConfiguration (speed, mirror, note-speed,
   // effects, connector alpha, preview/tutorial toggles, ...). ---
   const distDir = resolve(engineRoot, "dist");
-  const playFile = resolve(distDir, "EnginePlayData");
-  const watchFile = resolve(distDir, "EngineWatchData");
-  const configFile = resolve(distDir, "EngineConfiguration");
-  const previewFile = resolve(distDir, "EnginePreviewData");
-  const tutorialFile = resolve(distDir, "EngineTutorialData");
-  if (
-    !existsSync(playFile) ||
-    !existsSync(watchFile) ||
-    !existsSync(previewFile) ||
-    !existsSync(tutorialFile) ||
-    !existsSync(configFile)
-  ) {
-    throw new Error(`engine artifact missing under ${distDir}`);
-  }
+  const resources = loadEngineResources(distDir);
   const engine: EngineItemModel = {
     name: ENGINE_NAME,
     version: SONOLUS_ITEM_VERSIONS.engine,
@@ -436,11 +441,12 @@ function main() {
     effect: engineEffect,
     particle: engineParticle,
     thumbnail: itemThumbnail,
-    playData: s.add(readFileSync(playFile)), // already gzipped by sonolus-cli
-    watchData: s.add(readFileSync(watchFile)),
-    previewData: s.add(readFileSync(previewFile)),
-    tutorialData: s.add(readFileSync(tutorialFile)),
-    configuration: s.add(readFileSync(configFile)),
+    playData: s.add(resources.playData), // already gzipped by sonolus-cli
+    watchData: s.add(resources.watchData),
+    previewData: s.add(resources.previewData),
+    tutorialData: s.add(resources.tutorialData),
+    configuration: s.add(resources.configuration),
+    ...(resources.rom ? { rom: s.add(resources.rom) } : {}),
   };
   s.engine.items.push(engine);
 

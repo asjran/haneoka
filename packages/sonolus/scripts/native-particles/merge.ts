@@ -5,6 +5,8 @@ import { createHash } from "node:crypto";
 import type { CompileResult } from "./compile.ts";
 import { decodePng, encodeRgbaPng, type RgbaImage } from "./textureBake.ts";
 
+export type ParticleDelta = Pick<CompileResult, "effects" | "atlas">;
+
 type Sprite = CompileResult["atlas"]["sprites"][number];
 type Effect = CompileResult["effects"][number];
 export interface ParticleData {
@@ -63,7 +65,7 @@ const subtract = (free: Rect[], used: Rect): Rect[] =>
         ),
     );
 
-export function mergeNativeParticleDelta(baseline: ParticleData, baselinePng: Buffer, delta: CompileResult) {
+export function mergeNativeParticleDelta(baseline: ParticleData, baselinePng: Buffer, delta: ParticleDelta) {
   const original = decodePng(baselinePng, "baseline particle texture");
   const update = decodePng(delta.atlas.png, "delta particle texture");
   if (original.width !== baseline.width || original.height !== baseline.height)

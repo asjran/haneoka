@@ -1,18 +1,19 @@
+import { loadEngineResources } from "./engineRom.ts";
+import { verifyParticleEffects } from "./particleCompatibility.ts";
+import { DEFAULT_NATIVE_PARTICLE_PACK, NATIVE_PARTICLE_PACKS } from "../shared/particlePacks.ts";
 import { fileURLToPath } from "node:url";
 import { buildServerBanner } from "./serverBanner.ts";
 import { buildSquareThumbnail } from "../../scripts/presentation-thumbnails.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { gzipSync } from "node:zlib";
 import type {
   BackgroundItem,
   EffectItem,
   EngineItem,
-  EnginePlayData,
   LevelItem,
   ParticleItem,
-  ParticleData,
   PlaylistItem,
   ServerInfo,
   ServerItemDetails,
@@ -521,22 +522,6 @@ function requireFile(path: string) {
   return path;
 }
 
-function verifyParticleEffects(resourceDir: string, engineDir: string): void {
-  const particle = JSON.parse(
-    gunzipSync(readFileSync(requireFile(resolve(resourceDir, "particle.data")))).toString("utf8"),
-  ) as ParticleData;
-  const names = new Set(particle.effects.map((effect) => effect.name));
-  for (const facet of ["Play", "Watch", "Tutorial"]) {
-    const engine = JSON.parse(
-      gunzipSync(readFileSync(requireFile(resolve(engineDir, `Engine${facet}Data`)))).toString("utf8"),
-    ) as Pick<EnginePlayData, "particle">;
-    const missing = engine.particle.effects.filter(({ name }) => name !== "Our Notes Unused" && !names.has(name));
-    if (missing.length) {
-      throw new Error(`Particle pack is missing ${facet} effects: ${missing.map(({ name }) => name).join(", ")}`);
-    }
-  }
-}
-
 async function main() {
   // Fetching and converting every chart can fail midway. Build beside the
   // published tree so a transient upstream/network failure cannot turn a
@@ -545,10 +530,10 @@ async function main() {
   mkdirSync(repoRoot, { recursive: true });
 
   const resourceDir = resolve(pkg, "dist/our-notes");
+  const particleDir = process.env.SONOLUS_PARTICLE_DIR ?? resourceDir;
   const engineDir = resolve(engineRoot, "dist");
-  verifyParticleEffects(resourceDir, engineDir);
-  const bannerFile = requireFile(resolve(pkg, "assets/server-banner.png"));
-  const banner = addFile(bannerFile);
+  verifyParticleEffects(particleDir, engineDir);
+  const resources = loadEngineResources(engineDir);
   const serverBanner = addFile(buildServerBanner(root));
   const iconFile = requireFile(resolve(pkg, "assets/engine-icon.png"));
   const itemThumbnail = addFile(iconFile);
@@ -573,18 +558,19 @@ async function main() {
   });
   const skin = skinItems[0];
   if (!skin) throw new Error("Native skin item list is empty");
-  const particle: ParticleItem = {
+  const particleItems: ParticleItem[] = NATIVE_PARTICLE_PACKS.map((pack) => ({
     ...itemBase(
-      OUR_NOTES_SONOLUS_ITEM_NAMES.particle,
+      pack.name,
       SONOLUS_ITEM_VERSIONS.particle,
-      nativeTitle(nativeLabels, OUR_NOTES_SONOLUS_ITEM_NAMES.particle),
+      nativeTitle(nativeLabels, pack.name),
       "Our Notes",
       "haneoka",
     ),
     thumbnail: addFile(requireFile(resolve(resourceDir, "particle.thumbnail.png"))),
-    data: addFile(requireFile(resolve(resourceDir, "particle.data"))),
-    texture: addFile(requireFile(resolve(resourceDir, "particle.texture.png"))),
-  };
+    data: addFile(requireFile(resolve(particleDir, "particles", pack.key, "particle.data"))),
+    texture: addFile(requireFile(resolve(particleDir, "particles", pack.key, "particle.texture.png"))),
+  }));
+  const particle = particleItems.find((item) => item.name === DEFAULT_NATIVE_PARTICLE_PACK.name)!;
   const effectItems: EffectItem[] = OUR_NOTES_NOTE_SE_GROUP_IDS.map((group) => {
     const name = OUR_NOTES_SONOLUS_ITEM_NAMES.effects[group];
     const effectResourceDir = resolve(resourceDir, "effects", String(group));
@@ -620,11 +606,12 @@ async function main() {
     effect,
     particle,
     thumbnail: itemThumbnail,
-    playData: addFile(requireFile(resolve(engineDir, "EnginePlayData"))),
-    watchData: addFile(requireFile(resolve(engineDir, "EngineWatchData"))),
-    previewData: addFile(requireFile(resolve(engineDir, "EnginePreviewData"))),
-    tutorialData: addFile(requireFile(resolve(engineDir, "EngineTutorialData"))),
-    configuration: addFile(requireFile(resolve(engineDir, "EngineConfiguration"))),
+    playData: addRaw(resources.playData),
+    watchData: addRaw(resources.watchData),
+    previewData: addRaw(resources.previewData),
+    tutorialData: addRaw(resources.tutorialData),
+    configuration: addRaw(resources.configuration),
+    ...(resources.rom ? { rom: addRaw(resources.rom) } : {}),
   };
 
   // Charts are projected dynamically per release at serve time, so the baked
@@ -726,7 +713,7 @@ async function main() {
   assertItemVersions("skin", skinItems);
   assertItemVersions("background", backgroundItems);
   assertItemVersions("effect", effectItems);
-  assertItemVersions("particle", [particle]);
+  assertItemVersions("particle", particleItems);
   assertItemVersions("engine", [engine]);
 
   // Keep the Haneoka MPL terms, source location, and upstream MIT notice in
@@ -771,7 +758,7 @@ async function main() {
   writeGroup("skins", "skin", skinItems);
   writeGroup("backgrounds", "background", backgroundItems);
   writeGroup("effects", "effect", effectItems);
-  writeGroup("particles", "particle", [particle]);
+  writeGroup("particles", "particle", particleItems);
   writeGroup("engines", "engine", [engine]);
 
   rmSync(finalSonolusRoot, { recursive: true, force: true });

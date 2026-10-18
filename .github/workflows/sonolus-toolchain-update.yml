@@ -71,6 +71,10 @@ jobs:
             echo "engine-changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Refresh the independent engine lockfile
+        if: steps.updates.outputs.engine-changed == 'true'
+        run: pnpm --dir .dependencies/sonolus-our-notes install --lockfile-only --ignore-scripts --no-frozen-lockfile
+
       - name: Push engine toolchain bump
         if: steps.updates.outputs.engine-changed == 'true'
         id: engine-push
@@ -85,7 +89,7 @@ jobs:
           git config user.name "haneoka-bot"
           git config user.email "bot@haneoka.org"
           git remote set-url origin "https://x-access-token:${HANEOKA_PUSH_TOKEN}@github.com/haneoka-gakuen/sonolus-our-notes.git"
-          git add package.json
+          git add package.json pnpm-lock.yaml
           git commit -m "chore(engine): bump @sonolus toolchain"
           git push origin main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -104,7 +108,7 @@ jobs:
       - name: Open or update the toolchain PR
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.HANEOKA_PUSH_TOKEN }}
+          token: ${{ secrets.HANEOKA_PUSH_TOKEN || github.token }}
           branch: chore/sonolus-toolchain
           delete-branch: true
           title: "chore(sonolus): bump @sonolus toolchain"

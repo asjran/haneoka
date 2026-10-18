@@ -41,9 +41,9 @@
     "prepack": "pnpm run typecheck && pnpm run build"
   },
   "dependencies": {
+    "@haneoka/cassiopeia-plugin-sonolus": "workspace:*",
     "@haneoka/sonolus-core": "^0.1.0",
-    "@sonolus/core": "^7.15.4",
-    "@haneoka/cassiopeia-plugin-sonolus": "workspace:*"
+    "@sonolus/core": "^7.15.4"
   },
   "devDependencies": {
     "@haneoka/cassiopeia": "workspace:*",
@@ -53,8 +53,10 @@
     "@types/node": "^26.1.0",
     "@types/three": "catalog:",
     "esbuild": "^0.21.5",
+    "fast-png": "catalog:",
     "three": "catalog:",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vite": "7.3.6"
   },
   "publishConfig": {
     "access": "public",

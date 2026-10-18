@@ -1,0 +1,240 @@
+{
+  "schema": "our-notes-haptic-feedback-profile-v1",
+  "source": {
+    "releaseId": "r-f53094055c2163d92d27",
+    "hapticMasterSha256": "774559c778ecacaf9fc2fafd58c5d8b273195804eabb17070431aad701bc5014",
+    "recipeMasterSha256": "f46013b63c341fb45fdce693113f3233e79e695077eb0e878b6aa0edd863d7f4",
+    "formalApkVersion": "intl-googleplay-1.0.3",
+    "nativeIntervalInitializer": "HapticFeedbacker::.cctor 0xb21d4b0–0xb21d4c0: float32 0x3d072b02"
+  },
+  "setId": 1,
+  "minimumIntervalMicros": 33000,
+  "maximumPendingRequests": 4,
+  "haptics": {
+    "_allData": [
+      {
+        "_id": 1,
+        "_liveHapticType": 1,
+        "_recipeID": 1,
+        "_setID": 1
+      },
+      {
+        "_id": 2,
+        "_liveHapticType": 2,
+        "_recipeID": 2,
+        "_setID": 1
+      },
+      {
+        "_id": 3,
+        "_liveHapticType": 3,
+        "_recipeID": 3,
+        "_setID": 1
+      },
+      {
+        "_id": 4,
+        "_liveHapticType": 4,
+        "_recipeID": 3,
+        "_setID": 1
+      },
+      {
+        "_id": 5,
+        "_liveHapticType": 5,
+        "_recipeID": 4,
+        "_setID": 1
+      },
+      {
+        "_id": 6,
+        "_liveHapticType": 6,
+        "_recipeID": 1,
+        "_setID": 1
+      },
+      {
+        "_id": 7,
+        "_liveHapticType": 7,
+        "_recipeID": 2,
+        "_setID": 1
+      },
+      {
+        "_id": 8,
+        "_liveHapticType": 8,
+        "_recipeID": 3,
+        "_setID": 1
+      },
+      {
+        "_id": 9,
+        "_liveHapticType": 9,
+        "_recipeID": 3,
+        "_setID": 1
+      },
+      {
+        "_id": 10,
+        "_liveHapticType": 10,
+        "_recipeID": 4,
+        "_setID": 1
+      },
+      {
+        "_id": 11,
+        "_liveHapticType": 11,
+        "_recipeID": 1,
+        "_setID": 1
+      },
+      {
+        "_id": 12,
+        "_liveHapticType": 12,
+        "_recipeID": 2,
+        "_setID": 1
+      },
+      {
+        "_id": 13,
+        "_liveHapticType": 13,
+        "_recipeID": 2,
+        "_setID": 1
+      },
+      {
+        "_id": 14,
+        "_liveHapticType": 14,
+        "_recipeID": 2,
+        "_setID": 1
+      },
+      {
+        "_id": 15,
+        "_liveHapticType": 15,
+        "_recipeID": 4,
+        "_setID": 1
+      },
+      {
+        "_id": 16,
+        "_liveHapticType": 16,
+        "_recipeID": 1,
+        "_setID": 1
+      },
+      {
+        "_id": 17,
+        "_liveHapticType": 17,
+        "_recipeID": 2,
+        "_setID": 1
+      },
+      {
+        "_id": 18,
+        "_liveHapticType": 18,
+        "_recipeID": 2,
+        "_setID": 1
+      },
+      {
+        "_id": 19,
+        "_liveHapticType": 19,
+        "_recipeID": 2,
+        "_setID": 1
+      },
+      {
+        "_id": 20,
+        "_liveHapticType": 20,
+        "_recipeID": 4,
+        "_setID": 1
+      },
+      {
+        "_id": 21,
+        "_liveHapticType": 21,
+        "_recipeID": 1,
+        "_setID": 1
+      },
+      {
+        "_id": 22,
+        "_liveHapticType": 22,
+        "_recipeID": 3,
+        "_setID": 1
+      },
+      {
+        "_id": 23,
+        "_liveHapticType": 23,
+        "_recipeID": 5,
+        "_setID": 1
+      },
+      {
+        "_id": 24,
+        "_liveHapticType": 24,
+        "_recipeID": 5,
+        "_setID": 1
+      }
+    ]
+  },
+  "recipes": {
+    "_allData": [
+      {
+        "_androidAmplitude": 1.0,
+        "_androidDurationMs": 20,
+        "_androidEffect": 0,
+        "_androidPlayType": 0,
+        "_androidScale": 1.0,
+        "_id": 1,
+        "_iosDurationMs": 60,
+        "_iosIntensity": 1.0,
+        "_iosIsTransient": false,
+        "_iosPlayType": 0,
+        "_iosPresetType": 0,
+        "_iosSharpness": 0.5,
+        "_name": "なし"
+      },
+      {
+        "_androidAmplitude": 1.0,
+        "_androidDurationMs": 20,
+        "_androidEffect": 3,
+        "_androidPlayType": 1,
+        "_androidScale": 1.0,
+        "_id": 2,
+        "_iosDurationMs": 60,
+        "_iosIntensity": 1.0,
+        "_iosIsTransient": true,
+        "_iosPlayType": 1,
+        "_iosPresetType": 1,
+        "_iosSharpness": 0.5,
+        "_name": "弱"
+      },
+      {
+        "_androidAmplitude": 1.0,
+        "_androidDurationMs": 20,
+        "_androidEffect": 2,
+        "_androidPlayType": 1,
+        "_androidScale": 1.0,
+        "_id": 3,
+        "_iosDurationMs": 60,
+        "_iosIntensity": 1.0,
+        "_iosIsTransient": true,
+        "_iosPlayType": 1,
+        "_iosPresetType": 2,
+        "_iosSharpness": 0.5,
+        "_name": "中"
+      },
+      {
+        "_androidAmplitude": 1.0,
+        "_androidDurationMs": 20,
+        "_androidEffect": 5,
+        "_androidPlayType": 1,
+        "_androidScale": 1.0,
+        "_id": 4,
+        "_iosDurationMs": 60,
+        "_iosIntensity": 1.0,
+        "_iosIsTransient": true,
+        "_iosPlayType": 1,
+        "_iosPresetType": 3,
+        "_iosSharpness": 0.5,
+        "_name": "強"
+      },
+      {
+        "_androidAmplitude": 1.0,
+        "_androidDurationMs": 20,
+        "_androidEffect": 1,
+        "_androidPlayType": 1,
+        "_androidScale": 1.0,
+        "_id": 5,
+        "_iosDurationMs": 60,
+        "_iosIntensity": 1.0,
+        "_iosIsTransient": true,
+        "_iosPlayType": 1,
+        "_iosPresetType": 5,
+        "_iosSharpness": 0.5,
+        "_name": "成功"
+      }
+    ]
+  }
+}

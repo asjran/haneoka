@@ -1,0 +1,472 @@
+{
+  "schema": "our-notes-light-star-source-v1",
+  "profile": "light",
+  "sourceRendererSha256": "9a9b6efd2c480b556796684c9d1defeefee465195e948c941890069bd62f73be",
+  "sourceAuthoredSha256": "61ba4c767cebb4260583b447830196ba69ae262b6117ed7d42b12e354a0845ac",
+  "sourceSeed": 4660,
+  "sourceQuality": 2,
+  "sourceSkin": "effect001",
+  "limits": {
+    "selectedDefinitions": 4800,
+    "atlasSide": 1024,
+    "perEffectDefinitions": {
+      "NormalW4": 480,
+      "NormalW6": 480,
+      "NormalW8": 480,
+      "NormalW12": 480,
+      "NormalW24": 480,
+      "FlickW4": 480,
+      "FlickW6": 480,
+      "FlickW8": 480,
+      "FlickW12": 480,
+      "FlickW24": 480
+    },
+    "targetPerEffectDefinitions": {
+      "NormalW4": 183,
+      "NormalW6": 183,
+      "NormalW8": 187,
+      "NormalW12": 187,
+      "NormalW24": 192,
+      "FlickW4": 137,
+      "FlickW6": 137,
+      "FlickW8": 137,
+      "FlickW12": 139,
+      "FlickW24": 140
+    }
+  },
+  "hdrCarriers": {
+    "sourceFrameRate": 60,
+    "maxPixelError960": 0.4,
+    "maxAlphaError": 0.08,
+    "renderingScale": 0.71,
+    "sources": {
+      "Our Notes Native Normal W4 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "1c958aa1332cf76ee0c11602d0c6aa49bbcebafa116e21624fecd53841c5a273"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 7,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "15bc53842e3d0d944accaef4aa4203462ea619d07bafa76193b0df4cb37614ae"
+        },
+        {
+          "group": 6,
+          "system": 1,
+          "emission": 11,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "9a65afb57d9c2eca3c9176232da526b1d20cbb51bca59a0456c321ae78594f99"
+        }
+      ],
+      "Our Notes Native Normal W6 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "f1a51d66c1a7a19824c53dac951c52a99a257e7fb950db24647a1076fa3bf3c0"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 7,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "b4c5396e9f03d3893113a08530d38f26f933cadbbea2871487570139c2ab45c6"
+        },
+        {
+          "group": 6,
+          "system": 1,
+          "emission": 11,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "664c6d79c814714a518d0023bd2189d0688f9c49e789a61876533ed0085d2541"
+        }
+      ],
+      "Our Notes Native Normal W8 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "b9cec0ba8814f48d7e2330ec58f2c0f8aa97433546c1adacd3f93b7a004ee66d"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 7,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "4b99ee1ac89bcad5b93fead27d67c8cb8a3ded20f71888b8cf299c1dab7a2acb"
+        },
+        {
+          "group": 6,
+          "system": 1,
+          "emission": 11,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "ca763e6425b4c507a856e3f21748ed7a44d3339d0fcba26bd1f4d59d86b8f519"
+        }
+      ],
+      "Our Notes Native Normal W12 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "626bdb842de144a2652bd3865c42a5ce9824426d2896a5db4538326efa24cfa4"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 7,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "376e8e5cd7e9762810bd5238543db5903423f356d636f2823e7c510051eb2de8"
+        },
+        {
+          "group": 6,
+          "system": 1,
+          "emission": 11,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "0975e6f96cb54924a91145b38ba7ec6a8cf67d8fc725c648c991e8c2c7694ad2"
+        }
+      ],
+      "Our Notes Native Normal W24 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "636dd67d369c2862e55b4ab5d072d6011064cf92d872a504ae59a445b37c5873"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 7,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "fb049246294a00e78491ae33a2ec4259a77bf5c806ba3ed67bfd890fc8aae41d"
+        },
+        {
+          "group": 6,
+          "system": 1,
+          "emission": 11,
+          "crop": [
+            44,
+            6,
+            41,
+            121
+          ],
+          "motionSha256": "f1f6c4728cc429d446db8a3e3deea9fb75bf2a638d867dd31b79f4faff30272b"
+        }
+      ],
+      "Our Notes Native Flick W4 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "0c6761513481459619cc51296c96e986f39397e76489ce35808deafe2cafbf6a"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 6,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "fb5cf6b0d6b2e41b3a2ac998e9b6c747b6c4ad9b836b223f49a7b42473ffbb97"
+        },
+        {
+          "group": 6,
+          "system": 4,
+          "emission": 3,
+          "crop": [
+            45,
+            7,
+            39,
+            207
+          ],
+          "motionSha256": "6c3292ee9b13a05a0cae3f45aca87123e1220d3eea421f235a7dbeca39127292"
+        }
+      ],
+      "Our Notes Native Flick W6 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "0186f273bce15b6e84e04e47cf448aa8720b4bca2898a7c4494de04c89370309"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 6,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "2bdb27477a1e597533d1ac792dd8cf1eaad4808ce8ab27bf1ae8cce98491829d"
+        },
+        {
+          "group": 6,
+          "system": 4,
+          "emission": 3,
+          "crop": [
+            45,
+            7,
+            39,
+            207
+          ],
+          "motionSha256": "be0a028de71a2f20d15d55d30538b034637a0e387ab81ae1562a93c9a27edd20"
+        }
+      ],
+      "Our Notes Native Flick W8 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "6401b17a8b625cb531d5759a5ecccf6731fa672aa90dc9cd9be7655b733b1304"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 6,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "4170b922471801ca60011acc6d313c92903f9aa0ed9d4e47e1b1f6bcdc274141"
+        },
+        {
+          "group": 6,
+          "system": 4,
+          "emission": 3,
+          "crop": [
+            45,
+            7,
+            39,
+            207
+          ],
+          "motionSha256": "f7d9631b92567c7c6cc8dc642c0deb3d7009c5712fd2c28bed5e07610855be73"
+        }
+      ],
+      "Our Notes Native Flick W12 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "fed02c638ce1c96dbd3b4c5cd951ee6ff8f158ffddb680ed8f839504c0784b88"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 6,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "1b2976144f6cba571821cb570cc52671500d3f28f00c5c512811479676aeb18a"
+        },
+        {
+          "group": 6,
+          "system": 4,
+          "emission": 3,
+          "crop": [
+            45,
+            7,
+            39,
+            207
+          ],
+          "motionSha256": "3c155b6be2c8110aceb716effda5f5f22fc79a9be5976a756d9a022ca582ef8a"
+        }
+      ],
+      "Our Notes Native Flick W24 P0": [
+        {
+          "group": 4,
+          "system": 1,
+          "emission": 2,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "4e4999abdf20fc88d3b6a0c7484515d8f832e5a57966b8e3f4d54082dfd698cf"
+        },
+        {
+          "group": 5,
+          "system": 1,
+          "emission": 6,
+          "crop": [
+            45,
+            7,
+            40,
+            120
+          ],
+          "motionSha256": "d2ed2ad18731b2ae82d770e02d0545d284974d940961cfbbaaf0939532a5ac81"
+        },
+        {
+          "group": 6,
+          "system": 4,
+          "emission": 3,
+          "crop": [
+            45,
+            7,
+            39,
+            207
+          ],
+          "motionSha256": "1203ae71b56eaf561cf2d39d55e19fc7a7f56a084b044cf5aa6b83c8c00c9320"
+        }
+      ]
+    },
+    "sourceFootprintKernels": true,
+    "referenceViewportHeight": 540
+  },
+  "completeSourceBirths": true,
+  "runtimeContract": "All formal Normal/Flick star births at seed4660 and Source spatial curves; native LDR uses a white-core peak basis, actual HDR clipping opacity and a fixed Source hue per existing phase. Native RNG is unused.",
+  "materials": {
+    "Normal": {
+      "coreBloomMips": 2,
+      "halo": {
+        "mipTo": 2,
+        "maximumAlpha": 0.25,
+        "maximumAreaRatio": 1.1
+      },
+      "nativePeak": {
+        "whitenCore": false,
+        "sourceTint": true,
+        "exposureLevels": [
+          0.06,
+          0.16,
+          0.4,
+          1
+        ]
+      }
+    },
+    "Flick": {
+      "coreBloomMips": 2,
+      "centralPatch": {
+        "system": 4,
+        "referenceWidth": 24,
+        "density": 0.25
+      },
+      "halo": {
+        "mipTo": 2,
+        "maximumAlpha": 0.25,
+        "maximumAreaRatio": 1.1
+      },
+      "nativePeak": {
+        "whitenCore": false,
+        "sourceTint": true,
+        "exposureLevels": [
+          0.06,
+          0.16,
+          0.4,
+          1
+        ]
+      }
+    }
+  }
+}

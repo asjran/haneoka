@@ -30,6 +30,11 @@ export const OUR_NOTES_SONOLUS_ITEM_NAMES = Object.freeze({
   effect: OUR_NOTES_EFFECT_ITEM_NAMES[1],
   effects: OUR_NOTES_EFFECT_ITEM_NAMES,
   particle: "ourNotesParticle",
+  particles: Object.freeze({
+    standard: "ourNotesParticle",
+    light: "ourNotesParticleLight",
+    simple: "ourNotesParticleSimple",
+  }),
   skins: Object.freeze({
     skin001: "ourNotesSkin",
     skin002: "ourNotesSkin002",
@@ -67,6 +72,12 @@ export function createOurNotesSonolusItemLabels(
 ): Readonly<Record<string, SonolusLocalizedLabels>> {
   const itemLabels: Record<string, SonolusLocalizedLabels> = {
     [OUR_NOTES_SONOLUS_ITEM_NAMES.particle]: requiredLabel(source.noteEffectSkins, "effect001", "note effect skin"),
+    [OUR_NOTES_SONOLUS_ITEM_NAMES.particles.simple]: requiredLabel(
+      source.noteEffectSkins,
+      "effect001Simple",
+      "note effect skin",
+    ),
+    [OUR_NOTES_SONOLUS_ITEM_NAMES.particles.light]: { en: "Light", ja: "軽量", ko: "경량", zhs: "轻量", zht: "輕量" },
     [OUR_NOTES_SONOLUS_ITEM_NAMES.skins.skin001]: requiredLabel(source.noteSkins, "skin001", "note skin"),
     [OUR_NOTES_SONOLUS_ITEM_NAMES.skins.skin002]: requiredLabel(source.noteSkins, "skin002", "note skin"),
     [OUR_NOTES_SONOLUS_ITEM_NAMES.skins.skin003]: requiredLabel(source.noteSkins, "skin003", "note skin"),
@@ -122,7 +133,7 @@ function localeFor(value: string | null | undefined): SonolusLocalization {
   return value === null || value === undefined ? "en" : (sonolusLocaleFor(value) ?? "en");
 }
 
-function normalizeSonolusLabels(labels: SonolusLocalizedLabels): Record<string, string> {
+export function normalizeSonolusLabels(labels: SonolusLocalizedLabels): Record<string, string> {
   const normalized: Record<string, string> = {};
   for (const [label, value] of Object.entries(labels)) {
     if (typeof value !== "string") throw new Error(`Invalid localized text for ${label}`);

@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { NATIVE_EARLY_POINT_EFFECT } from "../../../.dependencies/sonolus-our-notes/shared/src/engine/data/nativeEffects.ts";
 import { ease, type EaseName } from "./native-particles/fit.ts";
 import { decodeRgba8Png, encodeRgba8Png, type DecodedRgbaPng, type PngChunk } from "./pack-original-note-skins.ts";
 
@@ -10,14 +11,8 @@ const BACKGROUND: readonly [number, number, number, number] = [8, 12, 30, 255];
 const RANDOM_DRAWS = [0.17, 0.73, 0.31, 0.89, 0.47, 0.63, 0.23, 0.81] as const;
 const PARTICLE_SNAPSHOT_TIME = 0.2;
 const SKIN_IDS = ["skin001", "skin002", "skin003"] as const;
-// The Simple tap (2-lane width bucket): its outline and dot bursts.
-const PARTICLE_LAYERS = [
-  "Our Notes FX S0 5 B3 Frame",
-  "Our Notes FX S0 5 B3 Frame Left",
-  "Our Notes FX S0 5 B3 Frame Right",
-  "Our Notes FX S0 5 B3 Dots ef_particle_point",
-  "Our Notes FX S0 5 B3 Emit ef_particle_point_center",
-] as const;
+// The default Standard tap spans chart width 8; every projection layer is included.
+const PARTICLE_LAYERS = [0, 1, 2, 3].map((plane) => `Our Notes Native Normal W8 P${plane}`);
 
 type SkinId = (typeof SKIN_IDS)[number];
 
@@ -234,11 +229,20 @@ function drawFittedCrop(
     throw new Error(`Thumbnail sprite composition would be cropped at ${left},${top},${width},${height}`);
   }
   for (let targetY = 0; targetY < height; targetY += 1) {
-    const sourceY = Math.max(crop.y, Math.min(crop.y + crop.h - 1, crop.y + (stretch ? ((targetY + 0.5) / height) * crop.h : (targetY + 0.5) / scale) - 0.5));
+    const sourceY = Math.max(
+      crop.y,
+      Math.min(
+        crop.y + crop.h - 1,
+        crop.y + (stretch ? ((targetY + 0.5) / height) * crop.h : (targetY + 0.5) / scale) - 0.5,
+      ),
+    );
     for (let targetX = 0; targetX < width; targetX += 1) {
       const sourceX = Math.max(
         crop.x,
-        Math.min(crop.x + crop.w - 1, crop.x + (stretch ? ((targetX + 0.5) / width) * crop.w : (targetX + 0.5) / scale) - 0.5),
+        Math.min(
+          crop.x + crop.w - 1,
+          crop.x + (stretch ? ((targetX + 0.5) / width) * crop.w : (targetX + 0.5) / scale) - 0.5,
+        ),
       );
       blend(canvas, left + targetX, top + targetY, sampleBilinear(texture, sourceX, sourceY));
     }
@@ -293,9 +297,15 @@ export function buildSquareThumbnail(input: Buffer, sourceName: string): Buffer 
   assertTextureBudget(texture, sourceName);
   const canvas = createCanvas();
   drawFittedCrop(
-    canvas, texture, { x: 0, y: 0, w: texture.width, h: texture.height },
-    THUMBNAIL_SIZE / 2, THUMBNAIL_SIZE / 2, THUMBNAIL_SIZE, THUMBNAIL_SIZE,
-    false, false,
+    canvas,
+    texture,
+    { x: 0, y: 0, w: texture.width, h: texture.height },
+    THUMBNAIL_SIZE / 2,
+    THUMBNAIL_SIZE / 2,
+    THUMBNAIL_SIZE,
+    THUMBNAIL_SIZE,
+    false,
+    false,
   );
   return encodeThumbnail(texture, canvas);
 }
@@ -332,19 +342,18 @@ function renderSkinThumbnail(data: SkinData, texture: DecodedRgbaPng, sourceName
   return canvas;
 }
 
-function expressionValue(expression: Record<string, number> | undefined): number {
+function expressionValue(expression: Record<string, number> | undefined, draws: readonly number[]): number {
   if (!expression) return 0;
   let value = expression.c ?? 0;
-  for (let index = 1; index <= RANDOM_DRAWS.length; index += 1)
-    value += (expression[`r${index}`] ?? 0) * RANDOM_DRAWS[index - 1]!;
+  for (let index = 1; index <= draws.length; index += 1) value += (expression[`r${index}`] ?? 0) * draws[index - 1]!;
   return value;
 }
 
-function channelValue(channel: ChannelExpression, progress: number): number {
+function channelValue(channel: ChannelExpression, progress: number, draws: readonly number[]): number {
   const easeName = (channel.ease ?? "linear") as EaseName;
   const amount = ease(easeName, Math.max(0, Math.min(1, progress)));
-  const from = expressionValue(channel.from);
-  const to = expressionValue(channel.to ?? channel.from);
+  const from = expressionValue(channel.from, draws);
+  const to = expressionValue(channel.to ?? channel.from, draws);
   return from + (to - from) * amount;
 }
 
@@ -367,34 +376,43 @@ function collectParticleDraws(data: ParticleData, texture: DecodedRgbaPng): Part
   data.sprites.forEach((sprite, index) =>
     assertRect(sprite, texture.width, texture.height, `particle sprite ${index}`),
   );
-  const effects = PARTICLE_LAYERS.map((name) => {
+  const effects = PARTICLE_LAYERS.flatMap((name) => {
     const effect = data.effects.find((candidate) => candidate.name === name);
     if (!effect) throw new Error(`particle.data is missing representative effect ${name}`);
-    return effect;
+    const early = name.endsWith(" P0") && PARTICLE_SNAPSHOT_TIME < NATIVE_EARLY_POINT_EFFECT.durationRatio
+      ? data.effects.find((candidate) => candidate.name === `${name} Early`)
+      : undefined;
+    return [
+      ...(early ? [{ effect: early, time: PARTICLE_SNAPSHOT_TIME / NATIVE_EARLY_POINT_EFFECT.durationRatio }] : []),
+      { effect, time: PARTICLE_SNAPSHOT_TIME },
+    ];
   });
   const draws: ParticleDraw[] = [];
-  for (const effect of effects) {
+  for (const { effect, time } of effects) {
     for (const group of effect.groups) {
-      for (const particle of group.particles) {
-        if (PARTICLE_SNAPSHOT_TIME < particle.start || PARTICLE_SNAPSHOT_TIME > particle.start + particle.duration)
-          continue;
-        const progress = particle.duration <= 0 ? 1 : (PARTICLE_SNAPSHOT_TIME - particle.start) / particle.duration;
-        const alpha = Math.max(0, Math.min(1, channelValue(particle.a, progress)));
-        const width = channelValue(particle.w, progress);
-        const height = channelValue(particle.h, progress);
-        if (alpha <= 0.002 || Math.abs(width) <= 1e-5 || Math.abs(height) <= 1e-5) continue;
-        const sprite = data.sprites[particle.sprite];
-        if (!sprite) throw new Error(`${effect.name} references missing particle sprite ${particle.sprite}`);
-        draws.push({
-          sprite,
-          x: channelValue(particle.x, progress),
-          y: channelValue(particle.y, progress),
-          w: width,
-          h: height,
-          rotation: channelValue(particle.r, progress),
-          alpha,
-          color: parseColor(particle.color),
-        });
+      for (let instance = 0; instance < group.count; instance++) {
+        const random = RANDOM_DRAWS.map((value, index) => (value + instance * (0.61803398875 + index * 0.071)) % 1);
+        for (const particle of group.particles) {
+          if (time < particle.start || time > particle.start + particle.duration)
+            continue;
+          const progress = particle.duration <= 0 ? 1 : (time - particle.start) / particle.duration;
+          const alpha = Math.max(0, Math.min(1, channelValue(particle.a, progress, random)));
+          const width = channelValue(particle.w, progress, random);
+          const height = channelValue(particle.h, progress, random);
+          if (alpha <= 0.002 || Math.abs(width) <= 1e-5 || Math.abs(height) <= 1e-5) continue;
+          const sprite = data.sprites[particle.sprite];
+          if (!sprite) throw new Error(`${effect.name} references missing particle sprite ${particle.sprite}`);
+          draws.push({
+            sprite,
+            x: channelValue(particle.x, progress, random),
+            y: channelValue(particle.y, progress, random),
+            w: width,
+            h: height,
+            rotation: channelValue(particle.r, progress, random),
+            alpha,
+            color: parseColor(particle.color),
+          });
+        }
       }
     }
   }

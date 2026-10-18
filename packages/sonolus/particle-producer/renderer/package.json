@@ -1,0 +1,67 @@
+{
+  "name": "@haneoka/cassiopeia-renderer-three",
+  "version": "0.1.0",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haneoka-gakuen/cassiopeia-renderer-three.git"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "pnpm typecheck && pnpm build && pnpm test:runtime",
+    "test:runtime": "node tests/particle-emission.mjs && node tests/note-mark.mjs && node tests/hud-presentation.mjs && node tests/background-media.mjs && node tests/title-visual-consumption.mjs",
+    "benchmark": "node benchmarks/effects.mjs",
+    "format": "prettier --write . --ignore-unknown",
+    "format:check": "prettier --check . --ignore-unknown"
+  },
+  "peerDependencies": {
+    "@haneoka/cassiopeia": "^0.1.0",
+    "@haneoka/cassiopeia-plugin-our-notes": "^0.1.0",
+    "three": ">=0.184.0 <0.185.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/three": "^0.184.1",
+    "prettier": "3.7.4",
+    "three": "0.184.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.14.0",
+  "description": "Three.js renderer for Cassiopeia rhythm-game frames",
+  "keywords": [
+    "cassiopeia",
+    "rhythm-game",
+    "threejs",
+    "webgl",
+    "renderer"
+  ],
+  "homepage": "https://github.com/haneoka-gakuen/cassiopeia-renderer-three#readme",
+  "bugs": {
+    "url": "https://github.com/haneoka-gakuen/cassiopeia-renderer-three/issues"
+  },
+  "dependencies": {
+    "fast-png": "^8.0.0"
+  }
+}

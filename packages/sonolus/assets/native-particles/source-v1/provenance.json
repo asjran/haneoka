@@ -1,0 +1,10 @@
+{
+  "schema": "our-notes-particle-packs-v1",
+  "sourceDataSha256": "b47671e45ca5735532c2ffd902e0dd0dadf68f937af20362d702f13f316ddea5",
+  "sourceTextureSha256": "fbad08770c949a734308256487cf4ef5745ea225418d0bbc9d63c52a60d12ced",
+  "sourceHashes": {
+    "packages/sonolus/scripts/native-particles/packs.ts": "eee46975d968e0ad8faf222f34563709b9b6244f83d501b0b5fbbca3080d7813",
+    "packages/sonolus/scripts/native-particles/rectanglePacking.ts": "3d1b246bcb8d5ca4b7277a25a9586d5211bc7722d561473d6c395282d3cb5bfe",
+    "packages/sonolus/src/shared/particlePacks.ts": "5662e903397dd24e3af233380c2372671473e10d3ba209c51372847a85ebfd5b"
+  }
+}

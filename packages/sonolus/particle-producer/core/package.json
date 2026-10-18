@@ -1,0 +1,93 @@
+{
+  "name": "@haneoka/cassiopeia",
+  "version": "0.1.0",
+  "description": "Portable rhythm-game kernel and typed plugin contracts",
+  "keywords": [
+    "rhythm-game",
+    "kernel",
+    "wasm",
+    "native",
+    "plugins"
+  ],
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haneoka-gakuen/cassiopeia.git"
+  },
+  "bugs": {
+    "url": "https://github.com/haneoka-gakuen/cassiopeia/issues"
+  },
+  "homepage": "https://github.com/haneoka-gakuen/cassiopeia#readme",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./wasm": {
+      "types": "./dist/wasm/cassiopeia_wasm.d.ts",
+      "import": "./dist/wasm/cassiopeia_wasm.js",
+      "default": "./dist/wasm/cassiopeia_wasm.js"
+    },
+    "./wasm/module": "./dist/wasm/cassiopeia_wasm_bg.wasm",
+    "./package.json": "./package.json",
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "import": "./dist/plugin.js"
+    },
+    "./enums": {
+      "types": "./dist/enums-entry.d.ts",
+      "import": "./dist/enums.js",
+      "default": "./dist/enums.js"
+    },
+    "./timing-policy": {
+      "types": "./dist/timing-policy-entry.d.ts",
+      "import": "./dist/timing-policy.js",
+      "default": "./dist/timing-policy.js"
+    },
+    "./wasm-session": {
+      "types": "./dist/wasm-session.d.ts",
+      "import": "./dist/wasm-session.js"
+    }
+  },
+  "scripts": {
+    "build": "pnpm run build:web && pnpm run build:wasm",
+    "build:web": "vite build && tsc -p tsconfig.build.json",
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "test:runtime": "node tests/wasm-boundary.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "rust:check": "cargo check --workspace --all-targets",
+    "rust:test": "cargo test --workspace",
+    "check": "pnpm typecheck && pnpm build && pnpm test:runtime && pnpm rust:check && pnpm rust:test",
+    "prepack": "pnpm run check",
+    "test:native": "cargo test -p haneoka-cassiopeia-native",
+    "format": "prettier --write . --ignore-unknown",
+    "format:check": "prettier --check . --ignore-unknown"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.14.0",
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6",
+    "wasm-pack": "0.15.0",
+    "prettier": "3.7.4"
+  }
+}

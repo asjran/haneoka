@@ -1,6 +1,6 @@
 // Least-squares fitting of Sonolus particle channels. A channel is
 // `from + (to - from) * ease(q)` where `from` and `to` are linear in the
-// instance's random values r1..r8 (particle property expressions). One fit
+// instance's random values and their sine/cosine basis. One fit
 // shares a single ease across every particle of a cohort.
 
 export type EaseName =
@@ -20,6 +20,60 @@ const IN: Record<string, (t: number) => number> = {
   Circ: (t) => 1 - Math.sqrt(Math.max(0, 1 - t * t)),
   Back: (t) => C3 * t ** 3 - C1 * t * t,
 };
+const IN_DERIVATIVE: Record<string, (t: number) => number> = {
+  Sine: (t) => Math.PI / 2 * Math.sin(t * Math.PI / 2),
+  Quad: (t) => 2 * t,
+  Cubic: (t) => 3 * t * t,
+  Quart: (t) => 4 * t ** 3,
+  Quint: (t) => 5 * t ** 4,
+  Expo: (t) => 10 * Math.LN2 * 2 ** (10 * t - 10),
+  Circ: (t) => t / Math.sqrt(Math.max(0, 1 - t * t)),
+};
+
+function easeDerivative(name: EaseName, t: number): number {
+  if (name === "linear") return 1;
+  const match = /^(inOut|outIn|in|out)([A-Z]\w*)$/.exec(name);
+  const derivative = match && IN_DERIVATIVE[match[2]!];
+  if (!derivative) throw new Error(`Continuous fit does not support ${name}`);
+  switch (match![1]) {
+    case "in": return derivative(t);
+    case "out": return derivative(1 - t);
+    case "inOut": return t < .5 ? derivative(2 * t) : derivative(2 - 2 * t);
+    default: return t < .5 ? derivative(1 - 2 * t) : derivative(2 * t - 1);
+  }
+}
+
+/** Continuous maximum against the piecewise-linear observations, including easing extrema. */
+function linearEnvelopeError(observations: readonly Observation[], from: number, to: number, name: EaseName): number {
+  const delta = to - from;
+  let maximum = 0;
+  for (let i = 1; i < observations.length; i++) {
+    const a = observations[i - 1]!, b = observations[i]!;
+    if (b.q <= a.q) continue;
+    const slope = (b.v - a.v) / (b.q - a.q);
+    const error = (q: number) => Math.abs(from + delta * ease(name, q) - a.v - slope * (q - a.q));
+    const cuts = a.q < .5 && b.q > .5 ? [a.q, .5, b.q] : [a.q, b.q];
+    for (let j = 1; j < cuts.length; j++) {
+      let left = cuts[j - 1]!, right = cuts[j]!;
+      maximum = Math.max(maximum, error(left), error(right));
+      if (name === "linear" || delta === 0) continue;
+      // Expo has endpoint limits; the other supported eases are continuous.
+      const epsilon = Math.min(1e-12, (right - left) / 1024);
+      left += epsilon; right -= epsilon;
+      maximum = Math.max(maximum, error(left), error(right));
+      const derivative = (q: number) => delta * easeDerivative(name, q) - slope;
+      const sign = Math.sign(derivative(left));
+      if (sign === Math.sign(derivative(right))) continue;
+      for (let step = 0; step < 48; step++) {
+        const middle = (left + right) / 2;
+        if (Math.sign(derivative(middle)) === sign) left = middle;
+        else right = middle;
+      }
+      maximum = Math.max(maximum, error((left + right) / 2));
+    }
+  }
+  return maximum + 1e-12;
+}
 
 /** Sonolus easing semantics (outIn = out on the first half, in on the second). */
 export function ease(name: EaseName, t: number): number {
@@ -56,8 +110,23 @@ export interface Observation {
   w?: number;
 }
 
-/** Linear expression over c and r1..r8; index 0 is the constant. */
+/** Coefficients of c, r1..r8, sinr1..sinr8 and cosr1..cosr8. */
 export type Expression = number[];
+
+/** Feature indices: r1..r8, sinr1..sinr8, cosr1..cosr8. */
+export function randomFeature(draws: readonly number[], feature: number): number {
+  if (feature < 8) return draws[feature]!;
+  const angle = 2 * Math.PI * draws[feature % 8]!;
+  return feature < 16 ? Math.sin(angle) : Math.cos(angle);
+}
+
+export function expressionValue(expression: Expression, draws: readonly number[]): number {
+  return expression.reduce(
+    (sum, coefficient, index) =>
+      coefficient === 0 ? sum : sum + coefficient * (index === 0 ? 1 : randomFeature(draws, index - 1)),
+    0,
+  );
+}
 
 export interface ChannelFit {
   from: Expression;
@@ -65,6 +134,38 @@ export interface ChannelFit {
   ease: EaseName;
   rms: number;
   max: number;
+}
+
+/** A sampled path owns its endpoints; only its interpolation ease is fitted. */
+export function fitAnchoredChannel(
+  observations: readonly Observation[],
+  eases: readonly EaseName[] = EASES,
+  metric: "rms" | "max" = "rms",
+  maximumError = Infinity,
+): ChannelFit {
+  const first = observations.find((value) => Math.abs(value.q) < 1e-9);
+  const last = observations.find((value) => Math.abs(value.q - 1) < 1e-9);
+  if (!first || !last) throw new Error("Sampled particle channel requires both endpoints");
+  if (observations.every((observation) => observation.v === first.v))
+    return { from: [first.v], to: [last.v], ease: "linear", rms: 0, max: 0 };
+  let best: ChannelFit | undefined;
+  for (const name of eases) {
+    let squared = 0,
+      weight = 0,
+      maximum = 0;
+    for (const observation of observations) {
+      const error = Math.abs(first.v + (last.v - first.v) * ease(name, observation.q) - observation.v);
+      squared += (observation.w ?? 1) * error * error;
+      weight += observation.w ?? 1;
+      maximum = Math.max(maximum, error);
+    }
+    if (metric === "max" && maximum <= maximumError && (!best || maximum < best.max))
+      maximum = Math.max(maximum, linearEnvelopeError(observations, first.v, last.v, name));
+    const rms = Math.sqrt(squared / Math.max(1e-12, weight));
+    if (!best || (metric === "max" ? maximum < best.max - 1e-12 : rms < best.rms - 1e-12))
+      best = { from: [first.v], to: [last.v], ease: name, rms, max: maximum };
+  }
+  return best!;
 }
 
 function solve(matrix: Float64Array, vector: Float64Array, size: number): Float64Array | undefined {
@@ -123,7 +224,7 @@ export function fitChannel(
       const e = ease(easeName, observation.q);
       const weight = observation.w ?? 1;
       for (let k = 0; k < basis; k += 1) {
-        const phi = k === 0 ? 1 : observation.r[features[k - 1]!]!;
+        const phi = k === 0 ? 1 : randomFeature(observation.r, features[k - 1]!);
         row[k] = phi * (1 - e);
         row[basis + k] = phi * e;
       }
@@ -148,7 +249,7 @@ export function fitChannel(
       const e = ease(easeName, observation.q);
       let predicted = 0;
       for (let k = 0; k < basis; k += 1) {
-        const phi = k === 0 ? 1 : observation.r[features[k - 1]!]!;
+        const phi = k === 0 ? 1 : randomFeature(observation.r, features[k - 1]!);
         predicted += phi * (x[k]! * (1 - e) + x[basis + k]! * e);
       }
       const error = Math.abs(predicted - observation.v);
@@ -160,7 +261,7 @@ export function fitChannel(
     const rms = Math.sqrt(squared / Math.max(total, 1e-12));
     if (!best || rms < best.rms - 1e-12) {
       const expand = (offset: number): Expression => {
-        const expression = new Array<number>(9).fill(0);
+        const expression = new Array<number>(Math.max(9, ...features.map((feature) => feature + 2))).fill(0);
         expression[0] = x[offset]!;
         features.forEach((feature, index) => (expression[feature + 1] = x[offset + index + 1]!));
         return expression;
@@ -179,7 +280,8 @@ export function fitChannel(
 /** Minimum of an expression over r in [0, 1]^8. */
 export function expressionMinimum(expression: Expression): number {
   let value = expression[0]!;
-  for (let k = 1; k < expression.length; k += 1) value += Math.min(0, expression[k]!);
+  for (let k = 1; k <= Math.min(8, expression.length - 1); k += 1) value += Math.min(0, expression[k]!);
+  for (let k = 0; k < 8; k += 1) value -= Math.hypot(expression[k + 9] ?? 0, expression[k + 17] ?? 0);
   return value;
 }
 
@@ -201,7 +303,8 @@ export function expressionJson(expression: Expression, digits = 4): Record<strin
   expression.forEach((value, index) => {
     const rounded = Math.round(value * scale) / scale;
     if (rounded === 0) return;
-    json[index === 0 ? "c" : `r${index}`] = rounded;
+    const key = index === 0 ? "c" : index <= 8 ? `r${index}` : index <= 16 ? `sinr${index - 8}` : `cosr${index - 16}`;
+    json[key] = rounded;
   });
   return json;
 }
@@ -209,8 +312,24 @@ export function expressionJson(expression: Expression, digits = 4): Record<strin
 /** Maximum of an expression over r in [0, 1]^8. */
 export function expressionMaximum(expression: Expression): number {
   let value = expression[0]!;
-  for (let k = 1; k < expression.length; k += 1) value += Math.max(0, expression[k]!);
+  for (let k = 1; k <= Math.min(8, expression.length - 1); k += 1) value += Math.max(0, expression[k]!);
+  for (let k = 0; k < 8; k += 1) value += Math.hypot(expression[k + 9] ?? 0, expression[k + 17] ?? 0);
   return value;
+}
+
+/** Keep every native random endpoint in a measured source position interval. */
+export function capToBounds(fit: ChannelFit, minimum: number, maximum: number): ChannelFit {
+  const cap = (expression: Expression): Expression => {
+    const low = expressionMinimum(expression),
+      high = expressionMaximum(expression);
+    if (low >= minimum && high <= maximum) return expression;
+    const factor = Math.min(1, (maximum - minimum) / Math.max(1e-12, high - low));
+    const terms = expression.slice(1).map((value) => value * factor);
+    const constantLow = minimum - expressionMinimum([0, ...terms]);
+    const constantHigh = maximum - expressionMaximum([0, ...terms]);
+    return [Math.max(constantLow, Math.min(constantHigh, expression[0]!)), ...terms];
+  };
+  return { ...fit, from: cap(fit.from), to: cap(fit.to) };
 }
 
 /** Cap a channel, retaining a nonnegative floor when the ceiling allows it. */
@@ -225,8 +344,8 @@ export function capToCeiling(fit: ChannelFit, ceiling: number): ChannelFit {
     const floor = Math.min(0, low, ceiling);
     const factor = Math.min(1, (ceiling - floor) / Math.max(1e-12, high - low));
     const terms = expression.slice(1).map((value) => value * factor);
-    const minimumConstant = floor - terms.reduce((sum, value) => sum + Math.min(0, value), 0);
-    const maximumConstant = ceiling - terms.reduce((sum, value) => sum + Math.max(0, value), 0);
+    const minimumConstant = floor - expressionMinimum([0, ...terms]);
+    const maximumConstant = ceiling - expressionMaximum([0, ...terms]);
     return [Math.max(minimumConstant, Math.min(maximumConstant, expression[0]!)), ...terms];
   };
   return { ...fit, from: cap(fit.from), to: cap(fit.to) };

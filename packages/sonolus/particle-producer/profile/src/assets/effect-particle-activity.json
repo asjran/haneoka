@@ -1,0 +1,2117 @@
+{
+  "schema": "haneoka-effect-particle-activity-v1",
+  "sourceId": "v25-c0b6a1541e45-3a5d2eec9935-n653c6392",
+  "particles": {
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particl_splash_line02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particle_point02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particl_splash_line",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_5.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_6.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particl_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_7.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_8.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particle_point01",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick.prefab/ParticleSystem_9.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash/ef_splash02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab/ParticleSystem_5.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_left.prefab/ParticleSystem_6.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash/ef_splash02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab/ParticleSystem_5.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_flick_right.prefab/ParticleSystem_6.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_just.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_just.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_just.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_just.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_normal.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_normal.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_normal.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_normal.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_performance.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_performance.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_performance.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_performance.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_connect.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_connect.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_connect.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_connect.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_loop.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop/ef_particle_point_frame",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_loop.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop/ef_particle_point",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_loop.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001/note_slide_loop.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": true
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash/ef_splash02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab/ParticleSystem_5.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_left_light.prefab/ParticleSystem_6.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particle_point01",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particl_splash_line02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_5.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particl_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_6.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particle_point02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_7.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particl_splash_line",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_8.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_light.prefab/ParticleSystem_9.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash/ef_splash02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab/ParticleSystem_5.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_flick_right_light.prefab/ParticleSystem_6.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_just_light.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_just_light.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_just_light.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_just_light.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_normal_light.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_normal_light.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_normal_light.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_normal_light.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_connect_light.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_connect_light.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_connect_light.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_connect_light.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_light.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_light.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_light.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_light.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_star",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_loop_light.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop/ef_particle_point",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_loop_light.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": true
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_loop_light.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Light/note_slide_loop_light.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop/ef_particle_point_frame",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_left_simple.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash/ef_splash02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_left_simple.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_left_simple.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_left_simple.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_left_simple.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_right_simple.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move/ef_splash/ef_splash02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_right_simple.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_right_simple.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_right_simple.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_splash",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_right_simple.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_simple.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_simple.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particle_point01",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_simple.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        },
+        {
+          "path": "ef_splash_move/ef_particle_point02",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_simple.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash_move",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_flick_simple.prefab/ParticleSystem_4.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_groove_simple.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_groove_simple.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_groove_simple.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_groove_simple.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_normal_simple.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_normal_simple.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_normal_simple.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_normal_simple.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_performance_simple.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_performance_simple.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_performance_simple.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_performance_simple.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_connect_simple.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_connect_simple.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_connect_simple.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_connect_simple.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_particle_point_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_splash",
+          "active": false
+        },
+        {
+          "path": "ef_splash/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple_loop.prefab/ParticleSystem.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": false
+        }
+      ],
+      "rendererEnabled": false
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple_loop.prefab/ParticleSystem_1.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": false
+        },
+        {
+          "path": "ef_slide_loop/ef_particle_point_",
+          "active": false
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple_loop.prefab/ParticleSystem_2.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": false
+        },
+        {
+          "path": "ef_slide_loop/ef_wall_center",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    },
+    "unity-json/Assets/AddressableResources/Effect/Live/NoteEffect/effect001Simple/note_slide_simple_loop.prefab/ParticleSystem_3.json": {
+      "hierarchy": [
+        {
+          "path": "",
+          "active": true
+        },
+        {
+          "path": "ef_slide_loop",
+          "active": false
+        },
+        {
+          "path": "ef_slide_loop/ef_particle_point ",
+          "active": true
+        }
+      ],
+      "rendererEnabled": true
+    }
+  }
+}

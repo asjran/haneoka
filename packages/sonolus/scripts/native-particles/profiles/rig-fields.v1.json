@@ -1,0 +1,338 @@
+{
+  "schema": "our-notes-source-rigs-v1",
+  "referenceWidth": 8,
+  "atlasSide": 1024,
+  "wallGroupCount": 3,
+  "sourceSeed": 4660,
+  "sourceRendererSha256": "9a9b6efd2c480b556796684c9d1defeefee465195e948c941890069bd62f73be",
+  "sourceAuthoredSha256": "61ba4c767cebb4260583b447830196ba69ae262b6117ed7d42b12e354a0845ac",
+  "profiles": [
+    {
+      "key": "standard",
+      "nativeFrameGroupCount": 3,
+      "quality": 0,
+      "renderingScale": 0.85,
+      "baselineDataSha256": "af4c538fa6d89b2eaf8f181a43a6c59da840c127b48aec0a4936b0592238b06c",
+      "baselineTextureSha256": "a24bb892dc4501523653595de9cdccc7a15d6a488020abbf24da77efd10dd278",
+      "effects": [
+        {
+          "kind": "tap",
+          "width": 4,
+          "name": "Our Notes Native Normal W4"
+        },
+        {
+          "kind": "tap",
+          "width": 6,
+          "name": "Our Notes Native Normal W6"
+        },
+        {
+          "kind": "tap",
+          "width": 8,
+          "name": "Our Notes Native Normal W8"
+        },
+        {
+          "kind": "tap",
+          "width": 12,
+          "name": "Our Notes Native Normal W12"
+        },
+        {
+          "kind": "tap",
+          "width": 24,
+          "name": "Our Notes Native Normal W24"
+        },
+        {
+          "kind": "flick",
+          "width": 4,
+          "name": "Our Notes Native Flick W4"
+        },
+        {
+          "kind": "flick",
+          "width": 6,
+          "name": "Our Notes Native Flick W6"
+        },
+        {
+          "kind": "flick",
+          "width": 8,
+          "name": "Our Notes Native Flick W8"
+        },
+        {
+          "kind": "flick",
+          "width": 12,
+          "name": "Our Notes Native Flick W12"
+        },
+        {
+          "kind": "flick",
+          "width": 24,
+          "name": "Our Notes Native Flick W24"
+        }
+      ]
+    },
+    {
+      "key": "light",
+      "nativeFrameGroupCount": 4,
+      "quality": 2,
+      "renderingScale": 0.71,
+      "baselineDataSha256": "e14b8bdda570c5f05dfe29ae05ef1805b66809d1535757a614f9bc6986ec23dd",
+      "baselineTextureSha256": "0378328383ed3445ff5cabcfa6eb74dfdb132ee5c0a4264e223a5b3f185afaea",
+      "effects": [
+        {
+          "kind": "tap",
+          "width": 4,
+          "name": "Our Notes Native Normal W4"
+        },
+        {
+          "kind": "tap",
+          "width": 6,
+          "name": "Our Notes Native Normal W6"
+        },
+        {
+          "kind": "tap",
+          "width": 8,
+          "name": "Our Notes Native Normal W8"
+        },
+        {
+          "kind": "tap",
+          "width": 12,
+          "name": "Our Notes Native Normal W12"
+        },
+        {
+          "kind": "tap",
+          "width": 24,
+          "name": "Our Notes Native Normal W24"
+        },
+        {
+          "kind": "flick",
+          "width": 4,
+          "name": "Our Notes Native Flick W4"
+        },
+        {
+          "kind": "flick",
+          "width": 6,
+          "name": "Our Notes Native Flick W6"
+        },
+        {
+          "kind": "flick",
+          "width": 8,
+          "name": "Our Notes Native Flick W8"
+        },
+        {
+          "kind": "flick",
+          "width": 12,
+          "name": "Our Notes Native Flick W12"
+        },
+        {
+          "kind": "flick",
+          "width": 24,
+          "name": "Our Notes Native Flick W24"
+        }
+      ]
+    },
+    {
+      "key": "simple",
+      "quality": 0,
+      "noteEffectSkin": "effect001Simple",
+      "frameOnly": true,
+      "nativeFrameGroupCount": 3,
+      "renderingScale": 1,
+      "baselineDataSha256": "19cf827d37017c97779d55851528981e786a1be653f969f68a8d22694bc09ff8",
+      "baselineTextureSha256": "07e9147a9c4007e779dfe131295eea2e7987343c28008aef5ff566586cdb81fc",
+      "effects": [
+        {
+          "kind": "tap",
+          "width": 4,
+          "name": "Our Notes Native Normal W4"
+        },
+        {
+          "kind": "tap",
+          "width": 6,
+          "name": "Our Notes Native Normal W6"
+        },
+        {
+          "kind": "tap",
+          "width": 8,
+          "name": "Our Notes Native Normal W8"
+        },
+        {
+          "kind": "tap",
+          "width": 12,
+          "name": "Our Notes Native Normal W12"
+        },
+        {
+          "kind": "tap",
+          "width": 24,
+          "name": "Our Notes Native Normal W24"
+        },
+        {
+          "kind": "flick",
+          "width": 4,
+          "name": "Our Notes Native Flick W4"
+        },
+        {
+          "kind": "flick",
+          "width": 6,
+          "name": "Our Notes Native Flick W6"
+        },
+        {
+          "kind": "flick",
+          "width": 8,
+          "name": "Our Notes Native Flick W8"
+        },
+        {
+          "kind": "flick",
+          "width": 12,
+          "name": "Our Notes Native Flick W12"
+        },
+        {
+          "kind": "flick",
+          "width": 24,
+          "name": "Our Notes Native Flick W24"
+        },
+        {
+          "kind": "slide",
+          "width": 4,
+          "name": "Our Notes Native Slide W4"
+        },
+        {
+          "kind": "slide",
+          "width": 6,
+          "name": "Our Notes Native Slide W6"
+        },
+        {
+          "kind": "slide",
+          "width": 8,
+          "name": "Our Notes Native Slide W8"
+        },
+        {
+          "kind": "slide",
+          "width": 12,
+          "name": "Our Notes Native Slide W12"
+        },
+        {
+          "kind": "slide",
+          "width": 24,
+          "name": "Our Notes Native Slide W24"
+        },
+        {
+          "kind": "connect",
+          "width": 4,
+          "name": "Our Notes Native Connect W4"
+        },
+        {
+          "kind": "connect",
+          "width": 6,
+          "name": "Our Notes Native Connect W6"
+        },
+        {
+          "kind": "connect",
+          "width": 8,
+          "name": "Our Notes Native Connect W8"
+        },
+        {
+          "kind": "connect",
+          "width": 12,
+          "name": "Our Notes Native Connect W12"
+        },
+        {
+          "kind": "connect",
+          "width": 24,
+          "name": "Our Notes Native Connect W24"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-left",
+          "direction": "left",
+          "width": 4,
+          "name": "Our Notes Native Flick Left W4"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-left",
+          "direction": "left",
+          "width": 6,
+          "name": "Our Notes Native Flick Left W6"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-left",
+          "direction": "left",
+          "width": 8,
+          "name": "Our Notes Native Flick Left W8"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-left",
+          "direction": "left",
+          "width": 12,
+          "name": "Our Notes Native Flick Left W12"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-left",
+          "direction": "left",
+          "width": 24,
+          "name": "Our Notes Native Flick Left W24"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-right",
+          "direction": "right",
+          "width": 4,
+          "name": "Our Notes Native Flick Right W4"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-right",
+          "direction": "right",
+          "width": 6,
+          "name": "Our Notes Native Flick Right W6"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-right",
+          "direction": "right",
+          "width": 8,
+          "name": "Our Notes Native Flick Right W8"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-right",
+          "direction": "right",
+          "width": 12,
+          "name": "Our Notes Native Flick Right W12"
+        },
+        {
+          "kind": "flick",
+          "family": "flick-right",
+          "direction": "right",
+          "width": 24,
+          "name": "Our Notes Native Flick Right W24"
+        },
+        {
+          "kind": "slide-loop",
+          "width": 4,
+          "name": "Our Notes Native Slide Loop W4"
+        },
+        {
+          "kind": "slide-loop",
+          "width": 6,
+          "name": "Our Notes Native Slide Loop W6"
+        },
+        {
+          "kind": "slide-loop",
+          "width": 8,
+          "name": "Our Notes Native Slide Loop W8"
+        },
+        {
+          "kind": "slide-loop",
+          "width": 12,
+          "name": "Our Notes Native Slide Loop W12"
+        },
+        {
+          "kind": "slide-loop",
+          "width": 24,
+          "name": "Our Notes Native Slide Loop W24"
+        }
+      ]
+    }
+  ]
+}

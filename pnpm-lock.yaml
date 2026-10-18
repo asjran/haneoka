@@ -108,6 +108,9 @@ catalogs:
     express:
       specifier: 4.22.2
       version: 4.22.2
+    fast-png:
+      specifier: ^8.0.0
+      version: 8.0.0
     fflate:
       specifier: ^0.8.3
       version: 0.8.3
@@ -1075,12 +1078,18 @@ importers:
       esbuild:
         specifier: ^0.21.5
         version: 0.21.5
+      fast-png:
+        specifier: 'catalog:'
+        version: 8.0.0
       three:
         specifier: 'catalog:'
         version: 0.184.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      vite:
+        specifier: 7.3.6
+        version: 7.3.6(@types/node@26.1.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.49.0)(yaml@2.9.0)
 
   packages/sonolus-core:
     devDependencies:

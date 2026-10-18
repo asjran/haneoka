@@ -1,0 +1,19 @@
+{
+  "schema": "our-notes-particle-producer-source-v1",
+  "packages": {
+    "core": {
+      "repository": "https://github.com/haneoka-gakuen/cassiopeia",
+      "commit": "cda415ba147285e4cdc320bea1f53258432c3f11"
+    },
+    "profile": {
+      "repository": "https://github.com/haneoka-gakuen/cassiopeia-plugin-our-notes",
+      "commit": "0d2891b3e6e02c56f44b27800412a7be43f40f30"
+    },
+    "renderer": {
+      "repository": "https://github.com/haneoka-gakuen/cassiopeia-renderer-three",
+      "commit": "7d4c56f01901cd83a1d043566221f4a974e0d90b"
+    }
+  },
+  "scope": "Pinned source evaluator for the qualified C3 particle recipe. Host renderer dependencies retain their own Git pins.",
+  "build": "Existing Vite library configs and profile asset copier; output hashes are fixed in production.v1.json."
+}

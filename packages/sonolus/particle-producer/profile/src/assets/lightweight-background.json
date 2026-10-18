@@ -1,0 +1,106 @@
+{
+  "source": "formal-intl-v25/r1244/Live.prefab",
+  "width": 1536,
+  "height": 1212,
+  "layers": [
+    {
+      "name": "Layer_JacketLarge",
+      "texture": "jacket",
+      "size": [
+        512.0,
+        506.0
+      ],
+      "scale": [
+        1.75,
+        1.75
+      ],
+      "position": [
+        0.0,
+        14.0
+      ],
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "Layer_BaseWhite",
+      "texture": "baseWhite",
+      "size": [
+        542.0,
+        536.0
+      ],
+      "scale": [
+        0.4000000059604645,
+        0.4000000059604645
+      ],
+      "position": [
+        0.0,
+        20.0
+      ],
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        0.5
+      ]
+    },
+    {
+      "name": "Layer_JacketSmall",
+      "texture": "jacket",
+      "size": [
+        512.0,
+        506.0
+      ],
+      "scale": [
+        0.4000000059604645,
+        0.4000000059604645
+      ],
+      "position": [
+        0.0,
+        20.0
+      ],
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "Layer_StageBg",
+      "texture": "stage",
+      "size": [
+        1536.0,
+        1212.0
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "position": [
+        0.0,
+        0.0
+      ],
+      "tint": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "blur": {
+    "size": 1,
+    "iterations": 2,
+    "weights": [
+      0.30000001192092896,
+      0.4000000059604645,
+      0.30000001192092896
+    ],
+    "format": "RGB565"
+  },
+  "baseWhitePath": "/runtime/{server}/unity/Assets/AddressableResources/Live/Images/Atlas/LiveAtlas.spriteatlasv2/sactx-0-2048x256-ASTC 6x6-LiveAtlas-9871b924--Texture2D--4440966611001321725.png"
+}
