@@ -159,13 +159,16 @@ _RECIPE_INFRASTRUCTURE = {
     "core/config.py", "core/private_config.py", "core/storage.py",
     "core/delta.py", "core/fingerprints.py", "extract/unity_reuse.py",
 }
-# Qualified CRI index/prefetch refactors preserve every decoded/adopted byte.
+# Qualified CRI prefetch and native metadata adoption retain their byte contracts.
 # Other source revisions retain their own hash and invalidate the producer.
 _STAGE_SOURCE_COMPATIBILITY = {
     ("cri", "extract/cri.py", "546622e848ca91f9d45c3a1a56f3a85547ab4dbbcdf9aa9f844af9e555c59271"):
         "cb61137f76a6f9f7ef94bd5bd7ce4b4ad4603e7d892e09b9209a32d60af8a918",
     ("cri", "extract/cri.py", "6374801edae2f262da82a742f86349f2cb97d3b985b675f8639c9a906f27a112"):
         "cb61137f76a6f9f7ef94bd5bd7ce4b4ad4603e7d892e09b9209a32d60af8a918",
+    # Complete ASTC metadata retains the verified base variant byte identity.
+    ("live2d", "build/live2d.py", "2294fa62506b208970a9a667c7a0594f90befb9c7405cc23b46a028bede29a40"):
+        "e1ccb10b49e3eabb5109eda6a92ad6ed22600dbd2076c3d824b45fa755f1a366",
 }
 _UNITY_PACKAGES = {
     "unitypy", "pillow", "texture2ddecoder", "lz4", "brotli", "etcpak",

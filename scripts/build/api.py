@@ -477,7 +477,7 @@ class BuildData:
             except Exception:  # The original consumer retries and reports required inputs.
                 return sum(target.is_file() for _, target in group)
 
-        with ThreadPoolExecutor(max_workers=16) as executor:
+        with ThreadPoolExecutor(max_workers=32) as executor:
             restored = sum(executor.map(materialize, contents.values()))
         self.prefetch_stats[name] = {
             "requested": len(requests),
@@ -8613,7 +8613,6 @@ def build_api(
         path for path in data.source_paths
         if path.startswith(spot_root) and path.endswith(".atlas.txt")
     )
-    project("restore assets", data.prefetch_assets, asset_inputs)
     adv_roots = tuple(f"Assets/AddressableResources/Adv/{kind}/" for kind in
                       ("Stage", "Still", "Frame", "Effect", "PostEffect", "Chat"))
     scene_sources = {
@@ -8626,10 +8625,18 @@ def build_api(
         "Assets/AddressableResources/UI/Prefab/UIAdvWidget.prefab",
         "Assets/AddressableResources/Common/Adv/Settings/AdvPlayerSettings.asset",
     ))
-    project("restore Unity archives", data.prefetch_sources,
-            (path for path in data.source_paths
-             if path.startswith(adv_roots) or path in scene_sources
-             or (path.startswith(spot_root) and path.endswith(("_SkeletonData.asset", ".bytes")))))
+    archive_inputs = [
+        path for path in data.source_paths
+        if path.startswith(adv_roots) or path in scene_sources
+        or (path.startswith(spot_root) and path.endswith(("_SkeletonData.asset", ".bytes")))
+    ]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        restores = [
+            executor.submit(project, "restore assets", data.prefetch_assets, asset_inputs),
+            executor.submit(project, "restore Unity archives", data.prefetch_sources, archive_inputs),
+        ]
+        for future in restores:
+            future.result()
     live2d_raw = project("live2d", _live2d_models, data, source_id)
     live2d = project("live2d enrichment", _enrich_live2d, data, live2d_raw)
     songs, song_metadata = project("songs", _songs, data, source_id, fallback=({}, {}))

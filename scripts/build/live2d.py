@@ -752,6 +752,52 @@ def _restore_variant_path(value: Any, server: str) -> str:
     return "runtime/" + value.removeprefix(prefix)
 
 
+def _verified_astc_reference(
+    variant: dict[str, Any], entries: dict[str, dict[str, Any]], server: str,
+) -> bool:
+    """Adopt complete ASTC metadata from the pinned, verified producer."""
+    format_name = variant.get("format")
+    profile = variant.get("encoderProfile")
+    version = profile.get("toolVersion") if isinstance(profile, dict) else None
+    if (format_name != "astc6x6" or not isinstance(version, str) or not version
+            or not _variant_matches_encoder_profile(variant, format_name, version)):
+        return False
+    width, height, mips = (variant.get(key) for key in ("width", "height", "mipCount"))
+    if type(mips) is not int or not 1 <= mips <= max(width, height).bit_length():
+        return False
+    gpu_bytes = sum(
+        ((max(1, width >> level) + 5) // 6)
+        * ((max(1, height >> level) + 5) // 6) * 16
+        for level in range(mips)
+    )
+    expected = {
+        "container": "ktx2", "requiresTranscoding": False,
+        "lossyReencoded": False, "orientation": "ru",
+        "flipY": True, "transferFunction": "linear", "alphaMode": "straight",
+        "gpuByteLength": gpu_bytes,
+    }
+    if (any(type(variant.get(key)) is not type(value) or variant[key] != value
+            for key, value in expected.items())
+            or type(variant.get("textureIndex")) is not int or variant["textureIndex"] < 0
+            or type(variant.get("byteLength")) is not int
+            or variant["byteLength"] < 80 + 24 * mips + gpu_bytes):
+        return False
+    hashes = [variant.get(key) for key in ("sha256", "sourceTextureSha256", "sourcePayloadSha256")]
+    if any(not isinstance(value, str) or re.fullmatch(r"[a-f0-9]{64}", value) is None for value in hashes):
+        return False
+    entry = entries.get(_restore_variant_path(variant.get("source"), server))
+    if (not isinstance(entry, dict) or entry.get("sha256") != variant["sha256"]
+            or entry.get("bytes") != variant["byteLength"]):
+        return False
+    texture = variant.get("texture")
+    for tree in ("assets", "runtime"):
+        prefix = f"/{tree}/{server}/"
+        if isinstance(texture, str) and texture.startswith(prefix):
+            original = entries.get(f"{tree}/{texture.removeprefix(prefix)}")
+            return isinstance(original, dict) and original.get("sha256") == variant["sourceTextureSha256"]
+    return False
+
+
 def _texture_identity_paths(server: str, model: dict[str, Any]) -> list[str]:
     """Recover the on-disk identity of every texture the preview page loads."""
 
@@ -988,6 +1034,9 @@ def build_live2d(
             relative = _restore_variant_path(variant.get("source"), config.id)
             if not relative:
                 return None
+            if _verified_astc_reference(variant, delta.entries(), config.id):
+                refreshed.append(copy.deepcopy(variant))
+                continue
             output = layout.root / relative
             try:
                 if not output.is_file():
