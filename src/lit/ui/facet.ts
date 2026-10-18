@@ -1,5 +1,6 @@
-import { LitElement, html, nothing } from "lit";
+import { LitElement, html, nothing, type PropertyValues } from "lit";
 import { uiText } from "../shared/catalog";
+import { hydrateWorkspace } from "../shared/hydrate-workspace";
 import { orderFacetOptions } from "../../lib/facet-order";
 import { rarityIcon } from "../shared/rarity-icon";
 import "@material/web/checkbox/checkbox.js";
@@ -42,6 +43,13 @@ export class FilterFacet extends LitElement {
   }
   createRenderRoot() {
     return this;
+  }
+  protected override update(changed: PropertyValues): void {
+    if (this.hasAttribute("data-prerendered")) {
+      hydrateWorkspace(this.render(), this, this.renderOptions);
+      this.removeAttribute("data-prerendered");
+    }
+    super.update(changed);
   }
   render() {
     const query = this.query.normalize("NFKC").toLocaleLowerCase(this.locale);

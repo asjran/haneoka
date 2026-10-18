@@ -1250,6 +1250,8 @@
         "live2dTypeLive": "Live"
       },
       "labels": {
+        "costumeId": "의상 ID",
+        "subCharacter": "조연 캐릭터",
         "motion": "모션",
         "expression": "표정",
         "transform": "변형",

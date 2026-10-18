@@ -1250,6 +1250,8 @@
         "live2dTypeLive": "Live"
       },
       "labels": {
+        "costumeId": "服裝 ID",
+        "subCharacter": "配角",
         "motion": "動作",
         "expression": "表情",
         "transform": "變形",

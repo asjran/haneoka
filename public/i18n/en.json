@@ -1250,6 +1250,8 @@
         "live2dTypeLive": "Live"
       },
       "labels": {
+        "costumeId": "Costume ID",
+        "subCharacter": "Supporting character",
         "motion": "Motion",
         "expression": "Expression",
         "transform": "Transform",

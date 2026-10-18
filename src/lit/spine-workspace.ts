@@ -32,7 +32,7 @@ import { StageFullscreen, StageGestures } from "./ui/stage-fullscreen";
 
 /** Message paths for this view's finite control/metadata identifiers. */
 const uiLabelPaths: Readonly<Record<string, string>> = {
-  costumeId: "story.labels.costumeId",
+  costumeId: "media.models.labels.costumeId",
   error: "common.states.error",
   family: "media.models.labels.family",
   grid: "common.layout.grid",
@@ -47,7 +47,7 @@ const uiLabelPaths: Readonly<Record<string, string>> = {
   source: "common.fields.source",
   spine: "navigation.spine",
   stage: "media.models.labels.stage",
-  subCharacter: "story.labels.subCharacter",
+  subCharacter: "media.models.labels.subCharacter",
   table: "common.layout.table",
   version: "media.models.labels.version",
   view: "common.actions.view",
