@@ -283,8 +283,30 @@ export function renderCardEditor(host: TeamBuilder): TemplateResult | typeof not
     <div class="tb-field">
       <span class="tb-field__label">${host.t("level", "Level")}<output>${value === null ? "—" : Math.min(value, cap)} / ${cap}</output></span>
       <div class="tb-field__level">
-        <md-slider class="md3-slider" labeled min="1" max=${cap} .value=${Math.min(value ?? cap, cap)} aria-label=${host.t("level", "Level")}
-          @change=${(event: Event) => write("lvl", Number((event.target as HTMLInputElement).value))}></md-slider>
+        <input class="tb-stepper__value" type="number" inputmode="numeric" min="1" max=${cap} step="1" placeholder="—" aria-label=${host.t("level", "Level")}
+          .value=${live(value === null ? "" : String(Math.min(value, cap)))}
+          @input=${(event: Event) => {
+            const input = event.currentTarget as HTMLInputElement;
+            if (input.validity.valid) write("lvl", input.value === "" ? null : input.valueAsNumber);
+          }}
+          @change=${(event: Event) => {
+            const input = event.currentTarget as HTMLInputElement;
+            if (input.validity.badInput) {
+              input.value = value === null ? "" : String(Math.min(value, cap));
+              return;
+            }
+            const next = input.value === "" ? null : Math.max(1, Math.min(cap, Math.round(input.valueAsNumber)));
+            input.value = next === null ? "" : String(next);
+            write("lvl", next);
+          }} />
+        <md-slider class="md3-slider" labeled min="1" max=${cap} .value=${live(Math.min(value ?? cap, cap))} aria-label=${host.t("level", "Level")}
+          @input=${(event: Event) => write("lvl", Number((event.currentTarget as HTMLInputElement).value))}
+          @change=${(event: Event) => write("lvl", Number((event.currentTarget as HTMLInputElement).value))}
+          @click=${(event: Event) => write("lvl", Number((event.currentTarget as HTMLInputElement).value))}
+          @keyup=${(event: KeyboardEvent) => {
+            if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key))
+              write("lvl", Number((event.currentTarget as HTMLInputElement).value));
+          }}></md-slider>
         ${iconButton({ icon: "vertical_align_top", label: host.t("maxLevel", "Max level"), disabled: value === cap, onClick: () => write("lvl", cap) })}
       </div>
     </div>

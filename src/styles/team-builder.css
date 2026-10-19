@@ -385,6 +385,13 @@
     flex: 1;
     min-width: 0;
   }
+  .tb-field__level .tb-stepper__value {
+    min-height: 48px;
+    flex-shrink: 0;
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    background: var(--md-sys-color-surface-container-high);
+  }
   .tb-field__label output {
     color: var(--md-sys-color-on-surface);
     font-variant-numeric: tabular-nums;
