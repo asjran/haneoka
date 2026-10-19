@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition: [0, 1]
+        partition: [0, 1, 2, 3]
     env:
       NODE_OPTIONS: --max-old-space-size=5120
       STATIC_PAGE_GROUPS: ${{ inputs.page_groups }}
@@ -39,7 +39,7 @@ jobs:
       STATIC_BUILD_INPUT_MODE: frozen
       STATIC_BUILD_INPUT_ROOT: data/static-build/inputs
       STATIC_BUILD_LOCALE: ${{ inputs.locale }}
-      STATIC_BUILD_PARTITION: ${{ matrix.partition }}/2
+      STATIC_BUILD_PARTITION: ${{ matrix.partition }}/4
       ASTRO_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v7
@@ -116,14 +116,14 @@ jobs:
           path: .output/static-render-archives
       - name: Merge every rendered page, then index and pack once
         run: |
-          for partition in 0 1; do
+          for partition in 0 1 2 3; do
             mkdir -p ".output/static-render-parts/$partition"
             tar --zstd -xf ".output/static-render-archives/static-render-${{ inputs.inputs_sha }}-${{ inputs.locale }}-$partition/static-render-part.tar.zst" -C ".output/static-render-parts/$partition"
           done
           node scripts/build/static-build-shards.mjs merge-render --locale "$STATIC_BUILD_LOCALE" --plan .output/static-shard-plan.json --parts .output/static-render-parts --output .output/static-render-merged
           cp -a .output/static-render-merged/. .output/
           pnpm finalize:frontend
-          node scripts/build/static-build-shards.mjs seal --root "$PWD" --locale "$STATIC_BUILD_LOCALE" --plan .output/static-shard-plan.json --output .output/static-part
+          node scripts/build/static-build-shards.mjs seal --root "$PWD" --locale "$STATIC_BUILD_LOCALE" --plan .output/static-shard-plan.json --inputs .output/static-frozen-inputs/manifest.json --output .output/static-part
       - uses: actions/upload-artifact@v7
         with:
           name: static-part-${{ inputs.inputs_sha }}-${{ inputs.locale }}

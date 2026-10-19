@@ -1,7 +1,6 @@
 import { fnv1a32Shard } from "./hash-partition.ts";
 import { assetStaticLookupPath } from "./asset-static-routing.ts";
 import { playlistStaticLookupPath } from "./playlists/static-routing.ts";
-import { parseResourceRoute, isStoryMode } from "./resource-route.ts";
 
 export const STATIC_DOCUMENT_SCHEMA = "haneoka-static-documents-v2";
 export const STATIC_DOCUMENT_INDEX_ROOT = "/provider-static/index";
@@ -136,7 +135,7 @@ export function coreStaticDocumentPath(pathname: string): string | undefined {
   if (!pathname.endsWith("/")) return;
   return `${pathname.replace(/\/+$/u, "")}/index.html`;
 }
-/** Internal SPA and newly published entity fallbacks still use these assets. */
+/** Internal SPA and preview redirects still use these direct assets. */
 export function isCoreFallbackShell(pathname: string): boolean {
   if (!pathname.endsWith("/index.html")) return false;
   const routePath = pathname.slice(0, -"index.html".length);
@@ -147,8 +146,7 @@ export function isCoreFallbackShell(pathname: string): boolean {
   }
   if (/^\/(jp|intl)\/(ja|en|ko|zh-CN|zh-TW)\/(assets\/|announcements\/detail\/)$/u.test(routePath)) return true;
   if (/^\/(jp|intl)\/(ja|en|ko|zh-CN|zh-TW)\/(?:calendar\/|announcements\/)?$/u.test(routePath)) return true;
-  const route = parseResourceRoute(routePath);
-  return !!route && (!route.id || (route.kind === "stories" && isStoryMode(route.id)));
+  return false;
 }
 export function staticDocumentLookupPath(pathname: string): string | undefined {
   if (/^\/data\/chart-rates\/(?:jp|intl)\.json$/u.test(pathname)) return pathname;

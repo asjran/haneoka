@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { gunzipSync } from "node:zlib";
-import { sha256, safeRelative, listFiles, fileDigest, copyOnce } from "./static-build-inputs.mjs";
+import { INPUT_SCHEMA, sha256, safeRelative, listFiles, fileDigest, copyOnce } from "./static-build-inputs.mjs";
 import { staticBuildSourceIdentity } from "../../src/server/static-build-identity.ts";
 import {
   staticPageGroupEnabled,
@@ -63,6 +63,43 @@ function linkOnce(source, target) {
     if (!["EXDEV", "EPERM", "EACCES", "ENOTSUP"].includes(error.code)) throw error;
     fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
   }
+}
+function frozenCommonAssets(plan, manifestFile) {
+  const assets = new Map();
+  if (!manifestFile) return assets;
+  const body = fs.readFileSync(manifestFile),
+    manifest = JSON.parse(body);
+  if (
+    plan.generation.kind !== "frozen-inputs" ||
+    sha256(body) !== plan.generation.sha256 ||
+    manifest.schema !== INPUT_SCHEMA ||
+    !Array.isArray(manifest.entries)
+  )
+    throw new Error("Frozen common asset generation differs");
+  for (const entry of manifest.entries) {
+    if (entry.role !== "common-assets" || !entry.path?.startsWith(".generated-public/")) continue;
+    const relative = entry.path.slice(".generated-public/".length);
+    safeRelative(relative);
+    if (
+      assets.has(relative) ||
+      !/^[a-f0-9]{64}$/u.test(entry.sha256) ||
+      !Number.isSafeInteger(entry.bytes) ||
+      entry.bytes < 0
+    )
+      throw new Error("Invalid frozen common asset");
+    assets.set(relative, {
+      sha256: entry.sha256,
+      bytes: entry.bytes,
+      source: path.join(path.dirname(manifestFile), "content", entry.sha256),
+    });
+  }
+  return assets;
+}
+function matchingCommonAsset(assets, asset) {
+  const common = assets.get(asset.path);
+  return asset.owner === "shared" && common?.sha256 === asset.sha256 && common?.bytes === asset.bytes
+    ? common
+    : undefined;
 }
 export function readIndexedPublication({ referencesFile, indexRoot }) {
   const bytes = fs.readFileSync(referencesFile),
@@ -417,9 +454,10 @@ export async function mergeRenderPartitions({ planFile, partsRoot, output, local
   return { locale, partitions: indexes.size, routes: rendered.size, assets: files.size, earlyDocuments: records.size };
 }
 
-export async function sealPublication({ root, locale, planFile, output }) {
+export async function sealPublication({ root, locale, planFile, output, inputsManifest }) {
   const { plan, sha256: planSha256 } = readPlan(planFile);
   if (!LOCALES.includes(locale) || fs.existsSync(output)) throw new Error("Invalid or existing static shard output");
+  const commonAssets = frozenCommonAssets(plan, inputsManifest);
   const publication = readIndexedPublication({
     referencesFile: path.join(root, ".output/static-documents/references.json"),
     indexRoot: path.join(root, ".output/public/provider-static/index"),
@@ -431,13 +469,19 @@ export async function sealPublication({ root, locale, planFile, output }) {
       throw new Error(`Rendered shard document differs: ${pathname}`);
   const publicRoot = path.join(root, ".output/public"),
     assets = [];
+  let reusedAssets = 0,
+    reusedBytes = 0;
   for (const relative of listFiles(publicRoot)) {
     if (generatedIndex(relative) || relative === "pagefind/pagefind-entry.json") continue;
     const owner = assetOwner(relative);
     if (owner !== "shared" && owner !== locale) continue;
     const asset = { path: relative, owner, ...(await fileDigest(path.join(publicRoot, relative))) };
     assets.push(asset);
-    linkOnce(path.join(publicRoot, relative), path.join(output, "public", relative));
+    const common = matchingCommonAsset(commonAssets, asset);
+    if (common && fs.existsSync(common.source)) {
+      reusedAssets++;
+      reusedBytes += asset.bytes;
+    } else linkOnce(path.join(publicRoot, relative), path.join(output, "public", relative));
   }
   for (const object of publication.objects.values()) {
     const relative = `${object.sha256.slice(0, 2)}/${object.sha256}.gz`;
@@ -462,6 +506,8 @@ export async function sealPublication({ root, locale, planFile, output }) {
     documents: publication.reference.documents,
     data: publication.reference.data,
     assets: assets.length,
+    reusedAssets,
+    reusedBytes,
   };
 }
 export async function partitionPublication({ root, planFile, output }) {
@@ -520,9 +566,10 @@ export async function partitionPublication({ root, planFile, output }) {
   }
   return { locales: LOCALES.length, documents: publication.reference.documents, parts: output };
 }
-export async function mergeShards({ planFile, partsRoot, output }) {
+export async function mergeShards({ planFile, partsRoot, output, inputsManifest }) {
   const { plan, sha256: planSha256 } = readPlan(planFile);
   if (fs.existsSync(output)) throw new Error("Merged publication destination already exists");
+  const commonAssets = frozenCommonAssets(plan, inputsManifest);
   const planned = new Map(plan.expected.map((row) => [row.pathname, row]));
   const records = new Map(),
     assets = new Map(),
@@ -572,7 +619,8 @@ export async function mergeShards({ planFile, partsRoot, output }) {
     for (const [, record] of part.records)
       for (const chunk of staticDocumentChunks(record))
         assert.deepEqual(ownObjects.get(chunk.sha256), chunk, "Shard content reference is missing");
-    const ownAssets = new Set();
+    const ownAssets = new Set(),
+      shippedAssets = new Set();
     for (const asset of part.assets) {
       safeRelative(asset.path);
       if (
@@ -584,7 +632,13 @@ export async function mergeShards({ planFile, partsRoot, output }) {
       )
         throw new Error(`Invalid shard asset: ${asset.path}`);
       ownAssets.add(asset.path);
-      const source = path.join(partRoot, "public", asset.path);
+      let source = path.join(partRoot, "public", asset.path);
+      if (fs.existsSync(source)) shippedAssets.add(asset.path);
+      else {
+        const common = matchingCommonAsset(commonAssets, asset);
+        if (!common) throw new Error(`Missing shard asset: ${asset.path}`);
+        source = common.source;
+      }
       assert.deepEqual(
         await fileDigest(source),
         { sha256: asset.sha256, bytes: asset.bytes },
@@ -601,7 +655,7 @@ export async function mergeShards({ planFile, partsRoot, output }) {
       listFiles(path.join(partRoot, "public"))
         .filter((file) => file !== "pagefind/pagefind-entry.json")
         .sort(),
-      [...ownAssets].sort(),
+      [...shippedAssets].sort(),
       "Unverified extra shard assets",
     );
     const clients = [...ownAssets].filter((file) => file.startsWith("_astro/")).sort();
@@ -764,10 +818,18 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         locale: values.locale,
         planFile: values.plan,
         output: path.resolve(values.output),
+        inputsManifest: values.inputs,
       }),
     );
   else if (mode === "merge" && values.plan && values.parts && values.output)
-    report(await mergeShards({ planFile: values.plan, partsRoot: values.parts, output: path.resolve(values.output) }));
+    report(
+      await mergeShards({
+        planFile: values.plan,
+        partsRoot: values.parts,
+        output: path.resolve(values.output),
+        inputsManifest: values.inputs,
+      }),
+    );
   else
     throw new Error(
       "Use plan --references JSON --indexes DIR --output JSON, partition --root DIR --plan JSON --output DIR, or merge --plan JSON --parts DIR --output DIR",

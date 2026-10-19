@@ -110,9 +110,41 @@ jobs:
             data/provider-static/entities/receipts
           key: provider-snapshot-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: provider-snapshot-v1-${{ runner.os }}-${{ github.run_id }}-
-      - name: Build shared packages and public assets once
+      - name: Resolve compiled package source and toolchain identity
+        id: package-identity
+        run: echo "key=$(node scripts/build/package-build-cache.mjs key)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v6
+        id: package-cache
+        with:
+          path: |
+            .output/compiled-packages/manifest.json
+            packages/*/dist
+            packages/*/src/generated
+            .dependencies/*/dist
+            .dependencies/*/src/generated
+            .dependencies/*/packages/*/dist
+            .dependencies/*/packages/*/src/generated
+          key: compiled-frontend-v1-${{ runner.os }}-${{ steps.package-identity.outputs.key }}
+      - name: Verify or build shared packages
         run: |
-          pnpm build:packages
+          if ! node scripts/build/package-build-cache.mjs verify; then
+            pnpm build:packages
+            node scripts/build/package-build-cache.mjs record
+          fi
+      - uses: actions/cache/save@v6
+        if: steps.package-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            .output/compiled-packages/manifest.json
+            packages/*/dist
+            packages/*/src/generated
+            .dependencies/*/dist
+            .dependencies/*/src/generated
+            .dependencies/*/packages/*/dist
+            .dependencies/*/packages/*/src/generated
+          key: compiled-frontend-v1-${{ runner.os }}-${{ steps.package-identity.outputs.key }}
+      - name: Build public assets once
+        run: |
           pnpm prepare:frontend
           pnpm build:embeds
           pnpm build:provider-static
@@ -242,7 +274,7 @@ jobs:
           for locale in en ja ko zh-CN zh-TW; do
             mv ".output/static-parts/static-part-${{ needs.prepare.outputs.inputs_sha }}-${locale}" ".output/static-parts/${locale}"
           done
-          node scripts/build/static-build-shards.mjs merge --plan .output/static-shard-plan.json --parts .output/static-parts --output .output/static-merged
+          node scripts/build/static-build-shards.mjs merge --plan .output/static-shard-plan.json --parts .output/static-parts --inputs .output/static-frozen-inputs/manifest.json --output .output/static-merged
           cp -a .output/static-merged/.output/. .output/
           pnpm runtime:cubism:verify-output
           for entry in core vega cassiopeia home-spot vega-theme api-client; do

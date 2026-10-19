@@ -3478,7 +3478,11 @@ function previewDetailShell(request: Request, shell: Response, route: ResourceRo
  * Serve the bounded server-first collection shell in that case, but only
  * after the immutable release index proves that the requested entity exists.
  */
-async function serveCanonicalResourceDocument(request: Request, env: Env): Promise<Response | null> {
+async function serveCanonicalResourceDocument(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response | null> {
   const requestedUrl = new URL(request.url);
   const announcement = announcementDocumentRequest(requestedUrl.pathname);
   if (announcement && (request.method === "GET" || request.method === "HEAD")) {
@@ -3530,7 +3534,10 @@ async function serveCanonicalResourceDocument(request: Request, env: Env): Promi
     route.kind === "stories" && availability.storyMode
       ? storyCollectionPath({ server: route.server, locale: route.locale, mode: availability.storyMode })
       : resourcePath({ server: route.server, locale: route.locale, kind: route.kind });
-  const shell = await env.ASSETS.fetch(new Request(url, request));
+  const shellRequest = new Request(url, request);
+  const lookup = staticDocumentLookupPath(url.pathname);
+  const document = lookup ? await serveStaticDocument(shellRequest, env, ctx, lookup) : null;
+  const shell = document || (await env.ASSETS.fetch(shellRequest));
   if (route.server === "intl-test" && shell.ok)
     return previewDetailShell(request, shell, route as ResourceRoute & { id: string });
   return shell.status === 404 ? new Response("Not found", { status: 404 }) : shell;
@@ -3782,7 +3789,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
         const hit = await env.ASSETS.fetch(new Request(new URL(view, url), assetRequest));
         if (hit.status !== 404) return hit;
       }
-      return (await serveCanonicalResourceDocument(assetRequest, env)) || serveStaticAsset(assetRequest, env);
+      return (await serveCanonicalResourceDocument(assetRequest, env, ctx)) || serveStaticAsset(assetRequest, env);
     })(),
     previewSettings ? Promise.resolve(previewSettings) : readSiteSettings(env),
   ]);

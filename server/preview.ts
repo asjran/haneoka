@@ -1344,6 +1344,9 @@ function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerRespons
       route.kind === "stories" && availability.storyMode
         ? storyCollectionPath({ server: route.server, locale: route.locale, mode: availability.storyMode })
         : resourcePath({ server: route.server, locale: route.locale, kind: route.kind });
+    const shellUrl = new URL(url);
+    shellUrl.pathname = shellPath;
+    if (servePackedStaticDocument(req, res, shellUrl)) return true;
     const shell = safeFile(DIST, `${shellPath.slice(1)}index.html`);
     if (shell) {
       sendFile(req, res, shell, "no-cache");
