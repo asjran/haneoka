@@ -35,6 +35,7 @@ import { resolveSonolusReleaseWorkspace } from "../src/server/releaseWorkspace.t
 import { validateSonolusInputProvenance } from "../src/server/sonolusProvenance.ts";
 import { buildConnectWallDrawAssets } from "./connect-wall-draw-assets.ts";
 import { buildConnectFrameDrawAssets } from "./connect-frame-draw-assets.ts";
+import { buildNativeRowSliceAssets } from "./native-row-slice-assets.ts";
 import { NATIVE_PARTICLE_OPTIONAL_DRAW_CAPABILITIES } from "../src/shared/nativeDrawCapabilities.ts";
 
 type JsonValue =
@@ -188,6 +189,9 @@ if (
           connectWall: connectWallCacheInput(baseKey),
           frame: connectFrameCacheInput(),
           wallMaterial: connectWallMaterialInput(),
+          nativeRowsProducerSha256: createHash("sha256")
+            .update(readFileSync(resolve(root, "packages/sonolus/scripts/native-row-slice-assets.ts")))
+            .digest("hex"),
         }),
   );
   process.exit(0);
@@ -416,6 +420,9 @@ try {
     resolve(root, "packages/sonolus/assets/native-particles/connect-wall-material.v1.json"),
     engineRoot,
   );
+
+  const rows = buildNativeRowSliceAssets(out);
+  console.log(`Simple row slices: ${rows.mergedTriples} triples merged, unchanged atlas dimensions`);
 
   const referencedParticleNames = new Set<string>();
 

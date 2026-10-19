@@ -3,7 +3,7 @@
 // Input: sealed publication、source commit 与当前 main。
 // Output: 来源资格、恢复 artifact 身份和发布上下文。
 // Pos: [Map](../L2.md)；部署来源与后续提交的资格边界。
-// Effects/Dependencies: 调用 Git／GitHub 只读 API；资源及非 public 导航变化可保留资格，其他未发布输入拒绝。
+// Effects/Dependencies: 调用 Git／GitHub 只读 API；独立资源／Sonolus 产物及非 public 导航变化可保留资格，其他未发布输入拒绝。
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -34,6 +34,10 @@ function ignoredNavigationPath(file) {
   return /(?:^|\/)(?:L1|L2|L2-2)\.md$/u.test(file) || file === "docs/geb-scope.json";
 }
 
+function ignoredSonolusPayloadPath(file) {
+  return file.startsWith("packages/sonolus/scripts/") || file === ".dependencies/sonolus-our-notes";
+}
+
 export function sourceEligibility(root, sourceSha, mainSha, { allowPublicationTooling = false } = {}) {
   if (![sourceSha, mainSha].every((sha) => /^[a-f0-9]{40}$/u.test(sha)))
     throw new Error("Publication source commit is invalid");
@@ -48,7 +52,7 @@ export function sourceEligibility(root, sourceSha, mainSha, { allowPublicationTo
     const files = git(root, "diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-m", commit)
       .split("\n").filter(Boolean);
     for (const file of files) {
-      if (ignoredResourcePath(file) || ignoredNavigationPath(file)) ignoredPaths.add(file);
+      if (ignoredResourcePath(file) || ignoredNavigationPath(file) || ignoredSonolusPayloadPath(file)) ignoredPaths.add(file);
       else if (allowPublicationTooling && publicationTooling.has(file)) toolingPaths.add(file);
       else throw new Error(`Main has an unpublished deployment input: ${file}`);
     }

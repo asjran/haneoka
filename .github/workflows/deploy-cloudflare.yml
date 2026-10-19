@@ -13,6 +13,8 @@ on:
       - "!.github/workflows/home-spot-repair.yml"
       - "!scripts/deploy/worker-publication.mjs"
       - "!scripts/deploy/publication-source.mjs"
+      - "!packages/sonolus/scripts/**"
+      - "!.dependencies/sonolus-our-notes"
       - "!.github/workflows/deploy-cloudflare.yml"
       - "!**/L1.md"
       - "!**/L2.md"
