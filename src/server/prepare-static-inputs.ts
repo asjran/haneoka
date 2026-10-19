@@ -13,6 +13,7 @@ import {
   primeStaticCatalogBatch,
   staticCatalogRelease,
   staticCatalogBlobMetrics,
+  staticCatalogJsonMetrics,
 } from "../lib/static-catalog-source";
 import { appRelease } from "./app-release";
 import { publicForumDirectory } from "./public-forum-directory";
@@ -148,6 +149,7 @@ export async function prepareStaticInputs(): Promise<void> {
       captured: manifest?.records.length,
       files: manifest?.files.length,
       nativeBlobs: staticCatalogBlobMetrics(),
+      nativeJson: staticCatalogJsonMetrics(),
       unavailableInputs: manifest?.records.filter((record) => record.format === "error").map((record) => record.key),
     }),
   );

@@ -67,6 +67,9 @@ const localCatalogs = new Map<string, ReleaseCatalog | null>();
 const releaseEntries = new WeakMap<RecordValue, Map<string, RecordValue>>();
 const blobMetrics = { hits: 0, fetches: 0, hitBytes: 0, fetchedBytes: 0 };
 export const staticCatalogBlobMetrics = () => ({ ...blobMetrics });
+const jsonMetrics = { httpRequests: 0, reusedBatches: 0, reusedCacheBytes: 0 };
+export const staticCatalogJsonMetrics = () => ({ ...jsonMetrics });
+const previousManifests = new Map<string, RecordValue | undefined>();
 
 function releaseManifestEntry(manifest: RecordValue, relative: string): RecordValue | undefined {
   let entries = releaseEntries.get(manifest);
@@ -315,10 +318,15 @@ async function fetchJson(
         }
         console.warn(`Static catalog: rebuilding invalid cache for ${server}/${path.split("?")[0]}`);
       }
-      const response = await fetchResponse(path, server, release?.releaseId, "GET", release?.sourceId, absoluteUrl);
+      const reused = release && !absoluteUrl ? await reusableBatch(path, release) : undefined;
+      let response: Response | undefined;
+      if (!reused) {
+        jsonMetrics.httpRequests++;
+        response = await fetchResponse(path, server, release?.releaseId, "GET", release?.sourceId, absoluteUrl);
+      }
       try {
-        observedRelease(response, release);
-        const value: unknown = await response.json();
+        if (response) observedRelease(response, release);
+        const value: unknown = reused ? reused.value : await response!.json();
         if (cacheFile && release) {
           const temporary = `${cacheFile}.${process.pid}.tmp`;
           try {
@@ -339,7 +347,7 @@ async function fetchJson(
         }
         return value;
       } catch (error) {
-        await releaseResponseBody(response);
+        if (response) await releaseResponseBody(response);
         throw error;
       }
     });
@@ -351,6 +359,114 @@ async function fetchJson(
     requestPromises.delete(key);
     throw error;
   }
+}
+
+/** Batch documents contain only the selected immutable entity-shard values. */
+async function reusableBatch(
+  route: string,
+  release: StaticCatalogRelease,
+): Promise<{ value: RecordValue } | undefined> {
+  const url = new URL(route, "https://catalog.invalid/");
+  const resource = url.pathname.slice(1),
+    ids = url.searchParams.getAll("id");
+  if (!/^[a-z][a-z0-9-]*$/u.test(resource) || !ids.length || [...url.searchParams.keys()].some((key) => key !== "id"))
+    return undefined;
+  const directory = nodePath.dirname(nodePath.dirname(cachedResponseFile(route, release)));
+  if (!fs.existsSync(directory)) return undefined;
+  const previous = fs
+    .readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && RELEASE_ID_PATTERN.test(entry.name) && entry.name !== release.releaseId);
+  if (!previous.length) return undefined;
+  const catalog = asRecord(await fetchJson("catalog", release.server, release)),
+    storage = asRecord(asRecord(asRecord(catalog?.resources)?.[resource])?.entities),
+    prefix = storage?.prefix;
+  if (
+    catalog?.schema !== "haneoka-catalog-storage-v2" ||
+    catalog.server !== release.server ||
+    catalog.sourceId !== release.sourceId ||
+    asRecord(catalog.partition)?.algorithm !== "fnv1a32-mod-256" ||
+    asRecord(catalog.partition)?.shards !== 256 ||
+    typeof prefix !== "string" ||
+    !/^api\/v1\/catalog\/[a-z0-9-]+\/entities\/$/u.test(prefix) ||
+    !Array.isArray(storage?.shards) ||
+    ids.some((id) => !(storage.shards as unknown[]).includes(fnv1a32Shard(id)))
+  )
+    return undefined;
+  const current = asRecord(await fetchJson("release", release.server, release));
+  if (
+    current?.server !== release.server ||
+    current.releaseId !== release.releaseId ||
+    current.sourceId !== release.sourceId
+  )
+    throw new StaticCatalogConsistencyError("Batch cache release manifest identity mismatch");
+  const paths = ["api/v1/catalog/manifest.json", ...new Set(ids.map((id) => `${prefix}${fnv1a32Shard(id)}.json`))];
+  for (const entry of previous) {
+    const oldRelease = { server: release.server, releaseId: entry.name, sourceId: "" },
+      file = cachedResponseFile(route, oldRelease);
+    if (!fs.existsSync(file)) continue;
+    const manifestFile = cachedResponseFile("release", oldRelease);
+    if (!previousManifests.has(manifestFile)) {
+      let manifest: RecordValue | undefined;
+      try {
+        const wrapper = asRecord(JSON.parse(fs.readFileSync(manifestFile, "utf8"))),
+          value = asRecord(wrapper?.value);
+        if (
+          wrapper?.path === "release" &&
+          wrapper.releaseId === entry.name &&
+          wrapper.sourceId === value?.sourceId &&
+          value?.server === release.server &&
+          value.releaseId === entry.name &&
+          Array.isArray(value.entries)
+        )
+          manifest = value;
+      } catch {
+        /* An unavailable historical cache is rebuilt through the current API. */
+      }
+      previousManifests.set(manifestFile, manifest);
+    }
+    const manifest = previousManifests.get(manifestFile);
+    if (!manifest) continue;
+    if (
+      !paths.every((path) => {
+        const old = releaseManifestEntry(manifest, path),
+          now = releaseManifestEntry(current, path);
+        return (
+          old &&
+          now &&
+          typeof now.sha256 === "string" &&
+          /^[a-f0-9]{64}$/u.test(now.sha256) &&
+          Number.isSafeInteger(now.bytes) &&
+          old.sha256 === now.sha256 &&
+          old.bytes === now.bytes
+        );
+      })
+    )
+      continue;
+    let cached: RecordValue | undefined, bytes: number;
+    try {
+      const body = fs.readFileSync(file);
+      bytes = body.length;
+      cached = asRecord(JSON.parse(body.toString("utf8")));
+    } catch {
+      continue;
+    }
+    const value = asRecord(cached?.value),
+      items = asRecord(value?.items);
+    if (
+      cached?.path !== route ||
+      cached.releaseId !== entry.name ||
+      cached.sourceId !== manifest.sourceId ||
+      !items ||
+      !Array.isArray(value?.missing) ||
+      value.missing.length ||
+      ids.some((id) => !asRecord(items[id]))
+    )
+      continue;
+    jsonMetrics.reusedBatches++;
+    jsonMetrics.reusedCacheBytes += bytes;
+    return { value: value! };
+  }
+  return undefined;
 }
 
 function cachedResponseFile(route: string, release: StaticCatalogRelease): string {
