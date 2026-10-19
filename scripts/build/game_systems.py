@@ -1,6 +1,6 @@
 # L3 — GEB
 # Input: Master tables, localized resources and the caller's asset/time lookups.
-# Output: Rotating-system catalogues, gacha product rules and exchange identities.
+# Output: Rotating-system catalogues and compact history rate, product and exchange rules.
 # Pos: [Build map](L2-2.md); public game-system projections for the API compiler.
 # Effects/Dependencies: Uses supplied Master/resource lookups; writes no account data.
 """Human-readable projections for the game's rotating systems."""
@@ -1101,10 +1101,64 @@ def _gacha(
                 for value in row.get(key, [])
             ],
         )
-    return {"entries": entries, "history": build_gacha_history_metadata(data)}
+    return {"entries": entries, "history": build_gacha_history_metadata(data, entries, stamp, resource_types)}
 
 
-def build_gacha_history_metadata(data: Any) -> dict[str, Any]:
+def build_gacha_history_metadata(
+    data: Any,
+    entries: dict[str, Any],
+    stamp: Callable[[Any], list[int | None]],
+    resource_types: dict[int, str],
+) -> dict[str, Any]:
+    pool_rows = {str(_number(row, "_id")): row for row in data.rows("MasterGacha")}
+    pools = {}
+    for identity, entry in entries.items():
+        rates = []
+        for group in entry["rates"]:
+            weights: dict[tuple[int, int, bool], float] = defaultdict(float)
+            for prize in group["prizes"]:
+                key = (prize["resourceType"], _number(prize, "rarity") or group["rarity"], prize["pickup"])
+                weights[key] += prize["rate"]
+            rates.append({
+                "rate": group["rate"],
+                "prizes": [{"resourceType": resource, "rarity": rarity, "pickup": pickup, "rate": rate}
+                           for (resource, rarity, pickup), rate in weights.items()],
+            })
+        pools[identity] = {
+            "id": identity,
+            "guaranteeRule": entry["guaranteeRule"],
+            "pickUpSelectCount": entry["pickUpSelectCount"],
+            "productIds": [option["id"] for option in entry["drawOptions"]],
+            "rates": rates,
+            "prizeGroupIds": sorted({
+                _number(lot, "_prizeGroupId")
+                for lot in data.rows("MasterGachaLot")
+                if _number(lot, "_lotGroupId") == _number(pool_rows[identity], "_lotGroupId")
+            }),
+        }
+    products: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in data.rows("MasterExchangeProduct"):
+        resource = _number(row, "_resourceType")
+        products[_number(row, "_exchangeId")].append({
+            "id": str(_number(row, "_id")),
+            "reward": {"resourceType": resource, "resourceId": _number(row, "_resourceId"),
+                       "count": _number(row, "_resourceCount"), "kind": resource_types.get(resource, "")},
+            "cost": _number(row, "_paymentResourceCount"),
+            "limit": _number(row, "_limitCount"),
+            "resetType": _number(row, "_resetType"),
+            "paymentSteps": list(row.get("_paymentSteps") or []),
+            "paymentStepResourceCounts": list(row.get("_paymentStepResourceCounts") or []),
+            "startAt": stamp(row.get("_startAt")), "endAt": stamp(row.get("_endAt")),
+        })
+    exchanges = {
+        str(_number(row, "_id")): {
+            "id": str(_number(row, "_id")),
+            "currency": {"resourceType": 7, "resourceId": _number(row, "_paymentResourceId")},
+            "startAt": stamp(row.get("_startAt")), "endAt": stamp(row.get("_endAt")),
+            "products": products[_number(row, "_id")],
+        }
+        for row in data.rows("MasterExchange") if _number(row, "_paymentResourceType") == 7
+    }
     return {
         "schema": "haneoka-gacha-history-data-v1",
         "prizes": {
@@ -1119,6 +1173,7 @@ def build_gacha_history_metadata(data: Any) -> dict[str, Any]:
         },
         "products": {
             str(_number(product, "_id")): {
+                "id": str(_number(product, "_id")),
                 "drawCount": _number(product, "_drawCount"),
                 "guaranteedRarity": _number(product, "_ensuredRarity"),
                 "guaranteedType": _number(product, "_ensuredType"),
@@ -1128,16 +1183,8 @@ def build_gacha_history_metadata(data: Any) -> dict[str, Any]:
             }
             for product in data.rows("MasterGachaProduct")
         },
-        "pools": {
-            str(_number(pool, "_id")): {
-                "prizeGroupIds": sorted({
-                    _number(lot, "_prizeGroupId")
-                    for lot in data.rows("MasterGachaLot")
-                    if _number(lot, "_lotGroupId") == _number(pool, "_lotGroupId")
-                })
-            }
-            for pool in data.rows("MasterGacha")
-        },
+        "pools": pools,
+        "exchanges": {"entries": exchanges},
     }
 
 
