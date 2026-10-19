@@ -184,6 +184,31 @@ _STAGE_PACKAGES = {
 }
 
 
+_GEB_HEADER = re.compile(
+    rb"(?P<prefix>\#|//) L3 \xe2\x80\x94 GEB\r?\n"
+    rb"(?P=prefix) Input: [^\r\n]+\r?\n"
+    rb"(?P=prefix) Output: [^\r\n]+\r?\n"
+    rb"(?P=prefix) Pos: [^\r\n]+\r?\n"
+    rb"(?P=prefix) Effects/Dependencies: [^\r\n]+\r?\n"
+)
+_SOURCE_SHEBANG = re.compile(rb"\#![^\r\n]*\r?\n")
+_SOURCE_ENCODING = re.compile(rb"[ \t\f]*\#.*?coding[:=][ \t]*[-\w.]+[^\r\n]*\r?\n")
+_SOURCE_REFERENCES = re.compile(rb"(?:/// <reference [^\r\n>]+/>[ \t]*\r?\n)+")
+
+
+def _producer_source(body: bytes) -> bytes:
+    """Exclude one complete L3 navigation header at the source-file boundary."""
+
+    offset = 3 if body.startswith(b"\xef\xbb\xbf") else 0
+    for preamble in (_SOURCE_SHEBANG, _SOURCE_ENCODING, _SOURCE_REFERENCES):
+        if prefix := preamble.match(body, offset):
+            offset = prefix.end()
+    header = _GEB_HEADER.match(body, offset)
+    if header is None or _SOURCE_ENCODING.search(header.group()):
+        return body
+    return body[:offset] + body[header.end():]
+
+
 def _stage_sources(read: Callable[[str], bytes | None], stage: str) -> dict[str, str]:
     """Hash the local Python import closure, including imports inside functions."""
 
@@ -199,7 +224,7 @@ def _stage_sources(read: Callable[[str], bytes | None], stage: str) -> dict[str,
         body = read("scripts/" + relative)
         if body is None:
             raise FileNotFoundError(f"pipeline stage source is missing: {relative}")
-        digest = sha256_bytes(body)
+        digest = sha256_bytes(_producer_source(body))
         sources[relative] = _STAGE_SOURCE_COMPATIBILITY.get((stage, relative, digest), digest)
         tree = ast.parse(body)
         for node in ast.walk(tree):
