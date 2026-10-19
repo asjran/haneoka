@@ -1,5 +1,11 @@
 """Human-readable projections for the game's rotating systems."""
 
+# L3 — GEB
+# Input: Master tables, localized resources and the caller's asset/time lookups.
+# Output: Rotating-system catalogues, gacha product rules and exchange identities.
+# Pos: [Build map](L2-2.md); public game-system projections for the API compiler.
+# Effects/Dependencies: Uses supplied Master/resource lookups; writes no account data.
+
 from __future__ import annotations
 
 import re
@@ -1015,6 +1021,7 @@ def _gacha(
             currency = currency_by_type.get(item_type)
             draw_options.append(
                 {
+                    "id": str(_number(product, "_id")),
                     "drawCount": _number(product, "_drawCount"),
                     "price": _number(product, "_price"),
                     "firstPrice": _number(product, "_firstTimePrice"),
@@ -1112,7 +1119,14 @@ def build_gacha_history_metadata(data: Any) -> dict[str, Any]:
             for prize in data.rows("MasterGachaPrize")
         },
         "products": {
-            str(_number(product, "_id")): {"drawCount": _number(product, "_drawCount")}
+            str(_number(product, "_id")): {
+                "drawCount": _number(product, "_drawCount"),
+                "guaranteedRarity": _number(product, "_ensuredRarity"),
+                "guaranteedType": _number(product, "_ensuredType"),
+                "guaranteedCount": _number(product, "_ensuredCount"),
+                "guaranteedNew": bool(product.get("_isEnsuredNew")),
+                "gachaPoint": _number(product, "_gachaPoint"),
+            }
             for product in data.rows("MasterGachaProduct")
         },
         "pools": {
@@ -1427,9 +1441,13 @@ def _exchange(
         )
         products[_number(row, "_exchangeId")].append(
             {
+                "id": str(_number(row, "_id")),
                 "reward": reward,
                 "cost": _number(row, "_paymentResourceCount"),
                 "limit": _number(row, "_limitCount"),
+                "resetType": _number(row, "_resetType"),
+                "paymentSteps": list(row.get("_paymentSteps") or []),
+                "paymentStepResourceCounts": list(row.get("_paymentStepResourceCounts") or []),
                 "recommended": bool(row.get("_isRecommended")),
                 "startAt": stamp(row.get("_startAt")),
                 "endAt": stamp(row.get("_endAt")),
