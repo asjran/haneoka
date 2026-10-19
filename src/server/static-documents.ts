@@ -2,7 +2,7 @@
 // Input: 渲染后 HTML／JSON、路径与构建覆盖。
 // Output: 压缩内容块、分片索引、引用及 publication 元数据。
 // Pos: [Map](L2-2.md)；静态文档构建与收尾的存储生产者。
-// Effects/Dependencies: 写本地内容和清单、压缩／摘要并检查覆盖；不由本文件完成线上分发。
+// Effects/Dependencies: 写内容、索引和覆盖清单；全局收尾原子写入 build.json 的最终输出摘要，locale 部件保留共享输入身份。
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -383,6 +383,7 @@ export function finalizeStaticDocuments(outputRoot: string): { documents: number
     indexes,
     objects,
   });
+  const referenceSha256 = createHash("sha256").update(references).digest("hex");
   fs.writeFileSync(path.join(root, "references.json"), references);
   fs.writeFileSync(path.join(indexRoot, "..", "publication.json.gz"), gzipSync(references, { level: 6 }));
   const assetFiles = fs
@@ -415,7 +416,7 @@ export function finalizeStaticDocuments(outputRoot: string): { documents: number
         contentRoot,
         references: {
           path: "references.json",
-          sha256: createHash("sha256").update(references).digest("hex"),
+          sha256: referenceSha256,
           bytes: Buffer.byteLength(references),
         },
         referencedContentObjects: referenced.size,
@@ -426,5 +427,14 @@ export function finalizeStaticDocuments(outputRoot: string): { documents: number
       2,
     ),
   );
+  // Locale parts share build.json; only the complete merge seals their final layout.
+  if (!process.env.STATIC_BUILD_LOCALE) {
+    const buildFile = path.join(outputRoot, "build.json");
+    const build = JSON.parse(fs.readFileSync(buildFile, "utf8"));
+    const temporary = `${buildFile}.${process.pid}.publication.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify({ ...build, publication: referenceSha256 }));
+    // Merge inputs are hard-linked, so replace the file without mutating a locale part.
+    fs.renameSync(temporary, buildFile);
+  }
   return { documents: documentCount, data };
 }

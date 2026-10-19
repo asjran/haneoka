@@ -1,5 +1,6 @@
 import "@lit-labs/ssr/lib/install-global-dom-shim.js";
 import { LitElementRenderer, type RenderInfo } from "@lit-labs/ssr";
+import { _$LH } from "lit-html/private-ssr-support.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -33,6 +34,12 @@ export function createMaterialStyleRenderer(development: boolean): typeof LitEle
   return class MaterialStyleRenderer extends LitElementRenderer {
     static override matchesClass(constructor: typeof HTMLElement, tagName = ""): boolean {
       return tagName.startsWith("md-") && super.matchesClass(constructor);
+    }
+    override setAttribute(name: string, value: string): void {
+      // SSR forwards ElementPart's temporary parser attribute as a static one.
+      // Hydration identifies the part through the preserved lit-node comment.
+      if (value === "" && name.startsWith(_$LH.marker) && /^\d+$/u.test(name.slice(_$LH.marker.length))) return;
+      super.setAttribute(name, value);
     }
     override renderShadow(renderInfo: RenderInfo) {
       const rendered = super.renderShadow(renderInfo);

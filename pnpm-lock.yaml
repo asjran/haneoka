@@ -311,6 +311,9 @@ importers:
       lit:
         specifier: ^3.3.3
         version: 3.3.3
+      lit-html:
+        specifier: 3.3.3
+        version: 3.3.3
       parse5:
         specifier: 'catalog:'
         version: 8.0.1

@@ -14,6 +14,13 @@ export const STATIC_DOCUMENT_ASSET_ROOT = "/provider-static/content";
 export const STATIC_DOCUMENT_CONTENT_INDEX_ROOT = "/provider-static/content-index";
 export const STATIC_DOCUMENT_CONTENT_INDEX_SCHEMA = "haneoka-static-content-index-v1";
 export const STATIC_DOCUMENT_PACK_BYTES = 1024 * 1024;
+/** Legacy publications omit this final output seal and cannot share mutable index caches. */
+export function staticPublicationOutputIdentity(value: unknown): string | null {
+  if (value === undefined) return null;
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value))
+    throw new Error("Invalid static publication output identity");
+  return value;
+}
 export const staticDocumentPackPath = (sha256: string): string => `${STATIC_DOCUMENT_ASSET_ROOT}/pack-${sha256}.bin`;
 export interface StaticDocumentContentLocation {
   packSha256: string;

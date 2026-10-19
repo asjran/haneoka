@@ -2,8 +2,10 @@
 // Input: 文档请求、规范路径、Env 与 ExecutionContext。
 // Output: 文档重定向、压缩／组合内容流或未命中。
 // Pos: [Map](L2.md)；静态文档分片在边缘的读取与还原。
-// Effects/Dependencies: 读取 ASSETS 索引和 ASSET_BUCKET 对象、检查内容并使用边缘响应缓存。
+// Effects/Dependencies: ASSETS 最终引用摘要隔离可变索引；旧格式不共享索引，SHA 内容缓存复用；读取 ASSET_BUCKET。
+import { publishedWebBuildId } from "../src/lib/web-build-id";
 import {
+  staticPublicationOutputIdentity,
   STATIC_DOCUMENT_SCHEMA,
   STATIC_DOCUMENT_INDEX_ROOT,
   STATIC_DOCUMENT_CONTENT_ROOT,
@@ -23,6 +25,18 @@ import {
 } from "../src/lib/static-documents";
 
 type DocumentIndex = { schema: string; entries: Record<string, StaticDocumentRecord> };
+
+/** Input identity labels the browser; the final reference seal partitions mutable indices. */
+export async function staticPublicationContext(
+  request: Request,
+  env: Env,
+): Promise<{ webBuildId: string; publicationId: string | null }> {
+  const response = await env.ASSETS.fetch(new URL("/build.json", request.url));
+  if (!response.ok) throw new Error(`Static publication identity returned ${response.status}`);
+  const build = await response.json<{ id?: unknown; web?: unknown; publication?: unknown }>();
+  return { webBuildId: publishedWebBuildId(build), publicationId: staticPublicationOutputIdentity(build.publication) };
+}
+
 const indices = new Map<string, DocumentIndex>();
 type ContentIndex = { schema: string; entries: Record<string, StaticDocumentContentLocation> };
 const contentIndices = new Map<string, ContentIndex | null>();
@@ -74,9 +88,11 @@ async function contentLocation(
   request: Request,
   env: Env,
   sha256: string,
+  publicationId: string | null,
 ): Promise<StaticDocumentContentLocation | null> {
   const url = new URL(`${STATIC_DOCUMENT_CONTENT_INDEX_ROOT}/${sha256.slice(0, 2)}.json`, request.url);
-  let index = contentIndices.get(url.href);
+  const cacheKey = publicationId === null ? null : `${publicationId}:${url.href}`;
+  let index = cacheKey === null ? undefined : contentIndices.get(cacheKey);
   if (index === undefined) {
     const response = await env.ASSETS.fetch(new Request(url));
     if (response.status === 404) {
@@ -88,8 +104,10 @@ async function contentLocation(
       if (index.schema !== STATIC_DOCUMENT_CONTENT_INDEX_SCHEMA || !index.entries)
         throw new Error("Invalid static content index");
     }
-    contentIndices.set(url.href, index);
-    if (contentIndices.size > 4) contentIndices.delete(contentIndices.keys().next().value!);
+    if (cacheKey !== null) {
+      contentIndices.set(cacheKey, index);
+      if (contentIndices.size > 4) contentIndices.delete(contentIndices.keys().next().value!);
+    }
   }
   const location = index?.entries[sha256];
   if (!location) return null;
@@ -147,12 +165,13 @@ async function contentStream(
   env: Env,
   ctx: ExecutionContext,
   sha256: string,
+  publicationId: string | null,
 ): Promise<{ body: ReadableStream<Uint8Array>; size: number } | null> {
   const url = new URL(`/provider-static/content/${sha256}.gz`, request.url);
   const cacheKey = new Request(url);
   const cached = await caches.default.match(cacheKey);
   if (cached?.body) return { body: cached.body, size: Number(cached.headers.get("Content-Length")) };
-  const location = await contentLocation(request, env, sha256);
+  const location = await contentLocation(request, env, sha256, publicationId);
   if (location) return packedContent(request, env, location);
   const asset = await env.ASSETS.fetch(new Request(new URL(staticDocumentAssetPath(sha256), request.url)));
   if (asset.ok && asset.body) return { body: asset.body, size: Number(asset.headers.get("Content-Length")) };
@@ -175,29 +194,36 @@ async function contentStream(
   return { body: response.body!, size: object.size };
 }
 
-async function documentRecord(request: Request, env: Env, pathname: string): Promise<StaticDocumentRecord | null> {
+async function documentRecord(
+  request: Request,
+  env: Env,
+  pathname: string,
+  publicationId: string | null,
+): Promise<StaticDocumentRecord | null> {
   const shard = staticDocumentShard(pathname);
   const indexUrl = new URL(`${STATIC_DOCUMENT_INDEX_ROOT}/${shard}.json`, request.url);
-  const key = indexUrl.href;
-  let index = indices.get(key);
+  const key = publicationId === null ? null : `${publicationId}:${indexUrl.href}`;
+  let index = key === null ? undefined : indices.get(key);
   if (!index) {
     const response = await env.ASSETS.fetch(new Request(indexUrl));
     if (!response.ok) return null;
     index = await response.json<DocumentIndex>();
     if (index.schema !== STATIC_DOCUMENT_SCHEMA || !index.entries) throw new Error("Invalid static document index");
-    indices.set(key, index);
-    if (indices.size > 4) indices.delete(indices.keys().next().value!);
+    if (key !== null) {
+      indices.set(key, index);
+      if (indices.size > 4) indices.delete(indices.keys().next().value!);
+    }
   }
   const record = index.entries[pathname];
   return isStaticDocumentRecord(record) ? record : null;
 }
 
 /** Preserve the static asset server's trailing-slash redirect after packing. */
-export async function staticDocumentRedirect(request: Request, env: Env): Promise<Response | null> {
+export async function staticDocumentRedirect(request: Request, env: Env, publicationId: string | null): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname.endsWith("/")) return null;
   const pathname = coreStaticDocumentPath(`${url.pathname}/`);
-  if (!pathname || !(await documentRecord(request, env, pathname))) return null;
+  if (!pathname || !(await documentRecord(request, env, pathname, publicationId))) return null;
   return new Response(null, {
     status: 308,
     headers: { Location: `${url.pathname}/${url.search}`, "Cache-Control": "public, max-age=86400" },
@@ -210,9 +236,11 @@ export async function serveStaticDocument(
   env: Env,
   ctx: ExecutionContext,
   pathname: string,
+  publicationId?: string | null,
 ): Promise<Response | null> {
+  if (publicationId === undefined) publicationId = (await staticPublicationContext(request, env)).publicationId;
   const shared = /^\/provider-static\/data\/([a-f0-9]{64})\.json$/u.exec(pathname);
-  const record = shared ? null : await documentRecord(request, env, pathname);
+  const record = shared ? null : await documentRecord(request, env, pathname, publicationId);
   if (!shared && !record) return null;
   const sha256 = shared?.[1] || record!.sha256;
   const etag = `W/"${sha256}"`;
@@ -231,7 +259,7 @@ export async function serveStaticDocument(
   if (request.method === "HEAD") {
     const objects = await Promise.all(
       chunks.map(async (chunk, index) => {
-        const location = await contentLocation(request, env, chunk.sha256);
+        const location = await contentLocation(request, env, chunk.sha256, publicationId);
         const asset = await env.ASSETS.fetch(
           new Request(
             new URL(
@@ -250,7 +278,9 @@ export async function serveStaticDocument(
       return new Response("Static document unavailable", { status: 503, headers: { "Cache-Control": "no-store" } });
     return new Response(null, { status: 200, headers });
   }
-  const loaded = await Promise.allSettled(chunks.map((chunk) => contentStream(request, env, ctx, chunk.sha256)));
+  const loaded = await Promise.allSettled(
+    chunks.map((chunk) => contentStream(request, env, ctx, chunk.sha256, publicationId)),
+  );
   const objects = loaded.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [null]));
   if (objects.some((object) => !object)) {
     await Promise.allSettled(objects.flatMap((object) => (object ? [object.body.cancel()] : [])));

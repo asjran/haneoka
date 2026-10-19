@@ -1,4 +1,5 @@
 import { spoilerCookieEnabled } from "../src/lib/spoiler-cookie";
+import { WEB_BUILD_ATTRIBUTE } from "../src/lib/web-build-id";
 
 export type SiteSettings = {
   showTestServerContent: boolean;
@@ -20,17 +21,28 @@ export function testContentAllowed(request: Request, settings: SiteSettings): bo
   return settings.showTestServerContent && spoilerCookieEnabled(request.headers.get("Cookie"));
 }
 
-export async function applySiteSettings(request: Request, response: Response, settings: SiteSettings): Promise<Response> {
+export async function applySiteSettings(
+  request: Request,
+  response: Response,
+  settings: SiteSettings,
+  buildId: string,
+): Promise<Response> {
   if (!response.headers.get("Content-Type")?.toLowerCase().includes("text/html")) return response;
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "public, max-age=0, must-revalidate");
-  const vary = new Set((headers.get("Vary") || "").split(",").map((value) => value.trim()).filter(Boolean));
+  const vary = new Set(
+    (headers.get("Vary") || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
   vary.add("Cookie");
+  vary.add("Accept-Encoding");
   headers.set("Vary", [...vary].join(", "));
   headers.delete("Content-Length");
   const assetEtag = headers.get("ETag");
   const spoilers = spoilerCookieEnabled(request.headers.get("Cookie"));
-  const etag = assetEtag?.replace(/"$/u, `:site-${settings.version}:spoilers-${spoilers ? 1 : 0}"`);
+  const etag = assetEtag?.replace(/"$/u, `:web-${buildId}:site-${settings.version}:spoilers-${spoilers ? 1 : 0}"`);
   if (etag) {
     headers.set("ETag", etag);
     if (request.headers.get("If-None-Match") === etag) {
@@ -43,11 +55,14 @@ export async function applySiteSettings(request: Request, response: Response, se
     await output.body?.cancel();
     return new Response(null, { status: output.status, headers });
   }
-  return new HTMLRewriter().on("html", {
-    element(element) {
-      element.setAttribute("data-show-test-server-content", settings.showTestServerContent ? "1" : "0");
-      element.setAttribute("data-site-settings-version", String(settings.version));
-      element.setAttribute("data-spoiler-content", spoilers ? "1" : "0");
-    },
-  }).transform(output);
+  return new HTMLRewriter()
+    .on("html", {
+      element(element) {
+        element.setAttribute(WEB_BUILD_ATTRIBUTE, buildId);
+        element.setAttribute("data-show-test-server-content", settings.showTestServerContent ? "1" : "0");
+        element.setAttribute("data-site-settings-version", String(settings.version));
+        element.setAttribute("data-spoiler-content", spoilers ? "1" : "0");
+      },
+    })
+    .transform(output);
 }

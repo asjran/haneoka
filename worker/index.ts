@@ -2,7 +2,7 @@
 // Input: HTTP、scheduled、queue、Env 绑定与执行上下文。
 // Output: 静态／API 响应、后台任务及队列处理。
 // Pos: [Map](L2.md)；Cloudflare 生产请求和任务组合根。
-// Effects/Dependencies: 连接 D1、多个 R2、缓存、认证、外部服务与队列／容器；具体路由决定读写。
+// Effects/Dependencies: HTML 更新基准与 ASSETS 发布绑定；连接 D1、R2、缓存、认证、外部服务与队列／容器。
 import { projectUiMarks, withUiMarksProjection } from "../src/lib/ui-marks.ts";
 import { fnv1a32Shard } from "../src/lib/hash-partition.ts";
 import { refreshCommunityRanking, COMMUNITY_RANKING_CRON } from "./community-ranking";
@@ -14,7 +14,7 @@ import { sonolusShareRedirectTarget } from "./sonolus-share";
 export { CommunityMediaContainer } from "./community-media-container";
 import { handleAdminRequest } from "./admin";
 import { applySiteSettings, readSiteSettings, testContentAllowed } from "./site-settings";
-import { serveStaticDocument, staticDocumentRedirect } from "./static-documents";
+import { serveStaticDocument, staticDocumentRedirect, staticPublicationContext } from "./static-documents";
 import { staticDocumentLookupPath, acceptsGzip } from "../src/lib/static-documents";
 import { legacyProviderRedirectTarget, providerEntityFromUrl } from "../src/lib/provider-entity-routing";
 import { providerEntityHtmlPath } from "../src/lib/provider-entity-data";
@@ -3488,6 +3488,7 @@ async function serveCanonicalResourceDocument(
   request: Request,
   env: Env,
   ctx: ExecutionContext,
+  publicationId: string | null,
 ): Promise<Response | null> {
   const requestedUrl = new URL(request.url);
   const announcement = announcementDocumentRequest(requestedUrl.pathname);
@@ -3542,7 +3543,7 @@ async function serveCanonicalResourceDocument(
       : resourcePath({ server: route.server, locale: route.locale, kind: route.kind });
   const shellRequest = new Request(url, request);
   const lookup = staticDocumentLookupPath(url.pathname);
-  const document = lookup ? await serveStaticDocument(shellRequest, env, ctx, lookup) : null;
+  const document = lookup ? await serveStaticDocument(shellRequest, env, ctx, lookup, publicationId) : null;
   const shell = document || (await env.ASSETS.fetch(shellRequest));
   if (route.server === "intl-test" && shell.ok)
     return previewDetailShell(request, shell, route as ResourceRoute & { id: string });
@@ -3639,6 +3640,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   if (
     !hasLocalePrefix &&
     !serverFirstDocument &&
+    url.pathname !== "/404" &&
     (request.method === "GET" || request.method === "HEAD") &&
     !lastSegment.includes(".") &&
     (!WORKER_FIRST_PREFIXES.some((prefix) => url.pathname.startsWith(prefix)) || assetExplorerRoute)
@@ -3778,9 +3780,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
   headers.delete("If-None-Match");
   headers.delete("If-Modified-Since");
   const assetRequest = new Request(request, { headers });
+  const { publicationId, webBuildId } = await staticPublicationContext(request, env);
   const [response, settings] = await Promise.all([
     (async () => {
-      const redirect = await staticDocumentRedirect(assetRequest, env);
+      const redirect = await staticDocumentRedirect(assetRequest, env, publicationId);
       if (redirect) return redirect;
       const provider = providerEntityFromUrl(url);
       const view = staticViewFromUrl(url);
@@ -3790,27 +3793,28 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       const documents = document ? [document] : [];
       if (provider && corePath && corePath !== document) documents.push(corePath);
       for (const candidate of documents) {
-        const hit = await serveStaticDocument(assetRequest, env, ctx, candidate);
+        const hit = await serveStaticDocument(assetRequest, env, ctx, candidate, publicationId);
         if (hit) return hit;
       }
       if (view) {
         const hit = await env.ASSETS.fetch(new Request(new URL(view, url), assetRequest));
         if (hit.status !== 404) return hit;
       }
-      return (await serveCanonicalResourceDocument(assetRequest, env, ctx)) || serveStaticAsset(assetRequest, env);
+      return (
+        (await serveCanonicalResourceDocument(assetRequest, env, ctx, publicationId)) || serveStaticAsset(assetRequest, env)
+      );
     })(),
     previewSettings ? Promise.resolve(previewSettings) : readSiteSettings(env),
   ]);
-  const result = await applySiteSettings(request, response, settings);
+  const result = await applySiteSettings(request, response, settings, webBuildId);
   if (
-    result.body &&
+    (result.body || request.method === "HEAD" || result.status === 304) &&
     result.headers.get("Content-Type")?.includes("text/html") &&
     acceptsGzip(request.headers.get("Accept-Encoding")) &&
     !result.headers.has("Content-Encoding")
   ) {
     const compressed = new Headers(result.headers);
     compressed.set("Content-Encoding", "gzip");
-    compressed.append("Vary", "Accept-Encoding");
     return new Response(result.body, { status: result.status, statusText: result.statusText, headers: compressed });
   }
   return result;

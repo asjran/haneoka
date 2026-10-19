@@ -2,7 +2,7 @@
 // Input: 构建／开发环境、工作区路径及静态输入身份。
 // Output: Astro 静态输出、Vite、代理和构建 hooks 配置。
 // Pos: [Map](L1.md)；前端构建组合入口。
-// Effects/Dependencies: 读取环境和路径；hooks 可写 build.json、静态输入状态并配置开发代理。
+// Effects/Dependencies: 写 build.json；冻结发布由响应注入更新基准，独立构建保留脚本基准；配置开发代理。
 import { defineConfig } from "astro/config";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -112,7 +112,7 @@ export default defineConfig({
     },
   ],
   vite: {
-    define: { __WEB_BUILD_ID__: JSON.stringify(webBuildId) },
+    define: { __WEB_BUILD_ID__: JSON.stringify(process.env.STATIC_BUILD_INPUT_MODE === "frozen" ? "" : webBuildId) },
     worker: { format: "es" },
     build: {
       cssMinify: "lightningcss",

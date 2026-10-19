@@ -2,8 +2,9 @@
 // Input: 构建产物、本地 release、环境选择与 HTTP 请求。
 // Output: 本地静态、目录／资源、Sonolus 和受约束代理响应。
 // Pos: [Map](L2.md)；Node 本地预览 HTTP 服务入口。
-// Effects/Dependencies: 启动监听、读本地资源并可代理网络；不是生产 D1／队列／容器的完整替身。
+// Effects/Dependencies: 监听、读资源和代理；HTML 注入 Web 更新基准，已封装产物核对最终引用摘要，不替代生产 D1／队列。
 import { projectUiMarks } from "../src/lib/ui-marks.ts";
+import { publishedWebBuildId, WEB_BUILD_ATTRIBUTE } from "../src/lib/web-build-id.ts";
 import fs from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import https from "node:https";
@@ -34,6 +35,7 @@ import { announcementDocumentRequest, rewriteAnnouncementDocument } from "../src
 import { createGunzip, createGzip } from "node:zlib";
 import {
   staticDocumentLookupPath,
+  staticPublicationOutputIdentity,
   coreStaticDocumentPath,
   staticDocumentShard,
   staticDocumentChunks,
@@ -573,6 +575,82 @@ function safeFile(root: string, relative: string): string | null {
   return file.startsWith(root + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile() ? file : null;
 }
 
+/** Keep the publication baseline outside stored HTML and preserve all other bytes. */
+function sendHtml(
+  req: IncomingMessage,
+  res: ServerResponse,
+  source: Readable,
+  headers: Record<string, string>,
+  status = 200,
+): void {
+  const buildFile = path.join(DIST, "build.json");
+  const build = fs.existsSync(buildFile) ? JSON.parse(fs.readFileSync(buildFile, "utf8")) : undefined;
+  const buildId = build ? publishedWebBuildId(build) : "";
+  const publicationId = staticPublicationOutputIdentity(build?.publication);
+  if (publicationId !== null) {
+    const metadata = JSON.parse(fs.readFileSync(path.join(ROOT, ".output/static-documents/publication.json"), "utf8"));
+    if (metadata.references?.sha256 !== publicationId) throw new Error("Preview publication output identity differs");
+  }
+  const etag = headers.ETag;
+  if (etag && buildId) headers.ETag = etag.replace(/"$/u, `:web-${buildId}"`);
+  delete headers["Content-Length"];
+  const gzip = acceptsGzip(req.headers["accept-encoding"] || null);
+  if (gzip) headers["Content-Encoding"] = "gzip";
+  headers.Vary = [...new Set([...(headers.Vary || "").split(",").filter(Boolean), "Accept-Encoding"])].join(", ");
+  if (headers.ETag && req.headers["if-none-match"] === headers.ETag) {
+    source.destroy();
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(status, headers);
+  if (req.method === "HEAD") {
+    source.destroy();
+    res.end();
+    return;
+  }
+  const stream = Readable.from(
+    (async function* () {
+      let pending = Buffer.alloc(0);
+      let inserted = !buildId;
+      try {
+        for await (const chunk of source) {
+          if (inserted) {
+            yield chunk;
+            continue;
+          }
+          const bytes = Buffer.concat([pending, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
+          const match = /<html(?=[\s>])/iu.exec(bytes.toString("latin1"));
+          if (match) {
+            const at = match.index + 5;
+            yield bytes.subarray(0, at);
+            yield Buffer.from(` ${WEB_BUILD_ATTRIBUTE}="${buildId}"`);
+            yield bytes.subarray(at);
+            inserted = true;
+          } else {
+            // Astro's root tag can straddle a read boundary; keep only its possible prefix.
+            const keep = Math.min(5, bytes.length);
+            yield bytes.subarray(0, bytes.length - keep);
+            pending = bytes.subarray(bytes.length - keep);
+          }
+        }
+        if (!inserted) yield pending;
+      } finally {
+        source.destroy();
+      }
+    })(),
+  );
+  stream.once("error", (error) => res.destroy(error));
+  const body = gzip ? stream.pipe(createGzip()) : stream;
+  body.once("error", (error) => res.destroy(error));
+  res.once("close", () => {
+    source.destroy();
+    stream.destroy();
+    body.destroy();
+  });
+  body.pipe(res);
+}
+
 function sendFile(
   req: IncomingMessage,
   res: ServerResponse,
@@ -581,6 +659,20 @@ function sendFile(
   extraHeaders: Readonly<Record<string, string>> = {},
   status = 200,
 ): void {
+  if (file.startsWith(DIST + path.sep) && path.extname(file).toLowerCase() === ".html") {
+    sendHtml(
+      req,
+      res,
+      fs.createReadStream(file),
+      {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": cache,
+        ...extraHeaders,
+      },
+      status,
+    );
+    return;
+  }
   const stat = fs.statSync(file);
   const range = (req.headers.range ?? "").match(/^bytes=(\d*)-(\d*)$/);
   if (range) {
@@ -1249,6 +1341,26 @@ function servePackedStaticDocument(req: IncomingMessage, res: ServerResponse, ur
     Vary: "Accept-Encoding",
     "X-Content-Type-Options": "nosniff",
   };
+  const decoded = () =>
+    Readable.from(
+      (async function* () {
+        for (const file of files) {
+          const source = fs.createReadStream(file!);
+          const unzip = createGunzip();
+          source.once("error", (error) => unzip.destroy(error));
+          try {
+            for await (const chunk of source.pipe(unzip)) yield chunk;
+          } finally {
+            source.destroy();
+            unzip.destroy();
+          }
+        }
+      })(),
+    );
+  if (headers["Content-Type"]!.toLowerCase().includes("text/html")) {
+    sendHtml(req, res, decoded(), headers);
+    return true;
+  }
   if (req.headers["if-none-match"] === headers.ETag) {
     res.writeHead(304, headers);
     res.end();
@@ -1267,21 +1379,7 @@ function servePackedStaticDocument(req: IncomingMessage, res: ServerResponse, ur
         .once("error", (error) => res.destroy(error))
         .pipe(res);
     else {
-      const stream = Readable.from(
-        (async function* () {
-          for (const file of files) {
-            const source = fs.createReadStream(file!);
-            const decoded = createGunzip();
-            source.once("error", (error) => decoded.destroy(error));
-            try {
-              for await (const chunk of source.pipe(decoded)) yield chunk;
-            } finally {
-              source.destroy();
-              decoded.destroy();
-            }
-          }
-        })(),
-      );
+      const stream = decoded();
       stream.once("error", (error) => res.destroy(error));
       const body = gzip ? stream.pipe(createGzip()) : stream;
       body.once("error", (error) => res.destroy(error));
@@ -1309,12 +1407,10 @@ function serveCanonicalResourceDocument(req: IncomingMessage, res: ServerRespons
       return true;
     }
     const body = rewriteAnnouncementDocument(fs.readFileSync(file, "utf8"), announcement.id);
-    res.writeHead(200, {
+    sendHtml(req, res, Readable.from([body]), {
       "Content-Type": "text/html; charset=utf-8",
-      "Content-Length": Buffer.byteLength(body),
       "Cache-Control": "no-cache",
     });
-    res.end(req.method === "HEAD" ? undefined : body);
     return true;
   }
   const route = parseResourceRoute(url.pathname);
@@ -1841,12 +1937,10 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       if (entry) {
         if (forumDetail) {
           const body = restoreCommunityForumDetailShell(fs.readFileSync(entry, "utf8"));
-          res.writeHead(200, {
+          sendHtml(req, res, Readable.from([body]), {
             "Content-Type": "text/html; charset=utf-8",
-            "Content-Length": Buffer.byteLength(body),
             "Cache-Control": "no-cache",
           });
-          res.end(req.method === "HEAD" ? undefined : body);
           return;
         }
         sendFile(req, res, entry, "no-cache");

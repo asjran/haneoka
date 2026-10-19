@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { spawnSync } from "node:child_process";
 import {
+  staticPublicationOutputIdentity,
   STATIC_DOCUMENT_SCHEMA,
   STATIC_DOCUMENT_CONTENT_ROOT,
   STATIC_DOCUMENT_ASSET_ROOT,
@@ -87,6 +88,9 @@ const manifestFile = path.join(root, reference.path),
   manifestBody = fs.readFileSync(manifestFile);
 if (manifestBody.length !== reference.bytes || digest(manifestBody) !== reference.sha256)
   throw new Error("Static publication reference manifest identity differs");
+const build = JSON.parse(fs.readFileSync(path.resolve(".output/public/build.json"), "utf8"));
+if (staticPublicationOutputIdentity(build.publication) !== reference.sha256)
+  throw new Error("Static publication build identity differs from final references");
 const manifest = JSON.parse(manifestBody.toString("utf8"));
 if (
   manifest.schema !== "haneoka-static-publication-root-v1" ||
