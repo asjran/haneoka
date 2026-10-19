@@ -27,6 +27,7 @@ function identity() {
     "pnpm-workspace.yaml",
     ...configs,
     "scripts/build/package-build-cache.mjs",
+    "scripts/build/team-builder-engine.mjs",
   ])
     .split("\0")
     .filter(Boolean);
@@ -85,16 +86,21 @@ function outputFiles() {
       ),
     )
     .filter((directory) => fs.existsSync(path.join(root, directory)));
+  function file(relative, symlink) {
+    const absolute = path.join(root, relative);
+    const data = symlink ? Buffer.from(fs.readlinkSync(absolute)) : fs.readFileSync(absolute);
+    return { path: relative, bytes: data.length, sha256: digest(data), symlink };
+  }
   function walk(directory) {
     return fs.readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
       const relative = directory + "/" + entry.name;
-      if (entry.isDirectory()) return walk(relative);
-      const absolute = path.join(root, relative);
-      const data = entry.isSymbolicLink() ? Buffer.from(fs.readlinkSync(absolute)) : fs.readFileSync(absolute);
-      return [{ path: relative, bytes: data.length, sha256: digest(data), symlink: entry.isSymbolicLink() }];
+      return entry.isDirectory() ? walk(relative) : [file(relative, entry.isSymbolicLink())];
     });
   }
-  return directories.flatMap(walk).sort((a, b) => a.path.localeCompare(b.path, "en"));
+  const wasm = "src/lib/team-builder/engine/generated/team-engine.wasm";
+  return [...directories.flatMap(walk), file(wasm, fs.lstatSync(path.join(root, wasm)).isSymbolicLink())].sort((a, b) =>
+    a.path.localeCompare(b.path, "en"),
+  );
 }
 
 const command = process.argv[2];

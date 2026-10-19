@@ -118,6 +118,7 @@ jobs:
         with:
           path: |
             .output/compiled-packages/manifest.json
+            src/lib/team-builder/engine/generated/team-engine.wasm
             packages/*/dist
             packages/*/src/generated
             .dependencies/*/dist
@@ -129,6 +130,7 @@ jobs:
         run: |
           if ! node scripts/build/package-build-cache.mjs verify; then
             pnpm build:packages
+            node scripts/build/team-builder-engine.mjs
             node scripts/build/package-build-cache.mjs record
           fi
       - uses: actions/cache/save@v6
@@ -136,6 +138,7 @@ jobs:
         with:
           path: |
             .output/compiled-packages/manifest.json
+            src/lib/team-builder/engine/generated/team-engine.wasm
             packages/*/dist
             packages/*/src/generated
             .dependencies/*/dist
