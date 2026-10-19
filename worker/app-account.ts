@@ -145,7 +145,10 @@ const oauthReturn = async (request: Request, env: Env, url: URL): Promise<Respon
   const callback = appCallback(url.searchParams.get("redirect"));
   const fail = (code: string) => redirect(`${callback}?${new URLSearchParams({ error: code, state })}`);
   if (request.method !== "GET" || !/^[A-Za-z0-9\-_]{43}$/u.test(challenge)) return fail("invalid_request");
-  if (url.searchParams.get("failed")) return fail("access_denied");
+  if (url.searchParams.get("failed")) {
+    const error = url.searchParams.get("error");
+    return fail(error === "access_denied" || error === "account_not_linked" ? error : "provider_unavailable");
+  }
   const session = await getAuthSession(request, env, { authoritative: true });
   if (!session?.user?.id) return fail("access_denied");
   const code = await issueCode(env, session.user.id, challenge);
