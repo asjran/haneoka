@@ -37,11 +37,12 @@ import { renderBuildTab } from "./team-builder/build-tab";
 import { snackbar } from "../lib/snackbar";
 import { renderBoxTab, renderCardEditor, renderUndoAction } from "./team-builder/box-tab";
 import { renderAccountTab } from "./team-builder/account-tab";
-import { renderTeamsTab } from "./team-builder/teams-tab";
+import { renderTeamsTab, renderSongComparisonTab } from "./team-builder/teams-tab";
 import { renderSongPicker, type SongPickerState } from "./team-builder/song-picker";
 import { ImportController } from "./team-builder/importers";
 import { Catalog } from "./team-builder/catalog";
 import { PtController, renderPtTab } from "./team-builder/pt-tab";
+import { SongComparison } from "./team-builder/song-comparison";
 
 /** Message paths for this view's finite control/metadata identifiers. */
 const uiLabelPaths: Readonly<Record<string, string>> = {
@@ -81,6 +82,37 @@ export class TeamBuilder extends LitElement {
   engine: EngineClient | null = null;
   imports: ImportController = new ImportController(this);
   pt = new PtController(this);
+  songComparison = new SongComparison(this);
+  private task: { token: symbol; kind: string } | null = null;
+  acquireTask(kind: string) {
+    if (this.task || this.running || this.manualBusy) return null;
+    const token = Symbol(kind);
+    this.task = { token, kind };
+    this.running = true;
+    this.requestUpdate();
+    return token;
+  }
+  ownsTask(token: symbol) { return this.task?.token === token; }
+  get taskKind() { return this.task?.kind; }
+  releaseTask(token: symbol) {
+    if (!this.ownsTask(token)) return;
+    this.task = null;
+    this.running = false;
+    this.requestUpdate();
+  }
+  private resetTasks() {
+    this.songComparison.dispose();
+    this.pt.dispose();
+    this.engine?.cancel();
+    this.task = null;
+    this.running = false;
+    this.manualBusy = false;
+    this.growth = null;
+    this.progress = null;
+    this.manualResults = null;
+    this.activeContext = "";
+    ++this.runGeneration;
+  }
 
   tab: Tab = "build";
   settings: BuildSettings = { ...DEFAULT_SETTINGS };
@@ -161,7 +193,7 @@ export class TeamBuilder extends LitElement {
     this.visualsController?.abort();
     this.images.disconnect();
     this.unsubscribe?.();
-    this.pt.dispose();
+    this.resetTasks();
     this.store?.dispose();
     this.engine?.dispose();
     this.store = null;
@@ -188,7 +220,7 @@ export class TeamBuilder extends LitElement {
   }
   private releaseSearch?: () => void;
   protected updated() {
-    if (this.activeContext && this.activeContext !== this.calculationContext()) this.engine?.cancel();
+    if (this.task?.kind === "build" && this.activeContext && this.activeContext !== this.calculationContext()) this.engine?.cancel();
     this.syncAppBar();
     if (this.error !== this.errorShown) {
       this.errorShown = this.error;
@@ -206,6 +238,7 @@ export class TeamBuilder extends LitElement {
         }, 6000);
     }
     this.pt.markFields();
+    this.songComparison.markFields();
     this.images.observe(this);
     for (const dialog of this.querySelectorAll<HTMLDialogElement>("dialog.selection-pane"))
       if (!dialog.open && dialog.isConnected) dialog.showModal();
@@ -224,7 +257,7 @@ export class TeamBuilder extends LitElement {
     const loadController = this.dataController = new AbortController();
     this.visualsController?.abort();
     this.catalogMetadataError = false;
-    this.pt.dispose();
+    this.resetTasks();
     this.loadedServer = server;
     this.loadError = "";
     this.requestUpdate();
@@ -289,10 +322,10 @@ export class TeamBuilder extends LitElement {
   }
   private adopt(snapshot: BoxSnapshot) {
     const ownerChanged = this.snapshot?.owner !== snapshot.owner;
-    if (ownerChanged) this.pt.dispose();
+    if (ownerChanged) this.resetTasks();
     const versionChanged = this.snapshot?.version !== snapshot.version;
     this.snapshot = snapshot;
-    if (versionChanged) {
+    if (versionChanged || ownerChanged) {
       this.view = readBox(snapshot.entries);
       const stored = this.view.prefs[SETTINGS_KEY.slice(5)];
       if (stored && typeof stored === "object") this.settings = { ...DEFAULT_SETTINGS, ...(stored as Partial<BuildSettings>) };
@@ -301,6 +334,7 @@ export class TeamBuilder extends LitElement {
         if (ownerChanged) this.tab = "pt";
       }
       this.settings = this.compatibleSettings(this.settings);
+      this.songComparison.restore();
     }
     this.requestUpdate();
     void this.pt.restore();
@@ -320,6 +354,14 @@ export class TeamBuilder extends LitElement {
     this.settings = this.compatibleSettings({ ...this.settings, ...patch });
     this.write([{ key: SETTINGS_KEY, value: this.settings as unknown as BoxValue }]);
     this.requestUpdate();
+  }
+  openSongComparison(formation?: typeof this.manual) {
+    if (formation) {
+      this.manual = structuredClone(formation);
+      this.manualResults = null;
+    }
+    this.slotPicker = null;
+    this.setTab("song-comparison");
   }
   setTab(tab: Tab) {
     this.tab = tab;
@@ -479,6 +521,8 @@ export class TeamBuilder extends LitElement {
     const started = clock();
     const request = this.request();
     if (!request || !this.engine || this.running) return;
+    const task = this.acquireTask("build");
+    if (!task) return;
     const contextKey = this.calculationContext();
     const generation = ++this.runGeneration;
     const settings = this.searchSettings;
@@ -527,7 +571,7 @@ export class TeamBuilder extends LitElement {
       loading.finish();
       if (generation === this.runGeneration) {
         this.activeContext = "";
-        this.running = false;
+        this.releaseTask(task);
         this.progress = null;
         this.requestUpdate();
       }
@@ -537,26 +581,30 @@ export class TeamBuilder extends LitElement {
   async recommendGrowth() {
     const request = this.request();
     if (!request || !this.engine || this.running || this.growth?.result === null) return;
+    const task = this.acquireTask("growth");
+    if (!task) return;
     const context = this.calculationContext();
     Object.assign(request, { k: 1, timeLimitMs: null, deadline: Infinity, contextKey: context });
     this.growth = { context, done: 0, total: 0, result: null };
     this.requestUpdate();
     try {
       const result = await this.engine.growth(request, (done, total) => {
-        if (this.growth?.context !== context) return;
+        if (!this.ownsTask(task) || this.growth?.context !== context) return;
         this.growth = { ...this.growth, done, total };
         this.requestUpdate();
       });
-      if (this.growth?.context === context) this.growth = { ...this.growth, result };
+      if (this.ownsTask(task) && this.growth?.context === context) this.growth = { ...this.growth, result };
     } catch (error) {
-      if (this.growth?.context === context) this.growth = null;
-      if (!(error instanceof DOMException && error.name === "AbortError"))
+      if (this.ownsTask(task) && this.growth?.context === context) this.growth = null;
+      if (this.ownsTask(task) && !(error instanceof DOMException && error.name === "AbortError"))
         this.error = this.t("searchFailed", "The search failed: {reason}", { reason: error instanceof Error ? error.message : String(error) });
     }
+    this.releaseTask(task);
     this.requestUpdate();
   }
 
   cancel() {
+    if (this.songComparison.running) { this.songComparison.stop(); return; }
     if (this.pt.running) this.pt.stop();
     else this.engine?.cancel();
   }
@@ -567,6 +615,7 @@ export class TeamBuilder extends LitElement {
   private renderTabs(): TemplateResult {
     const tabs = [
       { id: "build", icon: "groups", label: this.t("tabBuild", "Build"), count: null },
+      { id: "song-comparison", icon: "music_note", label: this.t("sc.tab", "Gekiso songs"), count: null },
       { id: "pt", icon: "emoji_events", label: this.t("pt.tab", "Event rewards"), count: null },
       { id: "box", icon: "style", label: this.t("tabBox", "My cards"), count: this.view ? this.view.members.size + this.view.snaps.size : null },
       { id: "account", icon: "trending_up", label: this.t("tabAccount", "Account bonuses"), count: null },
@@ -642,8 +691,9 @@ export class TeamBuilder extends LitElement {
       `;
     }
     if (this.pt.correcting && this.tab !== "pt") this.pt.sync();
+    this.songComparison.sync();
     const panel =
-      this.tab === "pt" ? renderPtTab(this) : this.tab === "build" ? renderBuildTab(this) : this.tab === "box" ? renderBoxTab(this) : this.tab === "account" ? renderAccountTab(this) : renderTeamsTab(this);
+      this.tab === "pt" ? renderPtTab(this) : this.tab === "build" ? renderBuildTab(this) : this.tab === "box" ? renderBoxTab(this) : this.tab === "account" ? renderAccountTab(this) : this.tab === "song-comparison" ? renderSongComparisonTab(this) : renderTeamsTab(this);
     return html`
       <div class="team-builder tb">
         <header class="tb-header">

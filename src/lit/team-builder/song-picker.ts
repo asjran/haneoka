@@ -18,6 +18,8 @@ export interface SongPickerState {
   gekisouTypes: string[];
   gekisouMatch?: "only" | "contains";
   difficulty: number;
+  minLevel?: number | null;
+  maxLevel?: number | null;
   allowedSongIds?: number[];
   title?: string;
   change: (songs: SongRef[]) => void;
@@ -50,6 +52,8 @@ export function renderSongPicker(host: TeamBuilder): TemplateResult {
   });
   const query = plan.text.normalize("NFKC").toLocaleLowerCase(host.locale);
   const facets = plan.facets;
+  const minLevel = state.minLevel === undefined ? (facets.minLevel?.length ? Number(facets.minLevel[0]) : null) : state.minLevel;
+  const maxLevel = state.maxLevel === undefined ? (facets.maxLevel?.length ? Number(facets.maxLevel[0]) : null) : state.maxLevel;
   const missionMode = facets.gekisouMatch?.[0] ?? state.gekisouMatch;
   const ids = Object.keys(catalog.data.songs)
     .map(Number)
@@ -64,11 +68,11 @@ export function renderSongPicker(host: TeamBuilder): TemplateResult {
           !matchesSelections((Array.isArray(song.vocalCharacterIds) ? song.vocalCharacterIds : []).map(String), facets.character || []) ||
           !matchesSelections([String(song.musicType)], facets.type || []) ||
           !matchesSongMissions(song, facets.gekisouType || [], missionMode)) return false;
-      if ((facets.minLevel?.length || facets.maxLevel?.length) && !catalog.difficultyRows(id).some((row) => {
+      if ((minLevel !== null || maxLevel !== null) && !catalog.difficultyRows(id).some((row) => {
         const level = Number(row.displayLevel ?? row.playLevel ?? row.sortLevel);
         return Number(row.difficulty) === state.difficulty && Number.isFinite(level) &&
-          (!facets.minLevel?.length || level >= Number(facets.minLevel[0])) &&
-          (!facets.maxLevel?.length || level <= Number(facets.maxLevel[0]));
+          (minLevel === null || level >= minLevel) &&
+          (maxLevel === null || level <= maxLevel);
       })) return false;
       return !query || `${catalog.songTitle(id)} ${catalog.songArtist(id)}`.normalize("NFKC").toLocaleLowerCase(host.locale).includes(query);
     })
@@ -99,9 +103,15 @@ export function renderSongPicker(host: TeamBuilder): TemplateResult {
     filtersOpen: state.filtersOpen,
     toggleFilters: () => update({ filtersOpen: !state.filtersOpen }),
     query: state.query,
-    search: (value) => update({ query: value }),
+    search: (value) => update({ query: value, minLevel: undefined, maxLevel: undefined }),
     filterLayout: "facets",
     filters: html`
+      <div class="row row--wrap">
+        <md-outlined-text-field type="number" min="1" label=${host.t("sc.minLevel", "Minimum level")} .value=${minLevel === null ? "" : String(minLevel)}
+          @input=${(event: Event) => { const value = (event.target as HTMLInputElement).value; update({ minLevel: value === "" ? null : Number(value) }); }}></md-outlined-text-field>
+        <md-outlined-text-field type="number" min="1" label=${host.t("sc.maxLevel", "Maximum level")} .value=${maxLevel === null ? "" : String(maxLevel)}
+          @input=${(event: Event) => { const value = (event.target as HTMLInputElement).value; update({ maxLevel: value === "" ? null : Number(value) }); }}></md-outlined-text-field>
+      </div>
       ${chooserFacet({label:host.common("catalog.analysis.fields.gekisouType", "Gekiso type"),value:state.gekisouTypes[0] || "",allLabel:all.label,options:[{value:"Combo",label:host.common("catalog.songs.gekisou.gekisouMissionCombo","COMBO")},{value:"Luck",label:host.common("catalog.songs.gekisou.gekisouMissionLuck","LUCK")},{value:"JustCount",label:host.common("catalog.songs.gekisou.gekisouMissionJustCount","JUST")},{value:"Mix",label:host.common("catalog.songs.gekisou.mixed","Mixed")}],change:(value) => update({gekisouTypes:value ? [value] : []})})}
       ${segmented({
         label: host.common("catalog.songs.gekisou.matchMode", "Match mode"),

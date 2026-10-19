@@ -166,7 +166,10 @@
     "src/lib/gacha-history-device.ts",
     "src/server/gacha-history-page-data.ts",
     "src/lit/gacha-history.ts",
-    "src/lit/shared/gacha-history-chart.ts"
+    "src/lit/shared/gacha-history-chart.ts",
+    "src/lib/team-builder/song-comparison.ts",
+    "src/lit/team-builder/song-comparison.ts",
+    "src/lit/team-builder/song-comparison-view.ts"
   ],
   "entry_documents": [
     "AGENTS.md",

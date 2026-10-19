@@ -1286,3 +1286,17 @@
     font: inherit;
   }
 }
+
+@layer pages {
+  .team-builder .sc { min-width: 0; }
+  .team-builder .sc > *, .team-builder .sc .table-scroll { min-width: 0; max-width: 100%; }
+  .team-builder .sc md-outlined-select, .team-builder .sc md-outlined-text-field { width: 100%; }
+  .team-builder .sc .button { min-height: 48px; }
+  .team-builder [data-sc-field][data-invalid] { outline: 2px solid var(--md-sys-color-error); outline-offset: 2px; }
+  .team-builder .sc-results > tbody > tr > th { min-width: 12rem; max-width: 20rem; overflow-wrap: anywhere; }
+  .team-builder .sc-results td.tabular { white-space: nowrap; }
+  .team-builder .sc-account { max-height: 22rem; overflow: auto; }
+  .team-builder .tb-picker-footer { min-width: 0; }
+  .team-builder .tb-picker-footer > .segmented { min-width: 0; max-width: 100%; overflow-x: auto; }
+  .team-builder .tb-picker-footer > .segmented > button { min-height: 48px; }
+}

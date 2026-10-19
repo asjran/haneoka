@@ -3,13 +3,14 @@ import { matchesCardFilters, renderCardFilters } from "./card-filters";
 import { html, nothing, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
 import type { EngineHit } from "../../lib/team-builder/engine/api";
-import { cardIdOf } from "../../lib/team-builder/sync/box-view";
+import { cardIdOf, type SavedTeam } from "../../lib/team-builder/sync/box-view";
 import { iconButton } from "../ui/controls";
 import { icon } from "../ui/icon";
 import { selectionPane } from "../ui/selection-pane";
 import { tileMedia } from "../ui/tile";
 import { sectionHeading } from "./catalog";
 import { saveTeam } from "./results";
+import { renderSongComparison } from "./song-comparison-view";
 import type { TeamBuilder } from "../team-builder";
 
 const format = (host: TeamBuilder, value: number, digits = 0) =>
@@ -42,11 +43,14 @@ function inputs(host: TeamBuilder) {
 }
 async function evaluate(host: TeamBuilder) {
   if (!manualReady(host) || !host.engine || !host.settings.songs.length || host.running) return;
+  const task = host.acquireTask("evaluation");
+  if (!task) return;
+  const formation = JSON.stringify(host.manual);
   host.manualBusy = true;
   host.requestUpdate();
   const s = host.settings;
   try {
-    host.manualResults = await host.engine.evaluate({
+    const results = await host.engine.evaluate({
       ...inputs(host),
       team: teamSpec(host),
       songs: s.songs,
@@ -54,10 +58,12 @@ async function evaluate(host: TeamBuilder) {
       challengeEventId: s.challengeRules ? s.eventId : null,
       event: s.eventId !== null && (s.goal === "event" || s.goal === "plan") && s.route !== "skip" ? { eventId: s.eventId, route: s.route === "challenge" ? "challenge" : "live", consumption: s.route === "challenge" ? s.challengePoints : s.boosts } : null,
     });
+    if (host.ownsTask(task) && formation === JSON.stringify(host.manual)) host.manualResults = results;
   } catch (error) {
-    host.error = String(error);
+    if (host.ownsTask(task)) host.error = String(error);
   } finally {
-    host.manualBusy = false;
+    if (host.ownsTask(task)) host.manualBusy = false;
+    host.releaseTask(task);
     host.requestUpdate();
   }
 }
@@ -65,6 +71,9 @@ async function evaluate(host: TeamBuilder) {
 async function suggest(host: TeamBuilder, slot: number) {
   const base = host.request();
   if (!base || !host.engine || !manualReady(host) || host.running) return;
+  const task = host.acquireTask("suggestion");
+  if (!task) return;
+  const formation = JSON.stringify(host.manual);
   suggesting = slot;
   host.requestUpdate();
   const { members, snaps, leader } = host.manual;
@@ -84,11 +93,12 @@ async function suggest(host: TeamBuilder, slot: number) {
         excludedMembers: [`m${members[slot]}`].filter(() => false),
       },
     });
-    suggestions = { slot, hits: result.overall.slice(0, 3) };
+    if (host.ownsTask(task) && formation === JSON.stringify(host.manual)) suggestions = { slot, hits: result.overall.slice(0, 3) };
   } catch (error) {
-    host.error = String(error);
+    if (host.ownsTask(task)) host.error = String(error);
   } finally {
     suggesting = -1;
+    host.releaseTask(task);
     host.requestUpdate();
   }
 }
@@ -106,7 +116,7 @@ function slotPicker(host: TeamBuilder): TemplateResult | typeof nothing {
   };
   const filters = { ...host.slotFilters, kind };
   const set = (patch: Partial<typeof filters>) => {host.slotFilters = {...filters,...patch};host.requestUpdate();};
-  const theoretical = host.settings.scope === "theoretical";
+  const theoretical = host.tab !== "song-comparison" && host.settings.scope === "theoretical";
   const owned = kind === "members" ? host.view!.members : host.view!.snaps;
   const ids = (theoretical ? Object.keys(kind === "members" ? catalog.data.members : catalog.data.snapshots).map(Number) : [...owned.keys()])
     .filter((id) => matchesCardFilters(host, kind, id, filters))
@@ -153,7 +163,17 @@ function slotPicker(host: TeamBuilder): TemplateResult | typeof nothing {
   });
 }
 
+function savedFormation(team: SavedTeam) {
+  const leader = team.leader === null ? 0 : team.members.indexOf(team.leader);
+  return { members: [...team.members], snaps: [...team.snaps], leader: leader < 0 ? 0 : leader };
+}
 export function renderTeamsTab(host: TeamBuilder): TemplateResult {
+  return renderTeamWorkspace(host, false);
+}
+export function renderSongComparisonTab(host: TeamBuilder): TemplateResult {
+  return renderTeamWorkspace(host, true);
+}
+function renderTeamWorkspace(host: TeamBuilder, comparison: boolean): TemplateResult {
   const catalog = host.catalog!;
   const view = host.view!;
   const order = [1, 2, 0, 3, 4].map((index) => (index === 0 ? host.manual.leader : index <= host.manual.leader ? index - 1 : index));
@@ -165,16 +185,27 @@ export function renderTeamsTab(host: TeamBuilder): TemplateResult {
   const results = host.manualResults;
   return html`
     <div class="tb-teams stack stack--loose">
-      <section class="surface stack">
+      <section id="sc-formation" data-sc-field class="surface stack">
         <div class="row row--between row--wrap">
           ${sectionHeading({ icon: "edit_square", label: host.t("manualTeam", "Build a team by hand") })}
           <div class="cluster">
+            ${!comparison ? html`<button class="button button--text" type="button" ?disabled=${!manualReady(host)} @click=${() => host.openSongComparison()}>${host.t("sc.useTeam", "Compare songs with this team")}</button>` : nothing}
             <button class="button button--text button--small" type="button" ?disabled=${!manualReady(host)}
-              @click=${() => saveTeam(host, [host.manual.members[host.manual.leader]!, ...host.manual.members.filter((_, index) => index !== host.manual.leader) as number[]], [host.manual.snaps[host.manual.leader] ?? null, ...host.manual.snaps.filter((_, index) => index !== host.manual.leader)], host.settings.songs[0] ?? null)}>
+              @click=${() => saveTeam(host, [host.manual.members[host.manual.leader]!, ...host.manual.members.filter((_, index) => index !== host.manual.leader) as number[]], [host.manual.snaps[host.manual.leader] ?? null, ...host.manual.snaps.filter((_, index) => index !== host.manual.leader)], (comparison ? host.songComparison.settings.songs[0] : host.settings.songs[0]) ?? null)}>
               ${icon("bookmark_add", 18)}${host.t("saveTeam", "Save team")}</button>
             <button class="button button--text button--small" type="button" @click=${() => { host.manual = { members: [null, null, null, null, null], snaps: [null, null, null, null, null], leader: 2 }; host.manualResults = null; suggestions = null; host.requestUpdate(); }}>${host.common("common.actions.clear", "Clear")}</button>
           </div>
         </div>
+        ${comparison && view.teams.length ? html`
+          <md-outlined-select label=${host.t("sc.chooseTeam", "Use a saved team")} .value=${""}
+            @change=${(event: Event) => {
+              const team = view.teams.find(team => team.id === (event.target as HTMLSelectElement).value);
+              if (team) { suggestions = null; host.openSongComparison(savedFormation(team)); }
+              (event.target as HTMLSelectElement).value = "";
+            }}>
+            <md-select-option value=""><div slot="headline">${host.t("sc.select", "Choose")}</div></md-select-option>
+            ${view.teams.map(team => html`<md-select-option .value=${team.id}><div slot="headline">${team.name}</div></md-select-option>`)}
+          </md-outlined-select>` : nothing}
         <ol class="tb-formation tb-formation--edit">
           ${visualOrder.map((slot) => {
             const member = host.manual.members[slot];
@@ -183,7 +214,7 @@ export function renderTeamsTab(host: TeamBuilder): TemplateResult {
             const snapOptions = snap !== null && snap !== undefined ? catalog.cardOptions("snaps", snap) : null;
             const leader = slot === host.manual.leader;
             return html`
-              <li class=${`tb-slot${leader ? " is-leader" : ""}`}>
+              <li id=${`sc-slot-${slot}`} data-sc-field tabindex="-1" class=${`tb-slot${leader ? " is-leader" : ""}`}>
                 <button class="tb-slot__member" type="button" @click=${() => { host.slotPicker = { slot, kind: "members" }; host.requestUpdate(); }}
                   aria-label=${memberOptions ? `${host.t("pickMember", "Choose a member")}: ${memberOptions.label}` : host.t("pickMember", "Choose a member")}>
                   ${memberOptions ? tileMedia(memberOptions) : html`<span class="tb-slot__empty">${icon("person_add", 24)}</span>`}
@@ -196,15 +227,15 @@ export function renderTeamsTab(host: TeamBuilder): TemplateResult {
                   ${leader
                     ? html`<span class="badge badge--primary">${host.t("leader", "Leader")}</span>`
                     : html`<button class="button button--text button--small" type="button" ?disabled=${member === null} @click=${() => { host.manual = { ...host.manual, leader: slot }; host.manualResults = null; host.requestUpdate(); }}>${host.t("makeLeader", "Leader")}</button>`}
-                  ${iconButton({ icon: "auto_fix_high", label: host.t("suggestSlot", "Best card for this slot"), size: 18, disabled: !manualReady(host) || suggesting >= 0 || !host.request(), onClick: () => void suggest(host, slot) })}
+                  ${!comparison ? iconButton({ icon: "auto_fix_high", label: host.t("suggestSlot", "Best card for this slot"), size: 18, disabled: host.running || !manualReady(host) || suggesting >= 0 || !host.request(), onClick: () => void suggest(host, slot) }) : nothing}
                 </span>
               </li>
             `;
           })}
         </ol>
-        ${duplicate ? html`<p class="field-note field-note--error">${host.t("duplicateCharacter", "Each character can appear once.")}</p>` : nothing}
+        ${!comparison && duplicate ? html`<p class="field-note field-note--error">${host.t("duplicateCharacter", "Each character can appear once.")}</p>` : nothing}
         ${suggesting >= 0 ? html`<md-linear-progress indeterminate aria-label=${host.t("searching", "Searching teams")}></md-linear-progress>` : nothing}
-        ${suggestions
+        ${!comparison && suggestions
           ? html`<div class="stack tb-suggest">
               <strong class="tb-subtitle">${host.t("suggestions", "Best replacements")}</strong>
               ${suggestions.hits.length
@@ -231,7 +262,7 @@ export function renderTeamsTab(host: TeamBuilder): TemplateResult {
                 : html`<p class="card__supporting">${host.t("noSuggestion", "No better card found.")}</p>`}
             </div>`
           : nothing}
-        <div class="row row--wrap">
+        ${!comparison ? html`        <div class="row row--wrap">
           <button class="button" type="button" ?disabled=${!manualReady(host) || duplicate || !host.settings.songs.length || host.manualBusy || host.running} @click=${() => void evaluate(host)}>
             ${icon("calculate", 18)}${host.t("evaluateTeam", "Evaluate on the chosen songs")}</button>
           <span class="field-note">${host.settings.songs.length ? host.t("evaluateSongs", "{count} songs from Build", { count: host.settings.songs.length }) : host.t("needSongs", "Choose at least one song.")}</span>
@@ -246,9 +277,10 @@ export function renderTeamsTab(host: TeamBuilder): TemplateResult {
                 <td class="tabular">${format(host, row.score.min)} – ${format(host, row.score.max)}</td><td class="tabular">${format(host, row.skipScore)}</td>
                 ${row.event ? html`<td class="tabular">${format(host, row.event.points, 1)} (+${format(host, Math.floor(row.event.bonusPercent))}%)</td><td class="tabular">${format(host, row.event.items, 1)}</td>` : results.some((item) => item.event) ? html`<td></td><td></td>` : nothing}
               </tr>`)}</tbody></table></div>`
-          : nothing}
+          : nothing}` : nothing}
       </section>
-      <section class="surface stack">
+      ${comparison ? renderSongComparison(host) : nothing}
+      ${!comparison ? html`<section class="surface stack">
         ${sectionHeading({ icon: "bookmarks", label: host.t("savedTeams", "Saved teams"), count: view.teams.length || undefined })}
         ${view.teams.length
           ? html`<div class="tb-saved">${view.teams.map((team) => html`
@@ -273,6 +305,7 @@ export function renderTeamsTab(host: TeamBuilder): TemplateResult {
                     host.requestUpdate();
                   } })}
                 </div>
+                <button class="button button--text" type="button" @click=${() => { suggestions = null; host.openSongComparison(savedFormation(team)); }}>${host.t("sc.useTeam", "Compare songs with this team")}</button>
                 <div class="tb-saved__cards">
                   ${team.members.map((id, index) => {
                     const options = catalog.cardOptions("members", id);
@@ -282,7 +315,7 @@ export function renderTeamsTab(host: TeamBuilder): TemplateResult {
                 ${team.song ? html`<span class="card__supporting">${catalog.songTitle(team.song.songId)} ${catalog.difficultyLabel(team.song.songId, team.song.difficulty)}</span>` : nothing}
               </article>`)}</div>`
           : html`<p class="card__supporting">${host.t("noSavedTeamsShort", "No saved teams")}</p>`}
-      </section>
+      </section>` : nothing}
       ${slotPicker(host)}
     </div>
   `;

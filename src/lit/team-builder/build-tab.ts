@@ -696,7 +696,7 @@ export function renderBuildTab(host: TeamBuilder, leading?: TemplateResult): Tem
         ${renderCandidates(host)}
         <div class="tb-run">
           ${
-            host.running
+            host.taskKind === "build"
               ? html`
                   <button class="button button--tonal button--full" type="button" @click=${() => host.cancel()}>
                     ${icon("stop", 18)}${host.common("common.actions.cancel", "Cancel")}
@@ -711,10 +711,10 @@ export function renderBuildTab(host: TeamBuilder, leading?: TemplateResult): Tem
                   <button
                     class="button button--full tb-run__button"
                     type="button"
-                    ?disabled=${!!missing}
+                    ?disabled=${host.running || !!missing}
                     @click=${() => void host.run()}
                   >
-                    ${missing ? html`<span class="tb-run__reason">${missing}</span>` : html`${icon("search", 20)}${host.t("findTeams", "Find teams")}`}
+                    ${host.running ? host.t("sc.busy", "Another calculation is running") : missing ? html`<span class="tb-run__reason">${missing}</span>` : html`${icon("search", 20)}${host.t("findTeams", "Find teams")}`}
                   </button>
                 `
           }

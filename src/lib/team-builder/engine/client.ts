@@ -1,5 +1,5 @@
 // L3 — GEB
-// Input: 配队资料、Engine 请求及进度／快照回调。
+// Input: 配队资料、Engine 请求及进度／快照／单 Worker 最终结果回调。
 // Output: EngineClient、搜索／成长／评价／解释结果。
 // Pos: [Map](L2-2.md)；主线程到当前引擎 Worker 的生命周期与分片协调。
 // Effects/Dependencies: 创建和替换 Worker、消息通信及内存 Promise；取消会终止对应计算实例。
@@ -11,6 +11,10 @@ import { clock, deadlineOf, remaining, emptyResponse, completeResponse, requestS
 import { aspirationHeld, compareHits, mergeShardResponses } from "./merge";
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; progress?: (done: number, total: number) => void; snapshot?: (value: EngineSnapshot) => void };
+
+/** A detached normal result from a single Worker, before candidate merging and search-proof labels. */
+export interface FinalEngineResult { requestId: string; contextKey: string; response: EngineResponse }
+type FinalResultHandler = (result: FinalEngineResult) => void;
 
 /** One engine Worker: compiles the release once, then serves calls. */
 class EngineWorker {
@@ -137,7 +141,7 @@ export class EngineClient {
   private activeStop: ((reason: StopReason) => void) | null = null;
   private generation = 0;
 
-  run(request: EngineRequest, progress?: Pending["progress"], snapshot?: Pending["snapshot"]): Promise<EngineResponse> {
+  run(request: EngineRequest, progress?: Pending["progress"], snapshot?: Pending["snapshot"], onFinalResult?: FinalResultHandler): Promise<EngineResponse> {
     const started = clock();
     const generation = this.generation;
     const task = { ...request, deadline: deadlineOf(request), requestId: request.requestId ?? crypto.randomUUID(), contextKey: request.contextKey ?? JSON.stringify([this.dataIdentity, request]) };
@@ -154,13 +158,13 @@ export class EngineClient {
     const queued = this.queue.then(() => {
       clearTimeout(timer);
       if (expired || generation !== this.generation) return { ...emptyResponse(task), stopReason: expired ? "budget" as const : "cancelled" as const };
-      return this.execute(task, started, progress, snapshot);
+      return this.execute(task, started, progress, snapshot, onFinalResult);
     });
     this.queue = queued.catch(() => {});
     return Promise.race([queued, waiting]).finally(() => clearTimeout(timer));
   }
 
-  private async execute(request: EngineRequest, started: number, progress?: Pending["progress"], snapshot?: Pending["snapshot"]): Promise<EngineResponse> {
+  private async execute(request: EngineRequest, started: number, progress?: Pending["progress"], snapshot?: Pending["snapshot"], onFinalResult?: FinalResultHandler): Promise<EngineResponse> {
     const before = this.pool.map(worker => worker.timing());
     let latest = emptyResponse(request);
     if (request.seeds?.length) {
@@ -216,7 +220,11 @@ export class EngineClient {
       if (!remaining(deadline)) { stop("budget"); return latest; }
       if (completeResponse(latest)) return latest;
       const parallel = this.pool.length > 1 && request.members.length >= PARALLEL_MIN_MEMBERS && request.goal.kind !== "plan";
-      if (!parallel) return this.idlest().send<EngineResponse>({ type: "run", id: 0, request }, progress, accept);
+      if (!parallel) {
+        const response = await this.idlest().send<EngineResponse>({ type: "run", id: 0, request }, progress, accept);
+        if (!stopped) onFinalResult?.({ requestId: request.requestId!, contextKey: request.contextKey!, response: structuredClone(response) });
+        return response;
+      }
       const songs = requestSongs(request);
       if (songs.length > 1 && songs.every((song): song is SongRef => song !== null)) {
         // Songs run whole, side by side: a Worker keeps only the current song's chart, seeds and contexts, and

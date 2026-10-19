@@ -1,7 +1,7 @@
 import type { SongRef } from "../../lib/team-builder/engine/api";
 import type { Criterion } from "../../lib/team-builder/engine/objectives";
 
-export type Tab = "build" | "box" | "account" | "teams" | "pt";
+export type Tab = "build" | "box" | "account" | "teams" | "pt" | "song-comparison";
 export type GoalKind = "score" | "gekiso" | "power" | "event" | "potential" | "plan";
 export interface BuildSettings {
   rewardMode: "recommendation" | "event" | "plan";

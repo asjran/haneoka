@@ -31,6 +31,7 @@ import { icon } from "../ui/icon";
 import { issueField, ptField } from "./pt-fields";
 
 export class PtController {
+  private task: symbol | null = null;
   job: PtJob | null = null;
   running = false;
   showAll = false;
@@ -199,12 +200,18 @@ export class PtController {
     this.host.requestUpdate();
   }
   stop() {
-    this.runner?.stop();
+    ++this.generation;
+    if (this.task && this.host.ownsTask(this.task)) {
+      this.runner?.stop();
+    }
+    this.host.requestUpdate();
   }
   dispose() {
     this.correcting = false;
     ++this.generation;
     this.stop();
+    this.task = null;
+    this.running = false;
     this.job = null;
     this.restoreKey = "";
   }
@@ -231,6 +238,9 @@ export class PtController {
       !this.dataFingerprint
     )
       return;
+    const task = host.acquireTask("pt");
+    if (!task) return;
+    this.task = task;
     const generation = this.generation;
     const cycle = this.cycle();
     const signature = this.inputSignature();
@@ -276,7 +286,8 @@ export class PtController {
     } catch (error) {
       if (generation === this.generation) this.error = error instanceof Error ? error.message : String(error);
     } finally {
-      this.running = host.running = false;
+      if (this.task === task) { this.running = false; this.task = null; }
+      host.releaseTask(task);
       host.requestUpdate();
     }
   }

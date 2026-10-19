@@ -219,14 +219,16 @@ function orderTimeline(host: TeamBuilder, hit: EngineHit, index: number) {
   const key = `${hitKey(hit)}|${index}`;
   const value = timelines.get(key);
   if (value) return value;
-  timelines.set(key, "loading");
   const request = resultInputs(host);
-  if (request && host.engine && hit.song)
+    const task = request && host.engine && hit.song ? host.acquireTask("timeline") : null;
+    if (request && host.engine && hit.song && task) {
+      timelines.set(key, "loading");
     void host.engine
       .explain({ members: request.members, snaps: request.snaps, unknownPolicy: request.unknownPolicy, team: { members: hit.members, snaps: hit.snaps, leader: hit.members[0]! }, song: hit.song, eventOrder: ORDERS[index]!.map((slot) => hit.members[slot]!), play: { great: 0, good: 0, bad: 0, miss: 0 } })
-      .then((timeline) => timelines.set(key, timeline))
-      .catch(() => timelines.set(key, "error"))
-      .finally(() => host.requestUpdate());
+      .then((timeline) => { if (host.ownsTask(task)) timelines.set(key, timeline); else timelines.delete(key); })
+      .catch(() => { if (host.ownsTask(task)) timelines.set(key, "error"); else timelines.delete(key); })
+        .finally(() => { host.releaseTask(task); host.requestUpdate(); });
+    }
   return "loading" as const;
 }
 
@@ -504,6 +506,9 @@ export function renderHit(host: TeamBuilder, hit: EngineHit, index: number, opti
         </div>
         <div class="tb-hit__actions">
           ${iconButton({ icon: "bookmark_add", label: host.t("saveTeam", "Save team"), disabled: options.stale ?? host.stale, onClick: () => saveTeam(host, hit.members.map(cardIdOf), hit.snaps.map((snap) => (snap ? cardIdOf(snap) : null)), hit.song) })}
+          <button class="button button--text" type="button" ?disabled=${options.stale ?? host.stale} @click=${() => {
+            host.openSongComparison({ members: hit.members.map(cardIdOf), snaps: hit.snaps.map(snap => snap ? cardIdOf(snap) : null), leader: 0 });
+          }}>${host.t("sc.useTeam", "Compare songs with this team")}</button>
           ${iconButton({ icon: "compare_arrows", label: host.t("compare", "Compare"), toggle: true, pressed: compared, onClick: () => {
             host.compare = compared ? host.compare.filter((item) => item !== key) : [...host.compare, key].slice(-3);
             host.requestUpdate();
