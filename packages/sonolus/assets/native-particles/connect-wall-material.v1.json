@@ -14,48 +14,32 @@
     {
       "path": "shared/src/engine/data/connectWallDrawContract.ts",
       "sha256": "c679aa9f9f874381e17a3592c5321720cbc1dcc3ba99e08b5ffaea040f283841"
+    },
+    {
+      "path": "shared/src/engine/data/connectFrameDraw.generated.ts",
+      "sha256": "571421d6994a7a6c8513b62b556712029bc07c5320aaa9508bfb6de4bdfa8051"
     }
   ],
   "sprites": [
     {
       "name": "Our Notes Source Connect Draw simple 05",
-      "correction": [
-        0.033,
-        0.15,
-        0.7739999999999999
-      ]
+      "correction": [0.033, 0.15, 0.7739999999999999]
     },
     {
       "name": "Our Notes Source Connect Draw simple 03",
-      "correction": [
-        0.7739999999999999,
-        0.7739999999999999,
-        0.7739999999999999
-      ]
+      "correction": [0.7739999999999999, 0.7739999999999999, 0.7739999999999999]
     },
     {
       "name": "Our Notes Source Connect Draw simple 04",
-      "correction": [
-        0.1,
-        0.058,
-        0.7739999999999999
-      ]
+      "correction": [0.1, 0.058, 0.7739999999999999]
     },
     {
       "name": "Our Notes Source Connect Draw simple 01",
-      "correction": [
-        0.7739999999999999,
-        0.7739999999999999,
-        0.7739999999999999
-      ]
+      "correction": [0.7739999999999999, 0.7739999999999999, 0.7739999999999999]
     },
     {
       "name": "Our Notes Source Connect Draw simple 02",
-      "correction": [
-        0.7739999999999999,
-        0.7739999999999999,
-        0.7739999999999999
-      ]
+      "correction": [0.7739999999999999, 0.7739999999999999, 0.7739999999999999]
     }
   ],
   "inputs": [
@@ -95,9 +79,973 @@
     "maximumActualComponentRmsIncrease": 0.0693250634053656,
     "componentAdmission": "Both actual component times constrain the fit; dense holdout excluded from optimization. Decoded quantized atlas replay must satisfy the component limit.",
     "nativePhoneQualification": "pending",
-    "rgbSearchBounds": [
-      -0.3,
-      1
-    ]
-  }
+    "rgbSearchBounds": [-0.3, 1]
+  },
+  "frameCoordinates": {
+    "top": -0.5830262618318158,
+    "span": 0.8824181260157213
+  },
+  "frameSprites": [
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 55",
+      "active": true,
+      "bands": [
+        [1, 1, 1],
+        [1, 1, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 59",
+      "active": true,
+      "bands": [
+        [1, 1, 1],
+        [1, 1, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 60",
+      "active": true,
+      "bands": [
+        [0.7499999999999999, 1, 1],
+        [0.2, 0.09999999999999999, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 61",
+      "active": true,
+      "bands": [
+        [1, 1, 1],
+        [0.9999999999999999, 1, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 64",
+      "active": true,
+      "bands": [
+        [0.7, 1, 1],
+        [0.3, 0.14999999999999997, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 65",
+      "active": true,
+      "bands": [
+        [1, 1, 1],
+        [0.9999999999999999, 1, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 66",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 67",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 70",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 71",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 72",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 73",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 76",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 77",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 78",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 79",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 82",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 83",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 84",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 85",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 88",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 89",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 90",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 91",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 94",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 95",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 25",
+      "active": true,
+      "bands": [
+        [0.9, 0.6, 1],
+        [0.15000000000000002, 0.1, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 29",
+      "active": true,
+      "bands": [
+        [0.9, 0.6, 1],
+        [0.15000000000000002, 0.1, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 30",
+      "active": true,
+      "bands": [
+        [-0.20000000000000007, -0.05000000000000002, 1],
+        [0.49999999999999994, 0.39999999999999997, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 31",
+      "active": true,
+      "bands": [
+        [0.9500000000000001, 0.6500000000000001, 1],
+        [-0.1, -0.25, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 34",
+      "active": true,
+      "bands": [
+        [-0.20000000000000007, -0.05000000000000002, 1],
+        [0.49999999999999994, 0.39999999999999997, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 35",
+      "active": true,
+      "bands": [
+        [0.9500000000000001, 0.6500000000000001, 1],
+        [-0.1, -0.25, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 36",
+      "active": true,
+      "bands": [
+        [0.3, 0.09999999999999998, -0.15000000000000002],
+        [0.2, 0.15000000000000002, 0.15],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 37",
+      "active": true,
+      "bands": [
+        [-0.3, -0.3, -0.3],
+        [0.39999999999999997, 0.25000000000000006, 0.4],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 40",
+      "active": true,
+      "bands": [
+        [0.3, 0.09999999999999998, -0.15000000000000002],
+        [0.2, 0.15000000000000002, 0.15],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 41",
+      "active": true,
+      "bands": [
+        [-0.3, 0.4500000000000001, 1],
+        [0.6, 0.35, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 42",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.45, 0.24999999999999994, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 43",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.65, 0.55, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 46",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.75, 0.6, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 47",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.7000000000000001, 0.39999999999999997, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 48",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.3499999999999999, 0.19999999999999996, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 49",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.7999999999999999, 1, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 52",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.44999999999999996, 0.3499999999999999, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 53",
+      "active": true,
+      "bands": [
+        [1, 1, 1],
+        [0.55, 0.95, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 54",
+      "active": true,
+      "bands": [
+        [0.7500000000000001, 0.85, 1],
+        [-1.3877787807814457e-17, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 58",
+      "active": true,
+      "bands": [
+        [0.9500000000000001, 0.9, 1],
+        [0.05, -1.3877787807814457e-17, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 19",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 23",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 24",
+      "active": true,
+      "bands": [
+        [0.05000000000000006, -1.3877787807814457e-17, 0],
+        [0.15, 0.1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 28",
+      "active": true,
+      "bands": [
+        [0.15000000000000002, 0.05000000000000006, 1],
+        [0.15000000000000002, 0.1, 1],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 13",
+      "active": true,
+      "bands": [
+        [-0.19999999999999998, -0.14999999999999997, 0],
+        [-0.19999999999999998, 0.25, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 17",
+      "active": true,
+      "bands": [
+        [-0.19999999999999998, -0.14999999999999997, 0],
+        [-0.19999999999999998, 0.25, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 18",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 22",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 01",
+      "active": true,
+      "bands": [
+        [-0.10000000000000002, -0.19999999999999998, 0],
+        [0.15000000000000002, 0.1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 05",
+      "active": true,
+      "bands": [
+        [-0.10000000000000002, -0.19999999999999998, 0],
+        [0.15000000000000002, 0.1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 06",
+      "active": true,
+      "bands": [
+        [-0.10000000000000002, -0.19999999999999998, 0],
+        [0.15000000000000002, 0.1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 07",
+      "active": true,
+      "bands": [
+        [0.25000000000000006, 0.24999999999999997, 0],
+        [0.1, 0.05, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 10",
+      "active": true,
+      "bands": [
+        [-0.10000000000000002, -0.19999999999999998, 0],
+        [0.15000000000000002, 0.1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 11",
+      "active": true,
+      "bands": [
+        [0.25000000000000006, 0.24999999999999997, 0],
+        [0.1, 0.05, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 12",
+      "active": true,
+      "bands": [
+        [-1.3877787807814457e-17, 1.3877787807814457e-17, 0],
+        [0.25, -0.05, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 16",
+      "active": true,
+      "bands": [
+        [-1.3877787807814457e-17, 1.3877787807814457e-17, 0],
+        [0.25, -0.05, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 27",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [1, 1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 32",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [-0.3, -0.3, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 33",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [1, 0.9500000000000001, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 38",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [1, 1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 39",
+      "active": true,
+      "bands": [
+        [0.3, 1, 0],
+        [-0.3, 0.39999999999999997, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 44",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [1, 0.7000000000000001, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 45",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.10000000000000002, 0.9, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 50",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [1, -0.14999999999999997, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 51",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [-0.3, 1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 56",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [0.6499999999999998, 0.25, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 57",
+      "active": true,
+      "bands": [
+        [-1.3877787807814457e-17, 1, 0],
+        [0, 0.3499999999999999, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 62",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [-0.3, -0.3, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 63",
+      "active": true,
+      "bands": [
+        [1, 0.39999999999999997, 0],
+        [-0.3, -0.3, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 68",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 69",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 74",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 75",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 80",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 81",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 86",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 87",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 92",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 93",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 21",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 26",
+      "active": true,
+      "bands": [
+        [-0.3, -0.3, 0],
+        [-0.3, -0.3, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 15",
+      "active": true,
+      "bands": [
+        [0.95, 0.7999999999999999, 0],
+        [0.9999999999999999, 0.75, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 20",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 03",
+      "active": true,
+      "bands": [
+        [0.35, 0.5499999999999999, 0],
+        [-0.25, -0.2, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 08",
+      "active": true,
+      "bands": [
+        [0.35, 0.5499999999999999, 0],
+        [-0.25, -0.2, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 09",
+      "active": true,
+      "bands": [
+        [1, 1, 0],
+        [1, 1, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 14",
+      "active": true,
+      "bands": [
+        [-0.3, -0.3, 0],
+        [-0.3, -0.3, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 00",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 02",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    },
+    {
+      "name": "Our Notes Source Connect Frame Draw simple 04",
+      "active": false,
+      "bands": [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0]
+      ]
+    }
+  ],
+  "frameSourceQualification": "Selected frame-core-weighted-v4: formal v70 complete 100040 Expert birth geometry; 3200x1440 viewport with 122px safe-left. Registered Source model at 106.949880s within Combo 1050 hard 26.316ms window. Two formal backgrounds, near-white side ROI objective; Source-coordinate four-row RGB. Phone Sonolus 1.1.4, skin001, MyGO, Simple: brighter thin frame core, fixed side ROI RMS against the registered Source model 77.72 to 33.11 and 75.54 to 30.46; unchanged upper scene pixel-exact to V6. Dense capture: 2447 frames, 120Hz, SurfaceFlinger droppedFrames 0, 23 longer presentation intervals. Alpha, UV, native engine and Draw count unchanged. Large-wall halo, stripe detail and background transmission remain separate visual differences. Evidence: PHONE-FRAME-CORE-V4-QUALIFICATION.json."
 }

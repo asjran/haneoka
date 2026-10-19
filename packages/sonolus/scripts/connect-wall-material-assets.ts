@@ -9,8 +9,17 @@ interface Recipe {
   curves: Array<{ path: string; sha256: string }>;
   sprites: Array<{ name: string; correction: [number, number, number] }>;
   inputs: Array<{ skin: string; rgbaSha256: string; metadataSha256: string }>;
+  frameCoordinates?: { top: number; span: number };
+  frameSprites?: Array<{ name: string; active: boolean; bands: Array<[number, number, number]> }>;
 }
-type Sprite = { name: string; x: number; y: number; w: number; h: number };
+type Sprite = {
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  transform: Record<string, Record<string, number>>;
+};
 // Runtime skips the body of range zero; producers use either empty or core aliases.
 const unusedBody = (name: string) => /^Our Notes Source Connect Draw (standard|light|simple) 00$/u.test(name);
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -35,6 +44,7 @@ export function buildConnectWallMaterialAssets(directory: string, recipeFile: st
     if (hash(readFileSync(resolve(engineRoot, file.path))) !== file.sha256)
       throw new Error(`Wall material engine contract changed: ${file.path}`);
   const corrections = new Map(recipe.sprites.map((sprite) => [sprite.name, sprite.correction]));
+  const frames = new Map((recipe.frameSprites ?? []).map((sprite) => [sprite.name, sprite]));
   if (
     corrections.size !== recipe.sprites.length ||
     recipe.sprites.some(
@@ -44,6 +54,18 @@ export function buildConnectWallMaterialAssets(directory: string, recipeFile: st
     )
   )
     throw new Error("Invalid wall material correction");
+  if (
+    frames.size !== (recipe.frameSprites?.length ?? 0) ||
+    (frames.size && (!recipe.frameCoordinates || recipe.frameCoordinates.span <= 0)) ||
+    [...frames.values()].some(
+      (sprite) =>
+        !/^Our Notes Source Connect Frame Draw simple \d{2}$/u.test(sprite.name) ||
+        sprite.bands.length !== 4 ||
+        sprite.bands.some((row) => row.some((v) => !Number.isFinite(v) || v < -0.3 || v > 1)),
+    )
+  )
+    throw new Error("Invalid frame material correction");
+  const owned = (name: string) => corrections.has(name) || frames.has(name);
   const skins = recipe.inputs.map((input) => {
     const root = resolve(directory, "skins", input.skin);
     const metadata = gunzipSync(readFileSync(resolve(root, "skin.data")));
@@ -60,29 +82,50 @@ export function buildConnectWallMaterialAssets(directory: string, recipeFile: st
       hash(texture.pixels) !== input.rgbaSha256
     )
       throw new Error(`Wall material qualified atlas changed: ${input.skin}`);
-    const found = new Set(
-      definition.sprites.filter((sprite) => corrections.has(sprite.name)).map((sprite) => sprite.name),
-    );
-    if (found.size !== corrections.size) throw new Error(`Wall material sprite missing: ${input.skin}`);
+    const found = new Set(definition.sprites.filter((sprite) => owned(sprite.name)).map((sprite) => sprite.name));
+    if (found.size !== corrections.size + frames.size)
+      throw new Error(`Wall/frame material sprite missing: ${input.skin}`);
     const original = Buffer.from(texture.pixels);
     const protectedPixels = new Uint8Array(texture.width * texture.height);
     for (const sprite of definition.sprites)
-      if (!corrections.has(sprite.name) && !unusedBody(sprite.name))
+      if (!owned(sprite.name) && !unusedBody(sprite.name))
         for (let y = Math.max(0, sprite.y - 2); y < Math.min(texture.height, sprite.y + sprite.h + 2); y++)
           for (let x = Math.max(0, sprite.x - 2); x < Math.min(texture.width, sprite.x + sprite.w + 2); x++)
             protectedPixels[y * texture.width + x] = 1;
     const modified = new Set<number>();
     for (const sprite of definition.sprites) {
       const correction = corrections.get(sprite.name);
-      if (!correction) continue;
+      const frame = frames.get(sprite.name);
+      if (!correction && !frame?.active) continue;
+      const inputY = { y1: -1, y2: 1, y3: 1, y4: -1 } as Record<string, number>;
+      const ys = frame
+        ? [1, 2, 3, 4].map((i) =>
+            Object.entries(sprite.transform[`y${i}`]!).reduce((sum, [key, value]) => sum + inputY[key]! * value, 0),
+          )
+        : [];
       for (let y = Math.max(0, sprite.y - 2); y < Math.min(texture.height, sprite.y + sprite.h + 2); y++)
         for (let x = Math.max(0, sprite.x - 2); x < Math.min(texture.width, sprite.x + sprite.w + 2); x++) {
           const pixel = y * texture.width + x;
           if (protectedPixels[pixel] || modified.has(pixel)) continue;
           modified.add(pixel);
+          const u = (x - sprite.x + 0.5) / sprite.w,
+            v = 1 - (y - sprite.y + 0.5) / sprite.h;
+          const sourceY = frame
+            ? ys[0]! * (1 - u) * (1 - v) + ys[1]! * (1 - u) * v + ys[2]! * u * v + ys[3]! * u * (1 - v)
+            : 0;
+          const position = frame
+            ? Math.max(0, Math.min(1, (recipe.frameCoordinates!.top - sourceY) / recipe.frameCoordinates!.span)) * 3
+            : 0;
+          const lower = Math.floor(position),
+            fraction = position - lower;
           for (let channel = 0; channel < 3; channel++)
             texture.pixels[pixel * 4 + channel] = Math.round(
-              mix(original[pixel * 4 + channel]! / 255, correction[channel]!) * 255,
+              mix(
+                original[pixel * 4 + channel]! / 255,
+                correction?.[channel] ??
+                  frame!.bands[lower]![channel]! * (1 - fraction) +
+                    frame!.bands[Math.min(3, lower + 1)]![channel]! * fraction,
+              ) * 255,
             );
         }
     }
@@ -101,7 +144,8 @@ export function buildConnectWallMaterialAssets(directory: string, recipeFile: st
       height: texture.height,
       metadataExact: true,
       alphaExact: true,
-      nonWallSpritesAndGuttersExact: true,
+      nonWallSpritesAndGuttersExact: !frames.size,
+      protectedSpritesAndGuttersExact: true,
       rgbaSha256: hash(texture.pixels),
     };
   });
@@ -111,6 +155,7 @@ export function buildConnectWallMaterialAssets(directory: string, recipeFile: st
     skins,
     unchangedRanges: 9,
     unchangedWallSlotsPerProfile: 18,
+    unchangedFrameSlotsPerProfile: 96,
     addedDraws: 0,
     engineChanges: false,
   };
