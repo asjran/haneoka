@@ -1,10 +1,9 @@
-"""Human-readable projections for the game's rotating systems."""
-
 # L3 — GEB
 # Input: Master tables, localized resources and the caller's asset/time lookups.
 # Output: Rotating-system catalogues, gacha product rules and exchange identities.
 # Pos: [Build map](L2-2.md); public game-system projections for the API compiler.
 # Effects/Dependencies: Uses supplied Master/resource lookups; writes no account data.
+"""Human-readable projections for the game's rotating systems."""
 
 from __future__ import annotations
 
