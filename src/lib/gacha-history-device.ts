@@ -1,3 +1,8 @@
+// L3 — GEB
+// Input: 用户选择的 USB 读取器与取消信号。
+// Output: 完整白名单历史文件，或取消／读取错误。
+// Pos: [Map](L2-2.md)；抽卡历史展示与资料边界。
+// Effects/Dependencies: 调用 WebUSB/ADB；只读取导入历史，不将游戏凭据传给云同步。
 import type { DeviceReader } from "@haneoka/game-data-exporter";
 import { HISTORY_BYTES } from "./gacha-history-data";
 
@@ -20,7 +25,10 @@ export async function readCompanionHistory(port: DeviceReader, signal: AbortSign
     for await (const entry of port.list(root)) {
       run.throwIfAborted();
       if (entries.length >= 128) throw new Error("history_device_budget");
-      if (entry.type === "file" && /^[a-f0-9]{64}(?:-(?:jp|global-hmt|global-en|global-kr))?\.json$/u.test(entry.name))
+      if (
+        entry.type === "file" &&
+        /^[a-f0-9]{64}(?:-(?:jp|global-hmt|global-en|global-kr))?(?:-kind-[a-f0-9]{16})?\.json$/u.test(entry.name)
+      )
         entries.push(entry);
     }
     for (const entry of entries) {

@@ -153,7 +153,18 @@
     "scripts/external-repositories.mjs",
     "scripts/cubism-runtime.mjs",
     "scripts/verify/geb.py",
-    "public/sw.js"
+    "public/sw.js",
+    "src/lib/gacha-history-store.ts",
+    "src/lib/gacha-history-cloud-data.ts",
+    "src/lib/gacha-history-cloud.ts",
+    "src/lib/gacha-history-cloud-sync.ts",
+    "src/lit/gacha-history-workspace.ts",
+    "worker/gacha-history.ts",
+    "src/lib/gacha-history-data.ts",
+    "src/lib/gacha-history-device.ts",
+    "src/server/gacha-history-page-data.ts",
+    "src/lit/gacha-history.ts",
+    "src/lit/shared/gacha-history-chart.ts"
   ],
   "entry_documents": [
     "AGENTS.md",

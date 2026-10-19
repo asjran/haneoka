@@ -1,3 +1,4 @@
+import { gachaPrizeCard } from "./shared/gacha-prize-card";
 import { EVENT_LABEL_PATHS, SYSTEM_LABEL_PATHS } from "../i18n/system-labels";
 import { cardRarityName, rarityIcon } from "./shared/rarity-icon";
 /**
@@ -377,17 +378,8 @@ function prizeMarks(c: Controller, prize: GachaPrize) {
 function prizeCard(c: Controller, prize: GachaPrize, marks: ReturnType<typeof prizeMarks>, count = 0) {
   const name = c.localized(prize.source.name) || c.label("reward", "Reward");
   const href = canonicalHref(c, String(prize.source.href || ""));
-  const body = html`
-    <img class="gacha-card__art" src=${String(prize.source.image || "")} alt="" loading="lazy" decoding="async" />
-    ${marks.attribute ? html`<img class="gacha-card__attribute" src=${marks.attribute} alt="" />` : nothing}
-    ${marks.rarityMark ? html`<img class="gacha-card__rarity" src=${marks.rarityMark} alt="" />` : nothing}
-    ${prize.pickup ? html`<span class="gacha-card__pickup">UP</span>` : nothing}
-    ${count ? html`<span class="gacha-card__count tabular">×${count}</span>` : nothing}
-  `;
   const label = `${cardRarityName(prize.rarity)} ${name}${count > 1 ? ` ×${count}` : ""}`;
-  return href
-    ? html`<a class="gacha-card" data-kind=${prize.kind} data-rarity=${prize.rarity} href=${href} title=${label} aria-label=${label}>${body}</a>`
-    : html`<span class="gacha-card" data-kind=${prize.kind} data-rarity=${prize.rarity} title=${label} role="img" aria-label=${label}>${body}</span>`;
+  return gachaPrizeCard({ label, kind: prize.kind, rarity: prize.rarity, image: String(prize.source.image || ""), href, ...marks, pickup: prize.pickup, count });
 }
 
 /** One row per recruitment of five or more draws; single draws packed ten to a row. */

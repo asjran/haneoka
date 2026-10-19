@@ -2,6 +2,7 @@
   .gacha-history {
     display: block;
     min-inline-size: 0;
+    container: gacha-history / inline-size;
   }
   .gacha-history .surface {
     padding: 16px;
@@ -29,9 +30,6 @@
       var(--md-sys-typescale-headline-large-line-height) var(--app-font);
     overflow-wrap: anywhere;
   }
-  .gacha-history__cards {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 128px), 1fr));
-  }
   .gacha-history__help {
     margin: 0;
     color: var(--md-sys-color-on-surface-variant);
@@ -50,8 +48,57 @@
     .gacha-history__metrics {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .gacha-history__cards {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@layer pages {
+  .gacha-history__charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+    gap: var(--md-sys-spacing-4);
+  }
+  .gacha-history gacha-history-chart {
+    display: block;
+    min-width: 0;
+  }
+  .gacha-history__plot {
+    inline-size: 100%;
+    block-size: 288px;
+  }
+  .gacha-history__charts .surface {
+    min-inline-size: 0;
+  }
+}
+@layer pages {
+  .gacha-history__toggle {
+    min-block-size: 48px;
+    cursor: pointer;
+  }
+}
+
+@layer pages {
+  @container gacha-history (max-width: 599px) {
+    .gacha-pulls__cards {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
     }
+  }
+}
+@layer pages {
+  .gacha-history md-outlined-select {
+    inline-size: 100%;
+    min-inline-size: 0;
+  }
+  [data-route="/gacha-history"] .top-app-bar__actions {
+    gap: 0;
+  }
+}
+@layer pages {
+  [data-route="/gacha-history"] .top-app-bar__group {
+    gap: 0;
+  }
+}
+@layer pages {
+  .gacha-history__pool-image {
+    object-fit: contain;
+    flex: 0 0 auto;
   }
 }

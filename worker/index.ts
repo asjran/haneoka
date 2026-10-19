@@ -57,6 +57,7 @@ import { handleProfileRequest } from "./profile";
 import { handleTeamInventoryRequest } from "./team-inventory";
 import { handleTeamWorkspaceRequest } from "./team-workspace";
 import { handleTeamBoxRequest } from "./team-box";
+import { handleGachaHistoryRequest } from "./gacha-history";
 import { handleScreenshotRecognitionRequest } from "../packages/community-media/worker";
 import { createRecognitionReferenceProvider } from "./recognition-reference";
 import { handleTeamBuilderData } from "./team-builder-data";
@@ -3693,6 +3694,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     if (teamWorkspace) return teamWorkspace;
     const teamBox = await handleTeamBoxRequest(request, env);
     if (teamBox) return teamBox;
+    const gachaHistory = await handleGachaHistoryRequest(request, env);
+    if (gachaHistory) return gachaHistory;
     const screenshotRecognition = await handleScreenshotRecognitionRequest(request, env, recognitionReferenceProvider);
     if (screenshotRecognition) return screenshotRecognition;
     const publicProfile = await handlePublicProfileRequest(request, env);

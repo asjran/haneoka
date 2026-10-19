@@ -230,9 +230,6 @@ importers:
       '@haneoka/vega':
         specifier: workspace:*
         version: link:.dependencies/vega
-      '@haneoka/vega-protocol':
-        specifier: workspace:*
-        version: link:.dependencies/vega/packages/protocol
       '@haneoka/vega-plugin-cubism':
         specifier: workspace:*
         version: link:.dependencies/vega-plugin-cubism
@@ -242,6 +239,9 @@ importers:
       '@haneoka/vega-plugin-richtext':
         specifier: workspace:*
         version: link:.dependencies/vega-plugin-richtext
+      '@haneoka/vega-protocol':
+        specifier: workspace:*
+        version: link:.dependencies/vega/packages/protocol
       '@haneoka/vega-renderer-three':
         specifier: workspace:*
         version: link:.dependencies/vega-renderer-three

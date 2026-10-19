@@ -1,3 +1,4 @@
+import { drawExportBrand } from "./export-brand";
 /** PNG exports of a recruitment simulation: every draw, or the merged summary. */
 
 export interface GachaImageCard {
@@ -160,29 +161,10 @@ function chip(
   return w;
 }
 
-/** Logo, site name and address, right-aligned; returns the width taken. */
-function brand(ctx: CanvasRenderingContext2D, theme: Theme, input: GachaImageInput) {
-  const right = WIDTH - PAD;
-  ctx.textBaseline = "top";
-  ctx.textAlign = "end";
-  ctx.font = `600 22px ${theme.font}`;
-  const nameWidth = ctx.measureText(input.brand.name).width;
-  ctx.fillStyle = theme.onSurface;
-  ctx.fillText(input.brand.name, right, PAD + 2);
-  ctx.font = `400 15px ${theme.font}`;
-  const urlWidth = ctx.measureText(input.brand.url).width;
-  ctx.fillStyle = theme.variant;
-  ctx.fillText(input.brand.url, right, PAD + 32);
-  ctx.textAlign = "start";
-  const text = Math.max(nameWidth, urlWidth);
-  contain(ctx, loaded(input.brand.logo), right - text - 12 - 52, PAD, 52, 52);
-  return text + 12 + 52 + 24;
-}
-
 function header(ctx: CanvasRenderingContext2D | null, theme: Theme, input: GachaImageInput) {
   let y = PAD;
   if (ctx) {
-    const width = WIDTH - PAD * 2 - brand(ctx, theme, input);
+    const width = WIDTH - PAD * 2 - drawExportBrand(ctx, theme, input.brand, loaded(input.brand.logo), WIDTH, PAD);
     ctx.fillStyle = theme.onSurface;
     ctx.textBaseline = "top";
     ctx.font = `600 30px ${theme.font}`;
