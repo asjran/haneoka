@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 if (
-  existsSync(path.join(root, ".output/compiled-packages/manifest.json")) &&
-  spawnSync(process.execPath, [path.join(root, "scripts/build/package-build-cache.mjs"), "verify"], {
+  existsSync(path.join(root, ".output/compiled-packages/team-engine.json")) &&
+  spawnSync(process.execPath, [path.join(root, "scripts/build/package-build-cache.mjs"), "verify", "team-engine"], {
     cwd: root,
     stdio: "inherit",
   }).status === 0
@@ -22,6 +22,7 @@ execFileSync(
   "cargo",
   [
     "build",
+    "--locked",
     "--release",
     "--lib",
     "--target",
